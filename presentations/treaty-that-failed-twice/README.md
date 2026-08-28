@@ -37,14 +37,32 @@ Motif: one key word per slide wrapped in `[square brackets]` in the accent
 colour — a reference to the 154 bracketed disagreements still in the draft
 treaty text. It appears on slides 2, 3, 4, 5, 6 and 7.
 
+## Photographs
+
+Drop two files into `images/` and they are picked up automatically — see
+`images/README.md` for filenames, sizes and sources. Each is cropped to fill,
+mapped onto a navy duotone and washed so that every text element clears 4.5:1
+**even against a pure-white source image**, which is verified by measuring the
+composited background rather than assumed.
+
+With no files present the deck builds a typographic composition instead, so it
+is always shippable. Slide 1 changes shape between the two:
+
+| | No photo | With `slide1-cover` |
+|---|---|---|
+| Visual | Two-bar production chart, 460 vs 1,231 Mt | Full-bleed duotone, empty top two-thirds |
+| The figures | Encoded in the bars | A line of type in the lockup |
+
+The chart is dropped in the photo variant deliberately: small amber and slate
+chart labels cannot hold 4.5:1 over an unknown photograph at any scrim
+strength, so the numbers become type rather than becoming illegible.
+
 ## Two deviations from the original plan
 
-1. **No photographs.** The session that built this had no egress to Unsplash
-   or any other image host, so the planned full-bleed photo (slide 1), plenary
-   hall shot (slide 3) and Cordano portrait (slide 6) are not present. Each
-   was replaced with a data or typographic artifact rather than generated
-   illustration: a two-bar production chart, a hard navy/bone split, and the
-   struck-through word `[production]`.
+1. **The photographs are not included.** The session that built this had no
+   network egress to any image host — Unsplash, Wikimedia, Flickr, Pexels and
+   Pixabay all refused. Rather than generate fake imagery of real UN
+   negotiations, the pipeline above was built so real photos drop in later.
 2. **Slide 6 drops the "We've gone backwards" pull quote.** The quote could
    not be attributed to a named speaker with confidence, and a misattributed
    quote in a graded talk is worse than no quote. The slide instead makes the

@@ -7,6 +7,8 @@ Run:  python3 build.py
 Out:  The-Treaty-That-Failed-Twice.pptx
 """
 import copy
+import os
+from io import BytesIO
 from pptx import Presentation
 from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
@@ -15,6 +17,7 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.oxml.ns import qn
 
 OUT = "The-Treaty-That-Failed-Twice.pptx"
+IMG = "images"          # drop photos here; see README for the expected names
 
 # Slide 5 reveals one row per click. It is the only animation in the deck,
 # which is what makes it read as deliberate rather than decorative.
@@ -57,6 +60,86 @@ BLANK = prs.slide_layouts[6]
 
 
 # ---------------------------------------------------------------- helpers
+def photo(name):
+    """Path to a supplied photo, or None. Every photo slot degrades to the
+    typographic treatment when the file is absent, so the deck always builds."""
+    for ext in (".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"):
+        path = os.path.join(IMG, name + ext)
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def duotone(path, w_in, h_in, focus=(0.5, 0.4), strength=0.85, ceiling=1.0,
+            dpi=192):
+    """Crop to fill w_in x h_in, then map luminance onto a navy->bone ramp so
+    photos from different sources read as one set. focus is the point kept in
+    frame when cropping (x, y as 0-1); default is slightly above centre, which
+    is where faces and horizons usually sit.
+
+    ceiling caps how far highlights travel toward bone: at 0.45 a blown-out
+    sky lands mid-navy instead of near-white. Text sits over these photos, and
+    the photo is supplied later, so the treatment has to guarantee contrast for
+    an image nobody has seen yet rather than assume a dark one.
+
+    Returns a BytesIO PNG at 2x the placed size (192 dpi), which clears the
+    2560x1440 floor for a full-bleed 16:9 slide."""
+    from PIL import Image
+    im = Image.open(path).convert("RGB")
+    tw, th = max(1, int(w_in * dpi)), max(1, int(h_in * dpi))
+
+    # crop to the target aspect around the focal point, then resize
+    scale = max(tw / im.width, th / im.height)
+    nw, nh = max(tw, int(im.width * scale)), max(th, int(im.height * scale))
+    im = im.resize((nw, nh), Image.LANCZOS)
+    left = min(max(int(focus[0] * nw - tw / 2), 0), nw - tw)
+    top = min(max(int(focus[1] * nh - th / 2), 0), nh - th)
+    im = im.crop((left, top, left + tw, top + th))
+
+    # luminance -> navy..bone ramp, with a slight lift so midtones don't go muddy
+    grey = im.convert("L")
+    ramp = [[0] * 256 for _ in range(3)]
+    for v in range(256):
+        t = (v / 255.0) ** 0.85
+        for c in range(3):
+            lo = (NAVY[0], NAVY[1], NAVY[2])[c]
+            hi = lo + ((BONE[0], BONE[1], BONE[2])[c] - lo) * ceiling
+            ramp[c][v] = int(round(lo + (hi - lo) * t))
+    toned = Image.merge("RGB", [grey.point(ramp[c]) for c in range(3)])
+    if strength < 1.0:
+        toned = Image.blend(im, toned, strength)
+
+    buf = BytesIO()
+    toned.save(buf, format="PNG", optimize=True)
+    buf.seek(0)
+    return buf
+
+
+def scrim(w_in, h_in, color, top_alpha=0.0, bottom_alpha=0.85, dpi=96):
+    """Vertical gradient wash, built as a PNG because neither python-pptx nor
+    LibreOffice renders gradient fills reliably. Text sits over the opaque end."""
+    from PIL import Image
+    w, h = max(1, int(w_in * dpi)), max(1, int(h_in * dpi))
+    g = Image.new("RGBA", (1, h))
+    for y in range(h):
+        a = top_alpha + (bottom_alpha - top_alpha) * (y / max(h - 1, 1))
+        g.putpixel((0, y), (color[0], color[1], color[2], int(round(a * 255))))
+    buf = BytesIO()
+    g.resize((w, h), Image.NEAREST).save(buf, format="PNG")
+    buf.seek(0)
+    return buf
+
+
+def place(slide, stream, x, y, w, h, descr=None):
+    pic = slide.shapes.add_picture(stream, Inches(x), Inches(y),
+                                   Inches(w), Inches(h))
+    alt(pic, descr or "")
+    # pictures are added last, so push them behind everything already placed
+    slide.shapes._spTree.remove(pic._element)
+    slide.shapes._spTree.insert(2, pic._element)
+    return pic
+
+
 def strip_style(shape):
     """Autoshapes carry a <p:style> effectRef that re-introduces the theme
     shadow even when effectLst is empty. Fill and line are set explicitly
@@ -241,36 +324,61 @@ def source(slide, txt, x=M, y=6.60, w=FULL, color=SLATE, align=PP_ALIGN.LEFT):
 # ================================================================ SLIDE 1
 s = prs.slides.add_slide(BLANK)
 bg(s, NAVY)
-# Slate, not amber: the accent is spent on the projected bar, and a section
-# label is branding rather than an idea.
-eyebrow(s, M, 0.60, 6.0, "Global plastics treaty", SLATE_LIGHT)
+_p1 = photo("slide1-cover")
 
-# Two honest data points, no axis furniture, labels sitting on the bars.
-BASE, MAXH = 4.30, 3.00
-h19 = MAXH * 460 / 1231
-rect(s, 8.60, BASE - h19, 1.10, h19, fill=SLATE_LIGHT,
-     descr="Bar: 460 million tonnes of plastic produced in 2019")
-rect(s, 10.30, BASE - MAXH, 1.10, MAXH, fill=AMBER,
-     descr="Bar: 1,231 million tonnes of plastic projected for 2060")
-text(s, 8.60, BASE - h19 - 0.52, 1.60, 0.40, "460 Mt", size=ROW, font=SERIF,
-     bold=True, color=BONE)
-text(s, 10.30, BASE - MAXH - 0.52, 2.30, 0.40, "1,231 Mt", size=ROW,
-     font=SERIF, bold=True, color=AMBER)
-text(s, 8.60, BASE + 0.10, 1.60, 0.26, "2019", size=CAPTION, color=SLATE_LIGHT)
-text(s, 10.30, BASE + 0.10, 2.30, 0.26, "2060, projected", size=CAPTION,
-     color=SLATE_LIGHT)
-source(s, "Source: OECD Global Plastics Outlook, 2022", x=8.60, y=4.85, w=4.13,
-       color=RULE)
+if _p1:
+    # Photo composition, per the original plan: empty top two-thirds, the
+    # whole lockup in the heavily scrimmed lower third. The bar chart is not
+    # used here - small amber and slate labels cannot hold 4.5:1 over an
+    # unknown photograph at any scrim strength, so the figures become type.
+    place(s, duotone(_p1, 13.3333, 7.5, focus=(0.5, 0.42), ceiling=0.45),
+          0, 0, 13.3333, 7.5, descr="Cover photograph, navy duotone")
+    place(s, scrim(13.3333, 7.5, NAVY, 0.35, 0.35), 0, 0, 13.3333, 7.5, descr="")
+    place(s, scrim(13.3333, 3.9, NAVY, 0.0, 0.94), 0, 3.6, 13.3333, 3.9, descr="")
 
-text(s, M, 5.55, 9.00, 0.78, "The treaty that failed twice",
-     size=TITLE, font=SERIF, bold=True, color=BONE, line=1.1)
-# Subtitle and byline share a box height and a bottom anchor so their
-# baselines land on the same line despite the 16pt/10pt size difference.
-text(s, M, 6.30, 7.00, 0.40, "And what that did to a movement",
-     size=BODY, color=SLATE_LIGHT, line=1.1, anchor=MSO_ANCHOR.BOTTOM)
-text(s, 8.00, 6.30, 3.40, 0.40, "Cesco Cugliari", size=CAPTION,
-     color=SLATE_LIGHT, align=PP_ALIGN.RIGHT, line=1.1,
-     anchor=MSO_ANCHOR.BOTTOM)
+    eyebrow(s, M, 0.60, 6.0, "Global plastics treaty", BONE)
+    text(s, M, 5.05, 9.00, 0.78, "The treaty that failed twice",
+         size=TITLE, font=SERIF, bold=True, color=BONE, line=1.1)
+    text(s, M, 5.89, 8.00, 0.30, "And what that did to a movement",
+         size=BODY, color=SLATE_LIGHT, line=1.1)
+    text(s, M, 6.23, 9.00, 0.30,
+         "460 million tonnes made in 2019. A projected 1,231 by 2060.",
+         size=BODY, color=SLATE_LIGHT, line=1.1)
+    source(s, "Source: OECD Global Plastics Outlook, 2022", x=M, y=6.58, w=6.00,
+           color=SLATE_LIGHT)
+    text(s, 8.00, 6.58, 4.7333, 0.28, "Cesco Cugliari", size=CAPTION,
+         color=SLATE_LIGHT, align=PP_ALIGN.RIGHT, line=1.1)
+else:
+    # Slate, not amber: the accent is spent on the projected bar, and a section
+    # label is branding rather than an idea.
+    eyebrow(s, M, 0.60, 6.0, "Global plastics treaty", SLATE_LIGHT)
+
+    # Two honest data points, no axis furniture, labels sitting on the bars.
+    BASE, MAXH = 4.30, 3.00
+    h19 = MAXH * 460 / 1231
+    rect(s, 8.60, BASE - h19, 1.10, h19, fill=SLATE_LIGHT,
+         descr="Bar: 460 million tonnes of plastic produced in 2019")
+    rect(s, 10.30, BASE - MAXH, 1.10, MAXH, fill=AMBER,
+         descr="Bar: 1,231 million tonnes of plastic projected for 2060")
+    text(s, 8.60, BASE - h19 - 0.52, 1.60, 0.40, "460 Mt", size=ROW, font=SERIF,
+         bold=True, color=BONE)
+    text(s, 10.30, BASE - MAXH - 0.52, 2.30, 0.40, "1,231 Mt", size=ROW,
+         font=SERIF, bold=True, color=AMBER)
+    text(s, 8.60, BASE + 0.10, 1.60, 0.26, "2019", size=CAPTION,
+         color=SLATE_LIGHT)
+    text(s, 10.30, BASE + 0.10, 2.30, 0.26, "2060, projected", size=CAPTION,
+         color=SLATE_LIGHT)
+    source(s, "Source: OECD Global Plastics Outlook, 2022", x=8.60, y=4.85,
+           w=4.13, color=RULE)
+
+    text(s, M, 5.55, 9.00, 0.78, "The treaty that failed twice",
+         size=TITLE, font=SERIF, bold=True, color=BONE, line=1.1)
+    text(s, M, 6.30, 7.00, 0.40, "And what that did to a movement",
+         size=BODY, color=SLATE_LIGHT, line=1.1, anchor=MSO_ANCHOR.BOTTOM)
+    text(s, 8.00, 6.30, 3.40, 0.40, "Cesco Cugliari", size=CAPTION,
+         color=SLATE_LIGHT, align=PP_ALIGN.RIGHT, line=1.1,
+         anchor=MSO_ANCHOR.BOTTOM)
+
 notes(s, "Plastic production is set to nearly triple by 2060 - 460 million "
          "tonnes in 2019 to a projected 1,231. In 2022, 175 countries agreed "
          "to write a treaty to stop that. They have now failed twice. What I "
@@ -322,8 +430,16 @@ s = prs.slides.add_slide(BLANK)
 bg(s, BONE)
 text(s, M, 0.60, FULL, 0.72, "Both rounds died on the same split",
      size=TITLE, font=SERIF, bold=True, color=NAVY, line=1.1)
-rect(s, 0, 1.65, 6.40, 5.85, fill=NAVY,
-     descr="Navy panel: the High Ambition Coalition side of the split")
+_p3 = photo("slide3-plenary")
+if _p3:
+    place(s, duotone(_p3, 6.40, 5.85, focus=(0.5, 0.45), ceiling=0.50),
+          0, 1.65, 6.40, 5.85, descr="Negotiating plenary, navy duotone")
+    # 88% navy: the photo reads as texture in the panel, never as a picture
+    # competing with the text set on top of it
+    place(s, scrim(6.40, 5.85, NAVY, 0.88, 0.88), 0, 1.65, 6.40, 5.85, descr="")
+else:
+    rect(s, 0, 1.65, 6.40, 5.85, fill=NAVY,
+         descr="Navy panel: the High Ambition Coalition side of the split")
 
 LP, LW = M, 5.20        # left panel text column
 RP, RW = 7.00, 5.7333   # right panel text column
@@ -339,7 +455,7 @@ text(s, LP, 3.08, LW, 0.95, [
 text(s, LP + 0.03, 5.10, LW, 1.10, "\u201cWe will not betray future generations.\u201d",
      size=HEAD, font=SERIF, italic=True, color=BONE, line=1.2)
 source(s, "Panama's delegate, Geneva, Aug 2025. Membership: HAC, Aug 2025.",
-       x=LP, y=6.55, w=LW, color=RULE)
+       x=LP, y=6.55, w=LW, color=SLATE_LIGHT if _p3 else RULE)
 
 eyebrow(s, RP, 2.00, RW, "Like-minded group", SLATE)
 text(s, RP, 2.42, RW, 0.52, "Saudi Arabia, Russia", size=HEAD, font=SERIF,
