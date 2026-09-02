@@ -1,0 +1,46 @@
+---
+import { getCollection, render } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import Hero from '../../components/Hero.astro';
+import Photo from '../../components/Photo.astro';
+import Icon from '../../components/Icon.astro';
+
+export async function getStaticPaths() {
+  const campaigns = await getCollection('campaigns');
+  return campaigns.map((c) => ({ params: { slug: c.id }, props: { campaign: c } }));
+}
+const { campaign } = Astro.props;
+const { Content } = await render(campaign);
+const STATUS = { active: 'Active', won: 'Won', ongoing: 'Ongoing' };
+---
+<Base title={campaign.data.title} description={campaign.data.summary} ogImage={`/og/${campaign.id}.png`}>
+  <Hero compact eyebrow="Campaign" title={campaign.data.title}>
+    <p class="campaign__status"><span class:list={['chip', `chip--${campaign.data.status}`]}>{STATUS[campaign.data.status]}</span>{campaign.data.started && <span class="meta">Since {campaign.data.started}</span>}</p>
+    <p class="lede">{campaign.data.statusNote}</p>
+  </Hero>
+  <article class="section surface-paper">
+    <div class="container grid">
+      <div class="campaign__media reveal">
+        <Photo src={campaign.data.image} alt={campaign.data.imageAlt} aspect="3 / 2" aspectDesktop="4 / 5" tone={campaign.data.status === 'won' ? 'ocean' : 'mangrove'} sizes="(min-width: 64em) 35vw, 100vw" />
+      </div>
+      <div class="campaign__prose flow reveal" style="--i: 1">
+        <Content />
+        <p class="campaign__action"><a class="btn" href={campaign.data.action.href}>{campaign.data.action.label} <Icon name="arrow-right" /></a></p>
+      </div>
+    </div>
+  </article>
+  <nav class="section--tight surface-sand" aria-label="More campaigns">
+    <div class="container"><a href="/our-work">All campaigns and their status <Icon name="arrow-right" class="inline-icon" /></a></div>
+  </nav>
+</Base>
+<style>
+  .campaign__media, .campaign__prose { grid-column: 1 / -1; }
+  .campaign__media { margin-inline: calc(-1 * var(--gutter)); }
+  .campaign__action { margin-top: var(--s-5); }
+  .campaign__status { display: flex; align-items: center; gap: var(--s-3); }
+  :global(.inline-icon) { display: inline; vertical-align: -0.2em; width: 1em; height: 1em; }
+  @media (min-width: 64em) {
+    .campaign__media { grid-column: 1 / 5; margin-inline: 0; position: sticky; top: calc(var(--header-h) + var(--s-4)); align-self: start; }
+    .campaign__prose { grid-column: 6 / 12; }
+  }
+</style>

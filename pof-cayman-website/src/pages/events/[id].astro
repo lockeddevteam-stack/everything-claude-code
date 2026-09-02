@@ -1,0 +1,69 @@
+---
+import { getCollection, render } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import Hero from '../../components/Hero.astro';
+import Icon from '../../components/Icon.astro';
+import { SITE } from '../../lib/site';
+import { formatRange, weekday, isUpcoming, isoDate } from '../../lib/dates.js';
+
+export async function getStaticPaths() {
+  const events = await getCollection('events');
+  return events.map((e) => ({ params: { id: e.id }, props: { event: e } }));
+}
+const { event } = Astro.props;
+const { Content } = await render(event);
+const d = event.data;
+const upcoming = isUpcoming(d);
+const schema = {
+  '@context': 'https://schema.org',
+  '@type': 'Event',
+  name: d.title,
+  startDate: isoDate(d.date),
+  endDate: isoDate(d.endDate ?? d.date),
+  eventStatus: d.cancelled ? 'https://schema.org/EventCancelled' : 'https://schema.org/EventScheduled',
+  eventAttendanceMode: 'https://schema.org/OfflineEventAttendanceMode',
+  location: { '@type': 'Place', name: d.location, address: { '@type': 'PostalAddress', addressLocality: d.district ?? 'Grand Cayman', addressCountry: 'KY' } },
+  description: d.summary,
+  organizer: { '@type': 'Organization', name: SITE.shortName, url: SITE.url },
+  isAccessibleForFree: true,
+};
+---
+<Base title={d.title} description={`${weekday(d.date)} ${formatRange(d.date, d.endDate)}, ${d.location}. ${d.summary}`} schema={schema} noindex={!upcoming}>
+  <Hero compact eyebrow={d.cancelled ? 'Cancelled' : upcoming ? 'Upcoming event' : 'Past event'} title={d.title}>
+    <p class="event-detail__meta">
+      <span><Icon name="calendar" /> {weekday(d.date)}, {formatRange(d.date, d.endDate)}{d.time ? `, ${d.time}` : ''}</span>
+      <span><Icon name="map-pin" /> {d.location}</span>
+    </p>
+    <p class="lede">{d.summary}</p>
+  </Hero>
+  <article class="section surface-paper">
+    <div class="container grid">
+      <div class="event-detail__body flow">
+        <Content />
+        {d.action && upcoming && !d.cancelled && <p><a class="btn" href={d.action.href}>{d.action.label} <Icon name="arrow-right" /></a></p>}
+        {!upcoming && <p><a href="/events">See what is coming up <Icon name="arrow-right" class="inline-icon" /></a></p>}
+      </div>
+      {d.bring && d.bring.length > 0 && (
+        <aside class="event-detail__aside" aria-labelledby="bring-heading">
+          <h2 id="bring-heading" class="eyebrow">What to bring</h2>
+          <ul class="event-detail__bring">
+            {d.bring.map((b) => <li>{b}</li>)}
+          </ul>
+          <p class="meta">Questions: <a href={`mailto:${SITE.email}`}>{SITE.email}</a></p>
+        </aside>
+      )}
+    </div>
+  </article>
+</Base>
+<style>
+  .event-detail__meta { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4); font-family: var(--font-display); }
+  .event-detail__meta span { display: inline-flex; align-items: center; gap: var(--s-1); }
+  .event-detail__body, .event-detail__aside { grid-column: 1 / -1; }
+  .event-detail__aside { display: grid; gap: var(--s-3); align-content: start; padding-top: var(--s-3); border-top: 1px solid var(--c-ink); }
+  .event-detail__bring { padding-left: 1.25em; }
+  :global(.inline-icon) { display: inline; vertical-align: -0.2em; width: 1em; height: 1em; }
+  @media (min-width: 64em) {
+    .event-detail__body { grid-column: 1 / 8; }
+    .event-detail__aside { grid-column: 9 / 13; }
+  }
+</style>

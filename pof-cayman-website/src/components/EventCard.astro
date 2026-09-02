@@ -1,0 +1,54 @@
+---
+/* Upcoming event. Date, location, action. The list that renders it archives automatically. */
+import { formatRange, weekday, isoDate } from '../lib/dates.js';
+import Icon from './Icon.astro';
+interface Props {
+  event: { id: string; data: { title: string; date: Date; endDate?: Date; time?: string; location: string; summary: string; action?: { label: string; href: string }; cancelled: boolean } };
+  headingLevel?: 'h2' | 'h3';
+  featured?: boolean;
+}
+const { event, headingLevel: H = 'h3', featured = false } = Astro.props;
+const { data } = event;
+const day = data.date.getUTCDate();
+const month = data.date.toLocaleString('en-GB', { month: 'short', timeZone: 'UTC' });
+---
+<article class:list={['event', 'reveal', { 'event--featured': featured, 'event--cancelled': data.cancelled }]} data-event-date={isoDate(data.endDate ?? data.date)}>
+  <div class="event__date tnum" aria-hidden="true">
+    <span class="event__day">{day}</span>
+    <span class="event__month">{month}</span>
+  </div>
+  <div class="event__body">
+    <H class="event__title">
+      <a href={`/events/${event.id}`}>{data.title}</a>
+      {data.cancelled && <span class="chip"> Cancelled</span>}
+    </H>
+    <p class="event__meta meta">
+      <span><Icon name="calendar" /> {weekday(data.date)}, {formatRange(data.date, data.endDate)}{data.time ? `, ${data.time}` : ''}</span>
+      <span><Icon name="map-pin" /> {data.location}</span>
+    </p>
+    <p class="event__summary">{data.summary}</p>
+    {data.action && !data.cancelled && (
+      <a class:list={['btn', { 'btn--ghost': !featured }]} href={data.action.href}>{data.action.label} <Icon name="arrow-right" /></a>
+    )}
+  </div>
+</article>
+<style>
+  .event { display: grid; grid-template-columns: auto 1fr; gap: var(--s-4); padding-block: var(--s-4); border-top: 1px solid var(--rule); }
+  .event__date {
+    display: grid; justify-items: center; align-content: start;
+    min-width: 3.5rem; padding-top: var(--s-1);
+    font-family: var(--font-display); line-height: 1;
+  }
+  .event__day { font-size: var(--fs-4); font-weight: 700; letter-spacing: var(--tracking-display); }
+  .event__month { font-size: var(--fs-small); text-transform: uppercase; letter-spacing: var(--tracking-caps); margin-top: var(--s-1); }
+  .event__body { display: grid; gap: var(--s-2); justify-items: start; }
+  .event__title a { color: inherit; text-decoration: none; }
+  .event__title a:hover { text-decoration: underline; }
+  .event__meta { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4); }
+  .event__meta span { display: inline-flex; align-items: center; gap: var(--s-1); }
+  .event__summary { max-width: 55ch; }
+  .event .btn { margin-top: var(--s-2); }
+  .event--featured { border-top: 3px solid var(--text); }
+  .event--featured .event__day { font-size: var(--fs-5); }
+  .event--cancelled .event__title a { text-decoration: line-through; }
+</style>

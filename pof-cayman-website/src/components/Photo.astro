@@ -1,0 +1,54 @@
+---
+/*
+  Every photograph on the site goes through this component.
+  - With a rights-cleared image: responsive <picture> with AVIF/WebP/JPEG and srcset.
+  - Without one: a solid palette block, never a broken-image icon.
+  Images live in public/images/<name>-{400,800,1600}.{avif,webp,jpg}
+  (see scripts/images.mjs). `src` is the base name without size or extension.
+*/
+interface Props {
+  src?: string;
+  alt?: string;
+  aspect?: string;        // "4 / 5", "16 / 9", "3 / 2"
+  aspectDesktop?: string; // wider crop above 1024px
+  sizes?: string;
+  priority?: boolean;     // above the fold: eager + high fetch priority
+  tone?: 'ocean' | 'mangrove' | 'sand' | 'ocean-deep';
+  class?: string;
+  caption?: string;
+}
+const {
+  src, alt = '', aspect = '4 / 5', aspectDesktop, sizes = '100vw',
+  priority = false, tone = 'ocean', class: cls, caption,
+} = Astro.props;
+const base = src ? `/images/${src}` : '';
+const set = (ext: string) => [400, 800, 1600].map((w) => `${base}-${w}.${ext} ${w}w`).join(', ');
+const style = `--aspect: ${aspect}; --aspect-desktop: ${aspectDesktop ?? aspect};`;
+---
+{src ? (
+  <figure class:list={['photo', cls]} style={style}>
+    <picture>
+      <source type="image/avif" srcset={set('avif')} sizes={sizes} />
+      <source type="image/webp" srcset={set('webp')} sizes={sizes} />
+      <img
+        src={`${base}-800.jpg`} srcset={set('jpg')} sizes={sizes} alt={alt}
+        loading={priority ? 'eager' : 'lazy'} decoding={priority ? 'sync' : 'async'}
+        fetchpriority={priority ? 'high' : undefined} width="1600" height="1200"
+      />
+    </picture>
+    {caption && <figcaption class="meta">{caption}</figcaption>}
+  </figure>
+) : (
+  <div class:list={['photo', 'photo--missing', `tone-${tone}`, cls]} style={style} aria-hidden="true"></div>
+)}
+<style>
+  .photo { margin: 0; width: 100%; }
+  .photo picture, .photo img, .photo--missing { display: block; width: 100%; aspect-ratio: var(--aspect); }
+  .photo img { object-fit: cover; height: auto; background: var(--c-sand-deep); }
+  @media (min-width: 64em) { .photo picture, .photo img, .photo--missing { aspect-ratio: var(--aspect-desktop); } }
+  .photo figcaption { margin-top: var(--s-2); }
+  .tone-ocean { background: var(--c-ocean); }
+  .tone-ocean-deep { background: var(--c-ocean-deep); }
+  .tone-mangrove { background: var(--c-mangrove); }
+  .tone-sand { background: var(--c-sand-deep); }
+</style>

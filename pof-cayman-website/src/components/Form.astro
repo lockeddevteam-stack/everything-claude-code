@@ -1,0 +1,125 @@
+---
+/*
+  Contact, volunteer and chapter forms share this shell.
+  - Posts to Formspree when an endpoint is configured (plain HTML POST, enhanced with fetch for inline status).
+  - Without an endpoint, submitting opens the visitor's email app with the fields filled in.
+  - Honeypot field. Visible labels. Minimum fields. Inline success and error states.
+*/
+import { SITE } from '../lib/site';
+import Icon from './Icon.astro';
+interface Props {
+  id: string;
+  endpoint?: string;        // Formspree form id
+  subject: string;          // email subject, also Formspree _subject
+  submitLabel: string;
+  successTitle: string;
+  successBody: string;      // what happens next, and when
+}
+const { id, endpoint, subject, submitLabel, successTitle, successBody } = Astro.props;
+const action = endpoint ? `https://formspree.io/f/${endpoint}` : `mailto:${SITE.email}`;
+---
+<form
+  class="form" id={id} action={action} method="post"
+  data-form data-mode={endpoint ? 'formspree' : 'mailto'} data-email={SITE.email} data-subject={subject}
+  novalidate
+>
+  <input type="hidden" name="_subject" value={subject} />
+  <div class="visually-hidden" aria-hidden="true">
+    <label for={`${id}-website`}>Leave this field empty</label>
+    <input id={`${id}-website`} type="text" name="_gotcha" tabindex="-1" autocomplete="off" />
+  </div>
+
+  <div class="form__fields">
+    <slot />
+  </div>
+
+  <p class="form__consent meta">
+    By sending this you agree to POF keeping your details to reply to you. If you are under 16, a parent or guardian should know you are getting in touch.
+    <a href="/privacy">How we handle your details</a>.
+  </p>
+
+  <div class="form__actions">
+    <button class="btn" type="submit">{submitLabel} <Icon name="arrow-right" /></button>
+    {!endpoint && <span class="meta">Opens your email app.</span>}
+  </div>
+
+  <div class="form-status form-status--ok" data-status="ok" hidden role="status" tabindex="-1">
+    <p><strong>{successTitle}</strong></p>
+    <p>{successBody}</p>
+  </div>
+  <div class="form-status form-status--error" data-status="error" hidden role="alert" tabindex="-1">
+    <p><strong>That did not send.</strong> Please check the fields marked below, or email us directly at <a href={`mailto:${SITE.email}`}>{SITE.email}</a> so nothing is lost.</p>
+  </div>
+</form>
+<style>
+  .form { display: grid; gap: var(--s-4); max-width: 36rem; }
+  .form__fields { display: grid; gap: var(--s-4); }
+  .form__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); }
+  .form :global(.field.is-invalid input), .form :global(.field.is-invalid select), .form :global(.field.is-invalid textarea) { border-color: var(--c-error); border-width: 2px; }
+  .form :global(.field .error) { color: var(--c-error); font-family: var(--font-display); font-size: var(--fs-small); }
+</style>
+<script>
+  for (const form of document.querySelectorAll<HTMLFormElement>('[data-form]')) {
+    const ok = form.querySelector<HTMLElement>('[data-status="ok"]')!;
+    const err = form.querySelector<HTMLElement>('[data-status="error"]')!;
+    const mode = form.dataset.mode;
+
+    const validate = () => {
+      let valid = true;
+      for (const el of form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('[required]')) {
+        const field = el.closest('.field');
+        const msg = field?.querySelector('.error');
+        const good = el.checkValidity();
+        field?.classList.toggle('is-invalid', !good);
+        if (msg) msg.remove();
+        if (!good && field) {
+          const p = document.createElement('p');
+          p.className = 'error';
+          p.id = `${el.id}-error`;
+          p.textContent = el.type === 'email' ? 'Enter an email address we can reply to.' : 'This one is needed.';
+          field.appendChild(p);
+          el.setAttribute('aria-describedby', p.id);
+          el.setAttribute('aria-invalid', 'true');
+          if (valid) el.focus();
+        } else {
+          el.removeAttribute('aria-invalid');
+          el.removeAttribute('aria-describedby');
+        }
+        valid = valid && good;
+      }
+      return valid;
+    };
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      ok.hidden = true; err.hidden = true;
+      if (!validate()) { err.hidden = false; err.focus(); return; }
+      const data = new FormData(form);
+      if (data.get('_gotcha')) { ok.hidden = false; return; } // silently drop bots
+
+      if (mode === 'mailto') {
+        const lines: string[] = [];
+        for (const [k, v] of data.entries()) if (!k.startsWith('_') && String(v).trim()) lines.push(`${k}: ${v}`);
+        const href = `mailto:${form.dataset.email}?subject=${encodeURIComponent(form.dataset.subject || '')}&body=${encodeURIComponent(lines.join('\n'))}`;
+        window.location.href = href;
+        ok.hidden = false; ok.focus();
+        return;
+      }
+
+      const btn = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+      btn.disabled = true;
+      try {
+        const res = await fetch(form.action, { method: 'POST', body: data, headers: { Accept: 'application/json' } });
+        if (!res.ok) throw new Error(String(res.status));
+        form.querySelector<HTMLElement>('.form__fields')!.hidden = true;
+        form.querySelector<HTMLElement>('.form__actions')!.hidden = true;
+        form.querySelector<HTMLElement>('.form__consent')!.hidden = true;
+        ok.hidden = false; ok.focus();
+      } catch {
+        err.hidden = false; err.focus();
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+</script>

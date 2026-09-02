@@ -1,0 +1,44 @@
+---
+import { getCollection } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import Hero from '../components/Hero.astro';
+import SloganBlock from '../components/SloganBlock.astro';
+import NewsItem from '../components/NewsItem.astro';
+import { SITE } from '../lib/site';
+
+const items = (await getCollection('news')).sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
+const schema = items.filter((i) => i.data.kind === 'coverage').map((i) => ({
+  '@context': 'https://schema.org',
+  '@type': 'NewsArticle',
+  headline: i.data.title,
+  datePublished: i.data.date.toISOString().slice(0, 10),
+  publisher: { '@type': 'Organization', name: i.data.outlet },
+  ...(i.data.url ? { url: i.data.url } : {}),
+  about: { '@type': 'Organization', name: SITE.shortName },
+}));
+---
+<Base title="News and Press" description="Press coverage, awards and milestones for Protect Our Future Cayman, from its founding in 2018 to the 2025 cruise berthing referendum and beyond." schema={schema}>
+  <Hero compact eyebrow="News" title="Coverage, awards and milestones.">
+    <p class="lede">Everything here has a date and a source. For logo files, a boilerplate paragraph and a media contact, see the <a href="/press">press page</a>.</p>
+  </Hero>
+  <section class="section surface-paper" aria-labelledby="news-heading">
+    <div class="container">
+      <div class="news__head">
+        <h2 id="news-heading" class="visually-hidden">All items</h2>
+        <SloganBlock as="p" size="md">Ignorance decides our future</SloganBlock>
+        <p class="meta">Painted on a POF banner. Updated by the Communications Lead when coverage runs.</p>
+      </div>
+      {items.length ? (
+        <div class="news__list">
+          {items.map((item, i) => <NewsItem item={item} index={i} />)}
+        </div>
+      ) : (
+        <p>Coverage will be listed here as it runs. Media enquiries: <a href={`mailto:${SITE.email}`}>{SITE.email}</a>.</p>
+      )}
+    </div>
+  </section>
+</Base>
+<style>
+  .news__head { display: grid; gap: var(--s-2); justify-items: start; margin-bottom: var(--s-5); }
+  .news__list { display: grid; }
+</style>
