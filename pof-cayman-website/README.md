@@ -189,3 +189,4 @@ Copy `.env.example` to `.env` if you want to test the Formspree, Mailchimp or Fy
 ## Where to get help
 
 Email `protectourfuturecayman@gmail.com`. That is the only verified POF address. For account and handover matters, see `docs/HANDOVER.md`.
+
