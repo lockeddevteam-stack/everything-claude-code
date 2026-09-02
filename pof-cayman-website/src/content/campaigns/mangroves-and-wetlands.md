@@ -15,8 +15,7 @@ Grand Cayman's mangroves protect the island from storm surge, filter the water t
 ## What POF has done
 
 - Submitted a formal letter on amendments to the National Conservation Act.
-- Worked alongside the Mangrove Action Project and the National Trust for the Cayman Islands.
-- Brought students to the wetlands so the argument comes from people who have stood in them.
+- Partnered with the Mangrove Action Project and the National Trust for the Cayman Islands.
 
 ## What you can do
 

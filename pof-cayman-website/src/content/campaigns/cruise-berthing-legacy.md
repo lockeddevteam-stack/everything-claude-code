@@ -18,10 +18,9 @@ George Town Harbour is a Mission Blue Hope Spot, recognised for its reef and mar
 
 ## What POF did
 
-- Spoke at public meetings and to the press from 2018 onward.
-- Painted the banners that became the campaign's most photographed image.
-- Took the case to the UN climate conferences at COP25, COP26, COP27 and COP28.
-- Kept the issue in front of students at four high schools.
+- Campaigned against the piers for years, from its founding in 2018 to the vote in 2025.
+- Painted the banner series that became POF's best-known image.
+- Represented the Cayman Islands at COP25, COP26, COP27 and COP28.
 
 ## What happens next
 

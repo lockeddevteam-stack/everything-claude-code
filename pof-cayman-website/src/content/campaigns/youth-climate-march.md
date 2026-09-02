@@ -8,7 +8,7 @@ action:
   href: /events
 order: 7
 ---
-The Youth Climate March is POF's annual public event. Students from every chapter, their families, and anyone who wants to walk with them gather in George Town and march together.
+The Youth Climate March is POF's annual public event. Students from every chapter, their families, and anyone who wants to walk with them march together.
 
 Banners are welcome. Hand-painted ones are encouraged.
 

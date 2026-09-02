@@ -15,8 +15,7 @@ On World Cleanup Day, POF and its partners put 300 volunteers on 13 locations ar
 ## What POF has done
 
 - Called publicly for a national single-use plastic ban.
-- Organised and joined cleanups with Plastic Free Cayman and other partners.
-- Worked with schools to cut single-use plastic on campus.
+- Partnered with Plastic Free Cayman on cleanups.
 
 ## What you can do
 

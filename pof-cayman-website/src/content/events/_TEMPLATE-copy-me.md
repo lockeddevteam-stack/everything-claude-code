@@ -8,7 +8,7 @@ location: Barkers National Park, West Bay
 district: West Bay
 summary: Two hours on the beach with gloves and bags provided. Counts toward school community service hours.
 action:
-  label: Sign up to volunteer
+  label: Volunteer with POF
   href: /get-involved
 bring:
   - Reusable water bottle

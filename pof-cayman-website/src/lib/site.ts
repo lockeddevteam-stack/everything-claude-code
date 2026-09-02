@@ -9,7 +9,7 @@ export const SITE = {
   facebook: { handle: '@protectourfuture.eco', url: 'https://www.facebook.com/protectourfuture.eco' },
   founded: 2018,
   boilerplate:
-    'Protect Our Future (POF) is a youth-led grassroots environmental organisation in the Cayman Islands. Founded in 2018 by four students at Cayman International School, it now has around 180 active members across four high schools and works on three fronts: protecting natural habitats through legislation, educating the public on behaviour, and sustainable development. POF campaigned for years against cruise berthing in George Town Harbour; on 30 April 2025, 63.66% of referendum voters said no. Members have represented the Cayman Islands at COP25, COP26, COP27 and COP28.',
+    'Protect Our Future (POF) is a youth-led grassroots environmental organisation in the Cayman Islands. Founded in 2018 by four students at Cayman International School, it now has around 180 active members across four high schools and works on three fronts: protecting natural habitats through legislation, educating the public on behaviour, and pushing for sustainable development. POF campaigned for years against cruise berthing in George Town Harbour; on 30 April 2025, 63.66% of referendum voters said no. Members have represented the Cayman Islands at COP25, COP26, COP27 and COP28.',
   fiscalPartner: { name: 'Sustainable Cayman', npo: 'NPO-612' },
 };
 
@@ -24,9 +24,9 @@ export const NAV = [
 /* Verified numbers. Each carries a date or a source. Update on /about when a figure changes. */
 export const STATS = [
   { value: '180', label: 'active student members', source: 'Cayman News Service, March 2026' },
-  { value: '4', label: 'high school chapters', source: 'Generation Green, 2026' },
+  { value: '4', label: 'high school chapters', source: 'Cayman News Service, March 2026' },
   { value: '63.66%', label: 'voted no to cruise berthing', source: 'Referendum, 30 April 2025' },
-  { value: '2 tons', label: 'of plastic removed in one day', source: 'World Cleanup Day, 13 sites, 300 volunteers' },
+  { value: '2+ tons', label: 'of plastic removed in one day', source: 'World Cleanup Day, 13 sites, 300 volunteers' },
 ] as const;
 
 /* Environment-driven integrations. Each has a defined fallback when unset. */

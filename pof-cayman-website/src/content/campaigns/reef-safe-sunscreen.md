@@ -14,7 +14,6 @@ Sunscreen washes off every swimmer at Seven Mile Beach and Stingray City. Some c
 
 - Swimmers and divers: choose a reef-safe sunscreen and check the label.
 - Retailers and hotels: stock and offer reef-safe options.
-- Government: consider the rules other reef nations have adopted.
 
 ## What you can do
 

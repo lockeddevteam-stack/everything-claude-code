@@ -12,12 +12,12 @@ Seven Mile Beach is the reason most visitors come to Grand Cayman. Parts of it a
 
 Managed retreat means deciding in advance where the beach will be allowed to move, instead of defending every building until the sand is gone.
 
-## What POF asks for
+## What a managed retreat plan involves
 
-- A public plan for Seven Mile Beach that names which areas will be defended and which will be given space.
-- Setback rules for new construction along the beach.
-- Honest public information about where the sand is going.
+- Deciding in public which stretches of Seven Mile Beach will be defended and which will be given room to move.
+- Rules on how close new buildings can sit to the water.
+- Clear public information about where the sand is going.
 
 ## What you can do
 
-Read the plan when it is published and send your comments. POF will post the details on the News page and on Instagram.
+Follow the campaign on Instagram and come to the next POF event to hear where it stands.

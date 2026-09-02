@@ -20,6 +20,7 @@ The site is built and passes its checks. Each item below is something only POF c
 | Formspree form IDs (three forms), routed to the shared inbox | `PUBLIC_FORMSPREE_CONTACT`, `PUBLIC_FORMSPREE_VOLUNTEER`, `PUBLIC_FORMSPREE_CHAPTER` | Forms open the visitor's email app with the fields filled in |
 | Mailchimp embedded form URL | `PUBLIC_MAILCHIMP_ACTION` | Email instruction |
 | Cloudflare Web Analytics token | `PUBLIC_CF_ANALYTICS_TOKEN` | No analytics |
+| An adult custodian (faculty or alumni) with access to the shared inbox, so under-16 sign-ups are never read by students alone | Privacy page wording, `docs/HANDOVER.md` | Privacy page says POF's current leadership reads the inbox |
 | Role-based email addresses on the domain (president@, chapters@, events@, press@) | `src/lib/site.ts`, `docs/HANDOVER.md` | The shared inbox protectourfuturecayman@gmail.com everywhere |
 | Domain access for protectourfuturecayman.org, pofcaribbean.org and protectourfuture-eco.com | Cloudflare Pages custom domains | Redirect rules are written in `public/_redirects` and fire once the domains are attached |
 | Google Search Console access for the canonical domain | Launch checklist in README | Sitemap is generated at `/sitemap-index.xml` |
