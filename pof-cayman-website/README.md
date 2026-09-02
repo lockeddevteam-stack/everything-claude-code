@@ -36,6 +36,8 @@ Every event file starts with a block between two lines of `---`. Each line in th
 
 Anything you write below the second `---` line shows on the event's own page. Say where to meet, who to look for, and what happens if it rains.
 
+If the build log says `The collection "events" does not exist or is empty`, that is only because no event file exists yet. It is not an error.
+
 Past events archive themselves. An event is "upcoming" until the end of its last day, Cayman time. The day after, it moves to the archive page on its own. Nobody deletes anything. The site is also rebuilt weekly so this happens even when nobody commits (see "Weekly rebuild" below).
 
 ## How to add a news item
