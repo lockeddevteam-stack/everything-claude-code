@@ -11,29 +11,29 @@ Scored independently from `screenshots/current/*.png`, `flow-2/3/8.json`, `tests
 | Purpose clarity | 3 | `workout-log-populated.png`: title, timer, set grid read as "log sets" after a scan, but 4 candidate primaries (Finish accent L12120, two orange done checks, orange mic FAB) and the core action (weight cell) is a grey box. 5-s note: "a workout in progress; what do I press?" |
 | Feature completeness | 4 | page-metrics `workout-log/interactive`: 44 controls clicked, `nonResponders: []`. Shortfall: unit toggle exists 3 times and contradicts itself on one screen: tools menu "Switch to LBS" (`workout-log-populated-tools.png`, L12086) vs action sheet "Switch to kg" (`workout-log-populated-action-sheet.png`). |
 | Task success | 3 | flow-2.json `ok:true` (12 steps), flow-3.json `ok:true`; baseline flow 2 `pass:true` but `taps:15` vs `expectedTaps:10` because 5 NumPad `del` presses were needed to clear the prefilled value (NumPad appends, `clearTaps:5`). Primary flow needs a workaround. flow-3 `pageErrors:1` "syncBidirectional is not defined" (guest no-op). |
-| Speed | 2 | flow-2.json: Resume + 9 taps, 2 NumPad sheets (`workout-log-populated-numpad.png`, `-numpad-reps.png`) plus a native `<select>` for RIR; matches the anchor-1 example (9 taps, 2 sheets). One 3-condition met: with a prefilled recommendation the done check is 1 tap (`flow-2-set-done.png`). Elapsed 2445 ms baseline. |
-| State handling | 3 | `workout-log-empty.png` "No exercises yet / Tap Add Exercise below" (purposeful, L12143); `workout-log-loading.png` only the AI Rec button reads "Thinking…"; `workout-log-error.png` transient toast. All four exist, loading and error are local and generic. |
-| Data correctness | 2 | `workout-log-populated.png`: seed `useKg:true`, `lk_weightStorageUnit:"kg"`, rows `w:"72.5"`; column header "LB", NumPad "72.5 lb" (`-numpad.png`), header total "1088 kg". Measured: `unitHeader ["LB"]`, `totals ["1088 kg"]`, `useKg true`. Math right (72.5x8 + 72.5x7 = 1087.5). Cause: rows without `kg` field fall to "lb" at L12890 (app rows set `kg:null` L10109). Anchor-1 condition literally met on the harvest seed; values and precision right. |
+| Speed | 1 | Round 2, new counting rule: flow-2.json steps 2-12 = 10 `page.click` taps (Resume, weight cell, `1`,`0`,`0`, DONE, reps cell, `8`, DONE, Mark set 1 done) + RIR `selectOption` (0 taps in Playwright); `user-flows.md` Flow 2 states "Tap count: **9** (10 with Resume)". 2 NumPad sheets (`workout-log-populated-numpad.png`, `-numpad-reps.png`), `flow-2-set-done.png`. 10 >= 3x best-known 3 -> anchor 1. |
+| State handling | 3 | Round 2, N/A rule: all four states applicable, none excluded. `workout-log-empty.png` "No exercises yet / Tap Add Exercise below" (purposeful, L12143); `workout-log-loading.png` only the AI Rec button reads "Thinking…"; `workout-log-error.png` transient toast. All four exist, loading and error are local and generic. |
+| Data correctness | 1 | Round 2, unit-label ruling: `workout-log-populated.png`: seed `useKg:true`, `lk_weightStorageUnit:"kg"`, rows `w:"72.5"`; column header "LB", NumPad "72.5 lb" (`-numpad.png`), header total "1088 kg". Measured: `unitHeader ["LB"]`, `totals ["1088 kg"]`, `useKg true`. Math right (72.5x8 + 72.5x7 = 1087.5). Cause: rows without `kg` field fall to "lb" at L12890 (app rows set `kg:null` L10109). A unit label bug (kg values under an "LB" header, NumPad "72.5 lb", total "1088 kg" = two controls implying different current units) is a wrong value -> anchor 1; the seed-shape gap (rows without `kg`) is noted, not exempted. |
 | Error recovery | 4 | `workout-log-error.png`: toast "Could not get a recommendation. Check your connection and retry." (L13596) names cause and fix; rows persisted (`lk_activeWorkoutRows` L10686). Shortfall: no Retry control, toast fades. Discard is two-step (`-discard-confirm.png`). |
 
-Function mean: 3.0
+Function mean: 2.7
 
 ### Design
 
 | criterion | score | evidence |
 |---|---|---|
 | Hierarchy | 3 | Squint shot `workout-log-squint.png`: Finish, two done pills, mic FAB and orange "LB"/"PARTIALS" all survive blur. Script: 4 primary-styled buttons (Finish, Undo set 1, Undo set 2, voice). Primary findable, 3 peers compete. |
-| Typography | 2 | Computed dump (40 text nodes): 8 sizes 11/12/13/14/15/16/20/21, weights 400/500/600/700/800, 10/40 off the 6-step scale (25%), `line-height: normal` on 24/40, 800 on 8 nodes ("LB", "PARTIALS"). 8 sizes is the anchor-1 line; one 3-condition (no 800 on running body text). `workout-log-populated.png`. |
-| Spacing | 3 | Grid dump: 149/180 values on {4,8,12,16,24,32} = 83%; deltas 2px x21, 20px x4, 3px x2, 14px x1, 58px, 160px. 80-94% band. |
+| Typography | 2 | Round 2 counting rule (visible non-empty text nodes, populated, full page, open sheets in, tab bar and FAB out): 9 distinct sizes 11/12/13/14/15/16/21/22/40 across 139 nodes (base alone 7: 11-16, 21; NumPad adds 22 and 40). `line-height: normal` on 92/139. 8+ sizes = anchor 1; no 700+ on running text 15px or under (all heavy nodes are titles, column labels or numerals: "Barbell Bench Press" 15/700, "LB"/"REPS"/"PARTIALS" 11/700, digits 11-13/800) -> 2. `workout-log-populated.png`, `-numpad.png`. |
+| Spacing | 3 | Round 2 denominator (non-zero padding/gap/margin longhands, populated, full page, tab bar and FAB excluded): 138/158 on {4,8,12,16,24,32} = 87.3%. Breaks: 2px x11, 20px x4, 3px x2, 1px, 58px, 160px. 80-94% band. `workout-log-populated-full.png`. |
 | Contrast | 5 | `baseline/contrast.json` workout-log: checked 32, passed 32, failures 0, unknown 1 (gradient mic FAB 🎙️). |
 | Component consistency | 2 | Button radii on one screen: 0px x8, 6px x12, 7px x2, 12px x3, 14px x3 (5 variants); RIR is a native `<select>` beside custom cells (`workout-log-populated.png`); NumPad has no grabber, PlateCalc has one (`-numpad.png`, `-platecalc.png`). Cards consistent (16px x2). |
 | Targets | 1 | `baseline/targets.json`: 31 interactive, 22 under 44 (29% meet). Worst: set index `1` 20x12, Undo/Mark done 32x30, weight/reps cells 109x33, Finish 79x34, Discard 75x32, Add Set 252x32, partial `+` 26x44. |
-| Motion and feedback | 3 | Press timing: Finish 5 ms, Set 3 weight 1 ms (global `button:active` scale .97), Mark set 3 done and Add Set no change within 400 ms (2/5 sampled fail). NumPad sheet: `animationName none`, static transform (appears, no rise). Tools menu `fadeIn 0.15s`. Add Set: no insertion animation. Decorative `jiggle`, `pillIn`, accent glow shadow on FAB present. |
-| HIG fit | 1 | Violated: Layout (22 targets under 44pt), Buttons (ALL CAPS "PARTIALS", four button styles), Sheets (NumPad no grabber or swipe-dismiss; PlateCalc grabber), Typography (8 sizes). Pass: Tab bar (5 items), Color (one accent), Feedback. `workout-log-populated.png`, `-numpad.png`. |
+| Motion and feedback | 4 | Round 2 press method (`page.mouse.down()` at centre, computed transform/background-color/opacity/box-shadow read at 100 ms, mouse moved off before up so no click fires): 5/5 change - Finish, Set 3 weight, Mark set 3 done, Add Set, Workout tools all go `none` -> `matrix(0.97,...)` plus a raised shadow. Base 5. Inventory: `jiggle 0.45s infinite` on every exercise row (L11344, unconditional idle rotate = decorative), tools menu `opacity 0.15s` fade in place, NumPad sheet `animationName none` and a static transform over 6 frames (appears, no rise), Add Set inserts a row with no animation. -1 decorative -> 4. `workout-log-populated.png`, `-numpad.png`, `-add-set.png`. |
+| HIG fit | 1 | Round 2 violation table (violated = visible in a cited screenshot and touching 2+ elements or the primary control): 4 sections. Layout (22/31 targets under 44, `baseline/targets.json`), Buttons (ALL CAPS "PARTIALS"/"LB", 5 button radii incl. the primary Finish), Sheets (NumPad no grabber, no rise, no swipe-dismiss while PlateCalc has a grabber), Typography (9 sizes, 800 weights). Pass: Tab bar (5 items), Color, Feedback, Toolbars. 3+ sections = 1. `workout-log-populated.png`, `-numpad.png`, `-platecalc.png`. |
 | AI-look penalty | 2 | Tells: emoji as icons (🎙️ FAB, 🏋️ "APPLY TO NEXT SET", 🎯 in `-platecalc.png`); mixed radii (5 button radii); gradient buttons/FAB (`linear-gradient` shadow rule matches). 3 tells. |
-| Accessibility | 3 | `baseline/axe.json`: 1 violation `meta-viewport` (user-scalable=no, critical), 18 passes; every control aria-labeled (`Set 1 weight`, `Mark set 1 done`); reduced-motion media rule present (L2290); 120% text: 0 clipped nodes (`workout-log-120.png`). One violation, but critical not minor. |
+| Accessibility | 3 | Round 2 caps: `baseline/axe.json` workout-log = 1 violation `meta-viewport` (impact `critical`, 1 node), 18 passes, 1 incomplete. It is a global-shell violation so it counts once for this page (not exempt); any critical violation caps the score at 3. Everything else clean: all controls aria-labeled (`Set 1 weight`, `Mark set 1 done`), reduced-motion rule L2290, 120% text 0 clipped (`workout-log-120.png`) so the untested-120% cap does not apply. |
 
-Design mean: 2.5
+Design mean: 2.6
 
 ### Checklist
 
@@ -42,16 +42,16 @@ Design mean: 2.5
 | 1 | Primary action obvious | fail | 4 accent-filled buttons in `workout-log-populated.png` |
 | 2 | Type scale | fail | 8 sizes, 10/40 off scale, `line-height: normal` on 24 nodes |
 | 3 | 8px grid | fail | 83% on grid, breaks undocumented |
-| 4 | Control states | fail | `button:disabled` rule exists; pressed measured on 3/5 sampled controls, Mark done and Add Set unchanged at 400 ms |
-| 5 | Meaningful motion | fail | NumPad no rise, Add Set no insertion animation, tools `fadeIn`, decorative `jiggle`/`pillIn`/glow |
-| 6 | Empty and error copy | pass | `workout-log-empty.png` one sentence plus Add Exercise; error toast names cause and fix |
+| 4 | Control states | pass | Round 2: 5/5 sampled controls (Finish, Set 3 weight, Mark set 3 done, Add Set, Workout tools) change transform+box-shadow at 100 ms under `page.mouse.down()`; `button:disabled { opacity:.4; cursor:not-allowed; transform:none }` rule present (1 matching rule in the sheet) |
+| 5 | Meaningful motion | fail | Round 2 inventory: `jiggle 0.45s infinite` on exercise rows = decorative (idle jiggle, L11344); tools menu `opacity 0.15s` fade in place; NumPad sheet fades/appears with no origin; Add Set insertion not animated though the set list grows. `pillIn` (nav pill) is caused. Non-zero decorative count = fail |
+| 6 | Empty and error copy | fail | Round 2: empty copy fine (2 lines, 6 words, one instruction) and the error toast is correct for the induced worker abort, but the empty-state block holds two action controls ("Add Exercise" and "+ Block", measured in the empty DOM) against "exactly one action control". `workout-log-empty.png`, `workout-log-error.png` |
 | 7 | Numbers | fail | 0/11 numeric nodes `tabular-nums`; cell values carry no adjacent unit (header "LB" only) |
 | 8 | One icon set | fail | SVG stroke 1.8 uniform but 7 optical sizes (11-21px); 1 emoji on screen, 2 more in PlateCalc |
 | 9 | Scroll and targets | fail | scrollWidth 393/393 ok; 22/31 targets under 44 |
-| 10 | Native dark | pass | body L* 0, card L* 10, cells lighter; 3 shadows, one accent glow (noted); pure-white text only on orange buttons |
+| 10 | Native dark | fail | Round 2 shadow rule: body L* 0 < card L* 10 < rows (strictly increasing) and max blur 6px, but the FAB carries `rgba(249,115,22,.25) 0 2px 6px, rgba(249,115,22,.22) 0 8px 22px` - an accent glow shadow, which fails, FAB included. 7 shadows scanned, 1 chromatic. No white text on opaque black (the only rgb(255,255,255) node is the 🎙️ icon glyph, not text) |
 | 11 | Copy | pass | 0 exclamation marks; labels under 4 words except "Auto Rest ON — tap to turn off" |
 
-Checklist: 3/11
+Checklist: 2/11
 
 ## Settings
 
@@ -62,29 +62,29 @@ Checklist: 3/11
 | Purpose clarity | 4 | `settings-populated.png`: "Settings" title with back arrow, grouped cards; job obvious in 5 s. Shortfall: 5 accent-filled buttons (CUSTOMIZE, SIGN UP, Save Name, Save Stats, toggle) so no single primary. |
 | Feature completeness | 3 | page-metrics `settings/interactive`: 41 clicked, `nonResponders: []`, 6 destructive skipped. Redundant: "Weight units" info card duplicates the Weight Unit row (`-scrolled-2.png`, `-scrolled-3.png`); section header "DATA & SYNC" appears twice and "PREFERENCES" twice (`-scrolled-4.png`, `-scrolled-5.png`); "Delete Account" shown to a guest with no account (`-scrolled-6.png`, L33784). |
 | Task success | 4 | flow-8.json `ok:true`, baseline flow 8 `pass:true`, 4 taps, 1072 ms, 0 errors; `lk_profile.useKg` flips. Shortfall: `homeShowsUnit:false` (Home shows no unit to confirm, `flow-8-home.png`) and body weight value stays "64.25" under a "(lbs)" label (`settings-populated-units-lbs.png`). |
-| Speed | 3 | flow-8: 4 taps, 3 screen changes; Weight Unit sits ~1000 px down a 3989 px page (`settings-populated-full.png`, `-scrolled-2.png`). Within 2x of a 3-tap Settings pattern. |
-| State handling | 2 | Empty n/a (no branch, page-map 2.17). `settings-loading.png`: only the beta Verify button pends. `settings-error.png` plus page-metrics note: a network abort on `/beta-validate` renders "Invalid code" (L2732/2747), wrong state. Signed-in loading/error unreachable in guest. Two of three applicable states exist, error incorrect. |
-| Data correctness | 2 | Seed `lk_profile`: displayName Cesco ✓, age 29 ✓, heightCm 168 ✓ (`settings-populated.png`, `-scrolled-2.png`). weightKg 64.2 shows "64.25" (fmtQ rounding, L32089). After toggle: label "Body Weight (lbs)", value still 64.25 (`settings-populated-units-lbs.png`; state set once on mount L32087-32090). Seed `sex:"female"`, `goal:"build"`: no Sex or Goal option highlighted (`-scrolled-2.png`). |
+| Speed | 5 | Round 2, new counting rule: flow-8.json = 4 `page.click` taps (Nav Profile, "Settings", "Switch to LBS", Nav Home), 3 screen changes, 4830 ms; best-known for switch-unit-from-Home is 4, so it matches -> 5. Note (not a deduction under the rule): the control sits ~1000 px down a 3989 px page, reached by auto-scroll, not a tap (`settings-populated-full.png`, `-scrolled-2.png`, `flow-8-lbs.png`). |
+| State handling | 3 | Round 2, N/A rule: empty is excluded, not missing (no data list on the page, page-map 2.17 E n/a); 3 applicable states all present, none missing, error is wrong -> "all present, one wrong" = 3. `settings-loading.png`: only the beta Verify button pends. `settings-error.png` plus page-metrics note: a network abort on `/beta-validate` renders "Invalid code" (L2732/2747), wrong state. Signed-in loading/error unreachable in guest. All three applicable states exist; loading is local and generic and error is incorrect. |
+| Data correctness | 1 | Round 2, unit-label ruling: seed `lk_profile`: displayName Cesco ✓, age 29 ✓, heightCm 168 ✓ (`settings-populated.png`, `-scrolled-2.png`). weightKg 64.2 shows "64.25" (fmtQ rounding, L32089). After toggle: label "Body Weight (lbs)", value still 64.25 (`settings-populated-units-lbs.png`; state set once on mount L32087-32090). Seed `sex:"female"`, `goal:"build"`: no Sex or Goal option highlighted (`-scrolled-2.png`). The kg value left standing under a "(lbs)" label is a unit label bug = wrong value -> anchor 1. |
 | Error recovery | 2 | Beta network failure reported as "Invalid code" (wrong cause, no path); input text kept (`settings-error.png`). Reset is two-step with Cancel and consequence copy (`settings-populated-reset-armed.png`, L33708), which is the one 3-condition met. |
 
-Function mean: 2.9
+Function mean: 3.1
 
 ### Design
 
 | criterion | score | evidence |
 |---|---|---|
 | Hierarchy | 2 | `settings-squint.png`: three full-width orange bars (CUSTOMIZE, SIGN UP, Save Name) dominate the first screen, Save Stats next. Script: 5 primary-styled buttons. Nothing reads as the one job. |
-| Typography | 2 | Dump (69 text nodes): 7 sizes 11/12/13/14/16/18/32, 27/69 off scale (39%), weight 700 on 28 nodes at 14px and below (card titles, pills), `line-height: normal` on 19, 800 on 3 (CUSTOMIZE, SIGN UP, h1). 5-7 sizes but 700 on body-size text. |
-| Spacing | 2 | Grid dump: 205/263 on grid = 78%; deltas 10px x14, 6px x12, 11px x6, 14px x6, 1px x6, 17px x4, 20px x4, -4px x2. Between the 60% and 80% anchors. |
+| Typography | 3 | Round 2 counting rule (visible non-empty text nodes, populated, full page, no sheets on this page, tab bar and FAB out): 7 distinct sizes 11/12/13/14/16/18/32 across 98 nodes -> the 5-to-7 band = 3. `line-height: normal` on 26/98. 36 nodes at 14px or under carry 700+, but all are section labels or control labels ("PREFERENCES", "Save Name", "Once a day", CUSTOMIZE 14/800), none running text, and the 3-anchor explicitly allows heavy section labels. `settings-populated.png`, `-scrolled-2.png`. |
+| Spacing | 3 | Round 2 denominator (non-zero longhands only, populated, full page, tab bar and FAB excluded; round 1's 78% counted zero values): 293/358 = 81.8%. Breaks: 10px x14, 6px x13, 1px x8, 11px x6, 14px x6, 2px x5, 17px x4, 20px x4, -4px x4, 58px. 80-94% band. `settings-populated-full.png`. |
 | Contrast | 5 | `baseline/contrast.json` settings: checked 101, passed 101, failures 0, unknown 3 (gradient CUSTOMIZE, SIGN UP, FAB). |
 | Component consistency | 1 | Card radii 16px x13, 13px x1, 10px x6; button radii 0/8/12/14/20 (5). Toggles: pill switch (Push, Partial Reps) vs bare white knob with no track (Streaks, Hide calories, Cycle Logging) in `-scrolled-3.png`, `-scrolled-5.png`. Segmented pickers in 3 styles: Male/Female grey, "Once a day" outlined, Text Size outlined with different padding (`-scrolled-2.png`, `-scrolled-4.png`). |
 | Targets | 1 | `baseline/targets.json`: 49 interactive, 28 under 44 (43% meet). Back 22x27, switches 46x26 and 35x26, Male/Female 74x33, CUSTOMIZE 114x32, Save Name 319x32, Left/Eaten 48x24. |
-| Motion and feedback | 4 | Press timing: Switch to LBS 6 ms, Partial reps 8 ms, Reset all data 8 ms, Back 3 ms (4/4 under 100 ms). `animationName` inventory empty; no sheets on the page; no decorative fades. Shortfall: no disabled control rendered to verify, theme-swatch change untimed. |
-| HIG fit | 1 | Violated: Layout (28 targets under 44pt, back 22x27), Buttons (gradient ALL CAPS CUSTOMIZE/SIGN UP), Typography (7 sizes, 32px h1), Toggles (two switch renderings). Pass: Tab bar, Color. `settings-populated.png`, `-scrolled-3.png`. |
+| Motion and feedback | 5 | Round 2 press method (`page.mouse.down()`, computed styles read at 100 ms, mouse moved off before up): 5/5 change - CUSTOMIZE (primary), Switch to LBS, Partial Reps switch, RESET, Back to profile all take `matrix(0.97,...)`, four of them also a raised shadow. Base 5. Inventory: one `animation-name` on the page, `pillIn 0.35s` on the nav tab pill = caused (marks the selected tab), no sheets; transitions are press feedback (`background-color, box-shadow .24s` x87), switch knob `left .2s`, accordion `width .3s` - every row has a cause, none decorative, so no -1. `settings-populated.png`, `-scrolled-3.png`. |
+| HIG fit | 1 | Round 2 violation table: 3 sections violated (visible, each touching 2+ elements or the primary control). Layout (28/49 targets under 44, back 22x27, `baseline/targets.json`); Buttons (gradient ALL CAPS CUSTOMIZE and SIGN UP plus two switch renderings - pill track vs bare knob - and 5 button radii); Typography (7 sizes, 32px h1, 36 nodes 700+ at <=14px). Pass: Tab bar, Color, Sheets (none), Toolbars, Feedback. 3+ = 1. `settings-populated.png`, `-scrolled-3.png`, `-scrolled-5.png`. |
 | AI-look penalty | 1 | Tells: gradient buttons (CUSTOMIZE, SIGN UP), emoji as icon (🎯 Replay Tutorial `-scrolled-6.png`, 🎙️ FAB), mixed radii (3 card radii, 5 button radii), 13 stacked equal-weight cards (`settings-populated-full.png`), template copy "Your data is yours." (`-scrolled-4.png`). 5 tells. |
-| Accessibility | 3 | `baseline/axe.json`: 1 violation `meta-viewport` (critical), 19 passes; switches have `role=switch` and labels, back has `aria-label`; DOM order is visual order; 120% text 0 clipped (`settings-120.png`). |
+| Accessibility | 3 | Round 2 caps: `baseline/axe.json` settings = 1 violation `meta-viewport` (impact `critical`, 1 node), 19 passes, 1 incomplete. Global-shell violation counted once for the page; critical impact caps at 3. Otherwise clean: switches have `role=switch` + labels, back has `aria-label="Back to profile"`, DOM order matches visual order, 120% text 0 clipped (`settings-120.png`) so the untested cap does not apply. |
 
-Design mean: 2.2
+Design mean: 2.5
 
 ### Checklist
 
@@ -93,16 +93,16 @@ Design mean: 2.2
 | 1 | Primary action obvious | fail | 5 accent-filled buttons on first screen |
 | 2 | Type scale | fail | 7 sizes, 27/69 off scale, line-height normal on 19 |
 | 3 | 8px grid | fail | 78% on grid |
-| 4 | Control states | pass | 4/4 sampled controls change in 3-8 ms; `button:disabled` rule present (opacity .4) |
-| 5 | Meaningful motion | pass | no animations on page, no decorative fades; transitions limited to button press |
-| 6 | Empty and error copy | fail | error "Invalid code" for a network failure; empty n/a |
+| 4 | Control states | pass | Round 2: 5/5 sampled (CUSTOMIZE, Switch to LBS, Partial Reps switch, RESET, Back to profile) change transform at 100 ms under `page.mouse.down()`; `button:disabled { opacity:.4 }` rule present |
+| 5 | Meaningful motion | pass | Round 2 inventory: one animation (`pillIn` nav tab pill = caused, marks selection); transitions all caused (press `background-color, box-shadow .24s`, switch knob `left .2s`, `width .3s` on the segmented indicator); zero decorative; no growable list on the page |
+| 6 | Empty and error copy | fail | Round 2: empty is N/A and skipped; the error state is incorrect for the induced cause - a `/beta-validate` network abort renders "Invalid code" (L2732/2747), which is the rule's own failing example. `settings-error.png` |
 | 7 | Numbers | fail | no `tabular-nums`; "0.1 MB of about 5.0 MB" unit adjacent but weight/height inputs unitless in field |
 | 8 | One icon set | fail | 🎯 emoji in Replay Tutorial, 🎙️ FAB; back arrow is the only SVG |
 | 9 | Scroll and targets | fail | scrollWidth 393/393 ok; 28/49 under 44 |
-| 10 | Native dark | pass | body L* 0, card L* 10, inner rows lighter; shadows 4 incl. one accent glow (noted) |
+| 10 | Native dark | fail | Round 2 shadow rule: L* strictly increases (body 0 < card 10 < rows) and max blur 8px, but 4 of 29 scanned shadows are chromatic accent glows - CUSTOMIZE and SIGN UP `rgba(249,115,22,.25) 0 2px 6px, rgba(249,115,22,.22) 0 8px 22px`, a theme swatch ring `rgb(249,115,22) 0 0 0 1px`, and the FAB - any accent glow fails, FAB included. No white text on opaque black. `settings-populated.png` |
 | 11 | Copy | fail | 30-word helper paragraphs ("Restoring keeps anything newer…"), filler "Your data is yours.", 0 exclamation marks |
 
-Checklist: 3/11
+Checklist: 2/11
 
 ## Anchor ambiguities
 
@@ -114,3 +114,36 @@ Checklist: 3/11
 6. **Checklist 10**: "shadows secondary" — an accent glow shadow on the FAB/CUSTOMIZE is decorative; unclear if it fails the item. Wording: "fail if any shadow uses the accent color or exceeds 8px blur."
 7. **Checklist 4 and Motion**: when a global `:active` rule exists but a sampled control shows no change within 400 ms, it is unclear whether the item fails or the sample is retried. Wording: "sample 5 controls; fail if any shows no computed-style change within 6 frames."
 8. **Spacing** at 78%: sits between the 60% and 80% anchors with no stated 2-band; state "2 = 60 to 79%" explicitly.
+
+## Round 2
+
+Re-scored only the criteria and checklist items 0F rewrote. Unchanged rows above were left as scored in round 1. Fresh Playwright runs against `http://127.0.0.1:4173/tests/app/index.html` with `tests/fixtures/index.mjs` (scratchpad `r2.mjs`, `r2d.mjs`, `r2f.mjs`, `r2g.mjs`, `r2i.mjs`); targets and contrast reused from `tests/baseline/`.
+
+| criterion | page | old | new | measurement that produced it |
+|---|---|---|---|---|
+| Speed | Workout Log | 2 | 1 | flow-2.json: 10 `page.click` taps (Resume, weight cell, 1/0/0, DONE, reps cell, 8, DONE, Mark set 1 done) + RIR `selectOption` = 0 taps; `user-flows.md` Flow 2 "Tap count: 9 (10 with Resume)". 10 >= 3x best-known 3 -> anchor 1. |
+| Speed | Settings | 3 | 5 | flow-8.json: 4 taps (Nav Profile, Settings, Switch to LBS, Nav Home), 3 screen changes, 4830 ms = best-known 4 for switch-unit-from-Home -> matches. |
+| Data correctness | Workout Log | 2 | 1 | `workout-log-populated.png` + measured: `unitHeader ["LB"]`, NumPad "72.5 lb", `totals ["1088 kg"]`, seed `useKg:true`. Two controls implying different current units = unit label bug -> anchor 1; seed-shape gap noted, not exempted. |
+| Data correctness | Settings | 2 | 1 | `settings-populated-units-lbs.png`: after "Switch to LBS" the label reads "Body Weight (lbs)" while the value stays 64.25 (the kg number, L32087-32090). Value under the other unit's label -> anchor 1. |
+| State handling | Workout Log | 3 | 3 | All four states applicable and present (`-empty`, `-loading`, `-error`, `-populated`); loading is one button reading "Thinking…", error a transient toast -> "all present, one generic" = 3. |
+| State handling | Settings | 2 | 3 | Empty excluded by the N/A rule (no data list, page-map 2.17 E n/a). Of the 3 applicable states none is missing; error is wrong ("Invalid code" for a network abort) -> "all present, one wrong" = 3, not 1 (1 needs a missing state). |
+| Motion and feedback | Workout Log | 3 | 4 | New sample and press method: 5 controls (Finish primary + Set 3 weight, Mark set 3 done, Add Set, Workout tools), `page.mouse.down()` at centre, transform/background-color/opacity/box-shadow read at 100 ms, pointer moved off before `up`. 5/5 changed (`none` -> `matrix(0.97,...)` + raised shadow) where round 1 read 3/5. Base 5; -1 for decorative rows (`jiggle 0.45s infinite` on every exercise row L11344, tools menu `opacity .15s` fade in place, NumPad sheet `animationName none` and static transform over 6 frames). |
+| Motion and feedback | Settings | 4 | 5 | Same method, 5 controls (CUSTOMIZE primary + Switch to LBS, Partial Reps switch, RESET, Back to profile): 5/5 changed at 100 ms. Inventory: only `pillIn` on the nav tab pill (caused), transitions all press/knob/accordion; zero decorative -> no -1. |
+| Spacing | Workout Log | 3 | 3 | New denominator (non-zero padding/gap/margin longhands, populated, full page, tab bar and FAB out): 138/158 = 87.3% on {4,8,12,16,24,32}; 80-94% band. |
+| Spacing | Settings | 2 | 3 | Same denominator: 293/358 = 81.8% (round 1's 78% counted zero-valued longhands); 80-94% band. |
+| Typography | Workout Log | 2 | 2 | New counting rule (visible non-empty text nodes, full page, open sheets in, tab bar and FAB out): 9 distinct sizes 11/12/13/14/15/16/21/22/40 over 139 nodes (base 7 sizes; NumPad adds 22 and 40). 8+ = 1, raised to 2 because no 700+ falls on running text 15px or under. |
+| Typography | Settings | 2 | 3 | Same rule: 7 distinct sizes 11/12/13/14/16/18/32 over 98 nodes, no sheets on the page -> 5-to-7 band = 3; the 36 heavy nodes at <=14px are section and control labels, which the 3-anchor allows. |
+| HIG fit | Workout Log | 1 | 1 | Violation-count table: 4 sections violated (Layout, Buttons, Sheets, Typography), each visible in a cited screenshot and touching 2+ elements or the primary control. 3+ = 1. |
+| HIG fit | Settings | 1 | 1 | 3 sections violated (Layout, Buttons incl. the two switch renderings, Typography). 3+ = 1. |
+| Accessibility | Workout Log | 3 | 3 | `baseline/axe.json`: 1 `meta-viewport` violation, impact critical. Counted once for the page as a global-shell violation; critical caps at 3. 120% text tested (0 clipped), so the untested cap does not bind. |
+| Accessibility | Settings | 3 | 3 | Same: 1 critical `meta-viewport` violation, 19 passes, 120% tested -> critical cap = 3. |
+| Checklist 4 | Workout Log | fail | pass | 5/5 sampled controls change at 100 ms under the real press; `button:disabled { opacity:.4; cursor:not-allowed; transform:none }` rule present. |
+| Checklist 4 | Settings | pass | pass | 5/5 sampled controls change at 100 ms; same disabled rule. |
+| Checklist 5 | Workout Log | fail | fail | Inventory has decorative rows (infinite `jiggle`, menu fade in place, sheet with no origin) and Add Set inserts a row with no animation while the set list can grow. |
+| Checklist 5 | Settings | pass | pass | Inventory: `pillIn` (caused) plus press/knob/accordion transitions; zero decorative; no growable list. |
+| Checklist 6 | Workout Log | pass | fail | Empty copy passes (2 lines, 6 words, one instruction) and the error toast is correct for the induced worker abort, but the empty-state block contains two action controls ("Add Exercise" and "+ Block"), against "exactly one action control". |
+| Checklist 6 | Settings | fail | fail | Empty is N/A and skipped; the error state renders "Invalid code" for a `/beta-validate` network abort - the rule's own failing example. |
+| Checklist 10 | Workout Log | pass | fail | L* strictly increases (0 / 10 / rows) and max blur 6px, but the FAB shadow is an accent glow `rgba(249,115,22,.25) 0 2px 6px, rgba(249,115,22,.22) 0 8px 22px`; any accent glow fails, FAB included. |
+| Checklist 10 | Settings | pass | fail | 4 of 29 shadows chromatic: CUSTOMIZE, SIGN UP, a theme-swatch accent ring, and the FAB. |
+
+Round 2 totals: Workout Log Function 2.7, Design 2.6, checklist 2/11. Settings Function 3.1, Design 2.5, checklist 2/11.
