@@ -14,3 +14,7 @@ Orchestrator log. Updated at the end of every wave.
 ## Wave 0
 
 In progress. Batch 1 launched: 0A, 0B, 0E, 0F.
+
+Batch 1 done: 0A page-map + storage-keys (87 lk_ keys), 0B user-flows, 0E design-system-current (sprawl table corrected: 30 radii, 51 keyframes, 119 emoji, Ds* primitives used at 2 call sites), 0F rubric.
+0C done: seed fixtures (53 keys), routing, smoke spec 3/3 green, zero console errors.
+0D and 0H first attempt killed by API spend limit (429) at ~20:00 UTC; relaunched 22:40 UTC.
