@@ -1,6 +1,6 @@
 # LOCKED Audit Rubric (0F)
 
-Two rubrics, 1 to 5 per criterion, plus the 11-item checklist (pass/fail). Used in Waves 1, 2, 6, 7. Every score cites a screenshot from `00-inventory/screenshots/current/` (or `09-review/screenshots/new/`), a test result, or a measured value. Code lines support evidence, never replace it.
+Two rubrics, 1 to 5 per criterion, plus the 11-item checklist (pass/fail). Used in Waves 1, 2, 6, 7. Every score cites a screenshot (`00-inventory/screenshots/current/` or `09-review/screenshots/new/`), a test result, or a measured value; code lines support evidence, never replace it.
 
 ## 1. Function Rubric
 
@@ -16,6 +16,11 @@ Two rubrics, 1 to 5 per criterion, plus the 11-item checklist (pass/fail). Used 
 
 Interpolation: 2 = anchor 1 mostly holds but one 3-condition is met. 4 = all 3-conditions met plus one 5-condition, with one named shortfall written in the evidence cell.
 
+Rulings (round 1):
+- Speed: count every `page.click` and `page.tap` in the flow spec, including digit, delete and confirm taps on an in-app keypad and Resume; run the flow as `user-flows.md` defines it (typed values, not accept-recommendation). Best-known: log a set 3; switch unit from Home 4. 5 = matches; 4 = +1 tap; 3 = within 2x; 2 = under 3x; 1 = 3x or more.
+- Data correctness: a unit label bug (value under the other unit's label, or two controls implying different current units) is a wrong value, anchor 1. The seed fixture is canonical; a seed-shape gap is noted, not exempted.
+- State handling: a state the page cannot have by design (no data list, so no empty state) is excluded, not missing. On the rest: 1 = 2+ missing, or one missing and one wrong; 3 = all present, one generic or wrong; 5 = all purposeful.
+
 ## 2. Design Rubric
 
 | Criterion | Definition | 1 | 3 | 5 | Evidence to cite |
@@ -26,12 +31,20 @@ Interpolation: 2 = anchor 1 mostly holds but one 3-condition is met. 4 = all 3-c
 | Contrast (WCAG AA) | Text 4.5:1 (large 3:1), UI boundaries 3:1, against rendered background. | Below 75% of text nodes pass. | 90 to 99% pass. | 100% pass, measured. | Contrast scan output: pass, fail, three worst ratios with selector |
 | Component consistency | Same-purpose elements share one implementation and look. | 3+ variants of one component. Ex: three tab patterns, radii 8 to 999. | One variant with local overrides. Ex: cards share radius, four paddings. | One implementation per type. Ex: every list row is DsRow. | Table: type, variant count, radii; side-by-side screenshot |
 | Targets (44px) | Every interactive element at least 44 x 44 CSS px including hit padding. | Below 75% meet 44px. | 90 to 99%. | 100%, measured. | Bounding-box script output: total, under-44 count, failures with selector and w x h |
-| Motion and feedback | Pressed state and feedback under 100ms; transitions show origin and cause. | No pressed states; decorative fades. Ex: Home cards fade in for no reason. | Pressed on primary buttons only; sheets fade rather than rise. | Every control pressed under 100ms; sheets rise from origin; lists animate insertion; nothing decorative. | Frame count tap-to-change (ms at 60fps); transition list with purpose or "decorative" |
+| Motion and feedback | Pressed change within 100ms on 5 sampled controls (press method below); transitions carry meaning; no decorative motion. | 0 to 2 of 5 change. Ex: Finish, weight cell, done check unchanged at 100ms. | 3 to 4 of 5 change. Ex: buttons press; done check and Add Set do not. | 5 of 5; sheets rise from origin; insertions animate; nothing decorative. | 5 rows: selector, ms to change or `none`; transition inventory with purpose or `decorative`; screenshot |
 | HIG fit | Follows HIG Layout, Typography, Color, Buttons, Tab bars, Sheets, Toolbars, Feedback. | 3+ sections violated. Ex: 7-item tab bar, mixed icon sizes, sheet with no grabber. | 1 section violated. Ex: sheet dismiss inconsistent, rest fine. | None violated. Ex: 5-item tab bar, sheet with grabber and swipe-dismiss, one primary in toolbar. | Per section pass/fail, one screenshot, section name |
 | AI-look penalty | Absence of template tells: generic gradient cards, emoji as icons, mixed radii, stacked equal-weight cards, template copy ("Welcome back!", "Let's crush it"). | 4+ tells. | 2 tells. | 0 tells. | Five-tell checklist with count and screenshot per occurrence |
 | Accessibility | axe clean, controls labeled, focus order logical, reduced motion honored, 120% text does not clip. | 5+ axe violations or unlabeled primary controls. | 1 to 2 minor violations; focus mostly logical. | Zero violations; all labeled; reduced motion; 120% text intact. | axe count and ids; focus-order list; 120% screenshot |
 
 Numeric interpolation for Contrast and Targets: 2 = 75 to 89%; 4 = 100% except at most 2 cited failures that are decorative text or icon-only controls with an adjacent labeled hit area. AI-look: 5 = 0 tells, 4 = 1, 3 = 2, 2 = 3, 1 = 4+. Others use the Function rule.
+
+Rulings (round 1):
+- Press method: sample the primary action + 4 other controls; hold a real `page.mouse.down()` at the element centre; read computed transform, background-color, opacity, box-shadow at 100ms. Dispatched events do not trigger `:active` and are invalid. A `transition` rule counts only if the value has changed at 100ms; toasts, label swaps, navigation are not pressed states.
+- Motion score: base from pressed count (5/5 = 5, 3 to 4 = 3, 0 to 2 = 1); -1 if any inventory row is decorative or a sheet fades in place; +1 if base is 1 or 3 and every row has a cause. Floor 1, cap 5. Transitions without pressed states = 1, or 2 when none is decorative.
+- Spacing: 1 = under 60%; 2 = 60 to 79%; 3 = 80 to 94%; 4 = 95%+ undocumented; 5 = 95%+ documented. Denominator = non-zero padding, gap, margin longhands, populated state, full page, tab bar and FAB excluded. Checklist 3 uses the same.
+- Typography: a size = one distinct computed `font-size` on a visible non-empty text node, populated state, full page, open sheets in, tab bar and FAB out; half-pixels distinct (21, 21.5, 22 = three). 8+ = 1, or 2 if no 700+ on running text 15px or under.
+- HIG fit: 0 sections violated = 5; 1 on a single element = 4; 1 = 3; 2 = 2; 3+ = 1. Violated = visible in a cited screenshot, touching 2+ elements or the primary control.
+- Accessibility: a global-shell violation (`meta-viewport`, tab bar) counts once per page; any critical violation caps at 3; 120% text untested caps at 4.
 
 ## 3. Detail Checklist (pass/fail)
 
@@ -40,33 +53,37 @@ Numeric interpolation for Contrast and Targets: 2 = 75 to 89%; 4 = 100% except a
 | 1 | Primary action obvious | 5-second test names it; exactly one element has primary styling. | 5 s note; count accent-filled buttons in populated screenshot. |
 | 2 | Type scale | Zero text nodes off the 6-size scale; line-height set per size. | Computed-style dump of all text nodes. |
 | 3 | 8px grid | 95%+ of padding/gap/margin in {4, 8, 12, 16, 24, 32}; breaks listed. | Computed-style dump; deltas table. |
-| 4 | Control states | Every control has pressed and disabled styles; change within 100ms (6 frames). | Frame count on 3 sampled controls; `:active`/disabled inspection. |
-| 5 | Meaningful motion | Every transition has a cause; sheets rise from trigger; insertions animate; zero decorative fades. | Transition inventory with purpose column. |
-| 6 | Empty and error copy | Empty: one sentence plus one action. Error: what happened and what to do. | `<page>-empty.png`, `<page>-error.png`; word count. |
+| 4 | Control states | Primary action + 4 other controls (selectors listed) all change within 100ms under the press method; a `:disabled` or `[aria-disabled="true"]` rule exists for the page's controls. Any unchanged, or no rule = fail. | 5 selectors with ms; disabled rule line. |
+| 5 | Meaningful motion | Inventory every `animation-name` not `none`, `transition` over 0ms, and sheet or menu opened; mark each `caused` (follows input, shows origin or state change) or `decorative` (load fade-in, idle jiggle or pulse, glow, sheet fading in place). Pass = zero `decorative`; insertions animate where a list can grow. Pressed feedback is item 4, page navigation the global audit; a motionless page passes. | Inventory with purpose column. |
+| 6 | Empty and error copy | Empty: at most 2 lines and 20 words, one instruction (title + instruction line counts as one), exactly one action control. Error: names what happened and what to do, correct for the induced cause (network abort shown as "Invalid code" fails). Every applicable state passes; N/A states skipped. | Both state screenshots; line and word count; induced cause. |
 | 7 | Numbers | `tabular-nums` on all numerals; unit adjacent; dates relative under 7 days, absolute after. | Computed style on numeric nodes; screenshot of both date cases. |
 | 8 | One icon set | One set, one stroke weight, one optical size; zero emoji. | Icon inventory; emoji grep count. |
 | 9 | Scroll and targets | No horizontal overflow except labeled carousels; zero targets under 44 x 44 CSS px. | Run the bounding-box script; `scrollWidth <= clientWidth` on root. |
-| 10 | Native dark | Surface tone steps by elevation (measured L*); shadows secondary; no pure white on pure black, no light-mode borders. | Sampled surface colors per level; shadow inventory. |
+| 10 | Native dark | L* of body, card, nested row strictly increases. Every box-shadow achromatic (saturation under 10%), blur 24px or under; any accent glow shadow fails, FAB included. No rgb(255,255,255) text node on a nearest opaque rgb(0,0,0) background (knobs, icons are not text). No border over 20 L* lighter than its surface. | Surface L* per level; shadow inventory (colour, blur); white-on-black count. |
 | 11 | Copy | Labels under 4 words unless a sentence is needed; no exclamation marks; no filler. | Copy inventory; exclamation grep. |
 
 ## 4. Scoring Procedure
 
-1. Write the evidence row, then the score.
-2. One row per criterion:
+1. Write the evidence row, then the score. One row per criterion:
 
 | criterion | score | evidence |
 |---|---|---|
-| Targets | 2 | bounding-box script: 31/38 meet 44px (82%); `.rir-chip` 32x28, `.header .back` 40x40; `settings-populated.png` |
+| Targets | 2 | bounding-box script: 31/38 meet 44px (82%); `.rir-chip` 32x28; `settings-populated.png` |
 
-3. N/A: if a criterion cannot apply (Ex: Error recovery on a page with no network or input), write `N/A` with a one-sentence reason. Excluded from the total, never 0 or 5.
-4. Page total = mean of scored criteria per rubric, one decimal. Report Function mean, Design mean, and checklist x/11 separately. Never combine the two rubrics.
-5. Scores whose evidence cites only code (file and line) are invalid; reviewers delete them and the page fails the gate. Every evidence cell names at least one screenshot.
-6. Contrast, Targets, Spacing, Typography, Accessibility must cite script or scan output. Eyeballed percentages are invalid.
+2. N/A: a criterion that cannot apply (Ex: Error recovery with no network or input) is written `N/A` with a one-sentence reason; excluded from the total, never 0 or 5.
+3. Page total = mean of scored criteria per rubric, one decimal. Report Function mean, Design mean, checklist x/11 separately; never combine.
+4. Evidence citing only code is invalid; the score is deleted and the page fails the gate. Every evidence cell names a screenshot.
+5. Contrast, Targets, Spacing, Typography, Accessibility must cite script or scan output.
 
 ## 5. Calibration Procedure (0G)
 
-1. Two agents independently score Workout Log and Settings on both rubrics and the checklist from the same screenshots and baseline results. Neither reads the other's file until both are written.
-2. Any criterion differing by 2 or more on either page returns to 0F with both evidence rows. 0F rewrites that criterion's anchors (tighter examples, numeric thresholds, or added evidence requirement) and republishes this file.
-3. Both re-score only the rewritten criteria on both pages. Repeat until every criterion agrees within 1 on both pages.
-4. A checklist item one scorer passes and the other fails counts as disagreement; its pass condition is rewritten.
-5. `calibration.md` records both score sets per round, criteria returned, anchor edits, final agreement.
+1. Two agents independently score Workout Log and Settings on both rubrics and the checklist from the same evidence, without reading each other's file.
+2. Any criterion differing by 2+ on either page, or a checklist item split pass/fail, returns to 0F with both evidence rows; 0F rewrites its anchors and republishes.
+3. Both re-score only the rewritten criteria until every criterion agrees within 1. `calibration.md` records score sets per round, criteria returned, anchor edits, final agreement.
+
+## 6. Revision log
+
+Round 1 (A vs B):
+- Motion and feedback (Workout Log A=1 B=3; Settings A=1 B=4): A dispatched pointerdown at 50ms and saw no pressed state; B used real `mouse.down` and found presses under 10ms. Fixed press method, 5-control sample, base-plus-modifier rule.
+- Checklist 4, 5 (Settings split), 6 (Workout Log split), 10 (both split): pass conditions made measurable; accent glow shadows fail 10.
+- Rulings: Speed (A1, B1), unit labels (B2), size counting (A4, B3), HIG table (A7, B4), Accessibility cap (A5, B5), Spacing bands and denominator (B8; A 96% vs B 83% came from counting zeros), State N/A (A8). Agreed criteria untouched.
