@@ -1,6 +1,6 @@
 # Design Audit: Cardio
 
-Evidence: the `cardio-*` and `train-hub-populated-history` captures in `00-inventory/screenshots/current/`, my Playwright runs at 393x852 dark (nav and FAB excluded), `tests/baseline/scans/cardio.json`.
+Evidence: the `cardio-*` and `train-hub-populated-history` captures in `00-inventory/screenshots/current/`, my Playwright runs at 393x852 dark, and `tests/baseline/scans/cardio.json`.
 
 ## 1. Squint (8px blur) and 5-second test
 
@@ -10,7 +10,7 @@ Blurred `cardio-populated-log.png`: **the CARDIO wordmark wins** — a 32px/800 
 
 ## 2. Callouts
 
-Nine numbered markers, legend printed on `cardio-annotated.png`.
+Nine markers with legend, on `cardio-annotated.png`.
 
 ## 3. Measurements
 
@@ -49,13 +49,13 @@ Pressed, real `mouse.down()` at 100ms: tile, tab and Back `scale(.97)`; star gai
 | 2 | Type scale | fail | 9 sizes; `line-height:normal` at 12 and 14px. |
 | 3 | 8px grid | fail | 34.2% on grid, no documented breaks. |
 | 4 | Control states | pass | 5/5 changed at 100ms; `button:disabled{opacity:.4}` present. |
-| 5 | Meaningful motion | fail | Zero decorative rows, but Favorites grows on star and nothing animates the insertion. |
+| 5 | Meaningful motion | fail | Zero decorative rows, but Favorites grows on star and no insertion animates. |
 | 6 | Empty and error copy | fail | `-empty-favorites.png` passes (17 words, 2 lines, one action); `-empty-history.png` has zero actions and describes rather than instructs. Error N/A. |
 | 7 | Numbers | fail | History metrics and dates are not `tabular-nums`; "Sep 7" is absolute at 2 days old. |
 | 8 | One icon set | fail | 43 SVGs, stroke 1.8, sizes 15/16/18, plus 41 ☆ and one ★ as controls. |
 | 9 | Scroll and targets | fail | 45 targets under 44; PB rail 871 vs 393, no role, label or snap. |
 | 10 | Native dark | fail | L* 0.0 → 10.3 → 16.6 rises, but 41 tiles carry `rgba(249,115,22,.25)` / `.22` glow. |
-| 11 | Copy | pass | Zero exclamation marks; labels 1–3 words; the one sentence earns its length. |
+| 11 | Copy | pass | Zero exclamation marks; labels 1–3 words; the one full sentence earns its length. |
 
 **2/11.**
 
@@ -78,10 +78,10 @@ Pressed, real `mouse.down()` at 100ms: tile, tab and Back `scale(.97)`; star gai
 - Keep: the history row — beats Train Hub's on identical records.
 - Fix: rank the 41 (recents and favourites first); star to 44x44.
 - Fix: drop the glow and gradient on all 41 tiles; flat r12, elevation by tone.
-- Fix: one selector pattern; fold the pill filters into the tab strip.
+- Fix: one selector pattern; fold the pill filters in.
 - Fix: PB rail to a wrapped grid; relative dates under 7 days; tabular history metrics.
 - Cut: the "Which treadmill?" list (`-log-step2.png`), which its own copy says "never changes the estimate".
-- Cut: the ☆/★ glyphs; one SVG set at one optical size.
+- Cut: the ☆/★ glyphs; one SVG set, one optical size.
 
 ## After reading the function audit
 
