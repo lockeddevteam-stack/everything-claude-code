@@ -76,6 +76,8 @@
 
       <header class="hdr" id="hdr"></header>
 
+      <div class="notice" id="notice"></div>
+
       <main class="body" id="body" data-testid="log-scroll" tabindex="-1"></main>
 
       <section class="deckwrap" id="deck" aria-label="Log this set"></section>
@@ -307,13 +309,15 @@
       '</div>';
   }
 
+  function noticeHTML() {
+    if (S.state !== 'error') return '';
+    return '<div class="banner banner--error" data-testid="save-error">' + ICO.alert +
+      '<span><strong>Set not saved</strong>This phone is offline. Your sets are kept here and sync when it reconnects.</span>' +
+    '</div>';
+  }
+
   function listHTML() {
-    var banner = S.state === 'error'
-      ? '<div class="banner banner--error mt-3" data-testid="save-error">' + ICO.alert +
-          '<span><strong>Set not saved</strong>This phone is offline. Your sets are kept here and sync when it reconnects.</span>' +
-        '</div>'
-      : '';
-    return banner + exHeadHTML() +
+    return exHeadHTML() +
       '<div class="card card--flush" data-testid="set-list">' +
         S.sets.map(setRow).join('') +
       '</div>' +
@@ -576,6 +580,7 @@
   var screen = document.getElementById('screen');
   var hdr = document.getElementById('hdr');
   var body = document.getElementById('body');
+  var notice = document.getElementById('notice');
   var deck = document.getElementById('deck');
   var overlay = document.getElementById('overlay');
   var toastSlot = document.getElementById('toast-slot');
@@ -588,6 +593,7 @@
     screen.setAttribute('data-state', S.state);
     screen.setAttribute('data-accent', S.sheet === 'plates' ? 'sheet' : 'deck');
     hdr.innerHTML = headerHTML();
+    notice.innerHTML = noticeHTML();
     body.innerHTML = S.state === 'empty' ? emptyHTML()
       : S.state === 'loading' ? loadingHTML() : listHTML();
     body.scrollTop = top;
@@ -606,8 +612,11 @@
     var el = body.querySelector('.row--selected');
     if (!el) return;
     var r = el.getBoundingClientRect(), b = body.getBoundingClientRect();
-    if (r.top >= b.top && r.bottom <= b.bottom) return;
-    body.scrollTop += (r.top - b.top) - Math.max(0, (b.height - r.height) / 2);
+    var head = body.querySelector('.exhead');
+    /* The exercise name is sticky, so the visible band starts under it. */
+    var top = head ? head.getBoundingClientRect().bottom : b.top;
+    if (r.top >= top && r.bottom <= b.bottom) return;
+    body.scrollTop += (r.top - top) - Math.max(0, (b.bottom - top - r.height) / 2);
   }
 
   function say(msg) {
