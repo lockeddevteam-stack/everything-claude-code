@@ -1,40 +1,40 @@
-# Design audit; Train Hub (`train-hub`)
+# Design audit: Train Hub (`train-hub`)
 
 Captures: `00-inventory/screenshots/current/train-hub-{populated,populated-full,populated-scrolled-3,populated-history,empty}.png`, `exercise-library-populated.png`. Numbers: `tests/baseline/{targets,contrast,axe}.json` and my Playwright dumps, 393×852 dark, populated seed.
 
 ## 1. Squint and 5-second test
 
-8px blur of `train-hub-populated.png`: three masses survive at equal weight; the white **TRAIN** wordmark (32px/800), the filled orange **Quick Start** pill, the orange **mic FAB**. Everything below dissolves into one grey slab. First TRAIN, second Quick Start, third the FAB; read as "a list of my workout programs."
+8px blur of `train-hub-populated.png`: three masses survive at equal weight, the white **TRAIN** wordmark (32px/800), the filled orange **Quick Start** pill and the orange **mic FAB**. All else dissolves into one grey slab. First TRAIN, second Quick Start, third the FAB; read as "a list of my workout programs."
 
-**Answer to the page question: no.** Quick Start wins among actions but does not start today's session; that is `Start day` (86×24, smallest of 33 targets) or split-card `Start` (164×39), and both vanish under the blur. The only accent-*filled* control starts an *unplanned* session; the planned path is accent-*outlined* text, two taps behind a chevron.
+**Answer to the page question: no.** Quick Start wins among actions but does not start today's session; that is `Start day` (86×24, smallest of 33 targets) or split-card `Start` (164×39), both invisible under the blur. The only accent-*filled* control starts an *unplanned* session; the planned path is accent-*outlined* text, two taps behind a chevron.
 
 ## 2. Callouts
 
-`train-hub-annotated.png`; full legend printed on the image. 1 Quick Start, 2 underline sub-tabs, 3 Start-day chip, 4 footer Start, 5 footer Delete, 6 clipped RECENT carousel, 7 AI Builder/New, 8 chevron, 9 Adaptive chips, 10 emoji FAB + glow, 11 absolute date, 2 days old.
+`train-hub-annotated.png`, full legend on the image. 1 Quick Start, 2 underline sub-tabs, 3 Start-day chip, 4 footer Start, 5 footer Delete, 6 clipped RECENT carousel, 7 AI Builder/New, 8 chevron, 9 Adaptive chips, 10 emoji FAB + glow, 11 absolute date at 2 days old.
 
 ## 3. Measurements
 
-**Targets** (`targets.json`, min 44): 33 total, **19 under 44×44; 42.4% pass**. Every failure is height, never width: `Start day` 86×**24** ×3, `Quick Start` 107×34, `Cardio` 88×34, `AI Builder` 99×33, `New` 70×33, sub-tabs 118×**42** ×3, footer `Start`/`Edit`/`Delete` 164/94/93×**39** ×3. Root `scrollWidth` = `clientWidth` 393; RECENT is a labeled carousel.
+**Targets** (`targets.json`, min 44): 33 total, **19 under 44×44, 42.4% pass**. Every failure is height, never width: `Start day` 86×**24** ×3, `Quick Start` 107×34, `Cardio` 88×34, `AI Builder` 99×33, `New` 70×33, sub-tabs 118×**42** ×3, footer `Start`/`Edit`/`Delete` 164/94/93×**39** ×3. Root `scrollWidth` = `clientWidth` 393; RECENT is a labeled carousel.
 
-**Contrast** (`contrast.json`): 97 checked, **97 pass, 0 fail, 2 unknown**; `Quick Start`'s label and the FAB glyph sit on gradients: unknown, not passing. One is the primary action.
+**Contrast** (`contrast.json`): 97 checked, **97 pass, 0 fail, 2 unknown**. Both unknowns sit on gradients: `Quick Start`'s label (the primary action) and the FAB glyph.
 
-**Spacing** (non-zero padding/gap/margin longhands, page scope, nav + FAB out): 474 values, **328 on {4,8,12,16,24,32} = 69.2%**, no breaks documented. Off-grid: `5px` ×96 (the chip's `5px 11px`), `10px` ×18, `11px` ×16, plus 16 others.
+**Spacing** (non-zero padding/gap/margin longhands, page scope, nav + FAB out): 474 values, **328 on {4,8,12,16,24,32} = 69.2%**, no breaks documented. Off-grid: `5px` ×96 (the chip's `5px 11px`), `10px` ×18, `11px` ×16, 16 others.
 
-**Typography**: 6 sizes; 32/15/14/13/12/11; weights 400/600/700/800 with **37 visible nodes at 700 ≤13px**; `line-height: normal` on 5 of 11 size/lh pairs; `tabular-nums` on **0** elements though 14363 kg, 16 sets and ~53h are figures. **Radii**: 8, 9, 10, 11, 12, 14, 16, 999.
+**Typography**: 6 sizes (32/15/14/13/12/11); weights 400/600/700/800, **37 visible nodes at 700 ≤13px**; `line-height: normal` on 5 of 11 size/lh pairs; `tabular-nums` on **0** elements (14363 kg, 16 sets, ~53h). **Radii**: 8, 9, 10, 11, 12, 14, 16, 999.
 
-**Pressed** (real `mouse.down()`, read at 100ms): Quick Start `transform` ✓, History tab `transform`+`box-shadow` ✓, footer Start same ✓, footer **Delete none** ✗, **Start day none** ✗; 3 of 5.
+**Pressed** (real `mouse.down()`, read at 100ms), 3 of 5: Quick Start `transform` ✓, History tab `transform`+`box-shadow` ✓, footer Start same ✓, footer **Delete none** ✗, **Start day none** ✗.
 
-**Motion inventory**: animations `cardRise 0.5s`, `pillIn 0.45s`; entrances, decorative. Transitions `background-color, box-shadow .24s` ×60, `transform .25s` ×3, `max-height/opacity/visibility .4s` ×3 (expand), 2 singletons; all caused.
+**Motion inventory**: animations `cardRise 0.5s`, `pillIn 0.45s`, both entrances, decorative. Transitions (all caused) `background-color, box-shadow .24s` ×60, `transform .25s` ×3, `max-height/opacity/visibility .4s` ×3 (expand), 2 singletons.
 
-**Dark**: body L\* 0.0 → card `#1C1C1E` 10.3 → nested `#2C2C2E` 18.1, strictly increasing; but Quick Start and the FAB carry `rgba(249,115,22,0.25) 0 2px 6px, rgba(249,115,22,0.22) 0 8px 22px`, an accent glow. **axe**: 1 violation, `meta-viewport` (critical, shell), 16 passes.
+**Dark**: body L\* 0.0 → card `#1C1C1E` 10.3 → nested `#2C2C2E` 18.1, strictly increasing; but Quick Start and the FAB carry the accent glow `rgba(249,115,22,0.25) 0 2px 6px, rgba(249,115,22,0.22) 0 8px 22px`. **axe**: 1 violation, `meta-viewport` (critical, shell), 16 passes.
 
 ## 4. The split card as a component
 
-Header (icon, name, meta line, chevron), optional day list, then a **three-cell footer: `Start` | `Edit` | `Delete`**; all 39px tall, 13px, radius 0, transparent, one equal-weight row. `Start` is `#FB923C` at 700, `Delete` `#F05151` at **400**: the destructive action is *lighter* than the primary, and hue is the only separator. Under the blur, or with a red-green deficit, cells 1 and 3 are indistinguishable, `Delete` sits on the outer edge where a thumb lands, and it has no pressed state to warn on a mis-tap.
+Header (icon, name, meta line, chevron), optional day list, then a **three-cell footer: `Start` | `Edit` | `Delete`**, all 39px tall, 13px, radius 0, transparent, one equal-weight row. `Start` is `#FB923C` at 700, `Delete` `#F05151` at **400**: the destructive action is *lighter* than the primary, and hue is the only separator. Under the blur, or with a red-green deficit, cells 1 and 3 are indistinguishable; `Delete` sits on the outer edge where a thumb lands and has no pressed state to warn on a mis-tap.
 
 The page also carries **three "start" idioms**: `Quick Start` (gradient pill, r14, 14px/700), `Start day` (tinted chip, r999, 11px/700, 86×24), footer `Start` (text, r0, 13px/700, 164×39).
 
-## 5. Rubric; Design (mean 2.0)
+## 5. Rubric, Design (mean 2.0)
 
 | Criterion | Score | Evidence |
 |---|---|---|
