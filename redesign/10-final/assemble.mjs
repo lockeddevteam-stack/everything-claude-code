@@ -664,8 +664,18 @@ function demoCss() {
    shadow root so no screen's CSS can touch it. */
 .demo-screen[hidden] { display: none; }
 .demo-chrome {
-  position: fixed; top: var(--sp-3); left: var(--sp-3); z-index: 40;
-  display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2);
+  position: fixed; z-index: 40;
+  left: var(--sp-3); bottom: calc(56px + var(--sp-4) + var(--safe-bottom, 0px));
+  display: flex; flex-direction: row; align-items: center; gap: var(--sp-2);
+}
+/* Given room, the demo's own controls sit off the phone entirely, so nothing
+   in the design is ever covered. */
+@media (min-width: 900px) {
+  .demo-chrome {
+    left: calc(50% - 196px - 216px); bottom: auto; top: var(--sp-5);
+    flex-direction: column; align-items: flex-start;
+  }
+  .demo-index { left: calc(50% - 196px - 216px); bottom: var(--sp-5); }
 }
 .demo-btn {
   display: inline-flex; align-items: center; gap: var(--sp-2);
@@ -679,7 +689,8 @@ function demoCss() {
 .demo-btn[aria-expanded="true"] { color: var(--accent-text); }
 .demo-btn[hidden] { display: none; }
 .demo-index {
-  position: fixed; inset: auto auto var(--sp-3) var(--sp-3); z-index: 41;
+  position: fixed; z-index: 41;
+  left: var(--sp-3); bottom: calc(56px + var(--sp-4) + var(--safe-bottom, 0px) + 44px + var(--sp-2));
   width: min(300px, calc(100vw - var(--sp-5)));
   max-height: min(70vh, 620px); overflow-y: auto;
   padding: var(--sp-3);
