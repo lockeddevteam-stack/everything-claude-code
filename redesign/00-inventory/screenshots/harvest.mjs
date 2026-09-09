@@ -655,6 +655,7 @@ const pages = {
       await goSettings(r);
       if (await r.fill('input[placeholder="Enter invite code"]', BETA_CODE, `beta code "${BETA_CODE}"`)) {
         const top = await betaScroll(r); r.log(`centre BETA TESTING card (scrollTop ${top}px)`);
+        await r.page.evaluate(() => document.activeElement && document.activeElement.blur()); // no focus ring in any of the trio
         await r.shot('settings-populated-beta', { subview: `beta card centred (scrollTop ${top}px), no request in flight`, wait: 700, note: 'matched control for settings-loading / settings-error: same page, dark theme and scroll offset, code typed, Verify not pressed' });
       }
     });
@@ -662,8 +663,10 @@ const pages = {
       await goSettings(r);
       if (await r.fill('input[placeholder="Enter invite code"]', BETA_CODE, `beta code "${BETA_CODE}"`)) {
         const top = await betaScroll(r); r.log(`centre BETA TESTING card (scrollTop ${top}px)`);
+        await r.page.evaluate(() => document.activeElement && document.activeElement.blur()); // no focus ring in any of the trio
         await r.click('button:has-text("Verify")', 'Verify');
         await wait(1800); await betaScroll(r, top);
+        await r.page.evaluate(() => document.activeElement && document.activeElement.blur());
         await r.shot('settings-error', { subview: `beta card centred (scrollTop ${top}px), settingsBetaErr rendered`, wait: 700, note: 'settingsBetaErr "Invalid code" under the input after /beta-validate resolves without valid:true. NB: aborting the worker instead yields the VERIFIED state, not an error → validateBetaCodeRemote .catch() calls onResult(true).' });
       }
     });
@@ -671,8 +674,10 @@ const pages = {
       await goSettings(r);
       if (await r.fill('input[placeholder="Enter invite code"]', BETA_CODE, `beta code "${BETA_CODE}"`)) {
         const top = await betaScroll(r); r.log(`centre BETA TESTING card (scrollTop ${top}px)`);
+        await r.page.evaluate(() => document.activeElement && document.activeElement.blur()); // no focus ring in any of the trio
         await r.click('button:has-text("Verify")', 'Verify');
         await wait(1800); await betaScroll(r, top);
+        await r.page.evaluate(() => document.activeElement && document.activeElement.blur());
         await r.shot('settings-loading', { subview: `beta card centred (scrollTop ${top}px), /beta-validate in flight`, wait: 700, note: 'POST /beta-validate genuinely pending; the beta card renders NO pending affordance (no spinner, skeleton, progress bar, label change, disabled or aria-busy Verify) → pixel-identical to settings-populated-beta' });
       }
     });
