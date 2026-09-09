@@ -50,6 +50,25 @@
   --hairline: #2A2A2E;     /* separators, 1px */
   --border: #35353A;       /* control borders, 3:1 against surface */
 
+  /* ---- Fills. The three tokens that make the system theme-reversible.
+     In dark, "a fill that stands out on a card" and "a surface that sits
+     above the page" are the same colour, so the build used
+     --surface-raised for both. In light they are opposites: an overlay
+     rises to white, while a chip, a meter track or a pressed row must
+     go DARKER than the card it sits on. --surface-raised keeps the
+     elevation job; these three take the fill job.
+       --fill        quiet fill on top of any surface level: chips,
+                     badges, icon wells, meter and progress tracks,
+                     skeletons, avatars, keypad keys, secondary buttons
+       --fill-press  the ground a row or key takes while pressed
+       --track       the inset ground of the segmented control, so the
+                     selected item (--surface-raised) reads on it
+     Their dark values are exactly what those components already used,
+     so dark is byte-identical to before. ---- */
+  --fill: #1C1C1F;
+  --fill-press: #1C1C1F;
+  --track: #141416;
+
   /* ---- Text ---- */
   --text: #F5F5F7;
   --text-secondary: #A1A1A8;
@@ -170,39 +189,184 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-/* Light theme. Defined and contrast-checked. No light screens are built. */
+/* ---------------------------------------------------------------
+   LIGHT THEME
+   Two selectors, one palette. The block is emitted twice from a single
+   source and the audit script asserts the two copies are identical, so
+   they cannot drift: CSS has no way to give one declaration block both
+   an attribute selector and a media query.
+     [data-theme="light"]  an explicit choice, stored in lk_theme
+     prefers-color-scheme  "Match device", which is the absence of an
+                           explicit choice. theme.js clears the attribute
+                           for it; this rule is what makes it mean
+                           something.
+   --------------------------------------------------------------- */
 :root[data-theme="light"] {
   color-scheme: light;
-  /* Elevation ramp mirrors dark: the ground is darkest, raised is lightest.
-     Measured L*: 90.74 -> 94.57 -> 98.32 -> 100.00, strictly increasing.
-     The previous values put bg and surface-raised both at pure white, so a
-     raised card had a 1.00:1 boundary against the page. */
-  --bg: #EFEFF4;
-  --surface: #FAFAFC;
+
+  /* Elevation. The dark ramp is 1.39 -> 2.76 -> 6.39 -> 10.38 L*: each
+     step up is roughly 4 L* lighter. Light mirrors it away from white:
+     88.05 -> 92.53 -> 96.61 -> 100.00, steps of 4.48, 4.08 and 3.39.
+     The shipped light ramp put surface at 98.32 and raised at 100.00 —
+     1.68 L* apart, half the dark step — so a sheet, a selected segment
+     and a secondary button all vanished into the card behind them. */
+  --bg: #E9E9F0;
+  --surface: #F5F5F8;
   --surface-raised: #FFFFFF;
-  --surface-sunken: #E4E4EA;
+  --surface-sunken: #DCDCE7;
   --hairline: #C9C9D2;
-  --border: #868690;   /* 3.14:1 on bg, 3.46:1 on surface, 3.60:1 on raised */
+  --border: #767681;       /* 3.30 sunken, 3.71 bg, 4.12 surface, 4.49 raised */
+
+  /* Fills run the other way from elevation here: down, not up. */
+  --fill: #DDDDE8;         /* 4.12 L* below bg, 8.21 below surface */
+  --fill-press: #CFCFDD;
+  --track: #DDDDE8;
+
   --text: #0A0A0B;
   --text-secondary: #55555E;
-  --text-tertiary: #6B6B75;  /* 5.05:1 on surface, 4.60:1 on bg */
+  --text-tertiary: #5E5E68;  /* 4.71 on sunken, the darkest ground it lands on */
   --text-on-accent: #FFFFFF;
+  --text-on-solid: #FFFFFF;
+
+  /* The accent as ink is a step deeper than the shipped #B03A0A so it
+     still clears 4.5 on its own tinted ground. */
   --accent: #C2410C;
-  --accent-text: #B03A0A;
+  --accent-text: #A63708;
   --accent-deep: #9A3412;
-  --accent-quiet: #FDEDE4;
-  --success: #127A4B;
-  --success-quiet: #E4F6EC;
-  --error: #C42525;
+  --accent-quiet: #FBD7C4;
+
+  /* The quiet tints sit at L* 88.5, four steps below the page ground, so
+     a banner, a selected row or a chat bubble is a surface rather than a
+     rumour. The shipped tints sat at 94-96, level with the ground: an
+     accent-quiet bubble measured 1.00:1 against the page behind it. The
+     semantic inks deepen to match, so each still clears 4.5 on its tint. */
+  --success: #0F6B41;
+  --success-quiet: #BBE9CF;
+  --error: #B31F1F;
   --error-solid: #C42525;
-  --error-quiet: #FCE9E9;
-  --warning: #8A5A00;
-  --warning-quiet: #FDF3E0;
+  --error-quiet: #F9D7D7;
+  --warning: #7A4F00;
+  --warning-quiet: #F9DBA2;
   --info: #17538F;
-  --info-quiet: #E7F0FA;
-  --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.12);
-  --shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.18);
+  --info-quiet: #CEE1F5;
+
+  --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.14);
+  --shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.20);
   --scrim: rgba(0, 0, 0, 0.35);
+
+  /* Anatomy palette, light. The twelve hues are the same twelve hues at
+     the same angles; only their depth changes, because a colour picked to
+     read on near-black washes out on white. Each is darkened until it
+     clears 3.6:1 on --surface-raised (3.3 on --surface, 2.97 on --bg with
+     the seam carrying the boundary), and the seam is still 45% of the hue
+     mixed into black, which clears 3.03:1 against every hue it separates. */
+  --anat-chest: #DB5C7C;
+  --anat-back: #6A82DE;
+  --anat-shoulders: #A372CB;
+  --anat-calves: #C366B0;
+  --anat-abs: #9B862F;
+  --anat-forearms: #11987D;
+  --anat-biceps: #32949E;
+  --anat-triceps: #588DAE;
+  --anat-hams: #848D32;
+  --anat-quads: #489919;
+  --anat-adduc: #629169;
+  --anat-glutes: #1C9963;
+  /* Sub-regions run away from a white ground instead of a black one:
+     6.22 -> 4.70 -> 3.60 on --surface-raised. White leaves no room above
+     the base hue, so in light the base is the shallowest of the three
+     steps rather than the middle one. */
+  --anat-chest-1: #9E4259;
+  --anat-chest-2: #BC4F6B;
+  --anat-chest-3: #DB5C7C;
+  --anat-muted: #83838E;       /* 3.10 on bg: an unselected region keeps its 3:1 */
+  --anat-silhouette: #A8A8B2;  /* 2.17 on surface: a figure, not a competitor */
+  --anat-shorts: #C6C6CF;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+
+    /* Elevation. The dark ramp is 1.39 -> 2.76 -> 6.39 -> 10.38 L*: each
+       step up is roughly 4 L* lighter. Light mirrors it away from white:
+       88.05 -> 92.53 -> 96.61 -> 100.00, steps of 4.48, 4.08 and 3.39.
+       The shipped light ramp put surface at 98.32 and raised at 100.00 —
+       1.68 L* apart, half the dark step — so a sheet, a selected segment
+       and a secondary button all vanished into the card behind them. */
+    --bg: #E9E9F0;
+    --surface: #F5F5F8;
+    --surface-raised: #FFFFFF;
+    --surface-sunken: #DCDCE7;
+    --hairline: #C9C9D2;
+    --border: #767681;       /* 3.30 sunken, 3.71 bg, 4.12 surface, 4.49 raised */
+
+    /* Fills run the other way from elevation here: down, not up. */
+    --fill: #DDDDE8;         /* 4.12 L* below bg, 8.21 below surface */
+    --fill-press: #CFCFDD;
+    --track: #DDDDE8;
+
+    --text: #0A0A0B;
+    --text-secondary: #55555E;
+    --text-tertiary: #5E5E68;  /* 4.71 on sunken, the darkest ground it lands on */
+    --text-on-accent: #FFFFFF;
+    --text-on-solid: #FFFFFF;
+
+    /* The accent as ink is a step deeper than the shipped #B03A0A so it
+       still clears 4.5 on its own tinted ground. */
+    --accent: #C2410C;
+    --accent-text: #A63708;
+    --accent-deep: #9A3412;
+    --accent-quiet: #FBD7C4;
+
+    /* The quiet tints sit at L* 88.5, four steps below the page ground, so
+       a banner, a selected row or a chat bubble is a surface rather than a
+       rumour. The shipped tints sat at 94-96, level with the ground: an
+       accent-quiet bubble measured 1.00:1 against the page behind it. The
+       semantic inks deepen to match, so each still clears 4.5 on its tint. */
+    --success: #0F6B41;
+    --success-quiet: #BBE9CF;
+    --error: #B31F1F;
+    --error-solid: #C42525;
+    --error-quiet: #F9D7D7;
+    --warning: #7A4F00;
+    --warning-quiet: #F9DBA2;
+    --info: #17538F;
+    --info-quiet: #CEE1F5;
+
+    --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.14);
+    --shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.20);
+    --scrim: rgba(0, 0, 0, 0.35);
+
+    /* Anatomy palette, light. The twelve hues are the same twelve hues at
+       the same angles; only their depth changes, because a colour picked to
+       read on near-black washes out on white. Each is darkened until it
+       clears 3.6:1 on --surface-raised (3.3 on --surface, 2.97 on --bg with
+       the seam carrying the boundary), and the seam is still 45% of the hue
+       mixed into black, which clears 3.03:1 against every hue it separates. */
+    --anat-chest: #DB5C7C;
+    --anat-back: #6A82DE;
+    --anat-shoulders: #A372CB;
+    --anat-calves: #C366B0;
+    --anat-abs: #9B862F;
+    --anat-forearms: #11987D;
+    --anat-biceps: #32949E;
+    --anat-triceps: #588DAE;
+    --anat-hams: #848D32;
+    --anat-quads: #489919;
+    --anat-adduc: #629169;
+    --anat-glutes: #1C9963;
+    /* Sub-regions run away from a white ground instead of a black one:
+       6.22 -> 4.70 -> 3.60 on --surface-raised. White leaves no room above
+       the base hue, so in light the base is the shallowest of the three
+       steps rather than the middle one. */
+    --anat-chest-1: #9E4259;
+    --anat-chest-2: #BC4F6B;
+    --anat-chest-3: #DB5C7C;
+    --anat-muted: #83838E;       /* 3.10 on bg: an unselected region keeps its 3:1 */
+    --anat-silhouette: #A8A8B2;  /* 2.17 on surface: a figure, not a competitor */
+    --anat-shorts: #C6C6CF;
+  }
 }
 
 /* ---------------------------------------------------------------

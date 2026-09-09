@@ -6,6 +6,7 @@
 <title>LOCKED — Settings</title>
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
+<script src="theme.js"></script>
 </head>
 <body>
 <!--
@@ -91,11 +92,15 @@
     screen belong on that screen; Fuel is a separate track.
   - The privacy disclosure block. Legal text with a +/- affordance is not
     a control; it configures nothing.
-  - The old App Style's five options, and "Match device". Appearance
-    offers Dark and Light, both of which change the screen, because
-    tokens.css defines exactly those two contrast-checked themes and no
-    prefers-color-scheme rule a third option could read. A control that
-    does nothing is worse than one fewer control.
+  - The old App Style's five options. Appearance offers Dark, Light and
+    Match device: three values, all of which change the screen. "Match
+    device" was cut in the first pass only because tokens.css carried no
+    prefers-color-scheme rule for it to read; the rule exists now, so the
+    option is back. A control that does nothing is worse than one fewer
+    control, but a device that ignores its own appearance setting is
+    worse than both. The choice is stored in localStorage under lk_theme
+    and applied by theme.js on every screen, so it survives a reload and
+    Appearance is not a preference that only themes its own page.
   - The storage progress bar. The sentence above it already says 1.2 MB
     of 5.0 MB; a second, lower-contrast reading of the same number is
     decoration.
@@ -196,7 +201,7 @@
     unit: 'kg',
     dist: 'km',
     weekStart: 'mon',
-    theme: 'dark',
+    theme: (window.LKTheme ? window.LKTheme.get() : 'dark'),
     restTimer: true,
     restSec: 90,
     partials: false,
@@ -290,7 +295,8 @@
         title: 'Appearance',
         options: [
           { v: 'dark', title: 'Dark', sub: 'Built for a gym floor and a phone at arm’s length' },
-          { v: 'light', title: 'Light', sub: 'Higher brightness, for outdoors' }
+          { v: 'light', title: 'Light', sub: 'Higher brightness, for outdoors' },
+          { v: 'system', title: 'Match device', sub: 'Follows your phone’s appearance setting' }
         ]
       },
       restSec: {
@@ -490,7 +496,7 @@
         navRow('unit', 'Weight unit', S.unit === 'kg' ? 'Kilograms (kg)' : 'Pounds (lb)', 'row-weight-unit') +
         navRow('dist', 'Distance', S.dist === 'km' ? 'Kilometres (km)' : 'Miles (mi)', 'row-distance-unit') +
         navRow('weekStart', 'Week starts on', S.weekStart === 'mon' ? 'Monday' : 'Sunday', 'row-week-start') +
-        navRow('theme', 'Appearance', S.theme === 'dark' ? 'Dark' : 'Light', 'row-appearance') +
+        navRow('theme', 'Appearance', window.LKTheme.label(S.theme), 'row-appearance') +
       '</div>');
   }
 
@@ -707,7 +713,9 @@
 
   function render() {
     screen.setAttribute('data-state', S.view);
-    document.documentElement.setAttribute('data-theme', S.theme);
+    /* One writer. theme.js owns the root attribute and the lk_theme key,
+       so the choice made here is the choice every other screen reads. */
+    if (window.LKTheme) window.LKTheme.set(S.theme);
     body.innerHTML = screenHTML();
 
     var ov = '';
