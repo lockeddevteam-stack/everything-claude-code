@@ -28,16 +28,16 @@ Pressed, real `mouse.down()` at 100ms: tile, tab and Back `scale(.97)`; star gai
 
 | Criterion | Score | Evidence |
 |---|---|---|
-| Hierarchy | 2 | Squint of `-log.png`: winner is the CARDIO label; 41 tiles one style, one glow, zero accent-filled buttons. `cardio-populated.png` does show one dominant card (a 3-condition). |
-| Typography | 2 | 9 sizes incl. 16.8px; `line-height:normal` on 12/14px; no 700+ on running text <=15px, so 2 not 1. |
+| Hierarchy | 2 | Squint of `-log.png`: the CARDIO label wins; 41 tiles one style, zero accent-filled buttons. `cardio-populated.png` does show one dominant card (a 3-condition). |
+| Typography | 2 | 9 sizes incl. 16.8px; `line-height:normal` at 12/14px; no 700+ on running text <=15px, so 2 not 1. |
 | Spacing | 1 | 23.6% on grid (Log), 34.2% union — under 60%. |
-| Contrast | 4 | 20/21 styles pass, worst 6.64; one cited failure, the zero-alpha chart numeral in `-history.png`. |
-| Component consistency | 1 | 11 radii on one page (3–16 plus 999); four card treatments; session rows at r13 (History) and r16 (Favorites) for the same content; two selector patterns 60px apart in `-history.png`. |
+| Contrast | 4 | 20/21 styles pass, worst 6.64; one failure, the zero-alpha chart numeral in `-history.png`. |
+| Component consistency | 1 | 11 radii; four card treatments; session rows r13 (History) vs r16 (Favorites) for the same content; two selector patterns 60px apart in `-history.png`. |
 | Targets | 1 | 52% meet on Log (45/87 fail); 8/9 fail on Favorites. |
-| Motion and feedback | 5 | 5/5 pressed at 100ms; zero decorative rows (no `animation-name`, no sheet fade). |
-| HIG fit | 1 | Three sections: Layout (45 sub-44 targets), Typography (9 sizes, 11px body, `user-scalable=no`), Tab bars/Segmented controls (underline strip plus pill filters on one screen). |
-| AI-look penalty | 1 | Four tells: gradient cards x41 with accent glow; Unicode ☆/★ as controls; 11 radii; 41 equal-weight stacked tiles. |
-| Accessibility | 3 | axe 1 critical (`meta-viewport`, shell); stars labelled; tab strip has no `role="tab"`/`aria-selected`, state by colour only; at 120% text no horizontal overflow, 1 clipped node. |
+| Motion and feedback | 5 | 5/5 pressed at 100ms; zero decorative rows, no sheet fade. |
+| HIG fit | 1 | Three sections: Layout (45 sub-44 targets), Typography (9 sizes, 11px body, `user-scalable=no`), Tab bars (underline strip plus pill filters on one screen). |
+| AI-look penalty | 1 | Four tells in `-log.png`: gradient cards x41 with accent glow; ☆/★ as controls; 11 radii; 41 equal-weight tiles. |
+| Accessibility | 3 | axe 1 critical (`meta-viewport`, shell); stars labelled; tab strip has no `role="tab"`/`aria-selected`; at 120% text no overflow, 1 clipped node. |
 
 **Design mean 2.1.**
 
@@ -49,12 +49,12 @@ Pressed, real `mouse.down()` at 100ms: tile, tab and Back `scale(.97)`; star gai
 | 2 | Type scale | fail | 9 sizes; `line-height:normal` at 12 and 14px. |
 | 3 | 8px grid | fail | 34.2% on grid, no documented breaks. |
 | 4 | Control states | pass | 5/5 changed at 100ms; `button:disabled{opacity:.4}` present. |
-| 5 | Meaningful motion | fail | Zero decorative rows, but Favorites grows on star and nothing animates the insertion (no `animation-name` anywhere). |
-| 6 | Empty and error copy | fail | `-empty-favorites.png` passes (17 words, 2 lines, one action); `-empty-history.png` has zero action controls and describes rather than instructs. Error N/A (page-map 2.12). |
-| 7 | Numbers | fail | Stats/PB/chart are `tabular-nums`; history row metrics and dates are not, and "Sep 7" shows absolute at 2 days old. |
-| 8 | One icon set | fail | 43 SVGs, stroke 1.8, but three optical sizes (15/16/18) plus 41 ☆ and one ★ as controls. |
-| 9 | Scroll and targets | fail | 45 targets under 44; PB rail scrollWidth 871 vs 393, no role, aria-label or scroll-snap. |
-| 10 | Native dark | fail | L* rises 0.0 → 10.3 → 16.6 (bg, tile, chip), but 41 tiles carry `rgba(249,115,22,.25) 0 2px 6px, rgba(249,115,22,.22) 0 8px 22px`. |
+| 5 | Meaningful motion | fail | Zero decorative rows, but Favorites grows on star and nothing animates the insertion. |
+| 6 | Empty and error copy | fail | `-empty-favorites.png` passes (17 words, 2 lines, one action); `-empty-history.png` has zero actions and describes rather than instructs. Error N/A (page-map 2.12). |
+| 7 | Numbers | fail | Stats/PB/chart are `tabular-nums`; history metrics and dates are not, and "Sep 7" is absolute at 2 days old. |
+| 8 | One icon set | fail | 43 SVGs, stroke 1.8, but sizes 15/16/18, plus 41 ☆ and one ★ as controls. |
+| 9 | Scroll and targets | fail | 45 targets under 44; PB rail 871 vs 393 with no role, label or snap. |
+| 10 | Native dark | fail | L* 0.0 → 10.3 → 16.6 rises, but 41 tiles carry `rgba(249,115,22,.25)` / `.22` glow shadows. |
 | 11 | Copy | pass | Zero exclamation marks; labels 1–3 words; the one sentence earns its length. |
 
 **2/11.**
