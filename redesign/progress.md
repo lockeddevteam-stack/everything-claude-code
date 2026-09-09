@@ -11,10 +11,27 @@ Orchestrator log. Updated at the end of every wave.
 - Playwright 1.56.1, axe-core 4.10.3 installed under `tests/node_modules` (gitignored).
 - Smoke boot with `lk_guestMode=1` only: app renders onboarding screen, one external request to workers.dev `/app-version` (to be routed by the 0C fixture). Landing on Home needs more keys; 0A is finding them.
 
-## Wave 0
+## Wave 0: complete, Gate 0 passed (2026-09-09)
 
-In progress. Batch 1 launched: 0A, 0B, 0E, 0F.
+| Agent | Output | Result |
+|---|---|---|
+| 0A Page Mapper | page-map.md, storage-keys.md | 18 pages mapped, 87 lk_ keys, guest boot keys identified |
+| 0B Flow Mapper | user-flows.md | 8 flows, selectors and tap counts, all reachable in guest mode |
+| 0C Offline Harness | tests/fixtures, smoke.spec.ts | 53 seeded keys, smoke 3/3 green, zero console errors, zero unrouted requests |
+| 0D Screenshot Harvester | screenshots/current | 326 PNG, 8 flow videos, 8 step logs, index.md |
+| 0E Design System Extractor | design-system-current.md | sprawl table measured and corrected |
+| 0F Rubric Author | rubric.md | 2 rubrics, 11-item checklist, 3 revision rounds |
+| 0G Calibration Pair | calibration.md, calibration-A/B.md | converged round 3, max delta 1 on every criterion |
+| 0H Baseline Test Author | tests/e2e, baseline/ | 78 passed, 25 failed (all findings), stable across two runs |
 
-Batch 1 done: 0A page-map + storage-keys (87 lk_ keys), 0B user-flows, 0E design-system-current (sprawl table corrected: 30 radii, 51 keyframes, 119 emoji, Ds* primitives used at 2 call sites), 0F rubric.
-0C done: seed fixtures (53 keys), routing, smoke spec 3/3 green, zero console errors.
-0D and 0H first attempt killed by API spend limit (429) at ~20:00 UTC; relaunched 22:40 UTC.
+Corrections to the directive's stated facts, measured by 0E: 30 border radii not 24; 51 keyframes not 24; 119 emoji occurrences not 65; 57 hex literals confirmed, plus 483 more built at runtime by string concatenation that a regex cannot see. The real stylesheet is a 2,262-line `var CSS` string, not the 54-line style block, and it contains attribute selectors that rewrite inline radii after render, so the radius in the JS is not the radius on screen. The Ds* primitives named as the component library seed have two call sites in the entire app.
+
+Baseline defects worth carrying into the audits: every workout save throws a ReferenceError (the save still lands); the floating voice button covers two primary actions; the numeric keypad opens pre-filled and only deletes, costing 15 taps to log a set against a best known 3; a unit label bug shows kg values under an LB header; browser back from Cardio does not return to Train; 179 of 466 interactive targets are under 44px; zoom is disabled app-wide.
+
+Calibration found no genuine disagreement between scorers. All three deltas of 2 or more traced to unstated measurement method: a synthetic pointer event that never triggers :active, zero-valued padding counted as on-grid, and no definition of whether a state that branches in code but renders nothing counts as present. Rules for all later scoring are in calibration.md.
+
+Gate 0: passed.
+
+## Wave 1 and 2
+
+In progress.
