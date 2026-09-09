@@ -30,7 +30,7 @@ Captures: `00-inventory/screenshots/current/train-hub-{populated,populated-full,
 
 ## 4. The split card as a component
 
-Header (icon, name, "3 days · 15 exercises · 7/25/2026", chevron), optional day list, then a **three-cell footer: `Start` | `Edit` | `Delete`** — all 39px tall, 13px, radius 0, transparent, one equal-weight row. `Start` is `#FB923C` at 700, `Delete` `#F05151` at **400**: the destructive action is *lighter* than the primary, and hue is the only separator. Under the blur, or with a red-green deficit, cells 1 and 3 are indistinguishable, `Delete` sits on the outer edge where a thumb lands, and it has no pressed state to warn on a mis-tap.
+Header (icon, name, meta line, chevron), optional day list, then a **three-cell footer: `Start` | `Edit` | `Delete`** — all 39px tall, 13px, radius 0, transparent, one equal-weight row. `Start` is `#FB923C` at 700, `Delete` `#F05151` at **400**: the destructive action is *lighter* than the primary, and hue is the only separator. Under the blur, or with a red-green deficit, cells 1 and 3 are indistinguishable, `Delete` sits on the outer edge where a thumb lands, and it has no pressed state to warn on a mis-tap.
 
 The page also carries **three "start" idioms**: `Quick Start` (gradient pill, r14, 14px/700), `Start day` (tinted chip, r999, 11px/700, 86×24), footer `Start` (text, r0, 13px/700, 164×39).
 
@@ -67,7 +67,7 @@ The page also carries **three "start" idioms**: `Quick Start` (gradient pill, r1
 
 ## 7. Consistency deltas vs `design-system-current.md`
 
-- **A sixth tab idiom.** §12.2 lists A `DsSegmented` (r10/7), B ProgressPage pills (r20), C ShoppingBudget (r12/9), D CoachScreen (r12/9), E r999 chips, F nav. Train Hub's sub-tabs match none: `flex:1`, `padding 12px 0`, **radius 0**, no container fill, selected = `2px solid #F97316` bottom border + `#FB923C` 600 (L15375–15391). It is the only underline bar, the only one with no container and no radius, and it skips the `role=tablist`/`aria-selected` A alone has. The same screen also uses idiom **E** (r999, L15751) for `Start day` and the Adaptive chips.
+- **A sixth tab idiom.** §12.2 lists A `DsSegmented` (r10/7), B ProgressPage pills (r20), C ShoppingBudget (r12/9), D CoachScreen (r12/9), E r999 chips, F nav. Train Hub's sub-tabs match none: `flex:1`, `padding 12px 0`, **radius 0**, no container fill, selected = `2px solid #F97316` bottom border + `#FB923C` 600 (L15375–15391). It is the only underline bar, the only one with no container and no radius, and it skips the `role=tablist`/`aria-selected` A alone has. The screen also uses idiom **E** (r999, L15751) for `Start day` and the Adaptive chips.
 - **Radii** 8 here vs 30 app-wide: card 12/14/16, chips 999, `New` 8, strays 9 and 11. **Cards**: split cards `#1C1C1E` r16 with `0 1px 2px / 0 6px 20px rgba(0,0,0,0.18)`; History rows share the fill with no shadow — one object type, two elevations. **Accent**: 12 accent-coloured controls in one viewport, so it no longer signals "primary". **Icons**: 14/16/22px plus one emoji.
 
 ## 8. Keep, fix, cut
@@ -78,4 +78,4 @@ The page also carries **three "start" idioms**: `Quick Start` (gradient pill, r1
 
 ## After reading the function audit
 
-No score changes. One disagreement: its §7 reads the empty state as "one action", but `train-hub-empty.png` shows **two** action controls, so my checklist 6 still fails — a design rule, not a function defect. It also names a motion defect I did not measure (day panel collapses with `visibility 0s linear .4s`, L15697–15705, leaving `Start day` un-hittable for 400ms); that reinforces Motion 2 without moving it. We reached "demote Quick Start" independently — it from tap counts, I from the blur.
+No score changes. One disagreement: its §7 reads the empty state as "one action", but `train-hub-empty.png` shows **two**, so my checklist 6 still fails — a design rule, not a function defect. It names a motion defect I did not measure (the day panel collapses with `visibility 0s linear .4s`, L15697–15705, leaving `Start day` un-hittable for 400ms), which reinforces Motion 2 without moving it. We reached "demote Quick Start" independently.
