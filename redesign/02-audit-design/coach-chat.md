@@ -28,7 +28,7 @@ Nine numbered markers with a printed legend on `coach-chat-annotated.png`.
 
 **Targets** (scan, 18 interactive): 7 under 44x44 = **61% pass** — `✎` 10x12; New chat 79x32; Edit 130x32 (x2); Copy 36x32 (x2); Retry 36x32. Empty adds six 28x28 `×`. Pass: tabs 83x48, textarea 307x50, Send 46x46, FAB 50x50.
 
-**Spacing**: 99 non-zero longhands (nav and FAB excluded); 71 in {4,8,12,16,24,32} = **71.7% on grid**. Off-grid: 58, 20x3, 10x4, 7x2, 6x10, 2x8, undocumented.
+**Spacing**: 99 non-zero longhands (nav and FAB excluded); 71 in {4,8,12,16,24,32} = **71.7% on grid**. Off-grid, undocumented: 58, 20x3, 10x4, 7x2, 6x10, 2x8.
 
 **Type**: populated 4 sizes (11/12/16/32), weights 400–800; empty adds 13/14/17 → **7 across states**. `line-height:normal` on 10 of 18 nodes. Zero `tabular-nums`.
 
@@ -59,7 +59,7 @@ Nine numbered markers with a printed legend on `coach-chat-annotated.png`.
 | 2 | Type scale | **fail** | 7 sizes across states; `line-height:normal` on 10/18 nodes |
 | 3 | 8px grid | **fail** | 71.7%; breaks (58, 20, 10, 7, 6, 2) undocumented |
 | 4 | Control states | **pass** | 5/5 changed at 100ms, real press; `button:disabled{opacity:.4}` exists, Send uses it |
-| 5 | Meaningful motion | **fail** | `pillIn` 0.35s load-in; the message list grows with no insertion animation |
+| 5 | Meaningful motion | **fail** | `pillIn` 0.35s load-in; the growing message list has no insertion animation |
 | 6 | Empty/error copy | **fail** | Empty (`coach-chat-empty-full.png`): headline + 6 chips + 6 `×` + disclosure + disclaimer = 13 controls. Error is correct with Retry; fails on empty |
 | 7 | Numbers | **fail** | Zero `tabular-nums`; "72.5 kg", "87.5 kg" proportional; no timestamp on any turn |
 | 8 | One icon set | **fail** | 🎙️ FAB and `✎` rename beside 1.8-stroke `Ic` SVGs |
@@ -73,7 +73,7 @@ Nine numbered markers with a printed legend on `coach-chat-annotated.png`.
 - **Tabs**: a filled 12px-radius pill on a transparent 83x48 track — a third pattern beside flat nav items and `DsSegmented`.
 - **Card style**: the app card is `--color-card #1C1C1E` at 16px; the reply is transparent at 0 radius, so the densest content is the one thing that is not a card — while the plan card inside a reply is.
 - **Icons**: `Ic` defaults z=20 / stroke 1.8; here a 20px emoji and a 12px text glyph.
-- **Accent**: four accent surfaces at once (logo gradient, active tab, bubble fill, FAB); none is the primary action.
+- **Accent**: four accent surfaces at once (logo, active tab, bubble fill, FAB); none is the primary action.
 
 ## 7. Keep, fix, cut
 
@@ -82,6 +82,10 @@ Nine numbered markers with a printed legend on `coach-chat-annotated.png`.
 - **Fix**: make Send the one accent-filled control; it is invisible at 8px blur while the FAB wins.
 - **Fix**: give replies a real surface (`--color-card`, 16px) so both speakers are one component, two states.
 - **Fix**: 7 targets under 44; the 10x12 rename and 36x32 Copy/Retry are worst.
-- **Fix**: add a timestamp per turn or day group; the thread carries no time information.
+- **Fix**: add a timestamp per turn or day; the thread carries no time information.
 - **Cut**: the voice FAB here — it wins the squint, is an emoji on a glowing gradient, and covers 37x21px of SAVE PLAN.
 - **Cut**: `Edit · re-runs from here` per turn; at 130x32 it out-shouts the reply above it.
+
+## 8. After reading the function audit
+
+`01-audit-function/coach-chat.md` confirms the FAB/SAVE PLAN overlap and the 10x12 rename box independently. **No score changed.** One thing it caught that I had not measured: the empty chat mounts at `scrollTop 41`, clipping the opener line (`coach-chat-empty.png`) — a second scroll-position defect beside the correct bottom-pin in the populated thread. It also notes the pending state swaps Send for a red stop square, which strengthens my "generic dots" reading rather than changing it.
