@@ -27,7 +27,7 @@ Train Hub is where a lifter picks today's session and starts it, with past sessi
 
 ## 3. Task walkthrough
 
-**Flow 1 (guest → first set), 1B seeded**: 14 taps, 3,090 ms, pass (`flow-metrics.jsonl` flow 1). Hub owns taps 1-2: `START WORKOUT` → hub, `Quick Start` → WorkoutLog. Video `artifacts/flows-01-guest-first-set-f-c4621…/video.webm`; per-step logs were not emitted, so timestamps are taken from the tapLog order over 3,090 ms. Hesitation: the accent button starts an *empty* workout while the user's PPL split sits below the fold; nothing on the header says which one produces today's session.
+**Flow 1 (guest → first set), 1B seeded**: 14 taps, 3,090 ms, pass (`flow-metrics.jsonl` flow 1). Hub owns taps 1-2: `START WORKOUT` → hub, `Quick Start` → WorkoutLog. Video `artifacts/flows-01-guest-first-set-f-c4621…/video.webm`; no per-step log was emitted, so order comes from tapLog over 3,090 ms. Hesitation: the accent button starts an *empty* workout while the user's PPL split sits below the fold; nothing on the header says which one produces today's session.
 
 **Flow 6 (edit a split, start it)**: 5 taps, 2,300 ms, pass (`flow-metrics.jsonl` flow 6, tapLog `Train → Edit → SAVE SPLIT → Start → Push`). Video `artifacts/flows-06-edit-split-start--d2ee6…/video.webm`. Hesitation at tap 4: three footer buttons (Start 164x39, Edit 94x39, Delete 93x39) share one row, weight and size, with the destructive one a thumb-width from Start (`train-hub-populated-full.png`). Second hesitation at tap 5: the sheet re-lists days already visible on the expanded card (`train-hub-populated-day-modal.png`).
 
@@ -50,7 +50,7 @@ M=0, W=0, G=0 → band 5.
 
 - **Blocked click, "Start Day A"** (`page-metrics.jsonl` train-hub interactive; 26/30 clicked). Cause L15697-L15705: the day panel collapses via `max-height .4s` with `visibility 0s linear .4s`, so after the crawler collapsed split 2 the day's Start button stayed in the DOM, un-hittable, for 400 ms — Playwright reported "element is not visible". A user tapping in that window loses the tap.
 - **19/33 targets under 44px** (`targets.json`), second worst in the app: Start day 86x24 (x3), Start 164x39 / Edit 94x39 / Delete 93x39 (x3 cards), tabs 118x42 (x3), Cardio 88x34, Quick Start 107x34, AI Builder 99x33, New 70x33.
-- 16 crawler recoveries: two thirds of hub controls navigate away, so the crawl had to re-enter the page 16 times.
+- 16 crawler recoveries: most hub controls navigate away, forcing 16 re-entries.
 - No console errors, no page errors, 1 axe violation (global shell), 0 contrast failures of 97.
 
 ## 6. Rubric scores
@@ -84,4 +84,4 @@ M=0, W=0, G=0 → band 5.
 **Cut**
 - Day sheet (L15139-L15230) and its "Empty workout" row: it repeats days already on screen and duplicates Quick Start — a second screen for a daily action breaks "daily actions take one tap".
 - RECENT strip (L15396): horizontally clipped, and every chip is reachable from History or the split card.
-- Separate Cardio screen: merge in. `CardioHistory` (L55925) filters the same `lk_history` this tab already renders, so one of the two lists is pure duplication; the hub's Cardio button (L15333) is the screen's only entry and its browser back is broken (SUMMARY: cardio "History back | FAIL"). Merge cost is bounded — `CardioLogFlow`/`CardioFavorites` move in as a second start path, `CardioHistory` and the "Back to Train" screen (L56244) are deleted.
+- Separate Cardio screen: merge in. `CardioHistory` (L55925) filters the same `lk_history` this tab already renders, so one of the two lists is pure duplication; the hub's Cardio button (L15333) is the screen's only entry and its browser back is broken (SUMMARY: cardio "History back | FAIL"). Cost: `CardioLogFlow`/`CardioFavorites` move in as a second start path; `CardioHistory` and the "Back to Train" screen (L56244) are deleted.
