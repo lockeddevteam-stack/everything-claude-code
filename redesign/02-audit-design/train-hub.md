@@ -38,44 +38,44 @@ The page also carries **three "start" idioms**: `Quick Start` (gradient pill, r1
 
 | Criterion | Score | Evidence |
 |---|---|---|
-| Hierarchy | 2 | 8px blur of `train-hub-populated.png`: TRAIN, Quick Start and the FAB survive at equal weight; 11 further accent controls compete; the semantic primary (`Start day` 86×24) disappears. |
-| Typography | 3 | 6 sizes; line-height unset on 5 of 11 pairs; 700 on 37 nodes ≤13px. `-populated-full.png`. |
+| Hierarchy | 2 | 8px blur, `train-hub-populated.png`: 3 masses at equal weight, 11 further accent controls competing, `Start day` (86×24) gone. |
+| Typography | 3 | 6 sizes, line-height unset on 5/11 pairs, 700 on 37 nodes ≤13px; `-populated-full.png`. |
 | Spacing | 2 | 328/474 = 69.2%, undocumented. Band 2 = 60–79%. |
-| Contrast | 4 | 97/97 known pass, 0 fail; 2 unknown over gradients; one being the primary action's own label. |
-| Component consistency | 1 | 3 "start" variants (r14 pill / r999 chip / r0 row); 8 radii. `-populated-full.png`, `-scrolled-3.png`. |
+| Contrast | 4 | 97/97 pass, 2 unknown over gradients (one the primary label); `contrast.json`. |
+| Component consistency | 1 | 3 "start" variants, 8 radii; `-populated-full.png`, `-scrolled-3.png`. |
 | Targets | 1 | 14/33 = 42.4% ≥44px, band 1 (<75%); `targets.json`. |
-| Motion and feedback | 2 | 3 of 5 pressed (base 3); decorative `cardRise`/`pillIn` entrances → −1. |
-| HIG fit | 1 | 3 sections: Buttons (destructive equals primary, `-scrolled-3.png`); Tab bars (no `role=tablist`; Library navigates away, `exercise-library-populated.png`); Layout (19/33 under 44px). |
+| Motion and feedback | 2 | 3/5 pressed (base 3), decorative `cardRise`/`pillIn` → −1. |
+| HIG fit | 1 | 3 sections: Buttons (destructive equals primary, `-scrolled-3.png`), Tab bars (no `role=tablist`, Library navigates away, `exercise-library-populated.png`), Layout (19/33 under 44px). |
 | AI-look penalty | 1 | 4 tells: emoji icon (🎙️ FAB), 8 mixed radii, gradient + glow button, stacked equal-weight split cards. |
-| Accessibility | 3 | 1 critical `meta-viewport` (shell) caps at 3; focus order = DOM = visual; sub-tabs expose no `aria-selected`; three identical "Delete" names carry no split context. |
+| Accessibility | 3 | 1 critical `meta-viewport` (shell) caps at 3; focus order = DOM = visual; no `aria-selected`; 3 identical "Delete" names. |
 
-## 6. Detail checklist; 1 / 11
+## 6. Detail checklist, 1 / 11
 
 | # | Item | Verdict | Measurement |
 |---|---|---|---|
-| 1 | Primary action obvious | fail | 2 accent-filled elements (Quick Start, FAB); 5-sec test names Quick Start, not `Start`. |
-| 2 | Type scale | fail | `line-height: normal` on the 14/13/12/11px variants (5 of 11 pairs). |
+| 1 | Primary action obvious | fail | 2 accent-filled elements (Quick Start, FAB); 5-sec test names Quick Start. |
+| 2 | Type scale | fail | `line-height: normal` on 14/13/12/11px (5 of 11 pairs). |
 | 3 | 8px grid | fail | 69.2% (328/474) vs 95%. |
 | 4 | Control states | fail | `Delete` and `Start day` unchanged at 100ms under real `mouse.down()`. |
-| 5 | Meaningful motion | fail | `cardRise 0.5s`, `pillIn 0.45s`; load entrances. |
-| 6 | Empty/error copy | fail | `train-hub-empty.png` has **two** action controls (Build Manually, AI Split Builder); rule is one. Error N/A. |
-| 7 | Numbers | fail | 0 `tabular-nums`; "9/7/2026" absolute at 2 days old, beside "Sep 6". |
+| 5 | Meaningful motion | fail | `cardRise 0.5s`, `pillIn 0.45s`, load entrances. |
+| 6 | Empty/error copy | fail | `train-hub-empty.png`: **two** action controls (Build Manually, AI Split Builder), rule is one. Error N/A. |
+| 7 | Numbers | fail | 0 `tabular-nums`; "9/7/2026" absolute at 2 days old beside "Sep 6". |
 | 8 | One icon set | fail | 1 emoji (🎙️) as the FAB icon. |
 | 9 | Scroll and targets | fail | 19/33 under 44×44; no root overflow. |
-| 10 | Native dark | fail | L\* 0.0 → 10.3 → 18.1 ✓, but accent glow on Quick Start and the FAB. |
-| 11 | Copy | **pass** | Labels ≤4 words; 0 exclamation marks in innerText; no filler. |
+| 10 | Native dark | fail | L\* 0.0 → 10.3 → 18.1 ✓, but accent glow on Quick Start and FAB. |
+| 11 | Copy | **pass** | Labels ≤4 words, 0 exclamation marks in innerText, no filler. |
 
 ## 7. Consistency deltas vs `design-system-current.md`
 
 - **A sixth tab idiom.** §12.2 lists A `DsSegmented` (r10/7), B ProgressPage pills (r20), C ShoppingBudget (r12/9), D CoachScreen (r12/9), E r999 chips, F nav. Train Hub's sub-tabs match none: `flex:1`, `padding 12px 0`, **radius 0**, no container fill, selected = `2px solid #F97316` bottom border + `#FB923C` 600 (L15375–15391). It is the only underline bar, the only one with no container and no radius, and it skips the `role=tablist`/`aria-selected` A alone has. The screen also uses idiom **E** (r999, L15751) for `Start day` and the Adaptive chips.
-- **Radii** 8 here vs 30 app-wide: card 12/14/16, chips 999, `New` 8, strays 9 and 11. **Cards**: split cards `#1C1C1E` r16 with `0 1px 2px / 0 6px 20px rgba(0,0,0,0.18)`; History rows share the fill with no shadow; one object type, two elevations. **Accent**: 12 accent-coloured controls in one viewport, so it no longer signals "primary". **Icons**: 14/16/22px plus one emoji.
+- **Radii** 8 here vs 30 app-wide: card 12/14/16, chips 999, `New` 8, strays 9 and 11. **Cards**: split cards `#1C1C1E` r16, shadow `0 1px 2px / 0 6px 20px rgba(0,0,0,0.18)`; History rows same fill, no shadow: one object type, two elevations. **Accent**: 12 accent-coloured controls in one viewport. **Icons**: 14/16/22px plus one emoji.
 
 ## 8. Keep, fix, cut
 
-- **Keep**: the underline sub-tab row; the app's clearest tab affordance; it needs only 44px height and tablist semantics.
-- **Fix**: make split-card `Start` the filled primary at ≥44px and pull `Delete` out of that row; today they are 39px siblings separated by hue, `Delete` at the lighter weight.
+- **Keep**: the underline sub-tab row, the app's clearest tab affordance; it needs 44px height and tablist semantics.
+- **Fix**: make split-card `Start` the filled primary at ≥44px and pull `Delete` out of that row (today: 39px siblings, hue the only separator, `Delete` lighter).
 - **Cut**: `Quick Start` or the `Start day` chips; three "start" idioms, and the loudest is the least likely intent.
 
 ## After reading the function audit
 
-No score changes. One disagreement: its §7 reads the empty state as "one action", but `train-hub-empty.png` shows **two**, so my checklist 6 still fails; a design rule, not a function defect. It names a motion defect I did not measure (the day panel collapses with `visibility 0s linear .4s`, L15697–15705, leaving `Start day` un-hittable for 400ms), which reinforces Motion 2 without moving it. We reached "demote Quick Start" independently.
+No score changes. One disagreement: its §7 reads the empty state as "one action", but `train-hub-empty.png` shows **two**, so my checklist 6 still fails. It names a motion defect I did not measure (the day panel collapses with `visibility 0s linear .4s`, L15697–15705, leaving `Start day` un-hittable for 400ms), which reinforces Motion 2 without moving it. We reached "demote Quick Start" independently.
