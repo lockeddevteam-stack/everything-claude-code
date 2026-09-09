@@ -1,4 +1,4 @@
-# Coach Plan — Function Audit (Wave 1)
+# Coach Plan — Function Audit
 
 **Purpose.** Show the multi-week plan the coach wrote — which phase you are in, what this week is for, how far its targets have come — as a read-only document you ask the coach to change.
 
@@ -23,15 +23,15 @@ No. `coachPlan` is read in five places (grep, whole file): the pane (L50013), `s
 
 | Feature | Line | Status |
 |---|---|---|
-| Empty state + prefill CTA | L50963-50983 | working |
+| Empty state + CTA | L50963-50983 | working |
 | THIS WEEK card (phase/week, notes, deload copy) | L51046-51068 | working |
 | Week dots vs `splits[0]` day count | L51009-51014 | broken (assumes the first split is the one being run) |
-| Overall progress bar | L50727-50734 | broken (inherits target bug) |
+| Overall bar | L50727-50734 | broken (inherits target bug) |
 | Phase timeline, expand, 7-phase cap | L51114-51199 | working |
 | Target rows and % bars | L51172-51190 | broken — shortcut ids (L50577-50588) stale: `bench→107`=*Incline DB Fly*, `deadlift→201`=*Pull Up*, `pull up→207`=*Wide Grip Pulldown* |
 | Plan `name` / `description` | stored L50520 | dead — never rendered; used only in prefills |
-| Plan-over / phase-ending review | L51018-51032 | working |
-| Adjust this plan | L51201-51219 | working, redundant with the empty CTA path |
+| Phase-ending review | L51018-51032 | working |
+| Adjust this plan | L51201-51219 | working; redundant with the empty CTA |
 | Delete this plan | L51220-51236 | working; native `confirm()`, no undo, no archive |
 | Header rename / New chat / tabs | L50857-50916 | shared shell; 10x12 rename target |
 
@@ -52,7 +52,7 @@ Hesitation: SAVE PLAN sits in a scrolling bubble; nothing warns the plan will no
 |---|---|---|---|
 | Empty | `coach-plan-empty.png` | yes — "No plan yet", one CTA | correct |
 | Populated | `coach-plan-populated.png` | yes | correct as a state (numbers scored under Data correctness) |
-| Loading / Error | — | N/A: pane issues no request, plan is parsed out of a chat reply (page-map 2.14 L/X n/a; index.md L448-449) | — |
+| Loading / Error | — | N/A: no request; the plan is parsed out of a chat reply (page-map 2.14 L/X n/a; index.md L448-449) | — |
 
 A = 2, M = 0, W = 0, G = 0.
 
@@ -62,16 +62,16 @@ A = 2, M = 0, W = 0, G = 0.
 |---|---|
 | Non-responder "Coach name" (SUMMARY L40) | harness artefact: the input is already focused when the crawl clicks it (SUMMARY L124b); shared with the other coach pages. Real defect is the 10x12 target (D12) |
 | "Delete this plan" skipped as destructive | native `confirm()` L51222 (D15); `coach-plan-populated-delete-armed.png` is pixel-identical to `-scrolled-2.png` — no in-app confirmation surface |
-| 3/17 targets under 44px; axe `meta-viewport` 1(1) | shell-wide (D12, D1) |
+| 3/17 targets under 44px; axe `meta-viewport` 1(1) | shell-wide (D12) |
 
 ## Rubric scores
 
 | Criterion | Score | Evidence |
 |---|---|---|
-| Purpose clarity | 3 | `coach-plan-populated.png`: header reads "Coach · Continuing last conversation", not Plan; job inferable after reading THIS WEEK; 3 primary-weight elements compete (Adjust this plan, mic FAB, New chat) |
+| Purpose clarity | 3 | `coach-plan-populated.png`: header reads "Coach · Continuing last conversation", not Plan; job inferable after reading THIS WEEK; 3 primary-weight elements compete (Adjust, mic FAB, New chat) |
 | Feature completeness | 2 | Core renders, but target progress is broken and `name`/`description` dead — `coach-plan-populated.png` shows a plan with no title anywhere |
 | Task success | 2 | Reading passes (baseline populated + 11/12 interactive); acting on the plan needs a manual rebuild in Split Builder; no flow covers plan creation |
-| Speed | 4 | 2 taps to THIS WEEK, 1 screen change (`coach-plan-populated.png` chain); shortfall: creating a plan is 6 taps + a chat round trip (flow-5 795 ms) and the week's assignment appears nowhere on Home or Train |
+| Speed | 4 | 2 taps to THIS WEEK, 1 screen change (`coach-plan-populated.png`); shortfall: creating a plan is 6 taps + a round trip (flow-5 795 ms), and the week's assignment appears nowhere on Home or Train |
 | State handling | 5 | Band table, A=2, M=W=G=0: `coach-plan-empty.png` (specific, one action), `coach-plan-populated.png`; loading/error N/A per page-map 2.14 |
 | Data correctness | 1 | `coach-plan-populated.png`: "Bench 5RM → 75 kg 0%" while seed `lk_prs["111"]`=72.5 kg (97%); "Deadlift 4RM → 120 kg 0%" while `lk_prs["221"]`=115 kg (96%). Cause L50577-50588; propagates to "Phase progress 10%" and "Overall 37%" (true ≈56%) |
 | Error recovery | 1 | Silent loss: a truncated or malformed marker drops the plan with no message and no retry; no error surface |
