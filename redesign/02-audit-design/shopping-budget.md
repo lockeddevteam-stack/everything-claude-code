@@ -20,7 +20,7 @@ Keyed to `shopping-budget-annotated.png` (5 panels, full legend on the image): 1
 |---|---|---|---|
 | List | 59 | 40 | 32% |
 | Pantry | 33 | 20 | 39% |
-| My Stores | 23 | 17 | 26% |
+| Stores | 23 | 17 | 26% |
 | Budget | 21 | 14 | 33% |
 | **All** | **136** | **91** | **33.1%** |
 
@@ -32,7 +32,7 @@ List's 40 (matching `tests/baseline/scans/shopping-budget.json`) is driven by: *
 
 **Typography** — distinct sizes on visible text: **10, 11, 12, 13, 14, 15, 16, 18, 28 = 9**; 19 size/weight pairs. Line height unpaired: 13px ships 18.85/19.5/`normal`, 11px 15.95/16.5/`normal`, 28px 40.6/42. 700+ on 10-13px running text. `tabular-nums`: **0 of 30** styles.
 
-**Pressed state** (real `mouse.down`, read at 100ms): ADD TO LIST 0.97 + shadow, Pantry tab 0.979, Export 0.97, Clear Done 0.97, Chicken Breast chip 0.974 — **5/5**. `button:disabled{opacity:0.4}` present.
+**Pressed state** (real `mouse.down`, read at 100ms): ADD TO LIST 0.97 + shadow, Pantry tab 0.979, Export 0.97, Clear Done 0.97, Chicken Breast 0.974 — **5/5**. `button:disabled{opacity:0.4}` present.
 
 ## 4. Rubric scores
 
@@ -55,12 +55,12 @@ List's 40 (matching `tests/baseline/scans/shopping-budget.json`) is driven by: *
 
 | # | Item | Verdict | Measurement |
 |---|---|---|---|
-| 1 | Primary action obvious | FAIL | 0 accent-filled buttons on List; ADD TO LIST invisible at 8px blur. |
+| 1 | Primary action obvious | FAIL | 0 accent-filled buttons on List; ADD TO LIST gone at 8px blur. |
 | 2 | Type scale | FAIL | 9 sizes; 13px has 3 line-heights. |
 | 3 | 8px grid | FAIL | 93.5%, under 95%, undocumented. |
 | 4 | Control states | PASS | 5/5 changed at 100ms; `button:disabled{opacity:0.4}` present. |
 | 5 | Meaningful motion | FAIL | Zero decorative rows, but an inserted list row does not animate (only the header `pillIn` re-runs). |
-| 6 | Empty and error copy | FAIL | List empty: 4-word title + a 20-word line offering three routes, no action control. Error: store-search failure renders nothing (`shopping-budget-error.png`). |
+| 6 | Empty and error copy | FAIL | List empty: 4-word title + a 20-word line offering three routes, no action control. Error: store-search failure renders nothing (`-error.png`). |
 | 7 | Numbers | FAIL | 0/30 styles use tabular-nums; $19.70 / $120.00 / 16% proportional. |
 | 8 | One icon set | FAIL | 34 emoji across four sub-tabs, mixed with ✓ ✕ ★ ☆ glyphs and 16px SVGs. |
 | 9 | Scroll and targets | FAIL | 91/136 under 44. no overflow, scrollWidth 393 = clientWidth. |
@@ -70,7 +70,7 @@ List's 40 (matching `tests/baseline/scans/shopping-budget.json`) is driven by: *
 ## 6. Consistency deltas vs `design-system-current.md`
 
 - **Radii**: 11 distinct on one page (4, 6, 7, 8, 10, 12, 14, 16, 20, 999, 50%). The r20 pill and the r999 pill do the same job side by side.
-- **Tab pattern**: a fourth pattern, r12 pills in a r20 track at 82x30, on top of the app's three.
+- **Tab pattern**: a fourth pattern, r12 pills in a r20 track at 82x30, atop the app's three.
 - **Card style**: List uses `--color-card` r16 with the CSSARR shadow; Budget uses r16 outer, r6/r7 inner tiles, a green gradient meter.
 - **Icon size**: 16px SVGs, 20px emoji, 14px text glyphs.
 - **Accent use**: `#F97316` carries list state, tab state, store identity and section headers at once. `STORE_PALETTE` (10 retailer-brand hexes, L42025) is the page's only non-token colour source and is dead in the populated state: it colours stores added in-session only, so the seeded store hits `s.color === undefined` and renders an unstyled browser button. Ten hex literals, zero pixels.

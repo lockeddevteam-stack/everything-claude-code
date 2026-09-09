@@ -4,25 +4,25 @@ Captures: `pr-vault-populated.png` (list), `-populated-detail.png`, `-populated-
 
 ## 1. Squint (8px blur) and 5-second test
 
-Blurred `pr-vault-populated.png`: one orange bar burns through; the rest is nine grey slabs of identical size, radius and title position, with a faint blue mark repeating down the right edge. First the orange bar, second the slabs, third the blue column. **The winner is `LOG A PR WITHOUT A WORKOUT`** — the rarest action wearing the only primary styling. A reader guesses "somewhere to add a PR", not "my records"; the records carry no ranking or recency cue.
+Blurred `pr-vault-populated.png`: one orange bar burns through; the rest is nine grey slabs of identical size, radius and title position, with a faint blue mark repeating down the right edge. First the bar, second the slabs, third the blue column. **The winner is `LOG A PR WITHOUT A WORKOUT`** — the rarest action wearing the only primary styling. A reader guesses "somewhere to add a PR", not "my records"; the records carry no ranking or recency cue.
 
 ## 2. Callouts (`pr-vault-annotated.png`; left panel list, right detail)
 
 1. Accent bar: gradient fill plus a `rgba(249,115,22,.25/.22)` glow; 353×42, h<44.
 2. Dimmed `1RM` chip: the card sets `opacity:.5` when no 1RM exists (L29496). Rendered pixels `#58585d` on `#232325` = **2.22:1**.
 3. Its `—` shares 2.22:1 and is the only value shown for 9 of 9 lifts.
-4. `EST. 1RM` `#4186f6` on `#2c2c2e` = **3.96:1**, the only coloured number: the eye lands on the estimate, not the record (`110 kg`, neutral).
+4. `EST. 1RM` `#4186f6` on `#2c2c2e` = **3.96:1**, the only coloured number: the eye lands on the estimate, not the record.
 5. Nine cards, identical 353×119.5, r16, same title style.
 6. Back button 22×22.
-7. Chart `<svg width:100% viewBox="0 0 120 120">` (L29558) renders 319px wide; default `xMidYMid meet` letterboxes it to **120px, 38% of the width — 62% dead space**.
+7. Chart `<svg width:100% viewBox="0 0 120 120">` (L29558) renders 319px wide; `xMidYMid meet` letterboxes it to 120px — **62% dead width**.
 8. Range chips 38.4×19; `90D` output byte-identical to `ALL`.
 9. `1 REP MAX` card at `opacity:.5`: all three lines 2.65–2.71:1.
 
 ## 3. The chart as a chart
 
-Polyline, 6 points, accent stroke. No axes, gridlines or y labels: `y = 110 − (e1−mn)/rg*100` rescales to the visible min/max, pinning the lowest point to the floor and the highest to the ceiling whatever the spread. X is `i*(vw−20)/(n−1)` — **index-based, not time-based** — while the corner labels are dates (`2026-07-31`, `2026-09-04`), so a 3-day gap and a 10-day gap draw identically. A reader gets two facts: `6 sessions`, and `91.75 kg` printed in the header, not on the plot. Intermediate values, the vertical range and the cadence are unreadable.
+Polyline, 6 points, accent stroke. No axes, gridlines or y labels: `y = 110 − (e1−mn)/rg*100` rescales to the visible min/max, pinning the lowest point to the floor and the highest to the ceiling whatever the spread. X is `i*(vw−20)/(n−1)` — **index-based, not time-based** — while the corner labels are dates (`2026-07-31`, `2026-09-04`), so a 3-day and a 10-day gap draw identically. A reader gets two facts: `6 sessions`, and `91.75 kg` printed in the header, not on the plot. Every intermediate value, the vertical range and the cadence are unreadable.
 
-Range: `ALL` and `90D` return identical points and date labels — two of three chips are a no-op on 6 weeks of seed. `30D` drops to 4 points, but the y rescale gives the same amplitude and floor-to-ceiling climb, so **nothing in the shape signals the change** beyond the chip tint and `4 sessions`.
+Range: `ALL` and `90D` return identical points and labels — two of three chips are a no-op on 6 weeks of seed. `30D` drops to 4 points, but the y rescale keeps the same amplitude and floor-to-ceiling climb, so **nothing in the shape signals the change** beyond the chip tint and `4 sessions`.
 
 ## 4. Measurements
 
@@ -97,4 +97,4 @@ Motion: real `mouse.down` read at 100ms — 5/5 change (accent button, card, Bac
 
 - **Keep**: the three-fact card (record / rep-band best / estimate) answers "what can I lift" in one row; 5/5 pressed feedback; the L* ladder.
 - **Fix**: the `opacity:.5` dimming (2.22:1) and the blue estimate (3.96:1); the chart — labelled y ticks, date-proportional x, no letterboxing; every sub-44 target; `tabular-nums`.
-- **Cut**: the `90D` chip (identical output to `ALL`); the accent glow; the full-width `LOG A PR WITHOUT A WORKOUT` bar as the loudest thing on screen — it belongs in the toolbar so the records win the squint.
+- **Cut**: the `90D` chip; the accent glow; the full-width `LOG A PR WITHOUT A WORKOUT` bar as the loudest thing on screen — it belongs in the toolbar so the records win the squint.
