@@ -15,7 +15,7 @@ A read-only record of one finished session — name, date, note, feelings, every
 | Edit | L17562 | **broken** | round-trip rewrites totals, destroys RIR 5; §5 |
 | Convert → split | L17599 | working | `.filter(Boolean)` L16637 drops unresolved names |
 | Delete (two-tap confirm) | L17619 | working | toast in `-convert-modal.png` |
-| NOTE card / HOW YOU FELT | L17638, L17660 | working | |
+| NOTE, HOW YOU FELT, blocks, AI insight | L17638+ | working | |
 | EXERCISES list | L17710 | working | gated on `w.sets &&`; §5 |
 | Edit fields, Add Set, remove set/exercise | L17198-17510 | working | `-populated-edit.png` |
 | Empty-state copy "No exercises…" | L17509 | **dead** | edit-mode only; Edit hidden when `exercises.length===0`, so unreachable |
@@ -56,8 +56,7 @@ M=0, W=1, G=0. (Reading the `0` as a render artefact instead gives M=1, W=0 and 
 2. **Stray "0"**: L17710 gates the EXERCISES card on `w.sets &&`, so `w.sets === 0` makes React print `0`. Visible mid-page in `-empty.png`.
 3. **Edit round-trip rewrites totals** (new, not in the baseline defect list). `saveEdit` L17160-L17193 recounts every set with `s.w || s.r` and recomputes `vol`. Seed `seed-data.json` L15 stores `sets:16, vol:"14363 kg"` but lists 17 rows, one `setType:"warmup"`. After Edit → SAVE with no user change, `-convert-modal.png` and `-convert-new.png` read **"17 sets · 14723 kg (edited)"** — +1 set, +360 kg, the warm-up's 45 × 8. Index L201 records no edit in between.
 4. **Edit destroys RIR 5**: the `<select>` offers `"", 0-4, "5+"` (L17451); the seed's first squat set has `rir:"5"`, matching none, so `-populated-edit.png` shows `--` where `-populated.png` shows `RIR 5`. Saving writes `rir:""`.
-5. **Edit-mode Back discards silently**: L17220 is `onClick: setEditing(false)`, no confirm.
-6. `saveEdit` L17176 forces `done:true` on every surviving set.
+5. **Edit-mode Back discards silently**: L17220 is `onClick: setEditing(false)`, no confirm. `saveEdit` L17176 also forces `done:true` on every surviving set.
 
 ## 6. Rubric scores
 

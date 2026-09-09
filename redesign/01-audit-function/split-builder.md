@@ -11,9 +11,9 @@ Assemble or edit a named split — its days, and the exercises in each day — t
 | Feature | Component / line | Status | Note |
 |---|---|---|---|
 | Split name field | SB L9267 | working | `split-builder-populated-full.png` |
-| Add a day | SB L9790-9818 | working | blank name → toast (`global-toast.png`) |
+| Add a day | SB L9790-9818 | working | blank name → toast, `global-toast.png` |
 | Rename day | SB L8809 | working | `split-builder-populated-rename-day.png` |
-| Remove day / exercise | SB L9390-9418 | working, unguarded | no confirm; crawl skipped all 19 |
+| Remove day / exercise | SB L9390-9418 | unguarded | no confirm; crawl skipped all 19 |
 | + Exercise → ExLib | SB L8808/L9216 | working | `split-builder-populated-pick.png` |
 | 📝 Block | SB L9430+ | working | 3 inputs responded |
 | Drag-reorder items | SB L8811, L8823 | hidden | `if (!e.touches…) return`: mouse and keyboard cannot reorder; only a grip glyph, `split-builder-populated.png` |
@@ -34,9 +34,9 @@ ConvertToSplitModal L16622 is hidden here: it is reachable only from Workout Det
 | 1 | Nav Train | 1522 | — |
 | 2 | card "Edit" | 2497 | sits beside an unconfirmed Delete (D15) |
 | — | type "PPL v2" | 3071 | — |
-| 3 | SAVE SPLIT | 3498 | scroll past 3 day cards; in `split-builder-populated.png` neither SAVE nor the name field is in frame |
+| 3 | SAVE SPLIT | 3498 | scroll past 3 day cards; `split-builder-populated.png` frames neither SAVE nor the name field |
 | 4 | card "Start" | 4445 | — |
-| 5 | day row "Push" | 5427 | sheet duplicates the 1-tap `Start <day>` header button (user-flows L210) |
+| 5 | day row "Push" | 5427 | sheet duplicates the 1-tap `Start <day>` header (user-flows L210) |
 
 Scratch creation is uncosted by any flow: `split-builder-empty.png` → name, day name, Add, then +Exercise → pick → back per exercise. A 3x5 split is ~20 taps, with no template or duplicate-day.
 
@@ -46,7 +46,7 @@ Scratch creation is uncosted by any flow: `split-builder-empty.png` → name, da
 |---|---|---|---|
 | Empty | `split-builder-empty.png`, `-empty-day-no-exercises.png` | yes | correct: "Add a new day", disabled SAVE, "No exercises yet" L9424 |
 | Loading | `split-builder-loading.png` | yes (2b: three-dot bubble, Send disabled) | correct |
-| Error | `split-builder-error.png` | **missing** | Test 2b: nothing distinguishes it from a successful first turn. The abort handler L14045 writes a hard-coded question, "What is your main training goal and how many days a week can you train?", into the assistant bubble. The baseline soft-check matched only because that string contains "train" |
+| Error | `split-builder-error.png` | **missing** | Test 2b: nothing distinguishes it from a successful first turn. Abort handler L14045 writes a hard-coded question, "What is your main training goal and how many days a week can you train?", into the assistant bubble; the baseline soft-check matched only because that string contains "train" |
 | Populated | `split-builder-populated.png`, `-full.png` | yes | correct |
 
 M = 1, W = 0, G = 0.
@@ -70,7 +70,7 @@ D2: voice FAB blocks Send answer, forced tap needed; in `split-builder-error.png
 | Task success | 3 | Flow 6 passes first attempt, 5/5 taps, `flow-metrics.jsonl` L8. Secondary needs a workaround: reorder is unreachable without touch, photo import has none. Shortfall: any edit is one mis-tap from silent loss (§5) |
 | Speed | 4 | 5 taps / 2300 ms, equal to `expectedTaps`, `flow-metrics.jsonl` L8. Shortfall: +1 tap vs the `Start <day>` header the sheet duplicates; scratch build ~20 taps |
 | State handling | 2 | A=4, M=1 (error, `split-builder-error.png`, test 2b), W=0, G=0 → band table row "M = 1 and W = 0" |
-| Data correctness | 5 | `split-builder-populated.png` vs seed `s1784970000000`: days Push/Pull/Legs; Legs = 701 Barbell Squat, 801 Romanian Deadlift, 703 Leg Press, 802 Lying Leg Curl, 1101 Standing Calf Raise, same order; badges 1/2/3. No units here |
+| Data correctness | 5 | `split-builder-populated.png` vs seed `s1784970000000`: days Push/Pull/Legs; Legs = 701 Barbell Squat, 801 Romanian Deadlift, 703 Leg Press, 802 Lying Leg Curl, 1101 Standing Calf Raise, in order; badges 1/2/3. No units here |
 | Error recovery | 1 | Silent loss and silent failure: Back drops edits with no prompt (§5); AI abort fabricates a coach question (`split-builder-error.png`); photo failure renders nothing (L14172) |
 
 **Function mean 3.0.**
@@ -84,16 +84,16 @@ D2: voice FAB blocks Send answer, forced tap needed; in `split-builder-error.png
 
 **Fix**
 - Back/Cancel must detect dirty state and confirm or autosave: measured loss of a rename plus a deleted day (§5).
-- Persist the draft so reload does not reopen a blank builder (user-flows L222).
-- Show that the AI request failed instead of a hard-coded question (L14045).
+- Persist the draft so reload does not reopen a blank builder (L222).
+- Say the AI request failed instead of faking a question (L14045).
 - Send the image on photo import, or remove the upload control (L14164).
 - Move the voice FAB off Send answer (D2).
 - Confirm or undo the 19 remove actions (L9390).
-- Raise Back, day name, +Exercise, Block to 44px (`targets.json`).
+- Raise Back, day name, +Exercise and Block to 44px (`targets.json`).
 - Expose reorder to non-touch input (L8823).
 
 **Cut**
 - "Import from Photo" as shipped: it fails the job it names, discarding the photo and inventing a split — worse than no feature under "one job per screen".
-- The day-picker sheet duplicating the per-day Start button: two paths to one action.
+- The day-picker sheet duplicating the per-day Start button: two paths, one action.
 
 North star: building a program is monthly, so a home one level below Train Hub and 2-tap entry are right; the cost is not. A 10-minute build dies to a 1-tap Back, and the ~20-tap scratch path has no template. Directive **refine** holds — keep placement and structure; fix persistence, the error state and the photo path.

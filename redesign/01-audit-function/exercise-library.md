@@ -1,4 +1,4 @@
-# Function audit — Exercise Library (ExLib L7761-8624, ExerciseDetailModal L7202-7760)
+# Function audit — Exercise Library (ExLib L7761, ExerciseDetailModal L7202)
 
 ## 1. Purpose
 
@@ -6,25 +6,27 @@ A 225-exercise catalogue you search or drill into by muscle group, to read an ex
 
 ## 2. Feature inventory
 
+Captures are `00-inventory/screenshots/current/exercise-library-*.png`; short names below drop that prefix.
+
 | Feature | Component / line | Status | Evidence |
 |---|---|---|---|
-| Muscle-group grid (12 cards, counts) | ExLib L8553-8598 | working | `exercise-library-populated.png` |
-| Group → subgroup list (23 subgroups) | L8402-8517 | working | `exercise-library-populated-group.png` |
-| Subgroup → exercise rows | L8302-8399 | working | `exercise-library-populated-subgroup.png` |
+| Muscle-group grid (12 cards, counts) | L8553-8598 | working | `-populated.png` |
+| Group → subgroup list (23 subgroups) | L8402-8517 | working | `-populated-group.png` |
+| Subgroup → exercise rows | L8302-8399 | working | `-populated-subgroup.png` |
 | Search (name substring, `q.length>1`) | L8191-8296 | working, weak | `-populated-search.png`: "bench" → 4 rows; no muscle/equipment matching |
-| "No results" | L8288-8296 | working | `exercise-library-empty.png` |
-| Create Custom Exercise | L8107-8189, `addCustom` L57304 | working | `exercise-library-populated-create-custom.png` |
+| "No results" | L8288-8296 | working | `-empty.png` |
+| Create Custom Exercise | L8107-8189, `addCustom` L57304 | working | `-populated-create-custom.png` |
 | Custom exercise in browse lists/counts | `mergedSub` L7774-7783 | **broken** | seeded custom is `chest/lower`; `-populated-group.png` Lower Chest reads "10 ex", should be 11 (§6) |
 | Detail sheet: notes, group, part, equipment | L7202-7480 | working | `-detail-modal-full.png` |
 | Demonstration GIF (`static.exercisedb.dev`, 227 entries) | L7311-7327 | **broken offline** | `-detail-modal.png`: ~700px empty box, no message |
 | "No animation available" fallback | L7328-7343 | **dead** | fires only when `gifUrl` is falsy; 227 gifUrl entries cover the catalogue, so it renders in no capture |
 | Form video (`POST /yt-search`) | L7070-7086, L7346-7381 | online only | "No form video found…" in `-detail-modal-full.png` |
-| ADD TO WORKOUT | L7463-7476 | **dead from Library tab** | TrainHub passes no `onSelect` (L15056); handler L7861 guards `p.onSelect &&`, then closes. It is the sheet's primary in `-detail-modal.png` |
+| ADD TO WORKOUT | L7463-7476 | **dead from Library tab** | TrainHub passes no `onSelect` (L15056); handler L7861 guards `p.onSelect &&`, then closes. The sheet's primary in `-detail-modal.png` |
 | `ascendFetchDetail` (`GET /exercise-detail/:id`) | L7089 | **dead** | zero call sites; page-map 2.10 lists it as live |
 | Inline library inside TrainHub | TrainHub L15958 | **dead** | L15377 routes `library` to `setView("library")`, never `setTab`, so `tab==="library"` is unreachable. Confirms the Train Hub auditor: `-populated.png` has no My Splits/History/Library bar; the hub is replaced |
 | Back | L8494 | working | 22x27px, `targets.json` |
 
-Absent: favourites, recents, filter by equipment, per-exercise history/PR, technique text.
+Absent: favourites, recents, equipment filter, per-exercise history/PR, technique text.
 
 ## 3. Task walkthrough
 
@@ -35,7 +37,7 @@ Only flow 1 touches this page (flow 4 and 6 tapLogs never enter it).
 | 1A cold start | Add Exercise → type "Bench" → row → ADD TO WORKOUT | 2 of 17 | 3716 | none; typed search is the fast path |
 | 1B seeded guest | same | 2 of 14 | 3090 | — |
 
-No per-step timestamp log exists (no `flow-<n>.json` in `tests/baseline/`); videos are at `baseline/artifacts/flows-01-*/video.webm`.
+No per-step timestamp log exists (no `flow-<n>.json` in `tests/baseline/`); videos at `baseline/artifacts/flows-01-*/video.webm`.
 
 Measured by hand against the 225-item fixture (`tests/fixtures/exercise-db.json`): **browse to a named exercise = 3 taps** (group, subgroup, row) in lists of at most 10, after 2 taps to reach the library. **Search = 1 tap + 2-5 characters + 1 tap**; under 2 characters nothing renders (L8191), so "be" is the floor, returning 22 rows. Browsing without a name is the page's strength: the grid states counts, subgroup rows preview two names. Costs: equipment appears nowhere before the sheet, and "chest" returns 7 name matches, not the 30 chest exercises.
 
@@ -43,10 +45,10 @@ Measured by hand against the 225-item fixture (`tests/fixtures/exercise-db.json`
 
 | State | Capture | Present? | Quality |
 |---|---|---|---|
-| Empty | `exercise-library-empty.png` | yes | GENERIC — "No results" alone, no next action |
-| Loading | `exercise-library-loading.png` | **MISSING** | md5-identical (`a2c8a5f…`) to `-detail-modal.png`; test 2a fails and 2b finds no spinner, skeleton or busy control. The "Finding a form video…" branch (L7346) is below the fold |
-| Error | `exercise-library-error.png` | yes (GIF box gone) | **PRESENT-BUT-WRONG** — a worker abort reads "No form video found for this exercise."; the GIF failure says nothing |
-| Populated | `exercise-library-populated.png` | yes | correct |
+| Empty | `-empty.png` | yes | GENERIC — "No results" alone, no next action |
+| Loading | `-loading.png` | **MISSING** | md5-identical (`a2c8a5f…`) to `-detail-modal.png`; test 2a fails and 2b finds no spinner, skeleton or busy control. The "Finding a form video…" branch (L7346) is below the fold |
+| Error | `-error.png` | yes (GIF box gone) | **PRESENT-BUT-WRONG** — a worker abort reads "No form video found for this exercise."; the GIF failure says nothing |
+| Populated | `-populated.png` | yes | correct |
 
 A=4, M=1, W=1, G=1.
 
@@ -67,9 +69,9 @@ No failed spec, non-responder or blocked click: populated, empty and interactive
 | Feature completeness | 2 | `-detail-modal.png`: the sheet's primary (ADD TO WORKOUT) is dead from this entry (L15056 passes no `onSelect`) above a blank 700px GIF box; L7089 and L15958 dead |
 | Task success | 3 | flow 1 passes first attempt (`flow-metrics.jsonl`, pass true); from the Library tab an exercise cannot be used — workaround is to start a workout first (`-subgroup.png` rows dead-end in the sheet) |
 | Speed | 4 | measured: 2 taps + 2-5 chars to a named exercise, 3 taps to browse (`-populated.png` → `-group.png` → `-subgroup.png`). Best-known is type-and-tap; +1 tap, the root field is not autofocused (L8523 vs L8256) |
-| State handling | 1 | A=4, M=1 (loading md5-identical to populated detail modal), W=1 (`exercise-library-error.png` calls a network abort "No form video found"), G=1 (`exercise-library-empty.png` "No results"). Band table: M=1 and W>=1 → 1 |
+| State handling | 1 | A=4, M=1 (loading md5-identical to the populated sheet), W=1 (`-error.png` calls a network abort "No form video found"), G=1 (`-empty.png` "No results"). Band table: M=1, W>=1 → 1 |
 | Data correctness | 2 | 3 checks vs `fixtures/exercise-db.json`: `-populated.png` group counts (Chest 30, Back 40 … = 225), `-subgroup.png` Mid Chest "10 exercises", `-detail-modal-full.png` eq/group/part for Barbell Bench Press — all match. Wrong: `-group.png` Lower Chest "10 ex" omits the seeded custom (`lk_customEx` id 900001, `sid:"lower"`); `mergedSub` L7776 matches on `group`/`muscle`, which stored customs lack |
-| Error recovery | 2 | `exercise-library-error.png`: cause unnamed, no retry, GIF failure silent (`onError` hides the img, L7318). Nothing lost — notes persist (L7091) |
+| Error recovery | 2 | `-error.png`: cause unnamed, no retry, GIF failure silent (`onError` hides the img, L7318). Nothing lost — notes persist (L7091) |
 
 Function mean **2.6**.
 
