@@ -6,13 +6,13 @@
 
 | Feature | Component / line | Status |
 |---|---|---|
-| "Let the coach interview you" launcher | CoachSetupPane L49510 | working (`coach-setup-populated.png`) |
+| "Let the coach interview you" launcher | CoachSetupPane L49510 | working (`-populated.png`) |
 | 6 questions, tappable options | CoachInterview L49743, L49827 | working (`-interview.png` "1 of 6"; `-interview-answered.png` "2 of 6") |
 | Typed answer + Next | L49845 | working |
 | POST → instructions draft | L49772 | working (preview reached, walkthrough) |
-| Preview → **Save** → `lk_coachInstructions` | L49892 → L50036 | working, uncaptured (no preview shot in the 16-row index) |
+| Preview → **Save** → `lk_coachInstructions` | L49892 → L50036 | working, uncaptured (16-row index has no preview shot) |
 | Preview → **Edit first** | L49885 → L52192 | broken: sets `instrDraft` only, unpersisted; leaving Coach discards 10 taps of work |
-| Escape closes interview | unwired (`useEscape` L50017 covers only `shoppingApproval`) | broken: dialog count 1 after Escape (measured) |
+| Escape closes interview | unwired (`useEscape` L50017 covers `shoppingApproval` only) | broken: dialog count 1 after Escape (measured) |
 | Resume / back inside interview | absent | broken: reopen after 2 answers returns to "1 of 6" (measured) |
 | Instructions textarea, counter, Save | L49523 | working (`-populated.png` 57/2000) |
 | 5 quick-add chips | L49555 | working |
@@ -28,13 +28,13 @@
 
 **Answer trace.** No answer is stored. The six `{q,a}` pairs live in component state, go out once as the POST body (L49772) and die with the modal; only the model's prose reaches `lk_coachInstructions`. Every other control writes a key the coach reads: `coachInstructions`, `coachMemory`+`coachMemoryOn` and `coachStyle().tone` enter the system prompt at `coachBuildContext` L49021-L49033; `coachDataPrefs` gates each context tier (L49009) and the receipt (L49387). The surface is honest; the interview is the lossy part.
 
-**Surface ownership.** Settings holds none of this: page-map 2.17 lists no coach instruction, memory, style or data-pref control, so Coach Setup owns all four. The only split is check-in frequency (`checkinPerDay`, Settings L32861) and profile `goal`/body stats (L32771), which the coach reads directly.
+**Surface ownership.** Settings holds none of this: page-map 2.17 lists no coach instruction, memory, style or data-pref control, so Coach Setup owns all four. The only split is check-in frequency (`checkinPerDay`, L32861) and profile `goal`/body stats (L32771), read by the coach directly.
 
 ## Task walkthrough
 
 No flow in `user-flows.md` touches this pane. The nearest, Flow 5 (2 taps, 795 ms; `flow-5.json` 1442 ms Nav Coach → 2947 ms reply), proves the coach answers with **zero** setup: this page gates nothing.
 
-Measured myself (Playwright 1.56, fixture seed + `routeNetwork`, 393×852, one `page.click` per tap, 200-300 ms scripted settles): Nav Coach → Setup → launcher → 6 option taps = **9 taps** to preview, 3979 ms wall including those waits. Save = 10; Chat tab + Send = **12 taps before one question is answered under the new instructions**.
+Measured myself (Playwright 1.56, fixture seed + `routeNetwork`, 393×852, one `page.click` per tap, 200-300 ms scripted settles): Nav Coach → Setup → launcher → 6 option taps = **9 taps** to preview, 3979 ms including those waits. Save = 10; Chat + Send = **12 taps before one question is answered under the new instructions**.
 
 Hesitation: (1) Setup is the fourth tab and named for the pane, not the job; (2) each option tap advances with no confirm and no Back, so a mistap costs the interview; (3) at preview, "Edit first" and "Save" are equal-weight and the former leaves the text unsaved behind a Save button one section up.
 
@@ -76,7 +76,7 @@ None. Populated **passed**, empty **passed**, error **N/A** (SUMMARY: the interv
 - The 9 data-visibility switches, all responding, backed by the receipt (L49387).
 
 **Fix**
-- Persist answers per question and `instrDraft`, so close or "Edit first" resumes instead of restarting — measured loss at "1 of 6".
+- Persist answers per question and `instrDraft`, so close or "Edit first" resumes rather than restarts — measured loss at "1 of 6".
 - Add Back and Escape to the interview; Escape does nothing today (measured).
 - Make "Edit first" save before dropping the user into the textarea.
 - Capture the preview phase; give loading a cancel.
@@ -84,4 +84,4 @@ None. Populated **passed**, empty **passed**, error **N/A** (SUMMARY: the interv
 
 **Cut**
 - Interview Q4 (tone): COACHING STYLE one screen down sets the same thing visibly and editably; asking twice costs a tap and buries a duplicate in prose the user cannot edit.
-- Interview Q1 (goal) as an open question: confirm the Settings `goal` the coach already receives (L32771, L49045) instead — the north star is fewer screens before a real answer, and this one asks for data the app holds.
+- Interview Q1 (goal) as an open question: confirm the Settings `goal` the coach already receives (L32771, L49045) instead — the north star is fewer screens before a real answer, and this asks for data the app holds.

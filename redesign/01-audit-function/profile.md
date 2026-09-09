@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Profile shows read-only identity and four lifetime training totals, and is the app's only door to Settings.
+Profile shows read-only identity and four lifetime totals, and is the app's only door to Settings.
 
 ## Feature inventory
 
@@ -14,11 +14,11 @@ Profile shows read-only identity and four lifetime training totals, and is the a
 | Settings button | L30336-L30351 | working | Only route to Settings: `go("settings")` at L30340 and L52884 (BetaAdminPanel back). `flow-8-profile.png` |
 | Workouts / PRs / Sets tiles | L30362-L30371 | working | Same metrics as Home recap (L26383) and PR Vault (L29783); only the lifetime scope differs |
 | Volume tile | L30372-L30378 | broken | `item.value > 0 ? TX : MU` compares string `"140k KG"` to 0, so non-zero volume renders muted like the empty case: grey "140k KG" beside white "288" (`profile-populated.png`) |
-| Earned badges | L30166-L30206, gate L30396 | hidden | Gated on `lk_gamingLayer`, fixture default false. Absent in `profile-populated.png`, present in `-badges.png` |
+| Earned badges | L30166-L30206, gate L30396 | hidden | Gated on `lk_gamingLayer`, fixture default false: absent in `profile-populated.png`, present in `-badges.png` |
 | Locked badges | L30211-L30224 | broken | Ladder stops at 10 workouts / 5 PRs; the 25-workout tier (L30186) has no locked counterpart, so `-badges.png` shows no next goal |
-| Personal Records list | L30227-L30243, L30510 | broken | `slice(0,6)` caps the list at 6 while the tile reads 9; no "see all", no PR Vault link. `profile-populated-full.png` |
+| Personal Records list | L30227-L30243, L30510 | broken | `slice(0,6)` caps the list at 6 while the tile reads 9; no "see all" or PR Vault link. `profile-populated-full.png` |
 | PR rows tappable | L30521 | dead | Plain `div`s, no handler; PR Vault renders identical rows as `[role=button]` (user-flows 146). Baseline: 2 interactive elements page-wide |
-| Plan / trial / usage | — | missing | `can(feature)` gates (L360-L372) and trial banner (L629-L650) exist; `profile-populated.png` names no plan, trial days or usage |
+| Plan / trial / usage | — | missing | `can(feature)` gates (L360-L372) and trial banner (L629-L650) exist; `profile-populated.png` names no plan, trial or usage |
 | Signed-in account state | isGuest L30242 | missing | Only signal is the guest banner; no email, sync status or sign-out (all Settings, L32318) |
 
 ## Task walkthrough
@@ -58,7 +58,7 @@ A = 2, M = 0, W = 0, G = 1 → band table 4.
 |---|---|---|
 | Purpose clarity | 2 | `profile-populated.png`: four equal tiles plus six equal rows read as "a stats page", a job Home's recap and PR Vault hold; the real job (reach Settings) is the quietest control, and the one accent-filled element, SIGN UP, advertises a different job. Accent-filled count 1, guest-only; signed-in users get zero primary actions |
 | Feature completeness | 3 | Feature table: identity and stats work; Volume broken (L30378), PR list 6 of 9, badges hidden by a default-off flag, locked ladder incomplete, PR rows dead. `profile-populated-full.png`, `-badges.png` |
-| Task success | 4 | Flow 8 passes first attempt, 4/4 taps, 0 errors (`flow-8.json`). Shortfall: "see my records" cannot complete here — 6 of the 9 claimed, forcing Home → Progress → PR Vault (`profile-populated-full.png`) |
+| Task success | 4 | Flow 8 passes first attempt, 4/4 taps, 0 errors (`flow-8.json`). Shortfall: "see my records" cannot complete here — 6 of 9, forcing Home → Progress → PR Vault (`profile-populated-full.png`) |
 | Speed | 4 | Settings is 2 taps from anywhere (`flow-8.json` 1406, 2372), +1 over a direct settings entry; nothing else is actionable |
 | State handling | 4 | A = 2 (loading/error N/A, page-map 2.16), M = 0, W = 0, G = 1: `profile-empty.png` distinguishable and correct, but its only instruction sits in the default-off badge block |
 | Data correctness | 3 | Matches seed: 22 workouts = 22 history entries, 9 PRs = 9 `lk_prs` keys, 140k KG = 309k LBS at 2.20462 (`profile-populated.png` vs `-lbs.png`), bench 72.5 kg = 159.75 lb. Units and precision inconsistent: "140k KG" against "72.5kg" in one view; volume to whole thousands, PRs to two decimals; tile 9 vs a 6-row list |
@@ -74,7 +74,7 @@ Function mean (6 scored): **3.2**
 
 ## Fix
 
-- Volume tile muted when non-zero, string-vs-0 compare L30378 (`profile-populated.png`).
+- Volume tile muted when non-zero: string-vs-0 compare, L30378 (`profile-populated.png`).
 - PR list capped at 6 beside a tile reading 9 (`profile-populated-full.png`).
 - SIGN UP 90x32 and Settings 73x33 under 44px (`targets.json`).
 - Settings entry is the page's job but its quietest control (`flow-8-profile.png`).
