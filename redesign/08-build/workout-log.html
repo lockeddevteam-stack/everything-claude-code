@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
 <script src="theme.js"></script>
+<script src="app.js"></script>
 </head>
 <body>
 <!--
@@ -127,7 +128,7 @@
     swap: svg('<path d="M4 8h13l-3-3M20 16H7l3 3"/>'),
     drop: svg('<path d="M12 3.5 7 11a5 5 0 1 0 10 0z"/>'),
     link: svg('<path d="M10 14a4 4 0 0 0 6 .5l2-2a4 4 0 0 0-5.5-5.5l-1 1"/><path d="M14 10a4 4 0 0 0-6-.5l-2 2A4 4 0 0 0 11.5 17l1-1"/>'),
-    sides: svg('<path d="M4 12h6M14 12h6M12 6v12"/>'),
+    sides: svg('<path d="M9 6 5 12l4 6M15 6l4 6-4 6M12 4v16"/>'),
     trash: svg('<path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13"/>'),
     close: svg('<path d="m6 6 12 12M18 6 6 18"/>'),
     home: svg('<path d="M4 11 12 4l8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/>'),
@@ -191,25 +192,25 @@
         set(40, 10, { warm: true, done: true, rir: 4 }),
         set(72.5, 8, { done: true }),
         set(72.5, 7, { done: true }),
-        set(72.5, null, { prevReps: 7 })
+        set(null, null, { prevKg: 72.5, prevReps: 7 })
       ] },
       { id: 302, name: 'DB Shoulder Press', muscle: 'Front Delt', sets: [
-        set(24, null, { prevReps: 10 }),
-        set(24, null, { prevReps: 9 }),
-        set(24, null, { prevReps: 8 })
+        set(null, null, { prevKg: 24, prevReps: 10 }),
+        set(null, null, { prevKg: 24, prevReps: 9 }),
+        set(null, null, { prevKg: 24, prevReps: 8 })
       ] },
       { id: 103, name: 'Incline Cable Fly', muscle: 'Upper Chest', sets: [
-        set(15, null, { prevReps: 12 }),
-        set(15, null, { prevReps: 12 })
+        set(null, null, { prevKg: 15, prevReps: 12 }),
+        set(null, null, { prevKg: 15, prevReps: 12 })
       ] },
       { id: 311, name: 'Lateral Raise', muscle: 'Side Delt', sets: [
-        set(9, null, { prevReps: 15 }),
-        set(9, null, { prevReps: 14 }),
-        set(9, null, { prevReps: 12 })
+        set(null, null, { prevKg: 9, prevReps: 15 }),
+        set(null, null, { prevKg: 9, prevReps: 14 }),
+        set(null, null, { prevKg: 9, prevReps: 12 })
       ] },
       { id: 411, name: 'Tricep Pushdown', muscle: 'Lateral Head', sets: [
-        set(27.5, null, { prevReps: 12 }),
-        set(27.5, null, { prevReps: 11 })
+        set(null, null, { prevKg: 27.5, prevReps: 12 }),
+        set(null, null, { prevKg: 27.5, prevReps: 11 })
       ] }
     ];
   }
@@ -264,6 +265,7 @@
     } else if (name === 'rest') {
       S.restRunning = true; S.restLeft = 62;
     } else if (name === 'exercise-done') {
+      S.exercises[0].sets[3].kg = 72.5;
       S.exercises[0].sets[3].reps = 7;
       S.exercises[0].sets[3].done = true;
       S.restRunning = true; S.restLeft = 84;
@@ -315,7 +317,7 @@
     return '' +
       '<div class="sess">' +
         '<div class="sess__main">' +
-          '<h1 class="t-title truncate" data-testid="session-name">' + esc(S.name) + '</h1>' +
+          '<h1 class="t-title" data-testid="session-name">' + esc(S.name) + '</h1>' +
           '<div class="sess__meta">' +
             '<span class="t-detail sess__time" data-testid="session-timer">' + n(hhmm(S.elapsed)) + '</span>' +
             '<span class="t-detail muted" data-testid="session-sets">' + n(sets) + ' ' + (sets === 1 ? 'set' : 'sets') + '</span>' +
@@ -347,15 +349,19 @@
   function cellHTML(e, i, field) {
     var st = S.exercises[e].sets[i];
     var editing = S.pad && S.pad.ex === e && S.pad.set === i && S.pad.field === field;
-    var raw = field === 'weight' ? st.kg : st.reps;
+    var own = field === 'weight' ? st.kg : st.reps;
     var prev = field === 'weight' ? st.prevKg : st.prevReps;
+    /* Weight carries over from last session and is shown, as shipped —
+       but in the ghost tone, because it is not yet the lifter's entry.
+       Reps start blank, also as shipped. */
+    var raw = own !== null ? own : (field === 'weight' ? prev : null);
     var shown = field === 'weight' ? toDisplay(raw) : raw;
-    var empty = shown === null || shown === undefined;
-    var text = empty ? '--' : (field === 'weight' ? trim(shown) : String(shown));
-    var label = 'Set ' + (i + 1) + ' ' + field + (empty
-      ? (prev !== null && prev !== undefined ? ', empty, last time ' + (field === 'weight' ? trim(toDisplay(prev)) + ' ' + unitWord() : prev + ' reps') : ', empty')
-      : ', ' + text + (field === 'weight' ? ' ' + unitWord() : ' reps'));
-    return '<button class="cell' + (empty ? ' cell--empty' : '') + (editing ? ' cell--editing' : '') + '" type="button" ' +
+    var blank = shown === null || shown === undefined;
+    var ghost = blank || own === null;
+    var text = blank ? '--' : (field === 'weight' ? trim(shown) : String(shown));
+    var label = 'Set ' + (i + 1) + ' ' + field + (blank ? ', empty'
+      : (ghost ? ', last session ' : ', ') + text + (field === 'weight' ? ' ' + unitWord() : ' reps'));
+    return '<button class="cell' + (ghost ? ' cell--empty' : '') + (editing ? ' cell--editing' : '') + '" type="button" ' +
       'data-act="edit" data-ex="' + e + '" data-set="' + i + '" data-field="' + field + '" ' +
       'data-testid="cell-' + e + '-' + i + '-' + field + '" aria-label="' + esc(label) + '">' + n(esc(text)) + '</button>';
   }
@@ -374,7 +380,7 @@
     var st = S.exercises[e].sets[i];
     var live = isLive(e, i);
     return '<button class="done' + (live && !st.done ? ' done--ready' : '') + '" type="button" role="checkbox" aria-checked="' + (st.done ? 'true' : 'false') + '" ' +
-      'aria-pressed="' + (st.done ? 'true' : 'false') + '" data-act="done" data-ex="' + e + '" data-set="' + i + '" ' +
+      'data-act="done" data-ex="' + e + '" data-set="' + i + '" ' +
       'data-testid="done-' + e + '-' + i + '" aria-label="' + (st.done ? 'Undo set ' + (i + 1) : 'Mark set ' + (i + 1) + ' done') + '">' + ICO.check + '</button>';
   }
 
@@ -420,7 +426,7 @@
         '<button class="btn btn--sm btn--secondary" type="button" data-act="addset" data-ex="' + e + '" data-testid="btn-add-set-' + e + '">' + ICO.plus + '<span class="btn__label">Add Set</span></button>' +
         '<button class="btn btn--sm btn--tertiary" type="button" data-act="airec" data-ex="' + e + '" data-testid="btn-ai-rec-' + e + '"' +
           (S.aiBusyEx === e ? ' aria-busy="true"' : '') + '>' +
-          (S.aiBusyEx === e ? '<span class="spinner" aria-hidden="true"></span><span class="btn__label">Thinking…</span>' : ICO.spark + '<span class="btn__label">AI Rec</span>') +
+          (S.aiBusyEx === e ? '<span class="spinner" aria-hidden="true"></span><span>Thinking…</span>' : ICO.spark + '<span class="btn__label">AI Rec</span>') +
         '</button>' +
       '</div>' +
     '</article>';
@@ -472,13 +478,18 @@
      ============================================================= */
   function openPadFor(e, i, field) {
     var st = S.exercises[e].sets[i];
-    var raw = field === 'weight' ? (st.kg === null ? st.prevKg : st.kg) : (st.reps === null ? st.prevReps : st.reps);
+    var own = field === 'weight' ? st.kg : st.reps;
+    var raw = own !== null ? own : (field === 'weight' ? st.prevKg : null);
     var shown = field === 'weight' ? toDisplay(raw) : raw;
     return {
       ex: e, set: i, field: field,
       buffer: (shown === null || shown === undefined) ? '' : trim(shown),
-      replaced: !((field === 'weight' ? st.kg : st.reps) === null),  /* their own entry: keep appending */
-      fromPrev: (field === 'weight' ? st.kg : st.reps) === null && shown !== null && shown !== undefined
+      /* THE FIX. The pad opens showing the pending value, as shipped,
+         but the first digit replaces it whole instead of appending to
+         it. Digits after the first append and DEL still edits, so
+         nothing else about the pad's behaviour changed. */
+      replaced: false,
+      fromPrev: own === null && shown !== null && shown !== undefined
     };
   }
 
@@ -642,8 +653,15 @@
         '<div class="sheet__head"><h2 class="t-section">Plate calculator</h2>' +
           '<button class="iconbtn" type="button" data-act="close" data-testid="plates-close" aria-label="Close plate calculator">' + ICO.close + '</button></div>' +
         '<div class="sheet__body">' +
-          '<div class="center"><span class="t-hero" data-testid="plates-total">' + trim(toDisplay(total)) + '</span> <span class="t-detail muted">' + unitLabel() + ' total</span>' +
-            '<p class="t-meta">Bar ' + trim(toDisplay(pc.bar)) + unitLabel() + ' · ' + trim(toDisplay(perSide)) + unitLabel() + ' per side</p></div>' +
+          '<div class="seg seg--lg" role="tablist" aria-label="Bar">' + [[20, 'Olympic 20kg'], [15, "Women's 15kg"], [10, 'EZ bar 10kg'], [0, 'No bar']].map(function (bopt) {
+            return '<button class="seg__item" type="button" role="tab" data-act="plate-bar" data-bar="' + bopt[0] + '" data-testid="plate-bar-' + bopt[0] + '" aria-selected="' + (pc.bar === bopt[0] ? 'true' : 'false') + '">' + (bopt[0] ? trim(toDisplay(bopt[0])) + unitLabel() : 'None') + '</button>';
+          }).join('') + '</div>' +
+          '<div class="seg seg--lg mt-2" role="tablist" aria-label="Readout">' +
+            '<button class="seg__item" type="button" role="tab" data-act="plate-side" data-side="1" data-testid="plate-per-side" aria-selected="' + (pc.perSide ? 'true' : 'false') + '">Per side</button>' +
+            '<button class="seg__item" type="button" role="tab" data-act="plate-side" data-side="0" data-testid="plate-total" aria-selected="' + (pc.perSide ? 'false' : 'true') + '">Total</button>' +
+          '</div>' +
+          '<div class="center mt-3"><span class="t-hero" data-testid="plates-total">' + trim(toDisplay(pc.perSide ? perSide : total)) + '</span> <span class="t-detail muted">' + unitLabel() + (pc.perSide ? ' per side' : ' total') + '</span>' +
+            '<p class="t-meta">Bar ' + trim(toDisplay(pc.bar)) + unitLabel() + ' · ' + trim(toDisplay(total)) + unitLabel() + ' total</p></div>' +
           plateSVG(pc.added) +
           '<div class="plates mt-3">' + PLATES[S.unit].map(function (p) {
             var kgv = S.unit === 'kg' ? p : Math.round((p / LB_PER_KG) * 100) / 100;
@@ -777,12 +795,10 @@
   var live = document.getElementById('live');
   var screen = document.getElementById('screen');
 
-  /* Uses the shared patch() helper when app.js has landed; falls back
-     to a region write, which is why the regions are small. */
-  function put(el, html) {
-    if (window.LK && typeof window.LK.patch === 'function') { window.LK.patch(el, html); return; }
-    el.innerHTML = html;
-  }
+  /* Every region goes through the shared reconciler in app.js, which is
+     loaded in <head> on this screen and inlined into the demo. Nothing is
+     rebuilt: the caret, the scroll and the running animations survive. */
+  function put(el, html) { LKPatch(el, html); }
 
   function paint() {
     var scroll = body.scrollTop;
@@ -937,6 +953,8 @@
 
       /* ---- plate calculator ---- */
       case 'plate-add': S.plate.added.push(Number(t.getAttribute('data-plate'))); break;
+      case 'plate-bar': S.plate.bar = Number(t.getAttribute('data-bar')); break;
+      case 'plate-side': S.plate.perSide = t.getAttribute('data-side') === '1'; break;
       case 'plate-undo': S.plate.added.pop(); break;
       case 'plate-clear': S.plate.added = []; break;
       case 'plate-apply': {
@@ -1023,9 +1041,9 @@
   var menu = document.getElementById('dev-menu');
   var toggle = document.getElementById('dev-toggle');
   function paintMenu() {
-    menu.innerHTML = STATES.map(function (s) {
+    LKPatch(menu, STATES.map(function (s) {
       return '<button class="dev__item" type="button" data-state="' + s[0] + '" data-testid="dev-' + s[0] + '" aria-pressed="' + (S.state === s[0] ? 'true' : 'false') + '">' + s[1] + '</button>';
-    }).join('');
+    }).join(''));
   }
   toggle.addEventListener('click', function () {
     var open = menu.hasAttribute('hidden');
