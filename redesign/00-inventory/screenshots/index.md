@@ -1,6 +1,6 @@
 # Screenshot index — LOCKED v6 current app (Wave 0D)
 
-Generated 2026-09-08T23:21:19.203Z by `harvest.mjs` (Playwright 1.56 Chromium, viewport 393x852 @2x, `isMobile`, dark colour scheme, 400 ms settle before each shot). All files live in `current/`. Seed = `tests/fixtures/seed-data.json` regenerated relative to today via `seedStorage()`; network routed by `routeNetwork()`; `loading` = worker responses delayed 60 s; `error` = worker/supabase routes aborted (`forceNetworkError`). Line refs are into `input/locked-current-v6.html`.
+Generated 2026-09-08T23:21:19.203Z by `harvest.mjs` (Playwright 1.56 Chromium, viewport 393x852 @2x, `isMobile`, dark colour scheme, 400 ms settle before each shot). All files live in `current/`. Seed = `tests/fixtures/seed-data.json` regenerated relative to today via `seedStorage()`; network routed by `routeNetwork()`; `loading` = worker responses delayed 60 s; `error` = worker/supabase routes aborted (`forceNetworkError`), except `settings-error` which uses a resolved-but-invalid `/beta-validate` response (see “Capture corrections”). Line refs are into `input/locked-current-v6.html`.
 
 Naming: `<page>-<state>.png` is the viewport shot on arrival; `-scrolled-N` are further viewport shots with `.lk-scroll` advanced one screen each; `-full` is the whole page taken with the viewport enlarged so `.lk-scroll` un-clamps (the app scrolls its own shell, page-level `fullPage` shows nothing below the fold); other suffixes are sub-tabs, sheets and modals. "How reached" lists the seed override and the selector steps in order.
 
@@ -24,7 +24,7 @@ Naming: `<page>-<state>.png` is the viewport shot on arrival; `-scrolled-N` are 
 | coach-plan | 8 | 7 | 1 | 0 | 0 | 0 |
 | coach-setup | 16 | 8 | 4 | 2 | 2 | 0 |
 | profile | 8 | 7 | 1 | 0 | 0 | 0 |
-| settings | 16 | 14 | 0 | 1 | 1 | 0 |
+| settings | 17 | 15 | 0 | 1 | 1 | 0 |
 | shopping-budget | 27 | 18 | 4 | 3 | 2 | 0 |
 | global | 21 | 14 | 0 | 0 | 0 | 7 |
 | **total** | **283** | | | | | |
@@ -332,12 +332,13 @@ Plus 8 flow videos with step logs (below). Total files in `current/`: 342.
 | `profile-populated-scrolled-2.png` | populated | scrolled-2 (scrollTop 132px) | seed populated → Nav Profile |  |
 | `profile-populated.png` | populated | (base) | seed populated → Nav Profile |  |
 
-### settings (16)
+### settings (17)
 
 | File | State | Sub-view | How reached | Note |
 |---|---|---|---|---|
-| `settings-error.png` | error | (base) | Settings → beta "Enter invite code" → Verify with worker aborted → worker route aborted → Nav Profile → Profile "Settings" → beta code → Verify | settingsBetaErr after /beta-validate abort |
-| `settings-loading.png` | loading | (base) | Settings → beta Verify with worker delayed → Nav Profile → Profile "Settings" → beta code → Verify | beta Verify pending (guest: sync/password/delete loading are signed-in only) |
+| `settings-error.png` | error | beta card centred (scrollTop 3094px), `settingsBetaErr` rendered | seed populated → Nav Profile → Profile "Settings" → beta code "PUBLICBETA" → centre BETA TESTING card (scrollTop 3094px) → Verify (POST /beta-validate resolves with no `valid:true`) | Re-captured 0D-fix. Whole BETA TESTING card in frame, roughly mid-viewport (card y 323–474 CSS): heading, hint line, code input, Verify, and the red `settingsBetaErr` "Invalid code" line under the input. Matched control: `settings-populated-beta.png`. NB aborting the worker does **not** produce this state — `validateBetaCodeRemote`'s `.catch()` calls `onResult(true)`, so a network failure renders the *verified* beta-agreement panel. |
+| `settings-loading.png` | loading | beta card centred (scrollTop 3094px), `/beta-validate` in flight | seed populated → Nav Profile → Profile "Settings" → beta code "PUBLICBETA" → centre BETA TESTING card (scrollTop 3094px) → Verify (POST /beta-validate delayed 60 s, genuinely pending at shot time) | Re-captured 0D-fix. Same frame and offset as `settings-error.png` / `settings-populated-beta.png`. The request really is in flight, and the card renders **no** pending affordance — see "Capture corrections" below. |
+| `settings-populated-beta.png` | populated | beta card centred (scrollTop 3094px), no request in flight | seed populated → Nav Profile → Profile "Settings" → beta code "PUBLICBETA" → centre BETA TESTING card (scrollTop 3094px) — Verify **not** pressed | Matched control for `settings-loading.png` / `settings-error.png`: same page, dark theme, seed and scroll offset, same code typed, nothing focused; the only difference is that no `/beta-validate` request has been made. |
 | `settings-populated-full.png` | populated | full page (viewport 393x3989, .lk-scroll un-clamped) | seed populated → Nav Profile → Profile "Settings" |  |
 | `settings-populated-layout-editor-full.png` | populated | full page (viewport 393x1690, .lk-scroll un-clamped) | seed populated → Nav Profile → Profile "Settings" → "CUSTOMIZE" |  |
 | `settings-populated-layout-editor-scrolled-2.png` | populated | scrolled-2 (scrollTop 701px) | seed populated → Nav Profile → Profile "Settings" → "CUSTOMIZE" |  |
@@ -451,9 +452,44 @@ Flow 1 runs the true cold start (1A: auth overlay → guest modal → reload →
 | settings | empty | - | no empty branch (page-map 2.17 E n/a) |
 | shopping-budget | loading | compare loading | price comparison (L44340) has no visible trigger with one enabled store; swaps fire automatically ("Finding savings...") |
 
+## Capture corrections (Wave 0D re-harvest, 2026-09-09)
+
+Calibration found the Settings `loading` / `error` pair unusable as evidence. Fixed by re-running `node harvest.mjs only=settings`; nothing outside `settings-*` changed.
+
+**Defect (three parts).**
+
+1. `settings-loading.png` and `settings-error.png` were pixel-identical (11 px differed at all, max channel delta 3, all in a tab-bar icon's antialiasing).
+2. Both frames were clipped at the tab bar just under the beta code input, so neither the pending state nor the message line was inside the frame at all. Cause: nothing scrolled deliberately — Playwright's `fill()` auto-scrolled the input into view, which parks it hard against the bottom edge at `scrollTop` 2733 of 3113.
+3. `settings-loading.png` was therefore at that 2733 px offset while `settings-populated.png` is at `scrollTop` 0, so any diff between them mixed scroll with state and could not show whether the loading state renders anything.
+
+A fourth, causal defect sat underneath: the harvester typed `BADCODE`. `validateBetaCodeRemote` (L2731) runs a **local** `validateBetaCode` pre-check first and returns `onResult(false, "Invalid code")` synchronously for any code not in `DEFAULT_BETA_CODES`, so `POST /beta-validate` was **never issued**. The old `loading` shot had no request in flight and the old `error` shot's note ("settingsBetaErr after /beta-validate abort") was wrong — the message came from the local pre-check, with the network untouched.
+
+**Fix.**
+
+- Type `PUBLICBETA`, a `DEFAULT_BETA_CODES` entry, so the local pre-check passes and `/beta-validate` is genuinely requested (verified: 1 request per run).
+- New `betaScroll()` helper centres the `BETA TESTING` card in the viewport (`scrollTop` 3094; card at y 323–474 CSS in an 852 px viewport) and re-pins that exact offset after the Verify click, so all three frames share one offset.
+- Blur the active element before every shot, so the control does not carry an input focus ring the other two lack.
+- `error` no longer uses `forceNetworkError`: aborting the worker renders the **verified** beta-agreement panel, because `validateBetaCodeRemote`'s `.catch()` calls `onResult(true)` — treating a network failure as a successful validation. The error frame is now the real resolved-response branch (`/beta-validate` returns a body without `valid:true` → `settingsBetaErr` = "Invalid code"). Wait raised to 1800 ms so the message is on screen.
+- Added the matched control `settings-populated-beta.png` (same page, theme, seed, offset and typed code; Verify never pressed).
+
+**Verification** (max-channel-delta > 3 per pixel, 786x1702 device px = 1 339 344 px @2x; boxes given in CSS px):
+
+| Diff | Changed px | % of frame | Max channel delta | Bounding box (CSS) |
+|---|---|---|---|---|
+| `settings-loading` vs `settings-populated-beta` | 1 | **0.0001 %** | 4 | x 354.5, y 799, 0.5x0.5 (one subpixel in a tab-bar icon) |
+| `settings-error` vs `settings-populated-beta` | 224 767 | **16.78 %** | 227 | x 20, y 442.5, 353x357 |
+| `settings-loading` vs `settings-error` | 222 393 | 16.60 % | 227 | x 20, y 442.5, 353x333.5 |
+
+**Finding — the Settings beta Verify has no loading state at all.** With `/beta-validate` genuinely pending, the frame is identical to the matched control apart from one antialiased subpixel. This is the app, not the capture. Checked in the live DOM at shot time and in the source at L33393–33440: no spinner or animated element, no skeleton, no progress bar, no `role="progressbar"`, no `[aria-busy]` anywhere on the page, the Verify button keeps `textContent` "Verify" with `disabled === false` and `opacity: 1`, the input is not disabled, no label or helper text changes, and the card's height is unchanged (135 px in both). There is no `betaBusy`/`betaLoading` state variable in the component — the click handler calls `validateBetaCodeRemote` and renders nothing until the callback fires. A tap on Verify against a slow network is indistinguishable from a tap that did nothing.
+
+The `error` frame is well populated by contrast: the red `settingsBetaErr` line "Invalid code" renders under the input (first changed row at y 442.5 CSS), the input border switches to the red tint, the card grows 135 → 151 px, and everything below it (`HELP & DANGER ZONE` onwards) shifts down 16 px — which is most of that 16.78 %.
+
+**Matched-control sweep on the other pages.** The instruction was to add `<page>-populated-<region>.png` wherever a `loading`/`error` capture sits at a different scroll offset from its populated counterpart. Rather than read offsets off this table (they were wrong for Settings), the scroll position of the active scroller was re-measured at shot time for every `loading`/`error` scenario: `home`, `progress`, `photos`, `workout-log`, `review`, `exercise-library`, `split-builder`, `coach-chat`, `coach-setup` and `shopping-budget` (20 scenarios, 24 shots). **All of them are at `scrollTop` 0** — `home-loading/error`, `progress-loading-goals-add-ai`, `workout-log-loading/error`, `coach-setup-loading/error`, `shopping-budget-loading/error` and the two `-budget-swaps`/`-budget-receipts` shots sit at 0 in `.lk-scroll` / `.lk-appcol-scroll`, and `progress-*-goals-ai`, `photos-*`, `review-*`, `exercise-library-error`, `split-builder-*` and `coach-chat-*` have no overflowing scroller in frame at all (full-screen views, lightboxes and modals whose content fits). Their populated counterparts (`home-populated`, `workout-log-populated`, `review-populated-reflect`, `shopping-budget-populated`/`-budget`, `coach-setup-populated-interview`, `progress-populated-goals-detail`, `exercise-library-populated-detail-modal`, `photos-populated-lightbox`, `split-builder-populated-ai`, `coach-chat-populated`) are at the same offset, so they are already matched controls and **no further `-populated-<region>` files were needed**. Settings was the only page with the confound, because it is by far the longest scroller (3113 px of travel) and the only one whose trigger sits below the fold.
+
 ## Notes for auditors
 
 - No page has a data-loading state: all page data is synchronous from localStorage (page-map §1). Every `loading`/`error` shot is one of the AI/worker calls (Home insight tip, Goals "Analyse My Progress" and "AI Body Fat Estimate", Photos "ANALYSE PHYSIQUE", WorkoutLog "AI Rec", Review "GET AI COACH INSIGHT", ExerciseDetailModal `/exercise-detail`, AI Split Builder first question, coach chat send, coach interview "Writing your instructions…", Settings beta "Verify", shopping `/store-search`, Budget "Finding savings…").
+- Settings beta `Verify` has **no** pending UI: `settings-loading.png` is 0.0001 % different from its matched control `settings-populated-beta.png` with the request genuinely in flight. Diff `settings-loading` / `settings-error` / `settings-populated-beta` against each other, never against `settings-populated.png` (different scroll offset). See “Capture corrections”.
 - `home-error` looks like a normal Home because ProactiveTipCard collapses on fetch failure (L17930): there is no visible error UI. Same for `shopping-budget-error` (store search fails silently) and `photos-error`/`workout-log-error` where the failure is a toast that may already have faded — compare with the `-loading` counterpart.
 - `workout-detail-populated-convert-modal.png` still shows the two-step Delete confirmation toast because the Delete arm shot was taken immediately before it.
 - `train-hub-populated-split-expanded.png` was taken after tapping the first chevron `[aria-label="Expand split"]`; the seed leaves `lk_splitsExpanded` empty so the first card is expanded, the rest collapsed.
