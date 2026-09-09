@@ -14,11 +14,11 @@ Scored independently from `screenshots/current/`, `flow-2/3/8.json`, `tests/base
 | Feature completeness | 3 | `workout-log-populated-exercise-detail.png`: 700px blank media panel plus "No form video found" (half-built, ExerciseDetailModal L7202). `workout-log-populated-platecalc.png`: bar chip row clipped ("E"). Tools, rest, plate calc, block, action sheet, NumPad all open (`-tools`, `-rest-settings`, `-platecalc`, `-block-modal`, `-action-sheet`, `-numpad`). No baseline `interactive` test exists for this page (page-metrics.jsonl has populated/empty/error only). |
 | Task success | 3 | flow-2 pass (`flow-2.json` ok, `flow-2-set-done.png`) but baseline `flow-metrics.jsonl` flow 2: 5 NumPad `del` taps needed to clear the prefilled 37.5 before typing (workaround). flow-3 pass (`flow-3-review.png`) with pageError `syncBidirectional is not defined` on save. |
 | Speed | 1 | R2 ruling: every click/tap counted, flow as `user-flows.md` defines it. Baseline `flow-metrics.jsonl` flow 2 "Log one set" = **15 taps** (weight cell, digits, DONE, reps cell, digits, DONE, RIR, done, plus 5 `del` clears); 2 NumPad openings per set (`workout-log-populated-numpad.png`, `-numpad-reps.png`). Best-known 3 → 5.0x ≥ 3x = 1. |
-| State handling | 4 | `workout-log-empty.png` "No exercises yet / Tap Add Exercise below" + Add Exercise; `-loading.png` "Thinking…" in AI Rec button; `-error.png` red toast; `-populated.png`. Shortfall: only network state is the AI Rec call and its toast auto-fades with no Retry control. |
+| State handling | 5 | R3 band table. A = 4 (empty, loading, error, populated; none N/A — page-map 2.7 lists E `rows.length===0` L12132, L `aiRecBusy` L10431, X aiCall onFail L13586, P). Empty: **diff** vs `workout-log-populated.png` (same base offset) 46.9% of frame, bbox (0,118,786,1240) — "No exercises yet / Tap Add Exercise below" + Add Exercise → present-and-correct. Loading: diff 0.5%, bbox (87,181,720,1096); **named element** — AI Rec button reads "Thinking…" and is dimmed in `workout-log-loading.png` where populated reads "AI Rec" → present-and-correct. Error: diff 6.3%, bbox extends to y=1591; **named element** — red toast "Could not get a recommendation. Check your connection and retry." in `workout-log-error.png`, absent from populated; correct for the induced cause (worker route aborted) and names the next action → present-and-correct. Populated correct. M=0, W=0, G=0 → **5**. |
 | Data correctness | 1 | R2 ruling (unit label bug = wrong value). Seed `lk_activeWorkoutRows` w:"72.5", `lk_profile.useKg:true`. `workout-log-populated.png`: column header "LB" (L12080) beside header total "1088 kg" (72.5x8 + 72.5x7 = 1087.5, i.e. values treated as kg but labelled lb). Same screen: `-tools.png` offers "Switch to LBS" (implies kg) while `-action-sheet.png` offers "Switch to kg" (implies lb). Reps and set count correct; `flow-2-set-done.png` shows KG header under the flow seed. Two unit-label bugs on one screen → anchor 1. |
 | Error recovery | 4 | `workout-log-error.png`: "Could not get a recommendation. Check your connection and retry." (L13596) names cause and fix; rows persisted to `lk_activeWorkoutRows` (page-map 2.7 P), set data intact in same shot. Shortfall: no Retry button, toast fades. |
 
-Function mean: 2.9 (round 1: 3.0)
+Function mean: 3.0 (round 2: 2.9; round 1: 3.0)
 
 ### Design rubric
 
@@ -67,11 +67,11 @@ Checklist: 2/11 (round 1: 1/11)
 | Feature completeness | 3 | Baseline `page-metrics.jsonl` settings interactive: 44 controls clicked, 0 non-responders (6 destructive skipped). Redundant: section header "PREFERENCES" appears twice and "DATA & SYNC" twice (DOM text scan; `settings-populated.png`, `-scrolled-2.png`, `-scrolled-4.png`, `-scrolled-6.png`); a read-only "Weight units" info card (`-scrolled-3.png`) duplicates the Weight Unit toggle. `settings-populated-light-theme.png` (seed `lk_theme=light`) renders identical to dark. |
 | Task success | 5 | flow-8 pass first attempt (`flow-8.json` ok, `flow-8-lbs.png`, `flow-8-home.png`); baseline flow 8 pass, 0 console errors. |
 | Speed | 5 | R2 ruling: taps only, best-known for "switch unit from Home" = 4. Baseline `flow-metrics.jsonl` flow 8 "Change units, return Home" = **4 taps** (Profile, Settings, Switch to LBS, Home), 3 screen changes, 1072 ms; `flow-8.json` ok, `flow-8-lbs.png`, `flow-8-home.png`. Matches best-known = 5 (scrolling is not a tap). |
-| State handling | 1 | R2 N/A rule: Empty excluded by design (no data list, page-map 2.17), score on the remaining three. Loading **missing**: `settings-loading.png` shows the Verify button in its normal orange state, no spinner, no disabled styling, partly occluded by the mic FAB. Error **wrong**: network abort renders "Invalid code" (`settings-error.png`, L2732/L2747). Populated OK. One missing + one wrong = anchor 1. |
+| State handling | 1 | R3 band table. A = 3: empty is N/A by design — page-map 2.17 row "E | n/a" (Settings renders no data list). Loading: **diff** against every populated capture is scroll-confounded (nearest, `settings-populated.png`, 55.3% of frame at a different scroll offset; no populated capture exists at the beta-section offset), so test 2b — no spinner, no disabled or `aria-busy` Verify, label still "Verify" in `settings-loading.png`; no element the populated screen lacks → **MISSING**. Error: `settings-error.png` carries `settingsBetaErr` after the `/beta-validate` abort (index.md L339) and names "Invalid code" (L2732/L2747) for a network abort → **PRESENT-BUT-WRONG** (rubric ruling 3 example; worked check 6). Populated correct. M=1, W=1, G=0 → **1**. Note: my own pixel diff of `settings-loading.png` vs `settings-error.png` is 0 px over threshold (11 px differ at all, max delta 3, tab-bar antialiasing) — the two captures are the same clipped view of the beta card, so if the error text is read as not visible either, M=2 and the band table still gives **1**. |
 | Data correctness | 1 | R2 ruling (unit label bug = wrong value). Seed `lk_profile.weightKg` 64.2 → shown "64.25" (`settings-populated-scrolled-2.png`). After "Switch to LBS" label reads "Body Weight (lbs)" but value stays 64.25 (`settings-populated-units-lbs.png`; DOM check label kg→lbs, input unchanged), i.e. kg shown as lb. Height 168 → 5 / 6 converts correctly; age 29 and name match seed. Value shown under the other unit's label → anchor 1. |
 | Error recovery | 2 | Beta Verify with worker aborted → "Invalid code" (L2747): cause misnamed, no retry path, no hint it was a connection failure. Input text retained (`settings-error.png` shows BADCODE still in field). |
 
-Function mean: 2.9 (round 1: 3.0)
+Function mean: 2.9 (round 2: 2.9; round 1: 3.0)
 
 ### Design rubric
 
@@ -158,3 +158,44 @@ Re-scored only the criteria and checklist items 0F rewrote. Measurement rerun wi
 | Checklist 10 | Settings | fail | fail | FAB accent glow plus an accent ring shadow, and 4 accent borders 46-64 L* over their surface. |
 
 Corrections to round 1 worth recording: the round-1 pressed-state result was an artefact of a dispatched `pointerdown` (never triggers `:active`) sampled at 50ms; the round-1 spacing percentages included zero-valued longhands; the round-1 size counts included tab bar and FAB nodes; and the round-1 "white on pure black" hit on Workout Log ("Finish") was a false positive — the button's own background is `rgb(194,65,12)`.
+
+---
+
+## Round 3
+
+Re-scored one criterion only — Function → State handling, both pages — strictly by the round-3 ruling in `rubric.md` (visual presence test 2a diff / 2b named element, quality rank, band table). Diffs computed with Pillow on `screenshots/current/` at threshold >12 per channel; every capture is 786x1704, dark, `iPhone 15 Pro`.
+
+### Workout Log — state by state
+
+| state | applicable? | presence test used | result | quality |
+|---|---|---|---|---|
+| Empty | yes (page-map 2.7 E, `rows.length===0` L12132) | 2a diff vs `workout-log-populated.png`, same base scroll offset: 46.9% of frame, bbox (0,118,786,1240) — human-visible, in the state's own region | PRESENT | present-and-correct — "No exercises yet" + "Tap Add Exercise below" + Add Exercise control |
+| Loading | yes (page-map 2.7 L, `aiRecBusy` L10431) | 2a diff 0.5%, bbox (87,181,720,1096) — small, so settled by 2b: named element = AI Rec button label "Thinking…" with dimmed fill in `workout-log-loading.png`, where `workout-log-populated.png` reads "AI Rec" | PRESENT | present-and-correct — names what is happening, on the control that was pressed |
+| Error | yes (page-map 2.7 X, aiCall onFail L13586) | 2b named element = red toast "Could not get a recommendation. Check your connection and retry." in `workout-log-error.png` (diff bbox reaches y=1591); no such element in populated | PRESENT | present-and-correct — correct for the induced cause (worker route aborted) and states the next action |
+| Populated | yes | baseline | PRESENT | present-and-correct |
+
+Counts: **A = 4, M = 0, W = 0, G = 0** → band table row 5. **Old 4 → new 5.**
+
+Why it moved: round 2 docked a point for "no Retry control on the fading toast". The round-3 ruling has no band for that — a toast that names the failure and the next action is present-and-correct, and the missing Retry button belongs to Error recovery (scored 4, unchanged).
+
+### Settings — state by state
+
+| state | applicable? | presence test used | result | quality |
+|---|---|---|---|---|
+| Empty | **N/A by design** — page-map 2.17 row `E | n/a`; Settings renders no data list, so it has no empty branch | excluded from A | — | — |
+| Loading | yes (page-map 2.17 L, beta Verify pending; index.md L340) | 2a inconclusive: no populated capture shares the beta-section scroll offset (nearest `settings-populated.png` differs 55.3%, bbox (0,0,786,1622) — that is scroll, not state, and is discounted per ruling 2a). 2b: no spinner, no disabled / `aria-busy` Verify, label still "Verify", nothing the populated screen lacks | **MISSING** | — |
+| Error | yes (page-map 2.17 X, `settingsBetaErr` L32053) | 2b: `settingsBetaErr` set after the `/beta-validate` abort (index.md L339) renders "Invalid code" (L2732/L2747) | PRESENT | **present-but-wrong** — a network abort reported as a bad code (ruling 3's own example) |
+| Populated | yes | baseline | PRESENT | present-and-correct |
+
+Counts: **A = 3, M = 1, W = 1, G = 0** → band table row 1 (`M = 1 and W >= 1`). **Old 1 → new 1** (unchanged; matches the ruling's worked check 6).
+
+Observation recorded for 0F, not used to change the score: `settings-loading.png` and `settings-error.png` are pixel-identical at the diff threshold (0 px over threshold; 11 px differ at all, max channel delta 3, in the Profile tab-bar icon — antialiasing). Both captures are clipped at the tab bar just below the beta code input, so neither the pending state nor the error line is inside the frame. Read that way the error is MISSING too (M = 2, W = 0), which the band table also scores **1**, so the criterion is stable either way; a re-capture of the beta card at a matched scroll offset would settle it for future rounds.
+
+### Means
+
+| page | Function mean round 2 | Function mean round 3 |
+|---|---|---|
+| Workout Log | 2.9 | **3.0** (4, 3, 3, 1, 5, 1, 4 = 21/7) |
+| Settings | 2.9 | **2.9** (3, 3, 5, 5, 1, 1, 2 = 20/7) |
+
+No other criterion, checklist item or Design score was re-examined.
