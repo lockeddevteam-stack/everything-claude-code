@@ -6,7 +6,7 @@ A 225-exercise catalogue you search or drill into by muscle group, to read an ex
 
 ## 2. Feature inventory
 
-Captures are `00-inventory/screenshots/current/exercise-library-*.png`; short names below drop that prefix.
+Captures: `00-inventory/screenshots/current/exercise-library-*.png` (prefix dropped below).
 
 | Feature | Component / line | Status | Evidence |
 |---|---|---|---|
@@ -16,14 +16,14 @@ Captures are `00-inventory/screenshots/current/exercise-library-*.png`; short na
 | Search (name substring, `q.length>1`) | L8191-8296 | working, weak | `-populated-search.png`: "bench" → 4 rows; no muscle/equipment matching |
 | "No results" | L8288-8296 | working | `-empty.png` |
 | Create Custom Exercise | L8107-8189, `addCustom` L57304 | working | `-populated-create-custom.png` |
-| Custom exercise in browse lists/counts | `mergedSub` L7774-7783 | **broken** | seeded custom is `chest/lower`; `-populated-group.png` Lower Chest reads "10 ex", should be 11 (§6) |
+| Custom exercise in browse lists/counts | `mergedSub` L7774 | **broken** | seeded custom is `chest/lower`; `-populated-group.png` Lower Chest reads "10 ex", should be 11 (§6) |
 | Detail sheet: notes, group, part, equipment | L7202-7480 | working | `-detail-modal-full.png` |
 | Demonstration GIF (`static.exercisedb.dev`, 227 entries) | L7311-7327 | **broken offline** | `-detail-modal.png`: ~700px empty box, no message |
 | "No animation available" fallback | L7328-7343 | **dead** | fires only when `gifUrl` is falsy; 227 gifUrl entries cover the catalogue, so no capture shows it |
 | Form video (`POST /yt-search`) | L7070, L7346-7381 | online only | "No form video found…", `-detail-modal-full.png` |
 | ADD TO WORKOUT | L7463-7476 | **dead from Library tab** | TrainHub passes no `onSelect` (L15056); handler L7861 guards `p.onSelect &&`, then closes. The sheet's primary in `-detail-modal.png` |
 | `ascendFetchDetail` (`GET /exercise-detail/:id`) | L7089 | **dead** | zero call sites; page-map 2.10 lists it as live |
-| Inline library inside TrainHub | TrainHub L15958 | **dead** | L15377 routes `library` to `setView("library")`, never `setTab`, so `tab==="library"` is unreachable. Confirms the Train Hub auditor: `-populated.png` has no My Splits/History/Library bar; the hub is replaced |
+| Inline library inside TrainHub | L15958 | **dead** | L15377 routes `library` to `setView("library")`, never `setTab`, so `tab==="library"` is unreachable. Confirms the Train Hub auditor: `-populated.png` has no My Splits/History/Library bar; the hub is replaced |
 | Back | L8494 | working | 22x27px (`targets.json`) |
 
 Absent: favourites, recents, equipment filter, per-exercise history/PR, technique text.
@@ -37,7 +37,7 @@ Only flow 1 touches this page (flow 4 and 6 tapLogs never enter it).
 | 1A cold start | Add Exercise → type "Bench" → row → ADD TO WORKOUT | 2 of 17 | 3716 | none; typed search is the fast path |
 | 1B seeded guest | same | 2 of 14 | 3090 | — |
 
-No per-step timestamp log exists (no `flow-<n>.json` in `tests/baseline/`); videos at `baseline/artifacts/flows-01-*/video.webm`.
+No per-step timestamp log exists (no `flow-<n>.json` in `tests/baseline/`); video at `baseline/artifacts/flows-01-*/video.webm`.
 
 Measured by hand against the 225-item fixture (`tests/fixtures/exercise-db.json`): **browse to a named exercise = 3 taps** (group, subgroup, row) in lists of at most 10, after 2 taps to reach the library. **Search = 1 tap + 2-5 characters + 1 tap**; under 2 characters nothing renders (L8191), so "be" is the floor, returning 22 rows. Browsing without a name is the page's strength: the grid states counts, subgroup rows preview two names. Costs: equipment appears nowhere before the sheet, and "chest" returns 7 name matches, not the 30 chest exercises.
 
@@ -58,7 +58,7 @@ No failed spec, non-responder or blocked click: populated, empty and interactive
 
 - **D13** (`flow-metrics.jsonl` flow 1 `unexpectedRequests`): a detail sheet fires `POST /yt-search` (L7075) and a `static.exercisedb.dev` GIF (L7311), both unrouted. Guest mode is documented offline; this page breaks that.
 - **D12**: Back 22x27 (`targets.json`); 2 of 21 targets under 44px.
-- **recoveries 14 of 15 clicks** (`page-metrics.jsonl` interactive): every group card and Create Custom replaces the screen — the same takeover that kills L15958.
+- **recoveries 14 of 15 clicks** (`page-metrics.jsonl`): every group card and Create Custom replaces the screen — the same takeover that kills L15958.
 - `SUMMARY.md` calls the error state "not covered" over a detail fetch that is never called (L7089); that branch does not exist.
 
 ## 6. Rubric scores
@@ -92,4 +92,4 @@ Function mean **2.6**.
 
 **Cut**
 - `ascendFetchDetail` L7089 — dead code, and page-map documents a fetch that never runs.
-- The Library's claim on a top-level Train tab. North star: daily actions take one tap, monthly ones live a level deeper. Picking an exercise is a step inside building a split or logging a workout, where the picker already appears (L11388, L9216); as a destination it offers nothing actionable — rows dead-end in a sheet whose primary is inert (`-detail-modal.png`).
+- The Library's top-level Train tab. North star: daily actions take one tap, monthly ones live a level deeper. Picking an exercise is a step inside building a split or logging a workout, where the picker already appears (L11388, L9216); as a destination it offers nothing actionable — rows dead-end in a sheet whose primary is inert (`-detail-modal.png`).
