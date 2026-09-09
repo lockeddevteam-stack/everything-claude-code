@@ -4,7 +4,7 @@
 
 ## 1. Squint + 5-second test (16px Gaussian on `home-populated.png`)
 
-Winner: **START WORKOUT**, the only saturated orange mass, 353x53 at y659. Second: seven grey rectangles above it, blurring into one undifferentiated block. Third: two orange dots (avatar y58, mic FAB y720).
+Winner: **START WORKOUT**, the only saturated orange mass, 353x53 at y659. Second: seven grey rectangles above it, blurring into one block. Third: two orange dots (avatar y58, mic FAB y720).
 
 The win is late and contested: the primary begins at y659 of a 781px window — **84% down the fold**, after 534px a user cannot act on. The mic FAB (50x50, same `135deg` accent fill) sits at y720 and **overlaps VIEW PROGRESS**, so the squint shows two orange blobs touching.
 
@@ -65,7 +65,7 @@ Blocks, top y → height (px), share of the 781px fold, controls returned:
 | 2 | Type scale | FAIL | 12 sizes vs 6; 6 at `line-height:normal`. |
 | 3 | 8px grid | FAIL | 74.4% on grid. |
 | 4 | Control states | FAIL | Recent row unchanged at 100ms (4/5). |
-| 5 | Meaningful motion | FAIL | `pillIn .35s both` plays on mount = decorative; Recent Workouts can grow, no insertion animation. |
+| 5 | Meaningful motion | FAIL | `pillIn .35s both` plays on mount = decorative; no insertion animation on a growing list. |
 | 6 | Empty/error copy | FAIL | `home-empty.png`: 8 action controls, not one, plus "999 days since your last session". `home-error.png` renders no error UI. |
 | 7 | Numbers | FAIL | 0/35 numeric nodes tabular; 1-day-old workout dated "9/8/2026". |
 | 8 | One icon set | FAIL | 7 emoji beside a stroked line set. |
@@ -77,12 +77,12 @@ Blocks, top y → height (px), share of the 781px fold, controls returned:
 
 - **Accent gradient.** The system's most common gradient is `linear-gradient(135deg, accent-deep, #9A3412)`: 66 occurrences, ~82% of 146 gradients decorative. Home paints 5 gradient elements — **2 of those 66 button fills** (START WORKOUT, mic FAB), the avatar, and two accent scrims (393x125 top tint; 393x150 glow at y702). Only 3% of that fill's stock lands here, but CSSARR uses `button[style*='linear-gradient']` as the *primary-button selector*: spending it twice on one screen, once on a mic, destroys the signal.
 - **Radii.** System: 30 literals remapped to 12/14/16/24. Home renders 8 (6px x30 calendar cells, 9 x5, 10 x5, 14 x4, 16 x16, 50% x7).
-- **Card style.** 15 elements hit the CSSARR 16px + `0 1px 2px / 0 6px 20px` card; calendar cells (6px) and pills (9/10px) do not.
+- **Card style.** 15 elements hit the CSSARR 16px card; calendar cells (6px) and pills (9/10px) do not.
 - **Icons.** Emoji 24px, line icons 20px, tab icons 22px — three optical sizes. Tab pattern matches the shell.
 
 ## 7. Keep, fix, cut
 
-- **Keep:** the START WORKOUT / VIEW PROGRESS pair — `scale(0.97)` at 100ms, the only block stating an intent.
+- **Keep:** the START WORKOUT / VIEW PROGRESS pair — `scale(0.97)` at 100ms, the only block stating intent.
 - **Fix:** raise the primary above y200, reserve the accent gradient for it alone, and stop the FAB overlapping controls (y720–770 over a button ending y780).
 - **Cut:** the stat grid (179px, 22.9% of fold, zero controls) and the calendar (338px, no tappable cells).
 

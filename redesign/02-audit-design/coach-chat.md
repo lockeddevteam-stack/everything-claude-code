@@ -4,7 +4,7 @@ Evidence: `screenshots/current/coach-chat-*.png`, `baseline/scans/coach-chat.jso
 
 ## 1. Squint and 5-second test
 
-8px blur of `coach-chat-populated.png`: first the **voice FAB** (bottom right), second the **coach logo tile** (top left), third the pale composer slab. Send vanishes (grey, opacity 0.4). **The winner is the floating voice button — not this page's primary action, and not owned by this page.**
+8px blur of `coach-chat-populated.png`: first the **voice FAB** (bottom right), second the **coach logo tile** (top left), third the pale composer slab. Send vanishes (grey, 0.4 opacity). **The winner is the floating voice button — not this page's primary action, and not owned by this page.**
 
 5 seconds: "a coach thing with four tabs and a message box." The conversation reads as unformatted body copy because only user turns are bubbles. Purpose is inferable; the primary action is not.
 
@@ -24,7 +24,7 @@ Legend printed on `coach-chat-annotated.png`: (1) 195px header stack, (2) 10x12 
 | 16/400 reply text | `#F5F5F7` / `#000` | 18.7 |
 | 11/600 Edit, Copy, Retry | `#A1A1AA` / `#000` | 8.2 |
 | emoji on gradient FAB | — | **unknown** |
-| bubble border (boundary) | `rgba(249,115,22,.19)` / `#000` | **1.24, fails 3:1** |
+| bubble border | `rgba(249,115,22,.19)` / `#000` | **1.24, fails 3:1** |
 
 **Targets** (scan, 18 interactive): 7 under 44x44 = **61% pass** — `✎` 10x12; New chat 79x32; Edit 130x32 (x2); Copy 36x32 (x2); Retry 36x32. Empty adds six 28x28 chip `×`. Pass: tabs 83x48, textarea 307x50, Send 46x46, FAB 50x50.
 
@@ -69,18 +69,18 @@ Legend printed on `coach-chat-annotated.png`: (1) 195px header stack, (2) 10x12 
 
 ## 6. Consistency deltas vs `design-system-current.md`
 
-- **Radii**: 8 (New chat), 10, 12 (tabs), 14 (Send, FAB), 16 (bubble, textarea) — five values for six element types.
+- **Radii**: 8 (New chat), 10, 12 (tabs), 14 (Send, FAB), 16 (bubble, textarea) — five values, six element types.
 - **Tab pattern**: a filled 12px-radius pill on a transparent 83x48 track — a third pattern beside flat nav items and `DsSegmented`.
-- **Card style**: the app card is `--color-card #1C1C1E` at 16px (CSSARR forces it); the assistant reply is transparent at 0 radius, so the densest content is the one thing that is not a card, while the plan card inside a reply is.
-- **Icon size**: `Ic` defaults z=20 / stroke 1.8; here a 20px emoji and a 12px text glyph.
-- **Accent use**: four accent surfaces at once (logo gradient, active tab `#FB923C`, bubble fill, FAB gradient); none is the primary action.
+- **Card style**: the app card is `--color-card #1C1C1E` at 16px; the assistant reply is transparent at 0 radius, so the densest content is the one thing that is not a card — while the plan card inside a reply is.
+- **Icons**: `Ic` defaults z=20 / stroke 1.8; here a 20px emoji and a 12px text glyph.
+- **Accent**: four accent surfaces at once (logo gradient, active tab, bubble fill, FAB); none is the primary action.
 
 ## 7. Keep, fix, cut
 
-- **Keep**: composer behaviour — Enter sends, textarea grows 48→120px, thread pinned to bottom on entry, Send `disabled` on empty (measured).
+- **Keep**: composer behaviour — Enter sends, textarea grows 48→120px, thread pinned to bottom on entry, Send `disabled` on empty.
 - **Keep**: error state — "The coach is down. Not your fault." with Retry (`coach-chat-error.png`).
-- **Fix**: hierarchy — make Send the one accent-filled control; it is invisible at 8px blur while the FAB wins.
-- **Fix**: give assistant turns a real surface (`--color-card`, 16px) so both speakers are one component in two states.
+- **Fix**: make Send the one accent-filled control; it is invisible at 8px blur while the FAB wins.
+- **Fix**: give replies a real surface (`--color-card`, 16px) so both speakers are one component in two states.
 - **Fix**: 7 targets under 44; the 10x12 rename and 36x32 Copy/Retry are worst.
 - **Fix**: add a timestamp per turn or day group; the thread carries no time information.
 - **Cut**: the voice FAB here — it wins the squint, is an emoji on a glowing gradient, and covers 37x21px of SAVE PLAN.
