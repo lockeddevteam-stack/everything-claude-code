@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — Review</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+</head>
+<body>
+<!--
+  REVIEW — what this screen is, and why it is shaped this way.
+
+  THE MOMENT. The last set is racked. The lifter is tired, one-handed,
+  and wants to be done. Whatever this screen says has about five
+  seconds to be worth reading, and then it has to get out of the way.
+
+  THE AUDIT'S VERDICT (01-audit-function/review.md). The old screen
+  "mostly wastes a tap": three stat tiles restating numbers the lifter
+  had just watched accumulate, then a five-row / five-chip reflection
+  gate styled as the one accent action, then a network call for the one
+  thing the screen could say that the lifter did not already know —
+  eight taps in, and only if the call answered. Function mean 3.3,
+  state handling 2.
+
+  FOUR DEFECTS THIS SCREEN FIXES, each traced to the audit:
+
+  1. "The one accent button is HOW DID IT FEEL?; the job sits in the
+     quiet Save without reflection" (rubric, purpose clarity 3). Here
+     the single accent fill on every state is Save session, pinned in
+     an actionbar so it never scrolls away. Saving is one tap from
+     entry. Feel is four chips in a section below the fold, optional,
+     and it gates nothing.
+
+  2. "Zero-set guard on save(): missing — saves sets:0, exercises:[],
+     an empty record joins history and inflates Home's TOTAL WORKOUTS"
+     (§2 L16012, §5). The nothing-logged state has no Save control at
+     all. It says the session holds nothing and that nothing will be
+     written, and offers the two things that are actually available:
+     go back and log a set, or discard.
+
+  3. "Canned fallback on aiCall fail — broken: fabricated insight
+     styled as a real one" (§2 L16112, `review-error.png`). Every
+     figure on this screen is computed from lk_history on the device.
+     The one generated line lives in a dashed, labelled card
+     (.card--unverified), is never fetched unless asked for, and on
+     failure shows the failure and a Retry — never a sentence.
+
+  4. "Five seconds after racking, a lifter wants the comparison — this
+     session against the last, per lift, and any PR — computable
+     locally" (§7 Cut). That comparison is now the first thing on the
+     screen, above the fold, before any control.
+
+  WHAT THE LIFTER DID NOT ALREADY KNOW
+    - Total working volume against the same session last time:
+      4,383 kg vs 4,266 kg, +117 kg, +2.7%.
+    - Per lift, this session's top set against that session's top set,
+      and the working-volume change: bench +60 kg, shoulder press
+      +50 kg, cable fly +30 kg, lateral raise -53 kg, pushdown +30 kg.
+      The lateral raise is down. The screen says so; a lifter who is
+      only ever congratulated stops reading.
+    - Any record set today, with the mark it beat and when.
+
+  NUMBERS. Working sets only, warm-ups excluded, stated on the screen
+  in one line. This settles the audit's finding that the old header and
+  the old per-exercise line disagreed about warm-ups (15985 vs 16254).
+  Every figure is tabular and carries kg. Dates are relative inside the
+  week and absolute after it.
+
+  DATA. tests/fixtures/seed-data.json. The session under review is the
+  Push day of Wed 9 Sep 2026; the prior session it is compared against
+  is w_1788458700000, "PPL - Push", 3 Sep 2026, 16 sets, 4,266 kg,
+  55 min, whose five exercises and every set are in the fixture. The
+  record state's beaten mark is lk_prs["111"], 72.5 kg x 8 on
+  2026-09-03. The prior top sets, prior per-lift volumes and the
+  4,266 kg total are read off that fixture session, not invented; the
+  five deltas sum to the header delta.
+
+  ACCENT. Exactly one accent fill per state, always on the primary
+  action: Save session in populated, record, loading and error; Back to
+  workout in nothing-logged, where there is nothing to save. Feel chips
+  use --accent-quiet as a selected tint, which is a ground, not a fill,
+  and the record badge is success-toned so a record can never be
+  confused with an action.
+
+  MOTION. One entrance, on the block that carries the news. Reduced
+  motion switches it off.
+-->
+
+<div class="stage">
+  <div class="phone">
+    <div class="screen" id="screen" data-testid="screen-review">
+
+      <header class="hdr">
+        <button class="hdr__back" id="action-back" data-testid="action-back" aria-label="Back to workout">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg>
+        </button>
+        <div class="hdr__title stack stack--1">
+          <span class="t-meta num" id="hdr-date">WED, SEP 9</span>
+          <h1 class="t-title" id="hdr-title">Push</h1>
+        </div>
+      </header>
+
+      <main class="body" id="body" data-testid="review-scroll" tabindex="-1"></main>
+
+      <div id="bar-slot"></div>
+      <div id="toast-slot" data-testid="toast-slot"></div>
+
+    </div>
+  </div>
+</div>
+
+<div class="dev">
+  <button class="dev__toggle" id="dev-toggle" aria-expanded="false" aria-controls="dev-menu" data-testid="dev-toggle">State</button>
+  <div class="dev__menu" id="dev-menu" hidden data-testid="dev-menu"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---- icons: one set, one stroke weight ------------------------- */
+  function svg(d, extra) {
+    return '<svg class="ico' + (extra || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+  }
+  var ICO = {
+    record: svg('<path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3"/><path d="M12 14v3M9 20h6"/>'),
+    alert:  svg('<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/>'),
+    empty:  svg('<path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/>', ' ico--lg'),
+    spark:  svg('<path d="M12 4.5 13.7 9l4.8.3-3.7 3 1.2 4.6L12 14.4 7.9 16.9 9.2 12.3l-3.7-3L10.3 9z"/>')
+  };
+
+  /* ---- formatting ------------------------------------------------ */
+  function n(v) { return '<span class="num">' + v + '</span>'; }
+  function kg(v) { return n(Number(v).toLocaleString('en-US')) + ' kg'; }
+  /* A signed figure always prints its sign, so the colour is a second
+     carrier of direction and never the only one. */
+  function signedKg(v) {
+    if (v === 0) return n('0') + ' kg';
+    return n((v > 0 ? '+' : '−') + Math.abs(v).toLocaleString('en-US')) + ' kg';
+  }
+  function dir(v) { return v > 0 ? 'up' : (v < 0 ? 'down' : 'flat'); }
+  function set(w, r) { return n(w) + ' kg × ' + n(r); }
+
+  /* ---- seed --------------------------------------------------------
+     Prior column is w_1788458700000 in fixtures/seed-data.json:
+     "PPL - Push", 3 Sep 2026, 16 working sets, 4,266 kg, 55 min.
+       Barbell Bench Press  72.5x8, 72.5x6, 72.5x5, 67.5x5  = 1715 kg
+       DB Shoulder Press    25x9, 25x9, 25x8                =  650 kg
+       Incline Cable Fly    15x11, 15x11, 15x10             =  480 kg
+       Lateral Raise        10.5x15, 10.5x14, 10.5x12       =  430.5 kg
+       Tricep Pushdown      30x12, 30x11, 30x10             =  990 kg
+                                                    total     4265.5 -> 4,266 kg
+     (The fixture's 37.5x8 bench warm-up is excluded, which is what
+     makes the fixture's own "4266 kg" reproduce.)
+     ------------------------------------------------------------------ */
+
+  var PRIOR = { name: 'Push', dateLabel: 'Sep 3', volumeKg: 4266 };
+
+  function lift(name, tw, tr, tvol, pw, pr, pvol) {
+    return { name: name, top: [tw, tr], vol: tvol, priorTop: [pw, pr], priorVol: pvol,
+             delta: Math.round(tvol - pvol) };
+  }
+
+  /* Today, 9 Sep. Same five lifts, same order. Two variants: one where
+     the bench moved and set a record, one where it held. */
+  var LIFTS_RECORD = [
+    lift('Barbell Bench Press', 75, 8, 1775, 72.5, 8, 1715),
+    lift('DB Shoulder Press',   25, 10, 700, 25, 9, 650),
+    lift('Incline Cable Fly',   15, 12, 510, 15, 11, 480),
+    lift('Lateral Raise',       10.5, 13, 378, 10.5, 15, 430.5),
+    lift('Tricep Pushdown',     30, 12, 1020, 30, 12, 990)
+  ];
+  var LIFTS_FLAT = [
+    lift('Barbell Bench Press', 72.5, 8, 1715, 72.5, 8, 1715)
+  ].concat(LIFTS_RECORD.slice(1));
+
+  var DATA = {
+    record: {
+      title: 'Push', date: 'WED, SEP 9',
+      sets: 16, volumeKg: 4383, minutes: 52,
+      lifts: LIFTS_RECORD,
+      /* lk_prs["111"]: the standing best at 8 reps was 72.5 kg, 3 Sep. */
+      record: { lift: 'Barbell Bench Press', w: 75, r: 8, prevW: 72.5, prevDate: 'Sep 3' },
+      insight: 'Bench top set has moved up 2.5 kg on every second Push since ' +
+               'Aug 20. Lateral raise reps have fallen in three straight ' +
+               'sessions; it runs last in the order every time.'
+    },
+    populated: {
+      title: 'Push', date: 'WED, SEP 9',
+      sets: 16, volumeKg: 4323, minutes: 49,
+      lifts: LIFTS_FLAT,
+      record: null,
+      insight: 'Bench has held at 72.5 kg for two Push sessions while the ' +
+               'accessories kept climbing. The last two top sets both ' +
+               'stopped at RIR 2.'
+    },
+    empty:   { title: 'Push', date: 'WED, SEP 9' },
+    loading: { title: 'Push', date: 'WED, SEP 9' },
+    error:   { title: 'Push', date: 'WED, SEP 9', sets: 16, volumeKg: 4383, minutes: 52 }
+  };
+
+  var FEELINGS = [
+    ['easy',   'Easy'],
+    ['steady', 'Steady'],
+    ['hard',   'Hard'],
+    ['max',    'All out']
+  ];
+
+  /* ---- screen state ---------------------------------------------- */
+  var S = { view: 'record', saved: false, feel: null, discardArmed: false,
+            ai: 'idle', toast: null };
+
+  /* ---- blocks ----------------------------------------------------- */
+
+  /* The receipt line. One line, not three tiles: these are numbers the
+     lifter watched accumulate, so they confirm, they do not lead. */
+  function receipt(d) {
+    return '<p class="t-detail mt-2" data-testid="session-totals">' +
+      n(d.sets) + ' working sets · ' + kg(d.volumeKg) + ' · ' + n(d.minutes) + ' min' +
+      '</p>';
+  }
+
+  /* The record. Only drawn when there is one, and it names the mark it
+     beat, because "new record" without the old number is a compliment
+     rather than information. */
+  function recordCard(r) {
+    return '' +
+      '<div class="card mt-4 enter-rise" data-testid="card-record">' +
+        '<div class="hstack hstack--3">' +
+          '<span class="ico-well delta--up">' + ICO.record + '</span>' +
+          '<div class="grow stack stack--1">' +
+            '<span class="badge badge--success">Personal record</span>' +
+            '<h2 class="t-section">' + r.lift + '</h2>' +
+          '</div>' +
+        '</div>' +
+        '<p class="t-body-em mt-3 num">' + set(r.w, r.r) + '</p>' +
+        '<p class="t-detail">Beat ' + set(r.prevW, r.r) + ', set ' + r.prevDate + '.</p>' +
+      '</div>';
+  }
+
+  /* The comparison. The reason this screen exists: it is computed on
+     the device from lk_history and needs no network. */
+  function compare(d) {
+    var delta = d.volumeKg - PRIOR.volumeKg;
+    var pct = (delta / PRIOR.volumeKg) * 100;
+    var pctText = (delta >= 0 ? '+' : '−') + Math.abs(pct).toFixed(1) + '%';
+
+    var rows = d.lifts.map(function (l) {
+      return '' +
+        '<div class="row" data-testid="lift-' + l.name.toLowerCase().replace(/[^a-z]+/g, '-') + '">' +
+          '<span class="row__main">' +
+            '<span class="row__title">' + l.name + '</span>' +
+            '<span class="row__sub">' + set(l.top[0], l.top[1]) + ', was ' +
+              set(l.priorTop[0], l.priorTop[1]) + '</span>' +
+          '</span>' +
+          '<span class="row__value delta--' + dir(l.delta) + '">' + signedKg(l.delta) + '</span>' +
+        '</div>';
+    }).join('');
+
+    return '' +
+      '<div class="section" data-testid="section-compare">' +
+        '<div class="section__head">' +
+          '<h2 class="t-label">Against ' + PRIOR.name + ', ' + PRIOR.dateLabel + '</h2>' +
+        '</div>' +
+        '<div class="card enter-rise">' +
+          '<div class="spread">' +
+            '<div class="hero">' +
+              '<span class="hero__figure">' +
+                '<span class="hero__value num delta--' + dir(delta) + '" data-testid="volume-delta">' +
+                  (delta >= 0 ? '+' : '−') + Math.abs(delta).toLocaleString('en-US') +
+                '</span>' +
+                '<span class="hero__unit">kg</span>' +
+              '</span>' +
+              '<span class="hero__label">Working volume</span>' +
+            '</div>' +
+            '<span class="t-body-em num delta--' + dir(delta) + '">' + pctText + '</span>' +
+          '</div>' +
+          '<p class="t-detail mt-2 num">' + kg(d.volumeKg) + ' today, ' + kg(PRIOR.volumeKg) + ' on ' + PRIOR.dateLabel + '</p>' +
+        '</div>' +
+        '<div class="card card--flush mt-3">' + rows + '</div>' +
+        '<p class="t-meta mt-2">Change is working-set volume. Warm-ups excluded.</p>' +
+      '</div>';
+  }
+
+  /* The one thing on the screen that is not measured. Dashed, labelled,
+     never fetched unless asked, and a failure stays a failure. */
+  function aiCard(d) {
+    var inner;
+    if (S.ai === 'idle') {
+      inner = '<p class="t-detail">A written read on this session and the five before it. ' +
+              'Nothing below is needed to save.</p>' +
+              '<button class="btn btn--secondary btn--block mt-3" data-testid="ai-ask">' +
+                '<span class="btn__label">Ask coach</span></button>';
+    } else if (S.ai === 'loading') {
+      inner = '<div class="hstack hstack--3" role="status" aria-live="polite">' +
+                '<span class="spinner"></span>' +
+                '<span class="t-detail">Reading your last six Push sessions.</span>' +
+              '</div>';
+    } else if (S.ai === 'error') {
+      inner = '<div class="banner banner--error" role="alert" data-testid="ai-error">' +
+                ICO.alert +
+                '<span><strong>Coach did not answer</strong>The request timed out. Your session is ' +
+                'untouched and the comparison above is unaffected.</span>' +
+              '</div>' +
+              '<button class="btn btn--secondary btn--block mt-3" data-testid="ai-retry">' +
+                '<span class="btn__label">Try again</span></button>';
+    } else {
+      inner = '<p class="t-detail" data-testid="ai-text">' + d.insight + '</p>';
+    }
+    return '' +
+      '<div class="section">' +
+        '<div class="card card--flush card--unverified" data-testid="card-ai">' +
+          '<div class="card__head">' +
+            '<span class="t-label grow">Coach note</span>' +
+            '<span class="badge">Generated, not measured</span>' +
+          '</div>' +
+          '<div style="padding: var(--sp-4)">' + inner + '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* Optional, secondary, and it gates nothing. One question, four
+     answers, one tap, and the screen is savable with or without it. */
+  function feelSection() {
+    var chips = FEELINGS.map(function (f) {
+      return '<button class="chip" type="button" aria-pressed="' + (S.feel === f[0]) + '" ' +
+             'data-feel="' + f[0] + '" data-testid="feel-' + f[0] + '">' + f[1] + '</button>';
+    }).join('');
+    return '' +
+      '<div class="section" data-testid="section-feel">' +
+        '<div class="section__head">' +
+          '<h2 class="t-label">How did it feel</h2>' +
+          '<span class="t-meta">Optional</span>' +
+        '</div>' +
+        '<div class="chiprow" role="group" aria-label="How did it feel, optional">' + chips + '</div>' +
+      '</div>';
+  }
+
+  /* Two-step, and the second step names the consequence. */
+  function discardSection() {
+    if (S.discardArmed) {
+      return '' +
+        '<div class="section" data-testid="section-discard">' +
+          '<div class="banner banner--error" role="alert">' + ICO.alert +
+            '<span><strong>Discard this session</strong>' +
+            'The 16 sets you logged are deleted and nothing is written to your history.</span></div>' +
+          '<div class="hstack hstack--2 mt-3">' +
+            '<button class="btn btn--secondary grow" data-testid="action-discard-cancel">' +
+              '<span class="btn__label">Keep it</span></button>' +
+            '<button class="btn btn--danger-solid grow" data-testid="action-discard-confirm">' +
+              '<span class="btn__label">Discard</span></button>' +
+          '</div>' +
+        '</div>';
+    }
+    return '' +
+      '<div class="section" data-testid="section-discard">' +
+        '<button class="btn btn--danger btn--block" data-testid="action-discard">' +
+          '<span class="btn__label">Discard session</span></button>' +
+      '</div>';
+  }
+
+  /* ---- the pinned bar --------------------------------------------
+     Save never scrolls away, so banking the session is one tap from
+     the state the screen opens in, whatever the scroll position. */
+  function saveBar(opts) {
+    if (S.saved) {
+      return '<div class="actionbar" data-testid="actionbar">' +
+               '<span class="actionbar__status" role="status" data-testid="save-status">' +
+                 'Saved to history</span>' +
+               '<button class="btn btn--secondary" disabled data-testid="action-save">' +
+                 '<span class="btn__label">Saved</span></button>' +
+             '</div>';
+    }
+    var busy = opts && opts.disabled;
+    return '<div class="actionbar" data-testid="actionbar">' +
+             '<span class="actionbar__status">' + (opts && opts.status ? opts.status : '') + '</span>' +
+             '<button class="btn btn--primary" data-testid="action-save"' +
+               (busy ? ' disabled' : '') + '>' +
+               '<span class="btn__label">Save session</span></button>' +
+           '</div>';
+  }
+
+  /* ---- states ------------------------------------------------------ */
+  var VIEWS = {};
+
+  function full(d) {
+    return {
+      body: receipt(d) + (d.record ? recordCard(d.record) : '') + compare(d) +
+            aiCard(d) + feelSection() + discardSection(),
+      bar: saveBar({ status: d.record ? 'Record included' : '' })
+    };
+  }
+  VIEWS.record = function () { return full(DATA.record); };
+  VIEWS.populated = function () { return full(DATA.populated); };
+
+  /* Nothing logged. The old screen printed WORKOUT COMPLETE over zero
+     sets and left both save paths live. There is no Save control here
+     at all, and the copy says what will and will not happen. */
+  VIEWS.empty = function () {
+    return {
+      body: '<div class="empty mt-5 enter-rise" data-testid="card-nothing-logged">' +
+              '<span class="empty__ico">' + ICO.empty + '</span>' +
+              '<h2 class="empty__title">Nothing logged</h2>' +
+              '<p class="empty__body">No sets were completed, so there is nothing to save ' +
+                'and nothing will be added to your history.</p>' +
+              '<button class="btn btn--primary" data-testid="action-back-to-workout">' +
+                '<span class="btn__label">Back to workout</span></button>' +
+            '</div>' +
+            discardSection(),
+      bar: ''
+    };
+  };
+
+  /* Loading. The prior session is being read off the device. Save waits,
+     because a comparison is the point and a save before the totals are
+     known is a save of an unknown thing. */
+  VIEWS.loading = function () {
+    return {
+      body: '<div class="skel mt-2" style="height: var(--sp-4); width: 65%"></div>' +
+            '<div class="section" role="status" aria-busy="true" aria-label="Reading your last Push session">' +
+              '<div class="card">' +
+                '<div class="skel" style="height: var(--sp-6); width: 45%"></div>' +
+                '<div class="skel mt-3" style="height: var(--sp-4); width: 70%"></div>' +
+              '</div>' +
+              '<div class="card mt-3">' +
+                '<div class="skel" style="height: var(--sp-5)"></div>' +
+                '<div class="skel mt-4" style="height: var(--sp-5)"></div>' +
+                '<div class="skel mt-4" style="height: var(--sp-5)"></div>' +
+                '<div class="skel mt-4" style="height: var(--sp-5)"></div>' +
+                '<div class="skel mt-4" style="height: var(--sp-5)"></div>' +
+              '</div>' +
+            '</div>',
+      bar: saveBar({ disabled: true, status: 'Reading your last Push session' })
+    };
+  };
+
+  /* Error. The comparison failed; the session did not. The failure is
+     named, the totals that ARE known are still shown, and Save stays
+     the primary action rather than being held hostage to a read that
+     the lifter did not ask for. */
+  VIEWS.error = function () {
+    var d = DATA.error;
+    return {
+      body: receipt(d) +
+            '<div class="section" data-testid="section-compare-error">' +
+              '<div class="banner banner--error" role="alert">' + ICO.alert +
+                '<span><strong>No comparison available</strong>' +
+                'Your Sep 3 Push session could not be read, so this one cannot be measured ' +
+                'against it. Saving still works.</span></div>' +
+              '<button class="btn btn--secondary btn--block mt-3" data-testid="action-retry-compare">' +
+                '<span class="btn__label">Try again</span></button>' +
+            '</div>' +
+            feelSection() + discardSection(),
+      bar: saveBar({ status: '' })
+    };
+  };
+
+  /* ---- render ------------------------------------------------------ */
+  var STATES = [
+    ['record',    'New record'],
+    ['populated', 'Populated'],
+    ['empty',     'Nothing logged'],
+    ['loading',   'Loading'],
+    ['error',     'Error']
+  ];
+
+  var body = document.getElementById('body');
+  var barSlot = document.getElementById('bar-slot');
+  var toastSlot = document.getElementById('toast-slot');
+  var screen = document.getElementById('screen');
+  var hdrDate = document.getElementById('hdr-date');
+  var hdrTitle = document.getElementById('hdr-title');
+  var menu = document.getElementById('dev-menu');
+  var toggle = document.getElementById('dev-toggle');
+  var toastTimer = null;
+
+  function toastHTML() {
+    if (!S.toast) return '';
+    return '<div class="toast" role="status" data-testid="toast">' +
+             '<span class="toast__body">' + S.toast + '</span></div>';
+  }
+
+  function paint(keepScroll) {
+    var top = body.scrollTop;
+    var d = DATA[S.view];
+    var out = VIEWS[S.view]();
+    screen.setAttribute('data-state', S.view);
+    hdrDate.textContent = d.date;
+    hdrTitle.textContent = d.title;
+    body.innerHTML = out.body;
+    barSlot.innerHTML = out.bar;
+    toastSlot.innerHTML = toastHTML();
+    body.scrollTop = keepScroll ? top : 0;
+    Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.state === S.view));
+    });
+  }
+
+  function show(view) {
+    S = { view: VIEWS[view] ? view : 'record', saved: false, feel: null,
+          discardArmed: false, ai: 'idle', toast: null };
+    if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+    paint(false);
+  }
+
+  function toast(msg) {
+    S.toast = msg;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { S.toast = null; paint(true); }, 4000);
+  }
+
+  /* One delegated handler. Every control on the screen is in here, so
+     there is no path that reaches a control with no behaviour. */
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest('[data-testid], [data-feel]');
+    if (!el) return;
+    var id = el.getAttribute('data-testid');
+
+    if (el.dataset.feel) {
+      S.feel = S.feel === el.dataset.feel ? null : el.dataset.feel;
+      paint(true);
+      return;
+    }
+    switch (id) {
+      case 'action-save':
+        S.saved = true;
+        paint(true);
+        toast('Session saved' + (S.feel ? ', marked ' + S.feel : '') + '.');
+        paint(true);
+        return;
+      case 'action-discard':
+        S.discardArmed = true; paint(true); return;
+      case 'action-discard-cancel':
+        S.discardArmed = false; paint(true); return;
+      case 'action-discard-confirm':
+        S.discardArmed = false; paint(true); toast('Session discarded. Nothing was written.'); return;
+      case 'ai-ask':
+      case 'ai-retry':
+        S.ai = 'loading'; paint(true);
+        setTimeout(function () {
+          if (S.view !== 'record' && S.view !== 'populated') return;
+          S.ai = S.view === 'populated' ? 'error' : 'done';
+          paint(true);
+        }, 900);
+        return;
+      case 'action-retry-compare':
+        show('loading');
+        setTimeout(function () { if (S.view === 'loading') show('record'); }, 900);
+        return;
+      case 'action-back':
+      case 'action-back-to-workout':
+        toast('Back to the workout. Nothing was saved.'); paint(true); return;
+      default:
+        return;
+    }
+  });
+
+  /* ---- dev toggle -------------------------------------------------- */
+  menu.innerHTML = STATES.map(function (s) {
+    return '<button class="dev__item" data-state="' + s[0] + '" aria-pressed="false" ' +
+           'data-testid="dev-state-' + s[0] + '">' + s[1] + '</button>';
+  }).join('');
+  toggle.addEventListener('click', function () {
+    var open = toggle.getAttribute('aria-expanded') === 'true';
+    toggle.setAttribute('aria-expanded', String(!open));
+    menu.hidden = open;
+  });
+  menu.addEventListener('click', function (e) {
+    var b = e.target.closest('.dev__item');
+    if (b) show(b.dataset.state);
+  });
+
+  show(new URLSearchParams(location.search).get('state') || 'record');
+})();
+</script>
+</body>
+</html>
