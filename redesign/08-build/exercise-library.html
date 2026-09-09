@@ -970,13 +970,20 @@
       render();
       if (!S.sheet && !S.create) input.focus();
     };
-    try {
-      fetch('../tests/fixtures/exercise-db.json', { cache: 'no-store' })
-        .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
-        .then(function (rows) { finish(rows, 'fetch'); })
-        .catch(function () { finish(fromTuples(FALLBACK), 'inline'); });
-    } catch (err) {
+    /* fetch() cannot read a file:// URL in any engine, and the failure is a
+       console error the page cannot catch. The demo opens from disk, so ask
+       first and go straight to the inline catalogue when the answer is disk. */
+    if (location.protocol === 'file:') {
       finish(fromTuples(FALLBACK), 'inline');
+    } else {
+      try {
+        fetch('../tests/fixtures/exercise-db.json', { cache: 'no-store' })
+          .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
+          .then(function (rows) { finish(rows, 'fetch'); })
+          .catch(function () { finish(fromTuples(FALLBACK), 'inline'); });
+      } catch (err) {
+        finish(fromTuples(FALLBACK), 'inline');
+      }
     }
     setTimeout(function () { finish(fromTuples(FALLBACK), 'inline'); }, 1500);
   }
@@ -1035,14 +1042,17 @@
   S.preset = 0;
   render();
   input.focus();
-  fetch('../tests/fixtures/exercise-db.json', { cache: 'no-store' })
-    .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
-    .then(function (rows) {
-      if (!Array.isArray(rows) || !rows.length) return;
-      seed(rows, 'fetch');
-      render();
-    })
-    .catch(function () { /* inline catalogue stands */ });
+  /* Same reason as above: from disk the inline catalogue is the catalogue. */
+  if (location.protocol !== 'file:') {
+    fetch('../tests/fixtures/exercise-db.json', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
+      .then(function (rows) {
+        if (!Array.isArray(rows) || !rows.length) return;
+        seed(rows, 'fetch');
+        render();
+      })
+      .catch(function () { /* inline catalogue stands */ });
+  }
 })();
 </script>
 </body>
