@@ -1,6 +1,6 @@
 # Function audit — split-builder
 
-*SplitBuilder (SB) L8782, AISplitBuilder (AISB) L13956, ConvertToSplitModal L16622. Captures: `00-inventory/screenshots/current/`.*
+*SB = SplitBuilder L8782, AISB = AISplitBuilder L13956. Captures: `00-inventory/screenshots/current/`.*
 
 ## 1. Purpose
 
@@ -10,8 +10,8 @@ Assemble or edit a named split — its days and their exercises — then save it
 
 | Feature | Component / line | Status | Note |
 |---|---|---|---|
-| Split name field | SB L9267 | working | `split-builder-populated-full.png` |
-| Add a day | SB L9790-9818 | working | blank name → toast, `global-toast.png` |
+| Split name | SB L9267 | working | `split-builder-populated-full.png` |
+| Add a day | SB L9790-9818 | working | blank name → `global-toast.png` |
 | Rename day | SB L8809 | working | `split-builder-populated-rename-day.png` |
 | Remove day / exercise | SB L9390-9418 | unguarded | no confirm; crawl skipped all 19 |
 | + Exercise → ExLib | SB L8808/L9216 | working | `split-builder-populated-pick.png` |
@@ -21,20 +21,20 @@ Assemble or edit a named split — its days and their exercises — then save it
 | Cancel / Back | SB L9247, L9832 | **broken** | discards all edits silently — §5 |
 | AI: Chat with AI Coach | AISB L14012 | working | `split-builder-populated-ai.png` |
 | AI: Send answer | AISB ≈L14000 | **broken** | voice FAB overlays it (D2) |
-| AI: Import from Photo | AISB L14159 | **broken** | `imgData` never enters the request body (compare Fuel L40384 `body.base64 = imgData`); the worker gets only the note, so the "converted" split is invented from `photoNote` or the literal `"a training split"`. Failure is dead too: `onErr` L14172 only clears loading; nothing renders. `split-builder-populated-ai-photo.png` |
+| AI: Import from Photo | AISB L14159 | **broken** | `imgData` never enters the request body (compare Fuel L40384 `body.base64 = imgData`); the worker gets only the note, so the "converted" split is invented from `photoNote` or the literal `"a training split"`. `onErr` L14172 only clears loading; nothing renders. `split-builder-populated-ai-photo.png` |
 
 ConvertToSplitModal L16622 is hidden: reachable only from Workout Detail L17846.
 
 ## 3. Task walkthrough
 
-**Flow 6 — edit a split, start it.** `flow-metrics.jsonl` L8: 5 taps, expected 5, 2300 ms, pass, 0 errors.
+**Flow 6 — edit a split, start it.** `flow-metrics.jsonl` L8: 5 taps, expected 5, 2300 ms, pass, 0 errors. Timestamps from `flow-6.json`.
 
-| # | Step | t_ms (`flow-6.json`) | Hesitation |
+| # | Step | t_ms | Hesitation |
 |---|---|---|---|
 | 1 | Nav Train | 1522 | — |
 | 2 | card "Edit" | 2497 | beside an unconfirmed Delete (D15) |
 | — | type "PPL v2" | 3071 | — |
-| 3 | SAVE SPLIT | 3498 | scroll past 3 day cards; `split-builder-populated.png` frames neither SAVE nor the name field |
+| 3 | SAVE SPLIT | 3498 | scroll past 3 day cards; `split-builder-populated.png` frames neither it nor the name field |
 | 4 | card "Start" | 4445 | — |
 | 5 | day row "Push" | 5427 | sheet duplicates the 1-tap `Start <day>` header (user-flows L210) |
 
@@ -44,9 +44,9 @@ Scratch creation, uncosted by any flow: `split-builder-empty.png` → name, day 
 
 | State | Capture | Present | Quality |
 |---|---|---|---|
-| Empty | `split-builder-empty.png`, `-empty-day-no-exercises.png` | yes | correct: "Add a new day", disabled SAVE, "No exercises yet" L9424 |
+| Empty | `split-builder-empty.png`, `-empty-day-no-exercises.png` | yes | correct: "Add a new day", disabled SAVE, "No exercises yet" |
 | Loading | `split-builder-loading.png` | yes (2b: three-dot bubble, Send disabled) | correct |
-| Error | `split-builder-error.png` | **missing** | Test 2b: nothing distinguishes it from a successful first turn. Abort handler L14045 writes a hard-coded question, "What is your main training goal and how many days a week can you train?", into the assistant bubble; the baseline soft-check matched only because that string contains "train" |
+| Error | `split-builder-error.png` | **missing** | Test 2b: nothing distinguishes it from a successful first turn. Abort handler L14045 writes a hard-coded question, "What is your main training goal and how many days a week can you train?", into the assistant bubble; the baseline soft-check matched only because it contains "train" |
 | Populated | `split-builder-populated.png`, `-full.png` | yes | correct |
 
 M = 1, W = 0, G = 0.
@@ -66,12 +66,12 @@ D2: the voice FAB blocks Send answer; in `split-builder-error.png` the mic sits 
 | Criterion | Score | Evidence |
 |---|---|---|
 | Purpose clarity | 3 | `split-builder-empty.png` states the job ("New Split", name, Add a day). `split-builder-populated.png` shows no title, name field or SAVE; four peer accents compete. Job inferable after a scan |
-| Feature completeness | 3 | Manual build works end to end, 21/21 non-destructive controls responded. Secondary broken: photo import never sends the image (L14164 vs L40384), Send answer occluded (D2), drag touch-only (L8823) |
+| Feature completeness | 3 | Manual build works end to end, 21/21 non-destructive controls responded. Secondary broken: photo import never sends the image (L14164), Send answer occluded (D2), drag touch-only (L8823) |
 | Task success | 3 | Flow 6 passes first attempt, 5/5 taps, `flow-metrics.jsonl` L8. Secondary needs a workaround: reorder is unreachable without touch; photo import has none. Shortfall: an edit is one mis-tap from silent loss (§5) |
-| Speed | 4 | 5 taps / 2300 ms, equal to `expectedTaps`, `flow-metrics.jsonl` L8. Shortfall: +1 tap vs the `Start <day>` header the sheet duplicates; scratch build ~20 taps |
+| Speed | 4 | 5 taps / 2300 ms = `expectedTaps`, `flow-metrics.jsonl` L8. Shortfall: +1 tap vs the `Start <day>` header the sheet duplicates; scratch build ~20 taps |
 | State handling | 2 | A=4, M=1 (error, `split-builder-error.png`, test 2b), W=0, G=0 → band table row "M = 1 and W = 0" |
 | Data correctness | 5 | `split-builder-populated.png` vs seed `s1784970000000`: days Push/Pull/Legs; Legs = 701 Barbell Squat, 801 Romanian Deadlift, 703 Leg Press, 802 Lying Leg Curl, 1101 Standing Calf Raise, in order; badges 1/2/3. No units here |
-| Error recovery | 1 | Silent loss and silent failure: Back drops edits with no prompt (§5); AI abort fabricates a coach question (`split-builder-error.png`); photo failure renders nothing (L14172) |
+| Error recovery | 1 | Silent loss and silent failure: Back drops edits with no prompt (§5); the AI abort fabricates a question (`split-builder-error.png`); photo failure renders nothing (L14172) |
 
 **Function mean 3.0.**
 
@@ -84,7 +84,7 @@ D2: the voice FAB blocks Send answer; in `split-builder-error.png` the mic sits 
 
 **Fix**
 - Back/Cancel must detect dirty state and confirm or autosave: measured loss of a rename plus a deleted day (§5).
-- Persist the draft so reload does not reopen a blank builder (L222).
+- Persist the draft; reload must not reopen a blank builder (L222).
 - Say the AI request failed instead of faking a question (L14045).
 - Send the image on photo import, or remove the upload control (L14164).
 - Move the voice FAB off Send answer (D2).
