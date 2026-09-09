@@ -1,6 +1,6 @@
 # Function audit — split-builder
 
-*SplitBuilder L8782, AISplitBuilder L13956, ConvertToSplitModal L16622. Captures: `00-inventory/screenshots/current/`.*
+*SplitBuilder (SB) L8782, AISplitBuilder (AISB) L13956, ConvertToSplitModal L16622. Captures: `00-inventory/screenshots/current/`.*
 
 ## 1. Purpose
 
@@ -13,21 +13,21 @@ Assemble or edit a named split — days, and the exercises inside each day — t
 | Split name field | SB L9267 | working | `split-builder-populated-full.png` |
 | Add a day | SB L9790-9818 | working | blank name → toast (`global-toast.png`) |
 | Rename day | SB L8809 | working | `split-builder-populated-rename-day.png` |
-| Remove day / exercise (x) | SB L9390-9418 | working, unguarded | no confirm; crawl skipped all 19 as destructive |
-| + Exercise → ExLib pick | SB L8808/L9216 | working | `split-builder-populated-pick.png` |
-| 📝 Block (note/duration) | SB L9430+ | working | 3 inputs responded in crawl |
+| Remove day / exercise | SB L9390-9418 | working, unguarded | no confirm; crawl skipped all 19 |
+| + Exercise → ExLib | SB L8808/L9216 | working | `split-builder-populated-pick.png` |
+| 📝 Block | SB L9430+ | working | 3 inputs responded |
 | Drag-reorder items | SB L8811, L8823 | hidden | `if (!e.touches…) return`: mouse and keyboard cannot reorder; only a grip glyph, `split-builder-populated.png` |
-| SAVE SPLIT | SB L9819 | working | disabled until name + ≥1 day (`split-builder-empty.png`) |
+| SAVE SPLIT | SB L9819 | working | disabled until name + ≥1 day, `split-builder-empty.png` |
 | Cancel / Back | SB L9247, L9832 | **broken** | discards all edits silently — §5 |
-| AI: Chat with AI Coach | AISB L14012 | working (net) | `split-builder-populated-ai.png` |
-| AI: Send answer | AISB ≈L14000 | **broken** | voice FAB overlays it, D2 |
+| AI: Chat with AI Coach | AISB L14012 | working | `split-builder-populated-ai.png` |
+| AI: Send answer | AISB ≈L14000 | **broken** | voice FAB overlays it (D2) |
 | AI: Import from Photo | AISB L14159 | **broken** | `imgData` never enters the request body (compare Fuel L40384 `body.base64 = imgData`); the worker gets only the note, so the "converted" split is invented from `photoNote` or the literal `"a training split"`. `split-builder-populated-ai-photo.png` |
 | AI photo failure | AISB L14172 | dead | `onErr` = `setPhotoLoading(false)`; unparseable reply = `setPhotoResult(null)`. Nothing renders |
 | ConvertToSplitModal | L16622 | hidden | reachable only from Workout Detail L17846; no capture among this page's 13 |
 
 ## 3. Task walkthrough
 
-**Flow 6 — edit a split, start it.** `flow-metrics.jsonl` line 8: taps 5, expected 5, ms 2300, pass, 0 errors.
+**Flow 6 — edit a split, start it.** `flow-metrics.jsonl` L8: taps 5, expected 5, ms 2300, pass, 0 errors.
 
 | # | Step | t_ms (`flow-6.json`) | Hesitation |
 |---|---|---|---|
@@ -42,10 +42,10 @@ Scratch creation is uncosted by any flow: `split-builder-empty.png` → name, da
 
 ## 4. State coverage (A = 4)
 
-| State | Capture | Present? | Quality |
+| State | Capture | Present | Quality |
 |---|---|---|---|
-| Empty | `split-builder-empty.png`, `-empty-day-no-exercises.png` | yes | correct — "Add a new day", disabled SAVE; "No exercises yet" L9424 |
-| Loading | `split-builder-loading.png` | yes (2b: three-dot bubble absent from populated; Send disabled) | correct |
+| Empty | `split-builder-empty.png`, `-empty-day-no-exercises.png` | yes | correct: "Add a new day", disabled SAVE, "No exercises yet" L9424 |
+| Loading | `split-builder-loading.png` | yes (2b: three-dot bubble, Send disabled) | correct |
 | Error | `split-builder-error.png` | **missing** | Test 2b: nothing distinguishes it from a successful first turn. The abort handler L14045 writes a hard-coded question, "What is your main training goal and how many days a week can you train?", into the assistant bubble. The baseline soft-check matched only because that string contains "train" |
 | Populated | `split-builder-populated.png`, `-full.png` | yes | correct |
 
@@ -53,7 +53,7 @@ M = 1, W = 0, G = 0.
 
 ## 5. Baseline failures and non-responders
 
-`page-metrics.jsonl` L53: populated/empty/error all **passed**; `nonResponders: []`, `blocked: []`, 0 console/page errors.
+`page-metrics.jsonl` L53: populated/empty/error all **passed**; `nonResponders: []`, `blocked: []`, 0 console and page errors.
 
 **The 21/40 gap is not dead UI.** All 19 unclicked elements sit in `skipped` with `reason: "destructive/allowlisted label"`: 3x `Remove this day`, 16x `Remove this exercise from the day`. Every non-destructive control responded. Cause: unconfirmed destructive actions, L9390-9418, same class as D15.
 
