@@ -36,3 +36,9 @@ Produce `<slug>-annotated.png`: the populated capture with numbered markers matc
 
 ## Cap
 1,200 words including tables. Exceeding the cap fails the gate.
+
+## Known tooling defect, read before citing contrast numbers
+
+`tests/baseline/contrast.json` understates contrast failures. Its scanner composites background colour but ignores inherited `opacity`, so any text dimmed by an ancestor's opacity is scored at its undimmed value. On PR Vault this hid the page's worst failure and reported 9 failures of 44 nodes where the true count is 31 of 74.
+
+When you cite contrast, measure it yourself: read the computed style including inherited opacity, or pixel-sample the capture, and say which method you used. Treat the baseline file as a lower bound, never as the answer.
