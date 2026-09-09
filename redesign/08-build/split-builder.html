@@ -33,7 +33,9 @@
     .stage { padding: 0; align-items: stretch; }
     .phone { width: 100%; height: 100vh; height: 100dvh; border-radius: 0; box-shadow: none; }
   }
-  .devwrap { position: absolute; top: var(--sp-2); right: var(--sp-2); z-index: 20; }
+  /* Demo chrome moved off the top-right corner: that corner is now the
+     screen's own Edit control. */
+  .devwrap { position: absolute; bottom: var(--sp-2); left: var(--sp-2); z-index: 20; }
   .devbtn {
     display: flex; align-items: center; justify-content: center;
     width: var(--tap); height: var(--tap);
@@ -44,7 +46,7 @@
   }
   .devbtn[aria-expanded="true"] { color: var(--accent-text); }
   .devpanel {
-    position: absolute; top: calc(var(--tap) + var(--sp-2)); right: 0;
+    position: absolute; bottom: calc(var(--tap) + var(--sp-2)); left: 0;
     width: 232px;
     max-height: 640px;
     overflow-y: auto;
@@ -224,9 +226,10 @@
      --------------------------------------------------------------- */
   var S = {
     screen: 'manual',
-    manual: { status: 'ready', name: '', days: [], dirty: false, savedAt: null, error: null },
+    manual: { status: 'ready', name: '', days: [], dirty: false, savedAt: null, error: null, edit: false },
     ai: { status: 'idle', note: '', plan: null, error: null, step: 0 },
     lifted: null,          /* testid of the lifted item's grip */
+    swipe: null,           /* id of the exercise row swiped open */
     dragging: null,
     modal: null,           /* {type:'leave'|'pick'|'swap', ...} */
     toast: null,
@@ -261,18 +264,25 @@
      --------------------------------------------------------------- */
   function manualHeader() {
     var m = S.manual;
-    var sub = m.days.length
-      ? m.days.length + (m.days.length === 1 ? ' day · ' : ' days · ') + exCount() + ' exercises'
+    var counts = m.days.length + (m.days.length === 1 ? ' day · ' : ' days · ') +
+      exCount() + (exCount() === 1 ? ' exercise' : ' exercises');
+    var sub = m.dirty ? 'Unsaved changes'
+      : m.savedAt ? 'Saved ' + m.savedAt
+      : m.days.length ? counts
       : 'No days yet';
+    /* Edit is offered only where there is something to reorder or remove. */
+    var canEdit = m.days.length > 0 && m.status === 'ready';
     return '<header class="hdr">' +
       '<button class="hdr__back" data-testid="manual-back" data-action="manual-back" aria-label="Back to Train">' + ico('back') + '</button>' +
       '<div class="hdr__title">' +
-        '<div class="t-section">' + (m.name ? 'Edit split' : 'New split') + '</div>' +
+        '<div class="t-section truncate" data-testid="manual-title">' + (m.name.trim() ? esc(m.name.trim()) : 'New split') + '</div>' +
         '<div class="hstack hstack--2">' +
           (m.dirty ? '<span class="dot" aria-hidden="true"></span>' : '') +
-          '<span class="t-meta" data-testid="manual-subtitle">' + (m.dirty ? 'Unsaved changes' : esc(sub)) + '</span>' +
+          '<span class="t-meta" data-testid="manual-subtitle">' + esc(sub) + '</span>' +
         '</div>' +
       '</div>' +
+      (canEdit ? '<button class="hdr__action" data-testid="edit-toggle" data-action="edit-toggle" data-edit="' +
+        (m.edit ? 'on' : 'off') + '">' + (m.edit ? 'Done' : 'Edit') + '</button>' : '') +
     '</header>';
   }
 
@@ -292,7 +302,27 @@
     '</div>';
   }
 
+  /* At rest an exercise is a line of text. The only way to destroy one is
+     the iOS way: swipe it left, which reveals exactly one red button and
+     leaves an Undo behind. In Edit the row grows a handle and a delete. */
   function exerciseRow(x, day, i, n) {
+    var m = S.manual;
+    if (!m.edit) {
+      var open = S.swipe === x.id;
+      return '<div class="swipe" data-swipe="1" data-id="' + x.id + '" data-day="' + day.id +
+          '" data-open="' + (open ? 'true' : 'false') + '">' +
+        (open ? '<button class="swipe__action" data-testid="ex-remove-' + x.id + '" data-action="ex-remove" data-id="' + x.id +
+          '" data-day="' + day.id + '" aria-label="Remove ' + esc(x.name) + ' from ' + esc(day.name) + '">Delete</button>' : '') +
+        '<div class="swipe__pane">' +
+          '<div class="row">' +
+            '<div class="row__main">' +
+              '<div class="row__title">' + esc(x.name) + '</div>' +
+              '<div class="row__sub">' + esc(x.muscle) + '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }
     var gripId = 'ex-grip-' + x.id;
     var lifted = S.lifted === gripId;
     return '<div class="row sortable__item' + (lifted ? ' sortable__item--lifted' : '') +
@@ -308,6 +338,7 @@
   }
 
   function dayCard(day, i, n) {
+    var m = S.manual;
     var gripId = 'day-grip-' + day.id;
     var lifted = S.lifted === gripId;
     var rows = day.exercises.length
@@ -316,16 +347,28 @@
         }).join('') + '</div>'
       : '<div class="row"><div class="row__main"><div class="t-detail">No exercises yet. Add the first lift of the day.</div></div></div>';
 
-    return '<div class="card card--flush sortable__item' + (lifted ? ' sortable__item--lifted' : '') +
-        (S.dragging === gripId ? ' sortable__item--dragging' : '') + '" data-sortable="1" data-id="' + day.id + '">' +
-      '<div class="daycard__head">' +
-        gripBtn(gripId, 'Reorder ' + day.name + ', day ' + (i + 1) + ' of ' + n, lifted) +
-        '<input class="input grow" type="text" value="' + esc(day.name) + '" data-testid="day-name-' + day.id +
-          '" data-action="day-name" data-id="' + day.id + '" aria-label="Name of day ' + (i + 1) + '">' +
-        '<button class="iconbtn iconbtn--danger" data-testid="day-remove-' + day.id + '" data-action="day-remove" data-id="' + day.id +
-          '" aria-label="Remove ' + esc(day.name) + '">' + ico('trash') + '</button>' +
-      '</div>' +
-      (lifted ? moveBar('day', day.id, null, i === 0, i === n - 1) : '') +
+    var head = m.edit
+      ? '<div class="daycard__head">' +
+          gripBtn(gripId, 'Reorder ' + day.name + ', day ' + (i + 1) + ' of ' + n, lifted) +
+          '<input class="input grow" type="text" value="' + esc(day.name) + '" data-testid="day-name-' + day.id +
+            '" data-action="day-name" data-id="' + day.id + '" aria-label="Name of day ' + (i + 1) + '">' +
+          '<button class="iconbtn iconbtn--danger" data-testid="day-remove-' + day.id + '" data-action="day-remove" data-id="' + day.id +
+            '" aria-label="Remove ' + esc(day.name) + '">' + ico('trash') + '</button>' +
+        '</div>'
+      : '<div class="daycard__head">' +
+          '<div class="daycard__name">' +
+            '<h3 class="t-section truncate">' + esc(day.name) + '</h3>' +
+            '<div class="t-meta" data-num>' + day.exercises.length +
+              (day.exercises.length === 1 ? ' exercise' : ' exercises') + '</div>' +
+          '</div>' +
+        '</div>';
+
+    return '<div class="card card--flush' + (m.edit ? ' sortable__item' : '') +
+        (m.edit && lifted ? ' sortable__item--lifted' : '') +
+        (m.edit && S.dragging === gripId ? ' sortable__item--dragging' : '') + '"' +
+        (m.edit ? ' data-sortable="1"' : '') + ' data-id="' + day.id + '">' +
+      head +
+      (m.edit && lifted ? moveBar('day', day.id, null, i === 0, i === n - 1) : '') +
       rows +
       '<div class="daycard__foot">' +
         '<button class="btn btn--secondary btn--block" data-testid="add-exercise-' + day.id + '" data-action="add-exercise" data-id="' + day.id + '">' +
@@ -348,13 +391,17 @@
         '</div></div>';
     }
 
-    var head = '<div class="section">' +
-      '<label class="field">' +
-        '<span class="field__label t-label">Split name</span>' +
-        '<input class="input" type="text" value="' + esc(m.name) + '" placeholder="Push pull legs" ' +
-          'data-testid="split-name" data-action="split-name" aria-label="Split name">' +
-      '</label>' +
-    '</div>';
+    /* The name lives in the header once it exists. The field is shown while
+       the split is unnamed (it cannot be saved without one) and inside Edit. */
+    var head = (m.edit || !m.name.trim())
+      ? '<div class="section">' +
+          '<label class="field">' +
+            '<span class="field__label t-label">Split name</span>' +
+            '<input class="input" type="text" value="' + esc(m.name) + '" placeholder="Push pull legs" ' +
+              'data-testid="split-name" data-action="split-name" aria-label="Split name">' +
+          '</label>' +
+        '</div>'
+      : '';
 
     var err = m.error
       ? '<div class="section"><div class="banner banner--error" role="alert" data-testid="manual-error">' + ico('alert') +
@@ -367,7 +414,7 @@
           '<span class="empty__ico">' + ico('layers', 'ico--lg') + '</span>' +
           '<h2 class="empty__title">No days yet</h2>' +
           '<p class="empty__body">A split is a list of training days. Add a day, then add the lifts you do on it.</p>' +
-          '<button class="btn btn--secondary" data-testid="add-day-empty" data-action="add-day">' + ico('plus') +
+          '<button class="btn btn--primary" data-testid="add-day-empty" data-action="add-day">' + ico('plus') +
             '<span class="btn__label">Add a day</span></button>' +
           '<button class="btn btn--tertiary" data-testid="go-ai" data-action="go-ai">' + ico('spark') +
             '<span class="btn__label">Let LOCKED draft it</span></button>' +
@@ -375,10 +422,14 @@
       '</div>';
     }
 
+    var hint = m.edit
+      ? 'Drag a handle to reorder, or tap it to move with buttons. Tap Done when you are finished.'
+      : 'Swipe a lift left to remove it. Tap Edit to reorder, rename or delete.';
+
     var days = '<div class="section">' +
       '<div class="section__head"><h2 class="t-section">Days</h2>' +
       '<span class="t-meta" data-num>' + m.days.length + ' · ' + exCount() + ' exercises</span></div>' +
-      '<p class="t-detail" data-testid="reorder-hint">Drag a handle to reorder, or tap it to move with buttons.</p>' +
+      '<p class="t-detail" data-testid="reorder-hint">' + hint + '</p>' +
       '<div class="mt-3" data-sortlist="days">' +
         m.days.map(function (d, i) { return dayCard(d, i, m.days.length); }).join('') +
       '</div>' +
@@ -386,23 +437,28 @@
         '<span class="btn__label">Add a day</span></button>' +
     '</div>';
 
-    return '<div class="body" data-testid="manual-populated">' + err + head + days + '</div>';
+    return '<div class="body" data-testid="manual-populated" data-edit="' + (m.edit ? 'on' : 'off') + '">' +
+      err + head + days + '</div>';
+  }
+
+  /* The accent fill is the unsaved work, nothing else. A clean split has no
+     Save button at all: the state is told in the header instead. */
+  function showBar() {
+    var m = S.manual;
+    return m.status === 'saving' || (m.dirty && canSave());
   }
 
   function manualBar() {
+    if (!showBar()) return '';
     var m = S.manual;
-    var status = m.error ? 'Draft kept on this phone'
-      : m.dirty ? 'Unsaved changes'
-      : m.savedAt ? 'Saved ' + m.savedAt
-      : canSave() ? 'Nothing changed yet' : 'Name it and add a day to save';
-    var label = m.error ? 'Try saving again' : 'Save split';
     var busy = m.status === 'saving';
+    var status = m.error ? 'Draft kept on this phone' : 'Unsaved changes';
+    var label = m.error ? 'Try saving again' : 'Save split';
     var primaryClass = S.modal ? 'btn btn--secondary' : 'btn btn--primary';
-    return '<div class="actionbar">' +
+    return '<div class="actionbar" data-testid="manual-actionbar">' +
       '<div class="actionbar__status" data-testid="manual-status">' + esc(status) + '</div>' +
       '<button class="' + primaryClass + '" data-testid="save-split" data-action="save" ' +
-        (busy ? 'aria-busy="true" ' : '') +
-        (!canSave() || busy ? 'disabled aria-disabled="true" ' : '') + '>' +
+        (busy ? 'aria-busy="true" disabled aria-disabled="true" ' : '') + '>' +
         (busy ? '<span class="spinner"></span>' : '') +
         '<span class="btn__label">' + label + '</span></button>' +
     '</div>';
@@ -673,6 +729,7 @@
     ['Manual · empty', function () { reset(); }],
     ['Manual · loading', function () { reset(); S.manual.status = 'loading'; }],
     ['Manual · populated', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.savedAt = '2 minutes ago'; }],
+    ['Manual · edit mode', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.savedAt = '2 minutes ago'; S.manual.edit = true; }],
     ['Manual · unsaved', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; }],
     ['Manual · leave prompt', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; S.modal = { type: 'leave' }; }],
     ['Manual · save error', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; S.manual.error = 'No connection to the LOCKED server. The draft is on this phone and will go up when you are back online.'; }],
@@ -685,9 +742,9 @@
   function reset() {
     clearTimers();
     S.screen = 'manual';
-    S.manual = { status: 'ready', name: '', days: [], dirty: false, savedAt: null, error: null };
+    S.manual = { status: 'ready', name: '', days: [], dirty: false, savedAt: null, error: null, edit: false };
     S.ai = { status: 'idle', note: '', plan: null, error: null, step: 0 };
-    S.lifted = null; S.dragging = null; S.modal = null; S.toast = null;
+    S.lifted = null; S.dragging = null; S.modal = null; S.toast = null; S.swipe = null;
   }
 
   function renderDev() {
@@ -740,6 +797,18 @@
     return true;
   }
 
+  function removeExercise(dayId, id) {
+    var day = findDay(dayId);
+    if (!day) return;
+    var i = day.exercises.map(function (x) { return x.id; }).indexOf(id);
+    if (i < 0) return;
+    var removed = day.exercises.splice(i, 1)[0];
+    S.swipe = null;
+    markDirty();
+    toast('Removed ' + removed.name + '.', 'Undo', function () { day.exercises.splice(i, 0, removed); });
+    render();
+  }
+
   function doSave() {
     S.manual.status = 'saving';
     render();
@@ -748,6 +817,7 @@
       S.manual.dirty = false;
       S.manual.error = null;
       S.manual.savedAt = 'just now';
+      S.swipe = null;
       toast('Split saved.');
       render();
     }, 600);
@@ -778,6 +848,8 @@
     });
     S.manual.dirty = true;
     S.manual.savedAt = null;
+    S.manual.edit = false;
+    S.swipe = null;
     S.screen = 'manual';
     S.ai.status = 'idle';
     toast('Draft added. Save it or change anything first.');
@@ -791,6 +863,13 @@
       render();
     },
     'close-modal': function () { S.modal = null; render(); },
+    'edit-toggle': function () {
+      S.manual.edit = !S.manual.edit;
+      S.lifted = null; S.swipe = null;
+      render();
+      var b = document.querySelector('[data-testid="edit-toggle"]');
+      if (b) b.focus({ preventScroll: true });
+    },
     'leave-discard': function () {
       S.modal = null; S.manual.dirty = false;
       toast('Changes discarded.', 'Undo', function () { S.manual.dirty = true; });
@@ -807,19 +886,13 @@
       var id = el.getAttribute('data-id');
       var i = S.manual.days.map(function (d) { return d.id; }).indexOf(id);
       var removed = S.manual.days.splice(i, 1)[0];
+      if (!S.manual.days.length) S.manual.edit = false;
+      S.lifted = null;
       markDirty();
       toast('Removed ' + removed.name + '.', 'Undo', function () { S.manual.days.splice(i, 0, removed); });
       render();
     },
-    'ex-remove': function (el) {
-      var day = findDay(el.getAttribute('data-day'));
-      var id = el.getAttribute('data-id');
-      var i = day.exercises.map(function (x) { return x.id; }).indexOf(id);
-      var removed = day.exercises.splice(i, 1)[0];
-      markDirty();
-      toast('Removed ' + removed.name + '.', 'Undo', function () { day.exercises.splice(i, 0, removed); });
-      render();
-    },
+    'ex-remove': function (el) { removeExercise(el.getAttribute('data-day'), el.getAttribute('data-id')); },
     'add-exercise': function (el) { S.modal = { type: 'pick', id: el.getAttribute('data-id'), q: '' }; render(); },
     'pick-add': function (el) {
       var day = findDay(el.getAttribute('data-id'));
@@ -883,12 +956,17 @@
 
   /* Light patches so typing never rebuilds the field under the caret. */
   function patch() {
+    /* Typing can change whether the save bar exists at all; when it does,
+       fall back to a full render, which restores focus and caret. */
+    if (S.manual.dirty && !document.querySelector('.hdr .dot')) { render(); return; }
+    var bar = document.querySelector('[data-testid="manual-actionbar"]');
+    if (!!bar !== showBar()) { render(); return; }
+    var title = document.querySelector('[data-testid="manual-title"]');
+    if (title) title.textContent = S.manual.name.trim() || 'New split';
     var sub = document.querySelector('[data-testid="manual-subtitle"]');
     if (sub) sub.textContent = 'Unsaved changes';
     var st = document.querySelector('[data-testid="manual-status"]');
-    if (st) st.textContent = S.manual.error ? 'Draft kept on this phone' : (canSave() ? 'Unsaved changes' : 'Name it and add a day to save');
-    var save = document.querySelector('[data-testid="save-split"]');
-    if (save) { save.disabled = !canSave(); save.setAttribute('aria-disabled', String(!canSave())); }
+    if (st) st.textContent = S.manual.error ? 'Draft kept on this phone' : 'Unsaved changes';
   }
   function patchAi() {
     var st = document.querySelector('[data-testid="ai-status"]');
@@ -910,6 +988,10 @@
       return;
     }
     var el = e.target.closest('[data-action]');
+    if (S.swipe && !(el && el.getAttribute('data-action') === 'ex-remove')) {
+      S.swipe = null;
+      if (!el) { render(); return; }
+    }
     if (!el || el.disabled) return;
     var fn = ACTIONS[el.getAttribute('data-action')];
     if (fn) { e.preventDefault(); fn(el); }
@@ -924,6 +1006,10 @@
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && S.modal) { S.modal = null; render(); return; }
+    if (e.key === 'Escape' && S.swipe) { S.swipe = null; render(); return; }
+    if (e.key === 'Escape' && S.manual.edit && S.screen === 'manual') {
+      S.manual.edit = false; S.lifted = null; render(); return;
+    }
     var grip = e.target.closest && e.target.closest('[data-grip]');
     if (!grip || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
     e.preventDefault();
@@ -940,6 +1026,48 @@
     }
     S.lifted = grip.getAttribute('data-testid');
     render();
+  });
+
+  /* Swipe left to remove, the iOS gesture, available only at rest. A short
+     swipe parks the row open with a single red Delete; a swipe past 45% of
+     the row removes it outright. Either way an Undo toast follows. */
+  document.addEventListener('pointerdown', function (e) {
+    if (S.screen !== 'manual' || S.manual.edit) return;
+    var wrap = e.target.closest('[data-swipe]');
+    if (!wrap) return;
+    var pane = wrap.querySelector('.swipe__pane');
+    var startX = e.clientX, startY = e.clientY;
+    var reveal = 88;                                  /* --sp-6 * 2 + --sp-5 */
+    var base = wrap.getAttribute('data-open') === 'true' ? -reveal : 0;
+    var axis = null, dx = base;
+
+    function onMove(ev) {
+      if (axis === null) {
+        var ax = Math.abs(ev.clientX - startX), ay = Math.abs(ev.clientY - startY);
+        if (ax < 8 && ay < 8) return;
+        axis = ax > ay ? 'x' : 'y';
+        if (axis === 'x') pane.style.transition = 'none';
+      }
+      if (axis !== 'x') return;
+      if (ev.cancelable) ev.preventDefault();
+      dx = Math.min(0, Math.max(-wrap.offsetWidth, base + (ev.clientX - startX)));
+      pane.style.transform = 'translateX(' + dx + 'px)';
+    }
+    function onUp() {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+      if (axis !== 'x') return;
+      pane.style.transition = '';
+      pane.style.transform = '';
+      var id = wrap.getAttribute('data-id');
+      if (dx <= -(wrap.offsetWidth * 0.45)) { removeExercise(wrap.getAttribute('data-day'), id); return; }
+      S.swipe = dx <= -(reveal / 2) ? id : null;
+      render();
+    }
+    document.addEventListener('pointermove', onMove, { passive: false });
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
   });
 
   /* Drag to reorder. Starts on the first pixel of movement, no long press,

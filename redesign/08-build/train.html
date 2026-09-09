@@ -1,0 +1,863 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — Train</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+</head>
+<body>
+<!--
+  TRAIN — what this screen is, and why it is shaped this way.
+
+  WHY IT EXISTS. The HIG audit's finding 2: "the split builder has no
+  entrance once you have a split. Train lands directly on Exercises with
+  no sub-navigation, and populated Home offers only 'Choose another
+  session'. For a user who already has a split, editing their own
+  program is unreachable at any depth." Train is now the home of
+  everything training-related that is not the active session: the splits
+  you own, the record of what you did, cardio, and the catalogue.
+
+  STRUCTURE: ONE SCROLLING SCREEN, ONE PUSHED DESTINATION, TWO SHEETS.
+
+  Sections on one screen, not tabs. The audited hub had a three-item
+  underline sub-tab row (My Splits / History / Library) that was broken
+  as a set — "Library" replaced the whole hub while the other two swapped
+  content — and the design audit counted it as the app's sixth tab
+  idiom. The four things this screen holds are not peers you switch
+  between; they are one continuous answer to "what do I do about
+  training". Splits, cardio and history are read in that order, top to
+  bottom, and stacking them costs a scroll rather than a tap. The
+  segmented control is spent once, on the one place a filter genuinely
+  reduces work: the full history list. That is the app's single
+  segmented control, and this screen introduces no second tab pattern.
+
+  Two things push away, both because they are deeper than daily:
+    - All history (22 sessions, filterable) is its own destination,
+      reached from a five-row preview. Same row component in both, so
+      this is a preview and its expansion, not the two competing
+      history lists the Cardio audit found.
+    - Editing a split lives inside a sheet on the split, one level below
+      starting a day. Monthly action, one level deeper; still findable
+      because the split row is the obvious thing to touch.
+
+  TAPS. Start today's session: 1 (Start Push, first fold). Start any
+  other day: 2 (split row, then the day). Edit a split: 2 (split row,
+  then Edit split). The audited hub was 3 taps cold to a programmed
+  workout, and editing a split had no entrance at all.
+
+  WHAT CAME FROM CARDIO. Both audits concluded Cardio merges here: its
+  history list filtered the same lk_history Train already rendered, so
+  one of the two was pure duplication.
+    - The history row design. The Cardio audit judged its row the
+      better of the two: icon, title, one muted metric line, a
+      right-aligned date. Train's printed the duration twice and wrapped
+      the metrics in an accent-outlined pill that competed with the
+      lifting volume figure. This screen has one row component, used for
+      both kinds of session; the duration is printed once and no metric
+      carries a pill.
+    - MINUTES PER WEEK, kept as built: eight bars, tabular labels, a
+      dated axis, one bar standing out. Its ink is --text rather than
+      the accent, because the accent on this screen is on Start.
+    - Instead of the 41-tile wall: ranking. The audit called the wall a
+      selection problem — 41 equal tiles ordered by category, ~2,700px
+      tall, favourites the real fix but taught only in the empty state.
+      Here the three activities this lifter actually does are rows at
+      the top, already carrying their usual duration, one tap to log.
+      Everything else is behind one row that opens a search-first
+      picker. Rank the list, do not enlarge the grid.
+    - Dropped from Cardio: the separate screen and its back button, the
+      duplicate history list and filter chips, the "which treadmill?"
+      step its own copy called cosmetic, the tile gradients and glow.
+
+  ALSO CUT. Quick Start (an accent fill that started an empty workout
+  while the programmed session sat below the fold), the RECENT strip
+  (clipped past the third chip, every chip reachable from history), the
+  day sheet that re-listed days already on screen, and Delete split from
+  the footer row — it had no confirm and sat a thumb-width from Start.
+  Deleting a split belongs in the editor that owns it.
+
+  ACCENT: exactly one fill per state, on the action a lifter came to
+  take. Populated: Start Push. Empty: Build a split. Error: Try again.
+  Loading and the history destination carry none.
+
+  DATA: inlined from tests/fixtures/seed-data.json — lk_splits (3),
+  lk_history (18 lifting + 4 cardio, 2026-07-30 to 2026-09-06),
+  lk_cardioFavorites. Units kg from lk_profile.useKg. Today is
+  Wed 9 Sep 2026, matching home.html.
+-->
+
+<div class="stage">
+  <div class="phone">
+    <div class="screen" id="screen" data-testid="screen-train" data-state="populated" data-view="hub">
+
+      <header class="hdr" id="hdr"></header>
+
+      <main class="body" id="body" data-testid="train-scroll" tabindex="-1"></main>
+
+      <nav class="tabbar" aria-label="Sections">
+        <button class="tabbar__item" type="button" data-testid="tab-home">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4v-5H9v5H5a1 1 0 0 1-1-1z"/></svg>
+          Home
+        </button>
+        <button class="tabbar__item" type="button" aria-current="page" data-testid="tab-train">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/></svg>
+          Train
+        </button>
+        <button class="tabbar__item" type="button" data-testid="tab-fuel">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7 3v8a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V3"/><path d="M9 13v8"/><path d="M17 3c-1.5 1.8-2 3.6-2 5.5 0 1.6.7 2.5 2 2.5s2-.9 2-2.5c0-1.9-.5-3.7-2-5.5Z"/><path d="M17 11v10"/></svg>
+          Fuel
+        </button>
+        <button class="tabbar__item" type="button" data-testid="tab-progress">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 19h16M7 16v-4M12 16V7M17 16v-6"/></svg>
+          Progress
+        </button>
+        <button class="tabbar__item" type="button" data-testid="tab-coach">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 15a3 3 0 0 1-3 3H9l-4 3V7a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3z"/></svg>
+          Coach
+        </button>
+      </nav>
+
+      <div id="overlay" data-testid="overlay"></div>
+      <div id="toast-slot" data-testid="toast-slot"></div>
+
+    </div>
+  </div>
+</div>
+
+<div class="dev">
+  <button class="dev__toggle" type="button" id="dev-toggle" aria-expanded="false" aria-controls="dev-menu" data-testid="dev-toggle">State</button>
+  <div class="dev__menu" id="dev-menu" hidden data-testid="dev-menu"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* =============================================================
+     Icons. One set, one stroke weight, one optical size. Cardio
+     sessions all carry the same glyph: the label says which
+     activity, so 41 distinct icons would be 41 things to learn.
+     ============================================================= */
+  function svg(d, extra) {
+    return '<svg class="ico' + (extra || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + d + '</svg>';
+  }
+  var ICO = {
+    play:    svg('<path d="M8 5.5v13l11-6.5z"/>'),
+    chev:    svg('<path d="m9 5 7 7-7 7"/>'),
+    back:    svg('<path d="m15 5-7 7 7 7"/>', ' ico--lg'),
+    lift:    svg('<path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/>'),
+    cardio:  svg('<path d="M3 12h3.5l2-6 4 12 2.2-6H21"/>'),
+    split:   svg('<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M8 3v4M16 3v4M3.5 10.5h17"/>'),
+    book:    svg('<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v18H6.5A2.5 2.5 0 0 1 4 18.5z"/><path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H20"/>'),
+    plus:    svg('<path d="M12 6v12M6 12h12"/>'),
+    pencil:  svg('<path d="M4 20h4l10-10-4-4L4 16zM14 6l4 4"/>'),
+    close:   svg('<path d="M7 7l10 10M17 7L7 17"/>'),
+    alert:   svg('<path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/>'),
+    search:  svg('<circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/>'),
+    plan:    svg('<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M8 3v4M16 3v4M3.5 10.5h17"/>', ' ico--lg')
+  };
+
+  /* =============================================================
+     Formatting. Every figure is tabular and carries its unit.
+     Dates are relative inside the week, absolute after it.
+     ============================================================= */
+  var MONTHS = ['January','February','March','April','May','June','July',
+                'August','September','October','November','December'];
+  var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var TODAY = '2026-09-09';
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function n(v) { return '<span class="num">' + v + '</span>'; }
+  function group(v) { return Number(v).toLocaleString('en-US'); }
+  function ms(iso) {
+    var p = iso.split('-');
+    return Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  }
+  function daysAgo(iso) { return Math.round((ms(TODAY) - ms(iso)) / 86400000); }
+  function absDate(iso) {
+    var p = iso.split('-');
+    return MON[Number(p[1]) - 1] + ' ' + Number(p[2]);
+  }
+  function relDate(iso) {
+    var d = daysAgo(iso);
+    if (d === 0) return 'Today';
+    if (d === 1) return 'Yesterday';
+    if (d < 7) return d + ' days ago';
+    return absDate(iso);
+  }
+  function monthOf(iso) {
+    var p = iso.split('-');
+    return MONTHS[Number(p[1]) - 1] + ' ' + p[0];
+  }
+
+  /* =============================================================
+     Seed. tests/fixtures/seed-data.json, guest profile, kg.
+     ============================================================= */
+  var SPLITS = [
+    { id: 's1784970000000', name: 'PPL', current: true, updated: '2026-07-25',
+      days: [
+        { id: 'push', name: 'Push', exercises: 5, minutes: 50, next: true },
+        { id: 'pull', name: 'Pull', exercises: 5, minutes: 52 },
+        { id: 'legs', name: 'Legs', exercises: 5, minutes: 55 }
+      ] },
+    { id: 's1784973600000', name: 'Upper / Lower', updated: '2026-07-25',
+      days: [
+        { id: 'upper', name: 'Upper', exercises: 5, minutes: 48 },
+        { id: 'lower', name: 'Lower', exercises: 5, minutes: 50 }
+      ] },
+    { id: 's1784977200000', name: 'Full Body 3x', updated: '2026-07-25',
+      days: [
+        { id: 'a', name: 'Day A', exercises: 5, minutes: 45 },
+        { id: 'b', name: 'Day B', exercises: 5, minutes: 45 },
+        { id: 'c', name: 'Day C', exercises: 5, minutes: 47 }
+      ] }
+  ];
+
+  /* lk_history. Lifting rows carry sets and volume, cardio rows carry
+     distance and calories; both carry one duration. */
+  var HISTORY = [
+    { id: 'w_1788804300000', kind: 'lift', name: 'PPL &middot; Legs', date: '2026-09-07', min: 52, sets: 16, kg: 14363 },
+    { id: 'w_1788678900000', kind: 'cardio', name: 'Treadmill run', date: '2026-09-06', min: 30, km: 5.2, cal: 340 },
+    { id: 'w_1788618300000', kind: 'lift', name: 'PPL &middot; Pull', date: '2026-09-05', min: 51, sets: 16, kg: 7158 },
+    { id: 'w_1788445500000', kind: 'lift', name: 'PPL &middot; Push', date: '2026-09-03', min: 55, sets: 16, kg: 4266 },
+    { id: 'w_1788199500000', kind: 'lift', name: 'PPL &middot; Legs', date: '2026-08-31', min: 55, sets: 16, kg: 13700 },
+    { id: 'w_1788074100000', kind: 'cardio', name: 'Rowing erg', date: '2026-08-30', min: 20, km: 4.6, cal: 230 },
+    { id: 'w_1788013500000', kind: 'lift', name: 'PPL &middot; Pull', date: '2026-08-29', min: 57, sets: 16, kg: 6913 },
+    { id: 'w_1787840700000', kind: 'lift', name: 'PPL &middot; Push', date: '2026-08-27', min: 57, sets: 16, kg: 4076 },
+    { id: 'w_1787594700000', kind: 'lift', name: 'PPL &middot; Legs', date: '2026-08-24', min: 54, sets: 16, kg: 13363 },
+    { id: 'w_1787469300000', kind: 'cardio', name: 'Walking', date: '2026-08-23', min: 45, km: 4, cal: 210 },
+    { id: 'w_1787408700000', kind: 'lift', name: 'PPL &middot; Pull', date: '2026-08-22', min: 49, sets: 16, kg: 6519 },
+    { id: 'w_1787235900000', kind: 'lift', name: 'PPL &middot; Push', date: '2026-08-20', min: 51, sets: 16, kg: 3985 },
+    { id: 'w_1786989900000', kind: 'lift', name: 'PPL &middot; Legs', date: '2026-08-17', min: 49, sets: 16, kg: 12800 },
+    { id: 'w_1786864500000', kind: 'cardio', name: 'Upright bike', date: '2026-08-16', min: 25, km: 9, cal: 240 },
+    { id: 'w_1786803900000', kind: 'lift', name: 'PPL &middot; Pull', date: '2026-08-15', min: 59, sets: 16, kg: 6306 },
+    { id: 'w_1786631100000', kind: 'lift', name: 'PPL &middot; Push', date: '2026-08-13', min: 58, sets: 16, kg: 3748 },
+    { id: 'w_1786385100000', kind: 'lift', name: 'PPL &middot; Legs', date: '2026-08-10', min: 59, sets: 16, kg: 12255 },
+    { id: 'w_1786199100000', kind: 'lift', name: 'PPL &middot; Pull', date: '2026-08-08', min: 57, sets: 16, kg: 5851 },
+    { id: 'w_1786026300000', kind: 'lift', name: 'PPL &middot; Push', date: '2026-08-06', min: 56, sets: 16, kg: 3688 },
+    { id: 'w_1785780300000', kind: 'lift', name: 'PPL &middot; Legs', date: '2026-08-03', min: 59, sets: 16, kg: 12060 },
+    { id: 'w_1785594300000', kind: 'lift', name: 'PPL &middot; Pull', date: '2026-08-01', min: 55, sets: 16, kg: 5585 },
+    { id: 'w_1785421500000', kind: 'lift', name: 'PPL &middot; Push', date: '2026-07-30', min: 54, sets: 16, kg: 3568 }
+  ];
+
+  /* lk_cardioFavorites plus the two most recent other modalities.
+     Ranked by how often this lifter actually does them, each carrying
+     the duration it is normally done for, so logging is one tap. */
+  var CARDIO_QUICK = [
+    { id: 'fav_1787122800000', name: 'Treadmill run', min: 30, note: 'Favourite', last: '2026-09-06' },
+    { id: 'q_row', name: 'Rowing erg', min: 20, last: '2026-08-30' },
+    { id: 'q_walk', name: 'Walking', min: 45, last: '2026-08-23' }
+  ];
+
+  /* The rest of the catalogue, ranked rather than walled: the picker
+     opens on what is likely and search reduces the other 41. */
+  var CARDIO_ALL = [
+    { id: 'a_bike', name: 'Upright bike', min: 25 },
+    { id: 'a_ellip', name: 'Elliptical', min: 30 },
+    { id: 'a_stair', name: 'Stair climber', min: 20 },
+    { id: 'a_run', name: 'Outdoor run', min: 35 },
+    { id: 'a_cycle', name: 'Outdoor cycling', min: 45 },
+    { id: 'a_swim', name: 'Swimming', min: 30 },
+    { id: 'a_rope', name: 'Jump rope', min: 12 },
+    { id: 'a_hike', name: 'Hiking', min: 60 },
+    { id: 'a_ski', name: 'Ski erg', min: 15 },
+    { id: 'a_assault', name: 'Air bike', min: 15 }
+  ];
+  var CARDIO_CATALOGUE = 41;
+
+  /* Minutes per week, Monday weeks, eight buckets ending this week.
+     Derived from the four cardio records above, each of which fell on
+     the Sunday of its week. */
+  var WEEKS = [
+    { start: '2026-07-20', min: 0 },
+    { start: '2026-07-27', min: 0 },
+    { start: '2026-08-03', min: 0 },
+    { start: '2026-08-10', min: 25 },
+    { start: '2026-08-17', min: 45 },
+    { start: '2026-08-24', min: 20 },
+    { start: '2026-08-31', min: 30 },
+    { start: '2026-09-07', min: 0, now: true }
+  ];
+
+  var LIBRARY = { total: 227, logged: 46 };
+
+  /* =============================================================
+     State
+     ============================================================= */
+  var S = {
+    state: 'populated',   /* populated | empty | loading | error */
+    view: 'hub',          /* hub | history */
+    filter: 'all',        /* all | lift | cardio */
+    sheet: null,          /* null | { kind: 'split', id } | { kind: 'activity' } */
+    query: '',
+    toast: null
+  };
+
+  /* =============================================================
+     Pieces
+     ============================================================= */
+
+  /* ONE history row, both kinds of session. Taken from Cardio's row,
+     which the design audit judged the better of the two: an icon, the
+     name, one muted metric line, a right-aligned relative date, a
+     chevron into the session. The duration appears once and nothing
+     here is wrapped in an accent pill. */
+  function historyRow(w) {
+    var meta = w.kind === 'lift'
+      ? n(w.min) + ' min &middot; ' + n(w.sets) + ' sets &middot; ' + n(group(w.kg)) + ' kg'
+      : n(w.min) + ' min &middot; ' + n(w.km) + ' km &middot; ' + n(w.cal) + ' cal';
+    /* The date sits on the title line, not beside the metrics: at 393px
+       a lifting metric line plus a date wrapped to two lines. */
+    return '' +
+      '<button class="row" type="button" data-action="open-session" data-id="' + w.id + '" ' +
+              'data-testid="history-' + w.id + '">' +
+        '<span class="ico-well">' + (w.kind === 'lift' ? ICO.lift : ICO.cardio) + '</span>' +
+        '<span class="row__main stack">' +
+          '<span class="spread">' +
+            '<span class="row__title truncate">' + w.name + '</span>' +
+            '<span class="t-meta num nowrap">' + relDate(w.date) + '</span>' +
+          '</span>' +
+          '<span class="row__sub">' + meta + '</span>' +
+        '</span>' +
+        '<span class="row__chev">' + ICO.chev + '</span>' +
+      '</button>';
+  }
+
+  function splitRow(sp) {
+    var names = sp.days.map(function (d) { return d.name; }).join(', ');
+    return '' +
+      '<button class="row" type="button" data-action="open-split" data-id="' + sp.id + '" ' +
+              'data-testid="split-' + sp.id + '">' +
+        '<span class="ico-well">' + ICO.split + '</span>' +
+        '<span class="row__main stack">' +
+          '<span class="row__title">' + esc(sp.name) +
+            (sp.current ? ' <span class="badge badge--accent">Current</span>' : '') + '</span>' +
+          '<span class="row__sub truncate">' + n(sp.days.length) + ' days &middot; ' + esc(names) + '</span>' +
+        '</span>' +
+        '<span class="row__chev">' + ICO.chev + '</span>' +
+      '</button>';
+  }
+
+  /* MINUTES PER WEEK, kept as the Cardio audit found it: eight bars,
+     tabular labels, a dated axis, one bar standing out. The standout
+     is --text, not the accent: the accent is on Start. An empty week
+     still draws a stub, so nothing on this chart is invisible. */
+  function weekChart() {
+    var W = 329, H = 128, padL = 30, padR = 4, padT = 20, padB = 22;
+    var plotW = W - padL - padR, plotH = H - padT - padB;
+    var top = 60;
+    var slot = plotW / WEEKS.length;
+    var barW = slot * 0.56;
+    var out = [];
+
+    [0, top].forEach(function (t) {
+      var y = padT + plotH - (t / top) * plotH;
+      out.push('<line class="chart__grid" x1="' + padL + '" y1="' + y.toFixed(1) +
+               '" x2="' + (padL + plotW) + '" y2="' + y.toFixed(1) + '"/>');
+      out.push('<text class="chart__axis" x="' + (padL - 6) + '" y="' + (y + 4).toFixed(1) +
+               '" text-anchor="end">' + t + '</text>');
+    });
+
+    WEEKS.forEach(function (w, i) {
+      var cx = padL + slot * i + slot / 2;
+      var h = w.min > 0 ? Math.max(2, (w.min / top) * plotH) : 2;
+      var y = padT + plotH - h;
+      out.push('<rect class="chart__bar' + (w.now ? ' chart__bar--now' : '') +
+               '" x="' + (cx - barW / 2).toFixed(1) + '" y="' + y.toFixed(1) +
+               '" width="' + barW.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="2"/>');
+      /* Label every other bucket, ending on the current week: the
+         brightest bar must be the one that is named. */
+      if (i % 2 === 1) {
+        out.push('<text class="chart__axis" x="' + cx.toFixed(1) + '" y="' + (H - 6) +
+                 '" text-anchor="middle">' + absDate(w.start) + '</text>');
+      }
+    });
+
+    var peak = WEEKS[4];
+    var px = padL + slot * 4 + slot / 2;
+    var py = padT + plotH - (peak.min / top) * plotH - 6;
+    out.push('<text class="chart__value" x="' + px.toFixed(1) + '" y="' + py.toFixed(1) +
+             '" text-anchor="middle">' + peak.min + '</text>');
+
+    var read = 'Minutes of cardio per week, eight weeks. ' + WEEKS.map(function (w) {
+      return 'week of ' + absDate(w.start) + ', ' + w.min + ' minutes';
+    }).join('; ') + '.';
+
+    return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + read + '">' +
+           out.join('') + '</svg>';
+  }
+
+  function cardioBlock() {
+    var last4 = WEEKS.slice(3, 7).reduce(function (a, w) { return a + w.min; }, 0);
+    var rows = CARDIO_QUICK.map(function (c) {
+      return '' +
+        '<button class="row" type="button" data-action="log-cardio" data-id="' + c.id + '" ' +
+                'data-testid="log-' + c.id + '" ' +
+                'aria-label="Log ' + esc(c.name) + ', ' + c.min + ' minutes">' +
+          '<span class="ico-well">' + ICO.cardio + '</span>' +
+          '<span class="row__main stack">' +
+            '<span class="row__title">' + esc(c.name) + '</span>' +
+            '<span class="row__sub">' + n(c.min) + ' min' +
+              (c.note ? ' &middot; ' + esc(c.note) : '') +
+              ' &middot; last ' + relDate(c.last) + '</span>' +
+          '</span>' +
+          '<span class="row__chev">' + ICO.plus + '</span>' +
+        '</button>';
+    }).join('');
+
+    return '' +
+      '<section class="section" data-testid="section-cardio">' +
+        '<div class="section__head"><h2 class="t-label">Cardio</h2></div>' +
+        '<div class="card">' +
+          '<div class="spread">' +
+            '<span class="t-label">Minutes per week</span>' +
+            '<span class="t-meta num">' + last4 + ' min in 4 weeks</span>' +
+          '</div>' +
+          '<div class="mt-3">' + weekChart() + '</div>' +
+        '</div>' +
+        '<div class="card card--flush mt-3">' +
+          rows +
+          '<button class="row" type="button" data-action="open-activities" data-testid="open-activities">' +
+            '<span class="ico-well">' + ICO.search + '</span>' +
+            '<span class="row__main stack">' +
+              '<span class="row__title">Log something else</span>' +
+              '<span class="row__sub">' + n(CARDIO_CATALOGUE) + ' activities, searchable</span>' +
+            '</span>' +
+            '<span class="row__chev">' + ICO.chev + '</span>' +
+          '</button>' +
+        '</div>' +
+      '</section>';
+  }
+
+  /* =============================================================
+     Views
+     ============================================================= */
+  var VIEWS = {};
+
+  VIEWS.populated = function () {
+    var sp = SPLITS[0];
+    var day = sp.days[0];
+    var recent = HISTORY.slice(0, 5);
+
+    return '' +
+      /* The one thing a lifter opens this tab to do, in the first fold
+         and one tap deep. The audited hub spent its only accent fill on
+         a Quick Start that began an empty workout. */
+      '<section class="card card--raised mt-4 enter-rise" data-testid="card-today">' +
+        '<div class="t-label">Today &middot; ' + esc(sp.name) + '</div>' +
+        '<h2 class="t-title mt-2">' + esc(day.name) + '</h2>' +
+        '<p class="t-detail mt-2">' + n(day.exercises) + ' exercises &middot; about ' +
+          n(day.minutes) + ' min &middot; last done ' + relDate('2026-09-03') + '</p>' +
+        '<button class="btn btn--primary btn--block mt-4" type="button" data-action="start-today" data-testid="start-today">' +
+          ICO.play + '<span class="btn__label">Start ' + esc(day.name) + '</span>' +
+        '</button>' +
+      '</section>' +
+
+      '<section class="section" data-testid="section-splits">' +
+        '<div class="section__head">' +
+          '<h2 class="t-label">Your splits</h2>' +
+          '<button class="btn btn--tertiary btn--sm" type="button" data-action="new-split" data-testid="new-split">' +
+            ICO.plus + '<span class="btn__label">New</span></button>' +
+        '</div>' +
+        '<div class="card card--flush">' + SPLITS.map(splitRow).join('') + '</div>' +
+      '</section>' +
+
+      cardioBlock() +
+
+      '<section class="section" data-testid="section-history">' +
+        '<div class="section__head">' +
+          '<h2 class="t-label">History</h2>' +
+          '<button class="btn btn--tertiary btn--sm" type="button" data-action="open-history" data-testid="open-history">' +
+            '<span class="btn__label">All ' + n(HISTORY.length) + '</span></button>' +
+        '</div>' +
+        '<div class="card card--flush">' + recent.map(historyRow).join('') + '</div>' +
+      '</section>' +
+
+      '<section class="section" data-testid="section-library">' +
+        '<div class="section__head"><h2 class="t-label">Reference</h2></div>' +
+        '<div class="card card--flush">' +
+          '<button class="row" type="button" data-action="open-library" data-testid="open-library">' +
+            '<span class="ico-well">' + ICO.book + '</span>' +
+            '<span class="row__main stack">' +
+              '<span class="row__title">Exercise library</span>' +
+              '<span class="row__sub">' + n(LIBRARY.logged) + ' of ' + n(LIBRARY.total) + ' logged</span>' +
+            '</span>' +
+            '<span class="row__chev">' + ICO.chev + '</span>' +
+          '</button>' +
+        '</div>' +
+      '</section>';
+  };
+
+  /* Nothing has been earned yet, so nothing is claimed and nothing
+     competes: one sentence, one action. The audited empty state
+     offered two. */
+  VIEWS.empty = function () {
+    return '' +
+      '<div class="empty mt-5 enter-settle" data-testid="train-empty">' +
+        '<span class="empty__ico">' + ICO.plan + '</span>' +
+        '<h2 class="empty__title">No splits yet</h2>' +
+        '<p class="empty__body">A split is the week you intend to train. Build one and each day of it starts from this screen.</p>' +
+        '<button class="btn btn--primary" type="button" data-action="new-split" data-testid="empty-build-split">' +
+          '<span class="btn__label">Build a split</span>' +
+        '</button>' +
+      '</div>';
+  };
+
+  VIEWS.loading = function () {
+    return '' +
+      '<div class="card card--raised mt-4" role="status" aria-busy="true" aria-label="Loading your training" data-testid="train-loading">' +
+        '<div class="skel" style="height: var(--sp-3); width: 30%"></div>' +
+        '<div class="skel mt-3" style="height: var(--sp-5); width: 45%"></div>' +
+        '<div class="skel mt-3" style="height: var(--sp-4); width: 75%"></div>' +
+        '<div class="skel mt-4" style="height: var(--tap)"></div>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="skel" style="height: var(--sp-3); width: 28%"></div>' +
+        '<div class="skel mt-3" style="height: calc(var(--tap) * 3)"></div>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="skel" style="height: var(--sp-3); width: 22%"></div>' +
+        '<div class="skel mt-3" style="height: calc(var(--tap) * 3)"></div>' +
+      '</div>';
+  };
+
+  /* What happened, what it means for the data on screen, and the one
+     thing that fixes it. */
+  VIEWS.error = function () {
+    return '' +
+      '<div class="card mt-4" data-testid="train-error">' +
+        '<div class="banner banner--error" role="alert">' +
+          ICO.alert +
+          '<span><strong>Training did not load</strong>Your last sync failed, so your splits and any session logged after ' +
+            'Sep 3 are missing here. Nothing was lost on this phone.</span>' +
+        '</div>' +
+        '<button class="btn btn--primary btn--block mt-4" type="button" data-action="retry" data-testid="retry">' +
+          '<span class="btn__label">Try again</span>' +
+        '</button>' +
+        '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="use-cached" data-testid="use-cached">' +
+          '<span class="btn__label">Use what is on this phone</span>' +
+        '</button>' +
+      '</div>';
+  };
+
+  /* The full record, one level deep. The app's ONE segmented control
+     is spent here, on the only filter that removes work: two kinds of
+     session in one list. Same row component as the preview above. */
+  function historyView() {
+    var list = HISTORY.filter(function (w) {
+      return S.filter === 'all' || w.kind === S.filter;
+    });
+    var out = [], month = null, buf = [];
+    function flush() {
+      if (!buf.length) return;
+      out.push(
+        '<section class="section">' +
+          '<div class="section__head"><h2 class="t-label">' + month + '</h2>' +
+            '<span class="t-meta num">' + buf.length + ' sessions</span></div>' +
+          '<div class="card card--flush">' + buf.join('') + '</div>' +
+        '</section>');
+      buf = [];
+    }
+    list.forEach(function (w) {
+      var m = monthOf(w.date);
+      if (m !== month) { flush(); month = m; }
+      buf.push(historyRow(w));
+    });
+    flush();
+
+    var FILTERS = [['all', 'All'], ['lift', 'Lifting'], ['cardio', 'Cardio']];
+    return '' +
+      '<div class="section" style="margin-top: var(--sp-3)">' +
+        '<div class="seg seg--lg" role="radiogroup" aria-label="Session type" data-testid="history-filter">' +
+          FILTERS.map(function (f) {
+            return '<button class="seg__item" type="button" role="radio" aria-checked="' + (S.filter === f[0]) +
+              '" data-action="filter" data-filter="' + f[0] + '" data-testid="filter-' + f[0] + '">' +
+              f[1] + '</button>';
+          }).join('') +
+        '</div>' +
+      '</div>' +
+      (list.length ? out.join('') :
+        '<div class="empty mt-5" data-testid="history-empty-filter">' +
+          '<span class="empty__ico">' + ICO.plan + '</span>' +
+          '<h2 class="empty__title">No cardio yet</h2>' +
+          '<p class="empty__body">Cardio you log on the Train screen appears here beside your lifting.</p>' +
+        '</div>');
+  }
+
+  /* =============================================================
+     Header. Back is labelled with its origin, as iOS labels it.
+     ============================================================= */
+  function headerHTML() {
+    if (S.view === 'history') {
+      return '' +
+        '<button class="hdr__back" type="button" data-action="back" data-testid="history-back" aria-label="Back to Train">' +
+          ICO.back + '</button>' +
+        '<div class="hdr__title stack stack--1">' +
+          '<span class="t-meta">TRAIN</span>' +
+          '<h1 class="t-title">History</h1>' +
+        '</div>';
+    }
+    return '' +
+      '<div class="hdr__title stack stack--1">' +
+        '<span class="t-meta">TRAINING</span>' +
+        '<h1 class="t-title">Train</h1>' +
+      '</div>';
+  }
+
+  /* =============================================================
+     Sheets. A split's sheet is where a monthly action lives: start
+     any day of it, or edit it. Delete is not here — it belongs in
+     the editor that owns the split, behind its own confirmation.
+     ============================================================= */
+  function splitSheet(sp) {
+    var days = sp.days.map(function (d) {
+      return '' +
+        '<button class="row" type="button" data-action="start-day" data-id="' + sp.id + ':' + d.id + '" ' +
+                'data-testid="start-day-' + d.id + '" aria-label="Start ' + esc(d.name) + '">' +
+          '<span class="ico-well">' + ICO.lift + '</span>' +
+          '<span class="row__main stack">' +
+            '<span class="row__title">' + esc(d.name) +
+              (d.next ? ' <span class="badge badge--accent">Next</span>' : '') + '</span>' +
+            '<span class="row__sub">' + n(d.exercises) + ' exercises &middot; about ' + n(d.minutes) + ' min</span>' +
+          '</span>' +
+          '<span class="row__chev">' + ICO.play + '</span>' +
+        '</button>';
+    }).join('');
+
+    return '' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" data-testid="split-sheet">' +
+        '<div class="sheet__grab"></div>' +
+        '<div class="sheet__head">' +
+          '<h2 class="t-section" id="sheet-title">' + esc(sp.name) + '</h2>' +
+          '<button class="iconbtn" type="button" data-action="close-sheet" data-testid="sheet-close" aria-label="Close split">' +
+            ICO.close + '</button>' +
+        '</div>' +
+        '<div class="sheet__body">' +
+          '<p class="t-detail">' + n(sp.days.length) + ' days &middot; ' +
+            n(sp.days.length * 5) + ' exercises &middot; edited ' + absDate(sp.updated) + '</p>' +
+          '<div class="card card--flush mt-3">' + days + '</div>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--secondary btn--block" type="button" data-action="edit-split" data-id="' + sp.id + '" ' +
+                  'data-testid="edit-split">' + ICO.pencil +
+            '<span class="btn__label">Edit split</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* The 41-tile wall, replaced. What this lifter is likely to log is
+     already a row on the screen behind; here the rest of the
+     catalogue is a ranked list with search as the reducer. */
+  function activitySheet() {
+    var q = S.query.trim().toLowerCase();
+    var list = CARDIO_ALL.concat(CARDIO_QUICK.map(function (c) {
+      return { id: 'p_' + c.id, name: c.name, min: c.min };
+    }));
+    var shown = q ? list.filter(function (a) { return a.name.toLowerCase().indexOf(q) > -1; })
+                  : CARDIO_ALL.slice(0, 6);
+
+    var rows = shown.map(function (a) {
+      return '' +
+        '<button class="row" type="button" data-action="log-cardio" data-id="' + a.id + '" ' +
+                'data-testid="pick-' + a.id + '" aria-label="Log ' + esc(a.name) + ', ' + a.min + ' minutes">' +
+          '<span class="ico-well">' + ICO.cardio + '</span>' +
+          '<span class="row__main stack">' +
+            '<span class="row__title">' + esc(a.name) + '</span>' +
+            '<span class="row__sub">' + n(a.min) + ' min by default</span>' +
+          '</span>' +
+          '<span class="row__chev">' + ICO.plus + '</span>' +
+        '</button>';
+    }).join('');
+
+    return '' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="act-title" data-testid="activity-sheet">' +
+        '<div class="sheet__grab"></div>' +
+        '<div class="sheet__head">' +
+          '<h2 class="t-section" id="act-title">Log cardio</h2>' +
+          '<button class="iconbtn" type="button" data-action="close-sheet" data-testid="activity-close" aria-label="Close activities">' +
+            ICO.close + '</button>' +
+        '</div>' +
+        '<div class="search">' +
+          '<span class="search__ico" aria-hidden="true">' + ICO.search + '</span>' +
+          '<label class="vis-hidden" for="act-q">Search activities</label>' +
+          '<input class="input" id="act-q" type="text" autocomplete="off" spellcheck="false" ' +
+                 'placeholder="Search ' + CARDIO_CATALOGUE + ' activities" value="' + esc(S.query) + '" ' +
+                 'data-testid="activity-search">' +
+        '</div>' +
+        '<div class="sheet__body mt-3">' +
+          (shown.length
+            ? '<div class="card card--flush">' + rows + '</div>'
+            : '<p class="t-detail center mt-4">Nothing matches &ldquo;' + esc(S.query) + '&rdquo;.</p>') +
+          '<p class="t-meta mt-3">' + (q ? shown.length + ' of ' + CARDIO_CATALOGUE + ' activities'
+                                         : 'Your usual three are on the Train screen. Type to reach any of the ' +
+                                           CARDIO_CATALOGUE + '.') + '</p>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function overlayHTML() {
+    if (!S.sheet) return '';
+    var inner = S.sheet.kind === 'split'
+      ? splitSheet(SPLITS.filter(function (s) { return s.id === S.sheet.id; })[0])
+      : activitySheet();
+    return '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' + inner;
+  }
+
+  function toastHTML() {
+    if (!S.toast) return '';
+    return '' +
+      '<div class="toast" role="status" data-testid="toast">' +
+        '<span class="toast__body">' + S.toast + '</span>' +
+        '<button class="toast__action" type="button" data-action="undo" data-testid="toast-undo">Undo</button>' +
+      '</div>';
+  }
+
+  /* =============================================================
+     Render
+     ============================================================= */
+  var screen = document.getElementById('screen');
+  var hdr = document.getElementById('hdr');
+  var body = document.getElementById('body');
+  var overlay = document.getElementById('overlay');
+  var toastSlot = document.getElementById('toast-slot');
+  var menu = document.getElementById('dev-menu');
+  var toggle = document.getElementById('dev-toggle');
+  var lastFocus = null;
+  var toastTimer = null;
+
+  function render(keepScroll) {
+    var top = keepScroll ? body.scrollTop : 0;
+    screen.setAttribute('data-state', S.state);
+    screen.setAttribute('data-view', S.view);
+    hdr.innerHTML = headerHTML();
+    body.innerHTML = (S.view === 'history' && S.state === 'populated')
+      ? historyView()
+      : (VIEWS[S.state] || VIEWS.populated)();
+    body.scrollTop = top;
+    overlay.innerHTML = overlayHTML();
+    toastSlot.innerHTML = toastHTML();
+    Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.state === S.state));
+    });
+    if (S.sheet) {
+      var f = overlay.querySelector('.iconbtn');
+      if (f) f.focus();
+    }
+  }
+
+  function openSheet(sheet) {
+    lastFocus = document.activeElement;
+    S.sheet = sheet;
+    S.query = '';
+    render(true);
+  }
+  function closeSheet() {
+    S.sheet = null;
+    S.query = '';
+    render(true);
+    if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
+    lastFocus = null;
+  }
+  function say(msg) {
+    S.toast = msg;
+    render(true);
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { S.toast = null; render(true); }, 4000);
+  }
+
+  /* =============================================================
+     Events. Every action is declared on the element, so the whole
+     screen is one delegated listener.
+     ============================================================= */
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-action]');
+    if (!t) return;
+    var a = t.dataset.action;
+
+    if (a === 'open-split') { openSheet({ kind: 'split', id: t.dataset.id }); return; }
+    if (a === 'open-activities') { openSheet({ kind: 'activity' }); return; }
+    if (a === 'close-sheet') { closeSheet(); return; }
+    if (a === 'open-history') { S.view = 'history'; render(); body.focus(); return; }
+    if (a === 'back') { S.view = 'hub'; render(); return; }
+    if (a === 'filter') { S.filter = t.dataset.filter; render(true); return; }
+    if (a === 'log-cardio') {
+      var name = t.getAttribute('aria-label').replace(/^Log /, '');
+      if (S.sheet) closeSheet();
+      say('Logged ' + name.replace(/, (\d+) minutes$/, ' &middot; $1 min') + '.');
+      return;
+    }
+    if (a === 'undo') { S.toast = null; render(true); return; }
+    if (a === 'retry') { S.state = 'loading'; render(); setTimeout(function () { S.state = 'populated'; render(); }, 900); return; }
+    if (a === 'use-cached') { S.state = 'populated'; render(); return; }
+    /* start-today, start-day, edit-split, new-split, open-library and
+       open-session leave this screen in the app; in the demo they say
+       where they go. */
+    if (a === 'start-today') { say('Starts the Push session.'); return; }
+    if (a === 'start-day') { closeSheet(); say('Starts that day.'); return; }
+    if (a === 'edit-split') { say('Opens the split builder.'); return; }
+    if (a === 'new-split') { say('Opens the split builder.'); return; }
+    if (a === 'open-library') { say('Opens the exercise library.'); return; }
+    if (a === 'open-session') { say('Opens that session.'); return; }
+  });
+
+  document.addEventListener('input', function (e) {
+    if (e.target.id !== 'act-q') return;
+    S.query = e.target.value;
+    var holder = overlay.querySelector('.sheet__body');
+    if (!holder) return;
+    /* Re-render the sheet body only, so the field keeps focus and
+       the caret. */
+    var tmp = document.createElement('div');
+    tmp.innerHTML = activitySheet();
+    holder.innerHTML = tmp.querySelector('.sheet__body').innerHTML;
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (S.sheet) { closeSheet(); return; }
+    if (S.view === 'history') { S.view = 'hub'; render(); }
+  });
+
+  /* =============================================================
+     Dev state toggle
+     ============================================================= */
+  var STATES = [
+    ['populated', 'Populated'],
+    ['empty', 'Empty'],
+    ['loading', 'Loading'],
+    ['error', 'Error']
+  ];
+  menu.innerHTML = STATES.map(function (s) {
+    return '<button class="dev__item" type="button" data-state="' + s[0] + '" aria-pressed="false" ' +
+      'data-testid="dev-state-' + s[0] + '">' + s[1] + '</button>';
+  }).join('');
+  toggle.addEventListener('click', function () {
+    var open = toggle.getAttribute('aria-expanded') === 'true';
+    toggle.setAttribute('aria-expanded', String(!open));
+    menu.hidden = open;
+  });
+  menu.addEventListener('click', function (e) {
+    var b = e.target.closest('.dev__item');
+    if (!b) return;
+    S.state = b.dataset.state;
+    S.view = 'hub';
+    S.sheet = null;
+    S.toast = null;
+    render();
+  });
+
+  var params = new URLSearchParams(location.search);
+  if (params.get('state')) S.state = params.get('state');
+  if (params.get('view')) S.view = params.get('view');
+  render();
+})();
+</script>
+</body>
+</html>
