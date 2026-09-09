@@ -1,0 +1,1353 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — Coach</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+</head>
+<body>
+<!--
+  COACH — three views behind one control: Chat, Plan, Setup.
+
+  WHAT THE AUDITS FORCED:
+
+  Chat. The coach can write real objects into the app; that is the
+  strongest thing in LOCKED and it is what this screen leads with. A
+  reply that carries a plan carries the plan card, and saving it writes
+  the plan the Plan view renders — same session, no retyping.
+  The old thread was asymmetric: user turns were bubbles, replies were
+  transparent full-bleed prose with no avatar, no name and no time
+  anywhere. Decision: BOTH SPEAKERS ARE BUBBLES. One .msg component, two
+  ground colours, every turn named and timed. Replies are not full width
+  because a full-width reply is not a turn, it is a document.
+  The floating voice button is gone; it won the squint test, it was an
+  emoji on a gradient, and it painted over 7% of SAVE PLAN. The composer
+  takes the same words.
+  Header was 195 of 852px (23%) before the first message. Now the header
+  and the view control together are 100px (11.7%), measured.
+
+  Plan. Was a document connected to nothing, with every target reading 0%
+  because the lookup mapped bench to Incline Dumbbell Fly, and with the
+  plan's own name stored and never shown. Fixed: the name is the title;
+  progress is computed here from the logged bests in fixtures/seed-data
+  (lk_prs) against the phase targets, and reads 97%, 96%, met — never 0%;
+  and the plan is bound to a split, so its primary action starts today's
+  session. Unbound plans ask to be bound before anything else.
+
+  Setup. Two jobs on one screen, so they are drawn as two. Persona sits
+  on filled cards. DATA ACCESS is a bordered group with its own head,
+  a count, a sentence per row saying what is actually sent, and no switch
+  — a switch's on state is an accent fill, and the accent belongs to the
+  primary action. The interview keeps every answer, has Back, has a
+  review step, closes on Escape and says what it kept when it closes.
+
+  ACCENT: exactly one --accent fill per state, on the action to take now.
+  In chat that is Send, unless a card in the thread is waiting to be
+  saved, in which case the accent moves to the card and Send steps back.
+-->
+
+<div class="stage">
+  <div class="phone" id="phone"></div>
+</div>
+
+<div class="dev">
+  <button class="dev__toggle" id="dev-toggle" aria-expanded="false" aria-controls="dev-menu" data-testid="dev-toggle">State</button>
+  <div class="dev__menu" id="dev-menu" hidden data-testid="dev-menu"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------------------------------------------------------------
+     Icons. One set, 1.75 stroke, one optical size.
+     --------------------------------------------------------------- */
+  var P = {
+    coach:  '<path d="M20 15a3 3 0 0 1-3 3H9l-4 3V7a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3z"/>',
+    user:   '<circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/>',
+    send:   '<path d="M5 12h13M12 5l7 7-7 7"/>',
+    stop:   '<rect x="7" y="7" width="10" height="10" rx="2"/>',
+    copy:   '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a1 1 0 0 1 1-1h9"/>',
+    retry:  '<path d="M4 12a8 8 0 1 1 2.5 5.8M4 18v-5h5"/>',
+    check:  '<path d="M20 6 9 17l-5-5"/>',
+    chev:   '<path d="m9 5 7 7-7 7"/>',
+    down:   '<path d="m5 9 7 7 7-7"/>',
+    up:     '<path d="m5 15 7-7 7 7"/>',
+    plan:   '<path d="M6 4h12v16H6z"/><path d="M9 9h6M9 13h6M9 17h3"/>',
+    play:   '<path d="M8 5.5v13l11-6.5z"/>',
+    lift:   '<path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/>',
+    lock:   '<rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
+    close:  '<path d="M6 6l12 12M18 6 6 18"/>',
+    back:   '<path d="M15 5l-7 7 7 7"/>',
+    trash:  '<path d="M4 7h16M9 7V4h6v3M10 11v6M14 11v6M6 7l1 13h10l1-13"/>',
+    alert:  '<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/>',
+    edit:   '<path d="M5 19h4l10-10-4-4L5 15z"/>',
+    plus:   '<path d="M12 5v14M5 12h14"/>',
+    spark:  '<path d="M12 3l1.9 4.9L19 10l-5.1 2.1L12 17l-1.9-4.9L5 10l5.1-2.1z"/>',
+    circle: '<circle cx="12" cy="12" r="8"/>',
+    link:   '<path d="M10 14a4 4 0 0 0 6 .5l2-2a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-6-.5l-2 2A4 4 0 0 0 11.7 17l1-1"/>'
+  };
+  function ico(name, cls) {
+    return '<svg class="ico' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + P[name] + '</svg>';
+  }
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function n(v) { return '<span class="num">' + v + '</span>'; }
+  function fmt(v) { return String(Math.round(v * 10) / 10); }
+
+  /* ---------------------------------------------------------------
+     Seed. fixtures/seed-data.json (guest, kg) and
+     fixtures/coach-replies.json reply 4 (the plan-bearing reply).
+     --------------------------------------------------------------- */
+  var TODAY = new Date(2026, 8, 9); /* Wed 9 Sep 2026 */
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  /* lk_prs — the real logged bests. Progress is computed from these. */
+  var PRS = {
+    111: [{ r: 5, w: 72.5 }, { r: 8, w: 72.5 }],
+    202: [{ r: 8, w: 62.5 }],
+    221: [{ r: 4, w: 115 }, { r: 6, w: 110 }],
+    701: [{ r: 5, w: 82.5 }, { r: 8, w: 87.5 }]
+  };
+  var EX = { 111: 'Barbell Bench Press', 202: 'Lat Pulldown', 221: 'Barbell Deadlift', 701: 'Barbell Squat' };
+  /* Targets resolve by lift and rep floor. The old build mapped these
+     through a stale id table, which is why every bar read 0%. */
+  var TARGETS = {
+    'Bench 5RM':    { id: 111, reps: 5 },
+    'Bench 8RM':    { id: 111, reps: 8 },
+    'Squat 5RM':    { id: 701, reps: 5 },
+    'Squat 8RM':    { id: 701, reps: 8 },
+    'Squat 1RM':    { id: 701, reps: 1 },
+    'Deadlift 4RM': { id: 221, reps: 4 }
+  };
+
+  /* lk_splits — what a plan can be bound to. */
+  var SPLITS = [
+    { id: 's1', name: 'PPL', days: ['Push', 'Pull', 'Legs'] },
+    { id: 's2', name: 'Upper / Lower', days: ['Upper', 'Lower'] },
+    { id: 's3', name: 'Full Body 3x', days: ['Day A', 'Day B', 'Day C'] }
+  ];
+
+  /* lk_coachPlan */
+  var SEED_PLAN = {
+    name: '12-week strength block',
+    description: 'Linear progression on PPL, deload week 7.',
+    start: '2026-08-04',
+    weeks: 12,
+    boundSplit: 's1',
+    nextDay: 'Push',
+    phases: [
+      { name: 'Base', weekStart: 1, weekEnd: 4, focus: 'volume',
+        note: 'Four sets a movement, RIR 2, add 2.5 kg when every set hits the top rep.',
+        targets: [{ name: 'Bench 5RM', value: 70 }, { name: 'Squat 5RM', value: 85 }] },
+      { name: 'Build', weekStart: 5, weekEnd: 8, focus: 'intensity',
+        note: 'Top set at RIR 1, two back-off sets at 85 percent of it.',
+        targets: [{ name: 'Bench 5RM', value: 75 }, { name: 'Deadlift 4RM', value: 120 }] },
+      { name: 'Peak', weekStart: 9, weekEnd: 12, focus: 'strength',
+        note: 'Singles at RIR 1 on the main lift, volume cut by a third.',
+        targets: [{ name: 'Squat 1RM', value: 100 }] }
+    ]
+  };
+
+  /* The plan the coach writes in chat. Saving it in chat is what the
+     Plan view then renders — the write the audits called the strongest
+     thing in the app. */
+  var NEW_PLAN = {
+    name: '8-week hypertrophy block',
+    description: 'PPL, four sets a movement, RIR 2, deload week 5.',
+    start: '2026-09-14',
+    weeks: 8,
+    boundSplit: null,
+    nextDay: null,
+    phases: [
+      { name: 'Accumulate', weekStart: 1, weekEnd: 4, focus: 'volume',
+        note: 'Add a set a week to the second movement. Loads stay.',
+        targets: [{ name: 'Bench 8RM', value: 70 }, { name: 'Squat 8RM', value: 85 }] },
+      { name: 'Deload', weekStart: 5, weekEnd: 5, focus: 'recovery',
+        note: 'Half the sets, same loads. One easy week, not a week off.', targets: [] },
+      { name: 'Intensify', weekStart: 6, weekEnd: 8, focus: 'intensity',
+        note: 'Top set at RIR 1, drop the third movement.',
+        targets: [{ name: 'Bench 5RM', value: 77.5 }, { name: 'Deadlift 4RM', value: 125 }] }
+    ]
+  };
+
+  /* lk_coachLastMsgs */
+  var SEED_MSGS = [
+    { role: 'user', time: '9:41', text: 'How should I progress bench?' },
+    { role: 'coach', time: '9:41', text: 'Your bench moved 60 to 72.5 kg for 5 in six weeks. Keep adding 2.5 kg when every working set hits 8 reps at RIR 2. If the top set stalls twice, hold the load and add one rep.' },
+    { role: 'user', time: '9:44', text: 'Knee felt tight on squats yesterday.' },
+    { role: 'coach', time: '9:44', text: 'Tightness without pain after a top set at 87.5 kg is normal. Warm up with two extra sets at 50 percent and keep RIR 2 on Legs this week. Tell me if it is still there Friday.' }
+  ];
+
+  var SUGGEST = [
+    'Why has my bench stalled at 72.5 kg?',
+    'Write me the next 8-week block.',
+    'My knee is tight on squats. What now?'
+  ];
+
+  var PERMS = [
+    ['training',    'Training history',  'Last 8 weeks of sets, loads and RIR.'],
+    ['prs',         'Personal records',  'Your best set for each lift, with dates.'],
+    ['weight',      'Body weight',       'Your logged weight and its trend.'],
+    ['checkins',    'Check-ins',         'Sleep, soreness and stress you have entered.'],
+    ['goals',       'Goals',             'Target lifts and dates from Progress.'],
+    ['plan',        'Coach plan',        'The plan on the Plan tab and its targets.'],
+    ['nutrition',   'Nutrition',         'Daily calories and macros from Fuel.'],
+    ['supplements', 'Supplements',       'What you take and when you took it.'],
+    ['bodyfat',     'Body fat',          'Logged body fat readings.']
+  ];
+
+  var STYLES = [['direct', 'Direct'], ['encouraging', 'Encouraging'], ['technical', 'Technical'], ['brief', 'Brief']];
+
+  var QUICK = ['Reference my numbers.', 'Keep replies under 80 words.', 'No pep talk.'];
+
+  /* The interview. Two of the old six asked what the app already knows
+     (Settings goal) or what the style picker sets below (tone); both are
+     replaced by questions the coach cannot answer for itself. */
+  var QUESTIONS = [
+    { q: 'How many days a week can you train?', opts: ['2 days', '3 days', '4 days', '5 days', '6 days'] },
+    { q: 'What does this block need to do?', opts: ['Add size', 'Add strength', 'Lean out', 'Come back from a layoff'] },
+    { q: 'What can you train with?', opts: ['Full gym', 'Barbell at home', 'Dumbbells only', 'Machines only'] },
+    { q: 'Anything the coach must work around?', opts: ['Left knee', 'Lower back', 'Shoulder', 'Nothing'], free: true },
+    { q: 'How long is a session?', opts: ['30 minutes', '45 minutes', '60 minutes', '90 minutes'] },
+    { q: 'If you miss a session, what should the coach do?', opts: ['Reshuffle the week', 'Push everything back', 'Leave it and move on', 'Ask me first'] }
+  ];
+
+  var WRITE_STEPS = ['Reading your six answers', 'Reading your last 8 weeks', 'Writing the instructions'];
+
+  var DRAFT_INSTRUCTIONS = 'Train me 4 days a week on a push, pull, legs split, 60 minutes a session, full gym. ' +
+    'The block is for size. Work around a left knee that gets tight on high-bar squats. ' +
+    'If I miss a session, reshuffle the week rather than pushing everything back. Reference my logged numbers.';
+
+  /* ---------------------------------------------------------------
+     State
+     --------------------------------------------------------------- */
+  var S;
+  function reset() {
+    clearTimers();
+    S = {
+      view: 'chat',
+      dev: S ? S.dev : false,
+      chat: { status: 'ready', msgs: SEED_MSGS.slice(), draft: '', offer: null, offerSaved: false },
+      plan: { status: 'ready', data: clone(SEED_PLAN) },
+      setup: {
+        status: 'ready',
+        instructions: 'Keep replies under 80 words. Reference my actual numbers.',
+        style: 'direct',
+        memory: [{ text: 'Left knee gets tight on high-bar squats', src: 'added by you, Aug 25' }],
+        perms: { training: true, prs: true, weight: true, checkins: true, goals: true, plan: true, nutrition: false, supplements: false, bodyfat: false },
+        dirty: false
+      },
+      interview: { open: false, step: 0, phase: 'ask', answers: [null, null, null, null, null, null], draft: '', error: null, writeStep: 0 },
+      modal: null,
+      toast: null,
+      openPhase: null
+    };
+  }
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+
+  var timers = [];
+  function later(fn, ms) { timers.push(setTimeout(fn, ms)); }
+  function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+
+  /* ---------------------------------------------------------------
+     Plan arithmetic. Real numbers, computed, never a constant.
+     --------------------------------------------------------------- */
+  function parseDate(s) { var p = s.split('-'); return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])); }
+  function dayLabel(s) { var d = parseDate(s); return MONTHS[d.getMonth()] + ' ' + d.getDate(); }
+  function weekOf(plan) {
+    var diff = Math.floor((TODAY - parseDate(plan.start)) / 86400000);
+    if (diff < 0) return 0;
+    return Math.floor(diff / 7) + 1;
+  }
+  function phaseAt(plan, week) {
+    for (var i = 0; i < plan.phases.length; i++) {
+      if (week >= plan.phases[i].weekStart && week <= plan.phases[i].weekEnd) return plan.phases[i];
+    }
+    return null;
+  }
+  /* Best logged set at or above the target's rep floor. */
+  function best(id, reps) {
+    var rows = PRS[id] || [], top = null;
+    rows.forEach(function (r) { if (r.r >= reps && (!top || r.w > top.w)) top = r; });
+    return top;
+  }
+  function progress(t) {
+    var map = TARGETS[t.name];
+    var b = map ? best(map.id, map.reps) : null;
+    if (!b) return { has: false, lift: map ? EX[map.id] : '', reps: map ? map.reps : 0 };
+    return {
+      has: true, lift: EX[map.id], reps: map.reps, now: b.w, target: t.value,
+      pct: Math.round((b.w / t.value) * 100), met: b.w >= t.value
+    };
+  }
+  function phaseState(plan, phase, week) {
+    if (week === 0) return 'future';
+    if (week > phase.weekEnd) return 'done';
+    if (week < phase.weekStart) return 'future';
+    return 'now';
+  }
+
+  /* ---------------------------------------------------------------
+     Shell
+     --------------------------------------------------------------- */
+  var VIEWS = [['chat', 'Chat'], ['plan', 'Plan'], ['setup', 'Setup']];
+
+  function header() {
+    var action = S.view === 'chat'
+      ? '<button class="hdr__action" data-act="new-chat" data-testid="action-new-chat">New</button>'
+      : '';
+    return '' +
+      '<header data-testid="coach-header">' +
+      '<div class="hdr hdr--tight">' +
+        '<div class="hdr__title"><h1 class="t-section">Coach</h1></div>' + action +
+      '</div>' +
+      '<div class="viewbar">' +
+        '<div class="seg seg--tall" role="tablist" aria-label="Coach views" data-testid="view-switch">' +
+          VIEWS.map(function (v) {
+            return '<button class="seg__item" role="tab" id="tab-' + v[0] + '" aria-selected="' + (S.view === v[0]) +
+              '" aria-controls="panel-' + v[0] + '" data-act="view" data-view="' + v[0] + '" data-testid="seg-' + v[0] + '">' + v[1] + '</button>';
+          }).join('') +
+        '</div>' +
+      '</div>' +
+      '</header>';
+  }
+
+  function tabbar() {
+    var items = [
+      ['home', 'Home', 'lift'], ['train', 'Train', 'lift'], ['progress', 'Progress', 'lift'],
+      ['coach', 'Coach', 'coach'], ['profile', 'Profile', 'user']
+    ];
+    return '<nav class="tabbar" aria-label="Sections">' + items.map(function (t) {
+      var cur = t[0] === 'coach' ? ' aria-current="page"' : '';
+      var glyph = t[0] === 'home'
+        ? '<path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4v-5H9v5H5a1 1 0 0 1-1-1z"/>'
+        : t[0] === 'progress' ? '<path d="M4 19h16M7 16v-4M12 16V7M17 16v-6"/>' : P[t[2]];
+      return '<button class="tabbar__item"' + cur + ' data-testid="tab-' + t[0] + '">' +
+        '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + glyph + '</svg>' +
+        t[1] + '</button>';
+    }).join('') + '</nav>';
+  }
+
+  /* ---------------------------------------------------------------
+     Chat
+     --------------------------------------------------------------- */
+  function bubble(m, i) {
+    var isUser = m.role === 'user';
+    var acts = '';
+    if (!isUser && !m.error) {
+      acts = '<div class="msg__acts">' +
+        '<button class="iconbtn" data-act="copy" data-i="' + i + '" aria-label="Copy this reply" data-testid="msg-copy-' + i + '">' + ico('copy') + '</button>' +
+        '</div>';
+    }
+    if (m.error) {
+      acts = '<div class="msg__acts">' +
+        '<button class="btn btn--secondary btn--sm" data-act="retry" data-testid="msg-retry">' + ico('retry') + '<span class="btn__label">Try again</span></button>' +
+        '</div>';
+    }
+    return '' +
+      '<article class="msg ' + (isUser ? 'msg--user' : '') + (m.error ? ' msg--error' : '') + '" data-testid="msg-' + i + '" data-role="' + m.role + '">' +
+        '<span class="msg__avatar">' + ico(isUser ? 'user' : 'coach') + '</span>' +
+        '<div class="msg__col">' +
+          '<div class="msg__head"><span class="msg__who">' + (isUser ? 'You' : 'Coach') + '</span>' +
+            '<span class="msg__time">' + esc(m.time) + '</span></div>' +
+          '<div class="msg__bubble">' + esc(m.text) + (m.offer ? planCard() : '') + '</div>' +
+          acts +
+        '</div>' +
+      '</article>';
+  }
+
+  function planCard() {
+    var p = NEW_PLAN;
+    if (S.chat.offerSaved) {
+      return '<div class="card card--raised msg__attach" data-testid="plan-card">' +
+        '<div class="banner banner--success">' + ico('check') +
+          '<span><strong>Plan saved</strong>' + esc(p.name) + ' is on the Plan tab. It needs a split before it can run.</span></div>' +
+        '<button class="btn btn--secondary btn--block mt-3" data-act="open-plan" data-testid="chat-open-plan">' +
+          '<span class="btn__label">Open the plan</span>' + ico('chev') + '</button>' +
+      '</div>';
+    }
+    return '' +
+      '<div class="card card--raised msg__attach" data-testid="plan-card">' +
+        '<div class="t-label">Plan the coach wrote</div>' +
+        '<div class="t-body-em mt-2">' + esc(p.name) + '</div>' +
+        '<div class="t-detail">' + n(p.weeks) + ' weeks &middot; ' + n(p.phases.length) + ' phases &middot; starts ' + dayLabel(p.start) + '</div>' +
+        '<div class="stack stack--2 mt-3">' +
+          p.phases.map(function (ph) {
+            return '<div class="spread"><span class="t-detail">' + esc(ph.name) + '</span>' +
+              '<span class="t-meta num">Wk ' + ph.weekStart + (ph.weekEnd > ph.weekStart ? '&ndash;' + ph.weekEnd : '') + '</span></div>';
+          }).join('') +
+        '</div>' +
+        '<button class="btn btn--primary btn--block mt-4" data-act="save-plan" data-testid="chat-save-plan">' +
+          '<span class="btn__label">Save this plan</span></button>' +
+        '<button class="btn btn--tertiary btn--block mt-2" data-act="dismiss-plan" data-testid="chat-dismiss-plan">' +
+          '<span class="btn__label">Not now</span></button>' +
+      '</div>';
+  }
+
+  function chatBody() {
+    var c = S.chat;
+    if (c.status === 'empty') {
+      return '' +
+        '<div class="card mt-3" data-testid="chat-intro">' +
+          '<div class="hstack hstack--3">' +
+            '<span class="msg__avatar">' + ico('coach') + '</span>' +
+            '<div class="grow"><div class="t-body-em">Coach</div>' +
+            '<div class="t-detail">Reads your logged sets. Writes plans you can save.</div></div>' +
+          '</div>' +
+          '<p class="t-detail mt-3">I can see 18 sessions over 6 weeks, 9 lifts and your check-ins. Ask about any of it, or ask for a block and I will write one you can save.</p>' +
+        '</div>' +
+        '<section class="section"><div class="section__head"><h2 class="t-label">Start with</h2></div>' +
+          '<div class="card card--flush">' +
+            SUGGEST.map(function (t, i) {
+              return '<button class="row" data-act="suggest" data-i="' + i + '" data-testid="chat-suggest-' + i + '">' +
+                '<span class="row__main"><span class="row__title">' + esc(t) + '</span></span>' +
+                '<span class="row__chev">' + ico('chev') + '</span></button>';
+            }).join('') +
+          '</div>' +
+        '</section>' +
+        '<section class="section">' +
+          '<div class="card card--outline card--flush">' +
+            '<button class="row" data-act="view" data-view="setup" data-testid="chat-data-receipt">' +
+              '<span class="ico-well">' + ico('lock') + '</span>' +
+              '<span class="row__main"><span class="row__title">Coach can see ' + n(permCount()) + ' of ' + n(PERMS.length) + ' sources</span>' +
+              '<span class="row__sub">Change what it sees in Setup</span></span>' +
+              '<span class="row__chev">' + ico('chev') + '</span></button>' +
+          '</div>' +
+        '</section>';
+    }
+
+    var html = '<div class="thread" data-testid="chat-thread"><span class="daymark">Today</span>';
+    html += c.msgs.map(bubble).join('');
+    if (c.status === 'thinking') {
+      html += '' +
+        '<article class="msg" role="status" aria-live="polite" data-testid="msg-thinking">' +
+          '<span class="msg__avatar">' + ico('coach') + '</span>' +
+          '<div class="msg__col">' +
+            '<div class="msg__head"><span class="msg__who">Coach</span><span class="msg__time">now</span></div>' +
+            '<div class="msg__bubble">' +
+              '<div class="typing"><span class="typing__dot"></span><span class="typing__dot"></span><span class="typing__dot"></span></div>' +
+              '<div class="t-detail mt-2">Reading your last 6 weeks and your bench history.</div>' +
+            '</div>' +
+            '<div class="msg__acts">' +
+              '<button class="btn btn--secondary btn--sm" data-act="stop" data-testid="chat-stop">' + ico('stop') +
+              '<span class="btn__label">Stop</span></button>' +
+            '</div>' +
+          '</div>' +
+        '</article>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function composer() {
+    var c = S.chat;
+    var busy = c.status === 'thinking';
+    var send = '<button class="composer__send" data-act="send" ' + (busy || !c.draft.trim() ? 'disabled ' : '') +
+      'aria-label="Send message" data-testid="composer-send">' + ico('send') + '</button>';
+    return '<div class="composer">' +
+      '<textarea class="composer__input" rows="1" placeholder="Ask about your training" aria-label="Message the coach" data-testid="composer-input">' + esc(c.draft) + '</textarea>' +
+      send + '</div>';
+  }
+
+  /* ---------------------------------------------------------------
+     Plan
+     --------------------------------------------------------------- */
+  function targetRow(t, i, state) {
+    var pr = progress(t);
+    var sub, right = '', bar = '';
+    if (state === 'future') {
+      sub = 'Target ' + fmt(t.value) + ' kg &middot; starts week ' + t.weekStart;
+      right = '<span class="t-meta">Not started</span>';
+    } else if (!pr.has) {
+      sub = 'No set at ' + pr.reps + ' reps or more yet';
+      right = '<span class="t-meta">No data</span>';
+    } else {
+      sub = pr.lift + ' &middot; best set of ' + n(pr.reps) + ' or more';
+      right = pr.met
+        ? '<span class="row__value good">Met</span>'
+        : '<span class="row__value">' + n(pr.pct) + '%</span>';
+      bar = '<span class="meter meter--quiet mt-2"><span class="meter__fill" style="width: ' + Math.min(100, pr.pct) + '%"></span></span>';
+    }
+    var head = pr.has && state !== 'future'
+      ? esc(t.name) + ' &middot; ' + n(fmt(pr.now)) + ' of ' + n(fmt(t.value)) + ' kg'
+      : esc(t.name) + ' &middot; ' + n(fmt(t.value)) + ' kg';
+    return '<button class="row" data-act="target" data-i="' + i + '" data-testid="plan-target-' + i + '">' +
+      '<span class="row__main"><span class="row__title">' + head + '</span>' +
+      '<span class="row__sub">' + sub + '</span>' + bar + '</span>' +
+      right + '<span class="row__chev">' + ico('chev') + '</span></button>';
+  }
+
+  function phaseRow(plan, ph, week, i) {
+    var st = phaseState(plan, ph, week);
+    var open = S.openPhase === i;
+    var met = 0, counted = 0;
+    ph.targets.forEach(function (t) { var p = progress(t); if (p.has) { counted++; if (p.met) met++; } });
+    var sub = st === 'now' ? 'Week ' + (week - ph.weekStart + 1) + ' of ' + (ph.weekEnd - ph.weekStart + 1) + ' · ' + ph.focus
+      : st === 'done' ? (counted ? met + ' of ' + counted + ' targets met' : 'Done · ' + ph.focus)
+      : 'Starts week ' + ph.weekStart + ' · ' + ph.focus;
+    var mark = st === 'done' ? ico('check') : st === 'now' ? ico('circle') : ico('circle');
+    var body = open ? '<div class="card__foot stack stack--3">' +
+        '<p class="t-detail">' + esc(ph.note) + '</p>' +
+        (ph.targets.length
+          ? ph.targets.map(function (t, j) {
+              t.weekStart = ph.weekStart;
+              return targetRow(t, i + '-' + j, st);
+            }).join('')
+          : '<p class="t-detail quiet">No targets. The week exists to let the last one land.</p>') +
+      '</div>' : '';
+    return '<div data-testid="plan-phase-' + i + '">' +
+      '<button class="row" aria-expanded="' + open + '" data-act="phase" data-i="' + i + '" data-testid="plan-phase-toggle-' + i + '">' +
+        '<span class="ico-well ' + (st === 'done' ? 'good' : st === 'now' ? 'accent' : 'quiet') + '">' + mark + '</span>' +
+        '<span class="row__main"><span class="row__title">' + esc(ph.name) +
+          (st === 'now' ? ' &middot; now' : '') + '</span><span class="row__sub">' + sub + '</span></span>' +
+        '<span class="row__chev">' + ico(open ? 'up' : 'down') + '</span>' +
+      '</button>' + body + '</div>';
+  }
+
+  function planBody() {
+    var st = S.plan.status;
+    if (st === 'empty') {
+      return '<div class="empty mt-5" data-testid="plan-empty">' +
+        '<span class="empty__ico">' + ico('plan', 'ico--lg') + '</span>' +
+        '<h2 class="empty__title">No plan yet</h2>' +
+        '<p class="empty__body">Ask the coach for a block. It writes one you can save here, bind to a split, and start from this screen.</p>' +
+        '<button class="btn btn--primary" data-act="ask-for-plan" data-testid="plan-ask">' +
+        '<span class="btn__label">Ask for a plan</span></button></div>';
+    }
+    if (st === 'loading') {
+      return '<div class="mt-3" role="status" aria-busy="true" aria-label="Loading your plan" data-testid="plan-loading">' +
+        '<div class="card">' +
+          '<div class="skel" style="height: var(--sp-3); width: 30%"></div>' +
+          '<div class="skel mt-3" style="height: var(--sp-5); width: 70%"></div>' +
+          '<div class="skel mt-3" style="height: var(--sp-2); width: 100%"></div>' +
+        '</div>' +
+        '<div class="card mt-3">' +
+          '<div class="skel" style="height: var(--sp-4); width: 45%"></div>' +
+          '<div class="skel mt-3" style="height: var(--sp-4); width: 80%"></div>' +
+          '<div class="skel mt-3" style="height: var(--tap)"></div>' +
+        '</div>' +
+        '<div class="card mt-3">' +
+          '<div class="skel" style="height: var(--sp-4); width: 60%"></div>' +
+          '<div class="skel mt-3" style="height: var(--sp-4); width: 40%"></div>' +
+        '</div>' +
+        '<p class="t-detail quiet mt-3 center">Reading your plan and your logged bests.</p>' +
+      '</div>';
+    }
+    if (st === 'error') {
+      return '<div class="mt-3" data-testid="plan-error">' +
+        '<div class="banner banner--error">' + ico('alert') +
+          '<span><strong>The plan did not arrive whole</strong>The coach’s last reply was cut off, so the block could not be read. Nothing was overwritten.</span></div>' +
+        '<button class="btn btn--primary btn--block mt-4" data-act="ask-again" data-testid="plan-retry">' +
+          '<span class="btn__label">Ask the coach to send it again</span></button>' +
+      '</div>';
+    }
+
+    var p = S.plan.data;
+    var week = weekOf(p);
+    var ph = phaseAt(p, Math.max(1, week));
+    var pct = Math.round((Math.max(0, week) / p.weeks) * 100);
+    var split = SPLITS.filter(function (s) { return s.id === p.boundSplit; })[0];
+
+    var head = '' +
+      '<div class="card mt-3" data-testid="plan-head">' +
+        '<div class="t-label">Plan</div>' +
+        '<h2 class="t-title mt-2">' + esc(p.name) + '</h2>' +
+        '<p class="t-detail mt-2">' + esc(p.description) + '</p>' +
+        '<div class="spread mt-4">' +
+          '<span class="t-detail">' + (week === 0
+            ? 'Starts ' + dayLabel(p.start)
+            : 'Week ' + n(week) + ' of ' + n(p.weeks)) + '</span>' +
+          '<span class="t-meta num">' + (week === 0 ? '0%' : pct + '%') + '</span>' +
+        '</div>' +
+        '<span class="meter meter--quiet mt-2"><span class="meter__fill" style="width: ' + (week === 0 ? 0 : pct) + '%"></span></span>' +
+      '</div>';
+
+    /* The route into the app. An unbound plan asks to be bound; a bound
+       plan starts today's session. Either way the primary action leaves
+       this screen. */
+    var act;
+    if (!split) {
+      act = '<section class="section" data-testid="plan-bind">' +
+        '<div class="section__head"><h2 class="t-label">Before it can run</h2></div>' +
+        '<div class="card">' +
+          '<p class="t-detail">This block has phases and targets but no days. Bind it to one of your splits and LOCKED puts its session on Home each training day.</p>' +
+          '<button class="btn btn--primary btn--block mt-4" data-act="bind" data-testid="plan-bind-open">' +
+            ico('link') + '<span class="btn__label">Run it on a split</span></button>' +
+        '</div></section>';
+    } else {
+      act = '<section class="section" data-testid="plan-this-week">' +
+        '<div class="section__head"><h2 class="t-label">This week</h2></div>' +
+        '<div class="card">' +
+          '<div class="t-section">' + esc(ph.name) + ' &middot; week ' + n(week - ph.weekStart + 1) + ' of ' + n(ph.weekEnd - ph.weekStart + 1) + '</div>' +
+          '<p class="t-detail mt-2">' + esc(ph.note) + '</p>' +
+          '<div class="card card--flush card--raised mt-3">' +
+            '<button class="row" data-act="open-split" data-testid="plan-open-split">' +
+              '<span class="ico-well">' + ico('lift') + '</span>' +
+              '<span class="row__main"><span class="row__title">Runs on ' + esc(split.name) + '</span>' +
+              '<span class="row__sub">' + n(split.days.length) + ' days &middot; next is ' + esc(p.nextDay) + '</span></span>' +
+              '<span class="row__chev">' + ico('chev') + '</span></button>' +
+          '</div>' +
+          '<button class="btn btn--primary btn--block mt-3" data-act="start" data-testid="plan-start">' +
+            ico('play') + '<span class="btn__label">Start ' + esc(p.nextDay) + '</span></button>' +
+        '</div></section>';
+    }
+
+    var targets = ph && ph.targets.length ? '<section class="section" data-testid="plan-targets">' +
+      '<div class="section__head"><h2 class="t-label">' + esc(ph.name) + ' targets</h2>' +
+        '<span class="t-meta">From your logged bests</span></div>' +
+      '<div class="card card--flush">' +
+        ph.targets.map(function (t, i) { t.weekStart = ph.weekStart; return targetRow(t, i, week === 0 ? 'future' : 'now'); }).join('') +
+      '</div></section>' : '';
+
+    var phases = '<section class="section" data-testid="plan-phases">' +
+      '<div class="section__head"><h2 class="t-label">Phases</h2></div>' +
+      '<div class="card card--flush">' +
+        p.phases.map(function (x, i) { return phaseRow(p, x, week, i); }).join('') +
+      '</div></section>';
+
+    var more = '<section class="section stack stack--2" data-testid="plan-more">' +
+      '<button class="btn btn--secondary btn--block" data-act="adjust" data-testid="plan-adjust">' +
+        ico('coach') + '<span class="btn__label">Ask the coach to adjust it</span></button>' +
+      '<button class="btn btn--danger btn--block" data-act="delete" data-testid="plan-delete">' +
+        ico('trash') + '<span class="btn__label">Delete this plan</span></button>' +
+    '</section>';
+
+    return head + act + targets + phases + more;
+  }
+
+  /* ---------------------------------------------------------------
+     Setup
+     --------------------------------------------------------------- */
+  function permCount() {
+    return PERMS.filter(function (p) { return S.setup.perms[p[0]]; }).length;
+  }
+
+  function answered() { return S.interview.answers.filter(function (a) { return a; }).length; }
+
+  function setupBody() {
+    var s = S.setup;
+    var empty = s.status === 'empty';
+
+    if (s.status === 'loading') {
+      return '<div class="mt-3" role="status" aria-busy="true" aria-label="Writing your instructions" data-testid="setup-loading">' +
+        '<div class="card">' +
+          '<div class="t-section">Writing your instructions</div>' +
+          '<div class="gensteps mt-3">' + WRITE_STEPS.map(function (t, i) {
+            var st = i < S.interview.writeStep ? 'done' : i === S.interview.writeStep ? 'active' : 'todo';
+            return '<div class="genstep" data-state="' + st + '"><span class="genstep__mark">' +
+              (st === 'done' ? ico('check') : st === 'active' ? ico('circle') : ico('circle')) + '</span>' + t + '</div>';
+          }).join('') + '</div>' +
+          '<p class="t-detail quiet mt-3">Your six answers are already saved. Closing this does not lose them.</p>' +
+        '</div>' +
+        '<div class="card mt-3"><div class="skel" style="height: var(--sp-4); width: 70%"></div>' +
+          '<div class="skel mt-3" style="height: var(--sp-4); width: 90%"></div>' +
+          '<div class="skel mt-3" style="height: var(--sp-4); width: 50%"></div></div>' +
+      '</div>';
+    }
+
+    if (s.status === 'error') {
+      return '<div class="mt-3" data-testid="setup-error">' +
+        '<div class="banner banner--error">' + ico('alert') +
+          '<span><strong>The coach is down</strong>Your instructions were not written. All six answers are kept on this phone.</span></div>' +
+        '<button class="btn btn--primary btn--block mt-4" data-act="write-again" data-testid="setup-retry">' +
+          '<span class="btn__label">Try again</span></button>' +
+        '<button class="btn btn--secondary btn--block mt-2" data-act="review-answers" data-testid="setup-review-answers">' +
+          '<span class="btn__label">Review my answers</span></button>' +
+      '</div>';
+    }
+
+    /* --- Persona ------------------------------------------------- */
+    var interview = '<section class="section" data-testid="setup-interview-block">' +
+      '<div class="section__head"><h2 class="t-label">Interview</h2></div>' +
+      '<div class="card">' +
+        '<div class="t-body-em">Let the coach interview you</div>' +
+        '<p class="t-detail mt-2">Six questions. Each answer is kept as you give it, so you can stop and come back.</p>' +
+        (answered()
+          ? '<div class="banner banner--info mt-3">' + ico('check') + '<span>' + answered() + ' of ' + QUESTIONS.length + ' answered. Nothing was lost.</span></div>' +
+            '<button class="btn ' + (empty ? 'btn--primary' : 'btn--secondary') + ' btn--block mt-3" data-act="interview" data-testid="setup-interview-resume">' +
+              '<span class="btn__label">Resume at question ' + Math.min(QUESTIONS.length, answered() + 1) + '</span></button>' +
+            '<button class="btn btn--tertiary btn--block mt-2" data-act="review-answers" data-testid="setup-interview-review">' +
+              '<span class="btn__label">Review answers</span></button>'
+          : '<button class="btn ' + (empty ? 'btn--primary' : 'btn--secondary') + ' btn--block mt-3" data-act="interview" data-testid="setup-interview-open">' +
+              ico('spark') + '<span class="btn__label">Start the interview</span></button>') +
+      '</div></section>';
+
+    var instructions = '<section class="section" data-testid="setup-instructions-block">' +
+      '<div class="section__head"><h2 class="t-label">Instructions</h2>' +
+        '<span class="t-meta num">' + s.instructions.length + ' / 500</span></div>' +
+      '<div class="card">' +
+        '<label class="field">' +
+          '<span class="vis-hidden">Instructions for the coach</span>' +
+          '<textarea class="input" rows="4" placeholder="Tell the coach how to talk to you and what to work around." data-act="instr" data-testid="setup-instructions">' + esc(s.instructions) + '</textarea>' +
+        '</label>' +
+        '<div class="hstack hstack--2 wrap mt-3">' +
+          QUICK.map(function (q, i) {
+            return '<button class="chip" data-act="quick" data-i="' + i + '" data-testid="setup-quick-' + i + '">' + ico('plus') + esc(q) + '</button>';
+          }).join('') +
+        '</div>' +
+      '</div></section>';
+
+    var style = '<section class="section" data-testid="setup-style-block">' +
+      '<div class="section__head"><h2 class="t-label">Tone</h2></div>' +
+      '<div class="card"><div class="hstack hstack--2 wrap">' +
+        STYLES.map(function (t) {
+          return '<button class="chip" aria-pressed="' + (s.style === t[0]) + '" data-act="style" data-style="' + t[0] + '" data-testid="setup-style-' + t[0] + '">' + t[1] + '</button>';
+        }).join('') +
+      '</div></div></section>';
+
+    var memory = '<section class="section" data-testid="setup-memory-block">' +
+      '<div class="section__head"><h2 class="t-label">What it remembers</h2></div>' +
+      (s.memory.length
+        ? '<div class="card card--flush">' + s.memory.map(function (m, i) {
+            return '<div class="row"><span class="row__main"><span class="row__title">' + esc(m.text) + '</span>' +
+              '<span class="row__sub">' + esc(m.src) + '</span></span>' +
+              '<button class="iconbtn iconbtn--danger-quiet" data-act="forget" data-i="' + i + '" aria-label="Forget: ' + esc(m.text) + '" data-testid="setup-forget-' + i + '">' + ico('trash') + '</button></div>';
+          }).join('') + '</div>'
+        : '<div class="card"><p class="t-detail">Nothing remembered yet. Facts you add here go into every reply.</p></div>') +
+      '<button class="btn btn--secondary btn--block mt-3" data-act="add-memory" data-testid="setup-add-memory">' +
+        ico('plus') + '<span class="btn__label">Add a fact</span></button>' +
+    '</section>';
+
+    /* --- Data access. Drawn as a permission grant, not a preference. -- */
+    var perms = '<section class="section" data-testid="setup-data-block">' +
+      '<div class="card card--outline card--flush">' +
+        '<div class="card__head"><span class="ico-well">' + ico('lock') + '</span>' +
+          '<span class="grow"><span class="t-label">Data access</span>' +
+          '<span class="row__title">' + permCount() + ' of ' + PERMS.length + ' sources on</span></span></div>' +
+        '<p class="t-detail card__note">Only what is on is sent, and only when you send a message. Everything else stays on this phone.</p>' +
+        PERMS.map(function (p) {
+          var on = !!s.perms[p[0]];
+          return '<button class="opt" role="checkbox" aria-checked="' + on + '" data-act="perm" data-key="' + p[0] + '" data-testid="setup-perm-' + p[0] + '">' +
+            '<span class="opt__mark">' + ico('check') + '</span>' +
+            '<span class="opt__main"><span class="opt__title">' + p[1] + '</span>' +
+            '<span class="opt__sub">' + p[2] + '</span></span></button>';
+        }).join('') +
+        '<div class="card__foot"><button class="btn btn--tertiary btn--sm" data-act="perms-off" data-testid="setup-perms-off">' +
+          '<span class="btn__label">Turn all off</span></button></div>' +
+      '</div></section>';
+
+    var lead = empty
+      ? '<div class="banner banner--warn mt-3" data-testid="setup-empty">' + ico('alert') +
+          '<span><strong>The coach knows nothing about you</strong>It can still answer, but it will answer generically. The interview is the fastest way out of that.</span></div>'
+      : '';
+
+    return lead + interview + instructions + style + memory + perms;
+  }
+
+  function actionbar() {
+    var s = S.setup;
+    if (s.status === 'loading' || s.status === 'error') return '';
+    var cls = S.modal || S.interview.open ? 'btn--secondary' : 'btn--primary';
+    if (s.status === 'empty' && !s.dirty) {
+      return '<div class="actionbar"><span class="actionbar__status" data-testid="setup-status">Nothing to save yet</span>' +
+        '<button class="btn btn--secondary" disabled data-testid="setup-save"><span class="btn__label">Save</span></button></div>';
+    }
+    return '<div class="actionbar">' +
+      '<span class="actionbar__status" data-testid="setup-status">' +
+        (s.dirty ? '<span class="hstack hstack--2"><span class="dot"></span>Unsaved changes</span>' : 'Saved just now') + '</span>' +
+      '<button class="btn ' + cls + '" ' + (s.dirty ? '' : 'disabled ') + 'data-act="save-setup" data-testid="setup-save">' +
+        '<span class="btn__label">Save</span></button></div>';
+  }
+
+  /* ---------------------------------------------------------------
+     Interview sheet. Answers persist, Back exists, Escape closes,
+     and closing says what was kept.
+     --------------------------------------------------------------- */
+  function interviewSheet() {
+    var iv = S.interview;
+    var head = function (title, sub) {
+      return '<div class="sheet__head">' +
+        '<div class="stack stack--1"><h2 class="t-section">' + title + '</h2>' +
+          (sub ? '<span class="t-detail">' + sub + '</span>' : '') + '</div>' +
+        '<button class="iconbtn" data-act="iv-close" aria-label="Close the interview" data-testid="iv-close">' + ico('close') + '</button>' +
+      '</div>';
+    };
+
+    if (iv.phase === 'review') {
+      return '<div class="scrim" data-act="iv-close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-label="Review your answers" data-testid="iv-review">' +
+          '<span class="sheet__grab"></span>' +
+          head('Your answers', 'Change any of them before the coach writes.') +
+          '<div class="sheet__body"><div class="card card--flush">' +
+            QUESTIONS.map(function (q, i) {
+              return '<button class="row" data-act="iv-edit" data-i="' + i + '" data-testid="iv-edit-' + i + '">' +
+                '<span class="row__main"><span class="row__sub">' + esc(q.q) + '</span>' +
+                '<span class="row__title">' + (iv.answers[i] ? esc(iv.answers[i]) : 'Not answered') + '</span></span>' +
+                '<span class="row__chev">' + ico('edit') + '</span></button>';
+            }).join('') +
+          '</div>' +
+          '<button class="btn btn--primary btn--block mt-4" ' + (answered() < QUESTIONS.length ? 'disabled ' : '') +
+            'data-act="write" data-testid="iv-write"><span class="btn__label">Write my instructions</span></button>' +
+          '<button class="btn btn--tertiary btn--block mt-2" data-act="iv-close" data-testid="iv-review-close">' +
+            '<span class="btn__label">Close, keep my answers</span></button>' +
+          '</div>' +
+        '</div>';
+    }
+
+    if (iv.phase === 'preview') {
+      return '<div class="scrim" data-act="iv-close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-label="Instructions the coach wrote" data-testid="iv-preview">' +
+          '<span class="sheet__grab"></span>' +
+          head('From your answers', 'This replaces your instructions. Nothing else changes.') +
+          '<div class="sheet__body">' +
+            '<div class="card"><p class="t-body">' + esc(DRAFT_INSTRUCTIONS) + '</p></div>' +
+            '<button class="btn btn--primary btn--block mt-4" data-act="iv-use" data-testid="iv-use">' +
+              '<span class="btn__label">Use these instructions</span></button>' +
+            '<button class="btn btn--secondary btn--block mt-2" data-act="iv-edit-first" data-testid="iv-edit-first">' +
+              '<span class="btn__label">Save and edit them</span></button>' +
+          '</div>' +
+        '</div>';
+    }
+
+    var q = QUESTIONS[iv.step];
+    var pct = Math.round((iv.step / QUESTIONS.length) * 100);
+    return '<div class="scrim" data-act="iv-close" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-label="Coach interview" data-testid="iv-sheet">' +
+        '<span class="sheet__grab"></span>' +
+        head('Question ' + (iv.step + 1) + ' of ' + QUESTIONS.length, 'Answers are kept as you give them.') +
+        '<div class="stepbar mt-2"><span class="stepbar__track"><span class="stepbar__fill" style="width: ' + pct + '%"></span></span>' +
+          '<span class="stepbar__count">' + answered() + ' answered</span></div>' +
+        '<div class="sheet__body mt-3">' +
+          '<h3 class="t-section">' + esc(q.q) + '</h3>' +
+          '<div class="card card--flush mt-3">' +
+            q.opts.map(function (o, i) {
+              return '<button class="opt" role="radio" aria-checked="' + (iv.answers[iv.step] === o) + '" data-act="iv-answer" data-val="' + esc(o) + '" data-testid="iv-option-' + i + '">' +
+                '<span class="opt__mark">' + ico('check') + '</span>' +
+                '<span class="opt__main"><span class="opt__title">' + esc(o) + '</span></span></button>';
+            }).join('') +
+          '</div>' +
+          (q.free ? '<label class="field mt-3"><span class="field__label t-label">Or say it yourself</span>' +
+            '<input class="input" value="' + esc(iv.draft) + '" placeholder="Right hip on deadlifts" data-act="iv-free" data-testid="iv-free">' +
+            '</label>' : '') +
+          '<div class="hstack hstack--2 mt-4">' +
+            '<button class="btn btn--secondary" ' + (iv.step === 0 ? 'disabled ' : '') + 'data-act="iv-back" data-testid="iv-back">' +
+              ico('back') + '<span class="btn__label">Back</span></button>' +
+            '<button class="btn btn--primary grow" ' + (iv.answers[iv.step] ? '' : 'disabled ') + 'data-act="iv-next" data-testid="iv-next">' +
+              '<span class="btn__label">' + (iv.step === QUESTIONS.length - 1 ? 'Review answers' : 'Next') + '</span></button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* ---------------------------------------------------------------
+     Overlays
+     --------------------------------------------------------------- */
+  function bindSheet() {
+    return '<div class="scrim" data-act="close-modal" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-label="Run this plan on a split" data-testid="bind-sheet">' +
+        '<span class="sheet__grab"></span>' +
+        '<div class="sheet__head"><div class="stack stack--1">' +
+          '<h2 class="t-section">Run it on</h2>' +
+          '<span class="t-detail">The plan sets loads and RIR. The split sets the days.</span></div>' +
+          '<button class="iconbtn" data-act="close-modal" aria-label="Close" data-testid="bind-close">' + ico('close') + '</button></div>' +
+        '<div class="sheet__body"><div class="card card--flush">' +
+          SPLITS.map(function (sp, i) {
+            return '<button class="opt" role="radio" aria-checked="false" data-act="bind-pick" data-split="' + sp.id + '" data-testid="bind-split-' + i + '">' +
+              '<span class="opt__mark">' + ico('check') + '</span>' +
+              '<span class="opt__main"><span class="opt__title">' + sp.name + '</span>' +
+              '<span class="opt__sub">' + sp.days.length + ' days &middot; ' + sp.days.join(', ') + '</span></span></button>';
+          }).join('') +
+        '</div></div>' +
+      '</div>';
+  }
+
+  function deleteDialog() {
+    return '<div class="scrim" data-act="close-modal" data-testid="scrim"></div>' +
+      '<div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="del-t" data-testid="delete-dialog">' +
+        '<h2 class="t-section" id="del-t">Delete this plan?</h2>' +
+        '<p class="t-detail mt-2">' + esc(S.plan.data.name) + ' and its targets go. Your logged sessions stay. You can undo this once.</p>' +
+        '<div class="stack stack--2 mt-4">' +
+          '<button class="btn btn--danger-solid btn--block" data-act="delete-confirm" data-testid="delete-confirm">' +
+            '<span class="btn__label">Delete plan</span></button>' +
+          '<button class="btn btn--secondary btn--block" data-act="close-modal" data-testid="delete-cancel">' +
+            '<span class="btn__label">Keep it</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function toastEl() {
+    if (!S.toast) return '';
+    return '<div class="toast" role="status" data-testid="toast">' +
+      '<span class="toast__body">' + esc(S.toast.text) + '</span>' +
+      (S.toast.action ? '<button class="toast__action" data-act="toast" data-testid="toast-action">' + esc(S.toast.action) + '</button>' : '') +
+      '</div>';
+  }
+
+  function overlays() {
+    var html = toastEl();
+    if (S.interview.open) return html + interviewSheet();
+    if (S.modal === 'bind') return html + bindSheet();
+    if (S.modal === 'delete') return html + deleteDialog();
+    return html;
+  }
+
+  /* ---------------------------------------------------------------
+     Render
+     --------------------------------------------------------------- */
+  var phone = document.getElementById('phone');
+
+  function currentState() {
+    if (S.view === 'chat') return S.chat.status === 'ready' && S.chat.offer ? 'plan-offer' : S.chat.status;
+    if (S.view === 'plan') return S.plan.status;
+    return S.setup.status;
+  }
+
+  function render() {
+    var active = document.activeElement;
+    var key = active && active.getAttribute ? active.getAttribute('data-testid') : null;
+    var caret = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
+
+    var body, foot = '';
+    if (S.view === 'chat') { body = chatBody(); foot = composer(); }
+    else if (S.view === 'plan') { body = planBody(); }
+    else { body = setupBody(); foot = actionbar(); }
+
+    /* One accent fill: normally the primary action; in chat it moves to
+       the plan card while the card is waiting to be saved. */
+    var accent = (S.view === 'chat' && S.chat.offer && !S.chat.offerSaved) ? 'card' : 'action';
+
+    phone.innerHTML = '' +
+      '<div class="screen" data-state="' + currentState() + '" data-view="' + S.view + '" data-accent="' + accent + '" data-testid="view-' + S.view + '">' +
+        header() +
+        '<main class="body" tabindex="-1" data-testid="' + S.view + '-scroll">' +
+          '<div id="panel-' + S.view + '" role="tabpanel" aria-labelledby="tab-' + S.view + '">' + body + '</div>' +
+        '</main>' +
+        '<footer>' + foot + tabbar() + '</footer>' + overlays() +
+      '</div>';
+
+    if (S.view === 'chat' && S.chat.status !== 'empty') {
+      var scroll = phone.querySelector('.body');
+      scroll.scrollTop = scroll.scrollHeight;
+    }
+    if (key) {
+      var next = phone.querySelector('[data-testid="' + key + '"]');
+      if (next && !next.disabled) {
+        next.focus({ preventScroll: true });
+        if (caret !== null && typeof next.setSelectionRange === 'function') {
+          try { next.setSelectionRange(caret, caret); } catch (e) {}
+        }
+      }
+    }
+    renderDev();
+  }
+
+  function toast(text, action, fn) {
+    S.toast = { text: text, action: action, fn: fn };
+    clearTimeout(S.toastTimer);
+    S.toastTimer = setTimeout(function () { S.toast = null; render(); }, 6000);
+    render();
+  }
+
+  /* ---------------------------------------------------------------
+     Behaviour
+     --------------------------------------------------------------- */
+  function setView(v) { S.view = v; S.openPhase = null; render(); }
+
+  function sendMessage(text) {
+    S.chat.msgs.push({ role: 'user', time: '9:52', text: text });
+    S.chat.draft = '';
+    S.chat.status = 'thinking';
+    render();
+    later(function () {
+      if (S.chat.status !== 'thinking') return;
+      var wantsPlan = /plan|block|program/i.test(text);
+      S.chat.status = 'ready';
+      if (wantsPlan) {
+        S.chat.offer = true;
+        S.chat.offerSaved = false;
+        S.chat.msgs.push({ role: 'coach', time: '9:52', offer: true,
+          text: 'Here is the next block. Eight weeks, three phases, built on the loads you are already hitting.' });
+      } else {
+        S.chat.msgs.push({ role: 'coach', time: '9:52',
+          text: 'Your bench moved 60 to 72.5 kg for 5 in six weeks. Keep adding 2.5 kg when every working set hits 8 reps at RIR 2. If the top set stalls twice, hold the load and add one rep.' });
+      }
+      render();
+    }, 1400);
+  }
+
+  var ACTS = {
+    'view': function (el) { setView(el.dataset.view); },
+    'new-chat': function () {
+      S.chat = { status: 'empty', msgs: [], draft: '', offer: null, offerSaved: false };
+      render();
+      toast('New chat. The last one is kept in your history.');
+    },
+    'suggest': function (el) { sendMessage(SUGGEST[Number(el.dataset.i)]); },
+    'send': function () { if (S.chat.draft.trim()) sendMessage(S.chat.draft.trim()); },
+    'stop': function () {
+      S.chat.status = 'ready';
+      render();
+      toast('Stopped. Your question is still in the thread.');
+    },
+    'copy': function () { toast('Reply copied.'); render(); },
+    'retry': function () {
+      var last = S.chat.msgs[S.chat.msgs.length - 1];
+      if (last && last.error) S.chat.msgs.pop();
+      S.chat.status = 'thinking';
+      render();
+      later(function () {
+        if (S.chat.status !== 'thinking') return;
+        S.chat.status = 'ready';
+        S.chat.msgs.push({ role: 'coach', time: '9:53',
+          text: 'Four days at 7 hours of sleep and soreness at 3. Push tomorrow is fine, but drop the last set on every movement. Recovery is the limiter this week, not strength.' });
+        render();
+      }, 1200);
+    },
+    /* The write. Saving here is what the Plan view then renders. */
+    'save-plan': function () {
+      S.chat.offerSaved = true;
+      S.plan.status = 'ready';
+      S.plan.data = clone(NEW_PLAN);
+      render();
+      toast('Plan saved. It needs a split before it can run.', 'Open plan', function () { setView('plan'); });
+    },
+    'dismiss-plan': function () {
+      S.chat.offer = null;
+      var i = S.chat.msgs.length - 1;
+      if (S.chat.msgs[i]) S.chat.msgs[i].offer = false;
+      render();
+      toast('Not saved. Ask again any time and I will rewrite it.');
+    },
+    'open-plan': function () { setView('plan'); },
+    'ask-for-plan': function () {
+      S.view = 'chat';
+      S.chat.status = S.chat.msgs.length ? 'ready' : 'empty';
+      S.chat.draft = 'Write me the next 8-week block.';
+      render();
+      var t = phone.querySelector('[data-testid="composer-input"]');
+      if (t) t.focus();
+    },
+    'ask-again': function () { ACTS['ask-for-plan'](); },
+    'adjust': function () {
+      S.view = 'chat';
+      S.chat.status = 'ready';
+      if (!S.chat.msgs.length) S.chat.msgs = SEED_MSGS.slice();
+      S.chat.draft = 'Adjust week ' + weekOf(S.plan.data) + ' of ' + S.plan.data.name + ': ';
+      render();
+      var t = phone.querySelector('[data-testid="composer-input"]');
+      if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
+    },
+    'phase': function (el) {
+      var i = Number(el.dataset.i);
+      S.openPhase = S.openPhase === i ? null : i;
+      render();
+    },
+    'target': function () { toast('Opening this lift in Progress.'); render(); },
+    'open-split': function () { toast('Opening the split in Train.'); render(); },
+    'start': function () {
+      toast('Starting ' + S.plan.data.nextDay + ' in Workout Log, loaded from this phase.');
+      render();
+    },
+    'bind': function () { S.modal = 'bind'; render(); },
+    'bind-pick': function (el) {
+      var sp = SPLITS.filter(function (x) { return x.id === el.dataset.split; })[0];
+      S.plan.data.boundSplit = sp.id;
+      S.plan.data.nextDay = sp.days[0];
+      S.modal = null;
+      render();
+      toast(S.plan.data.name + ' runs on ' + sp.name + '. ' + sp.days[0] + ' is next.', 'Open in Train', function () {
+        toast('Opening ' + sp.name + ' in Train.');
+        render();
+      });
+    },
+    'delete': function () { S.modal = 'delete'; render(); },
+    'delete-confirm': function () {
+      var kept = clone(S.plan.data);
+      S.plan.status = 'empty';
+      S.modal = null;
+      render();
+      toast('Plan deleted.', 'Undo', function () {
+        S.plan.status = 'ready';
+        S.plan.data = kept;
+        S.toast = null;
+        render();
+      });
+    },
+    'close-modal': function () { S.modal = null; render(); },
+    'toast': function () {
+      var fn = S.toast && S.toast.fn;
+      S.toast = null;
+      if (fn) fn(); else render();
+    },
+
+    /* --- setup ---------------------------------------------------- */
+    'quick': function (el) {
+      var t = QUICK[Number(el.dataset.i)];
+      if (S.setup.instructions.indexOf(t) === -1) {
+        S.setup.instructions = (S.setup.instructions ? S.setup.instructions + ' ' : '') + t;
+        S.setup.dirty = true;
+        if (S.setup.status === 'empty') S.setup.status = 'ready';
+      }
+      render();
+    },
+    'style': function (el) { S.setup.style = el.dataset.style; S.setup.dirty = true; render(); },
+    'forget': function (el) {
+      var i = Number(el.dataset.i);
+      var gone = S.setup.memory.splice(i, 1)[0];
+      S.setup.dirty = true;
+      render();
+      toast('Forgotten.', 'Undo', function () {
+        S.setup.memory.splice(i, 0, gone);
+        S.toast = null;
+        render();
+      });
+    },
+    'add-memory': function () {
+      S.setup.memory.push({ text: 'Trains Monday, Wednesday, Friday, Saturday', src: 'added by you, Sep 9' });
+      S.setup.dirty = true;
+      render();
+    },
+    'perm': function (el) {
+      var k = el.dataset.key;
+      S.setup.perms[k] = !S.setup.perms[k];
+      S.setup.dirty = true;
+      if (S.setup.status === 'empty' && permCount()) S.setup.status = 'ready';
+      render();
+    },
+    'perms-off': function () {
+      PERMS.forEach(function (p) { S.setup.perms[p[0]] = false; });
+      S.setup.dirty = true;
+      render();
+      toast('All sources off. The coach can still reply, from nothing but your message.');
+    },
+    'save-setup': function () {
+      S.setup.dirty = false;
+      render();
+      toast('Saved. The next reply uses it.');
+    },
+
+    /* --- interview ------------------------------------------------ */
+    'interview': function () {
+      S.interview.open = true;
+      S.interview.phase = 'ask';
+      S.interview.step = Math.min(QUESTIONS.length - 1, answered());
+      render();
+    },
+    'review-answers': function () {
+      S.interview.open = true;
+      S.interview.phase = 'review';
+      if (S.setup.status === 'error') S.setup.status = 'ready';
+      render();
+    },
+    'iv-answer': function (el) {
+      S.interview.answers[S.interview.step] = el.dataset.val;
+      render();
+    },
+    'iv-next': function () {
+      if (S.interview.step === QUESTIONS.length - 1) { S.interview.phase = 'review'; }
+      else { S.interview.step += 1; S.interview.draft = ''; }
+      render();
+    },
+    'iv-back': function () {
+      if (S.interview.step > 0) S.interview.step -= 1;
+      render();
+    },
+    'iv-edit': function (el) {
+      S.interview.phase = 'ask';
+      S.interview.step = Number(el.dataset.i);
+      render();
+    },
+    'iv-close': function () { closeInterview(); },
+    'write': function () {
+      S.interview.open = false;
+      S.setup.status = 'loading';
+      S.interview.writeStep = 0;
+      render();
+      var i = 0;
+      function tick() {
+        if (S.setup.status !== 'loading') return;
+        i += 1;
+        if (i < WRITE_STEPS.length) { S.interview.writeStep = i; render(); later(tick, 900); return; }
+        S.setup.status = 'ready';
+        S.interview.open = true;
+        S.interview.phase = 'preview';
+        render();
+      }
+      later(tick, 900);
+    },
+    'write-again': function () { ACTS['write'](); },
+    'iv-use': function () {
+      S.setup.instructions = DRAFT_INSTRUCTIONS;
+      S.setup.status = 'ready';
+      S.setup.dirty = false;
+      S.interview.open = false;
+      render();
+      toast('Instructions saved from your answers.');
+    },
+    'iv-edit-first': function () {
+      /* Saves first. The old build dropped the draft on this path. */
+      S.setup.instructions = DRAFT_INSTRUCTIONS;
+      S.setup.status = 'ready';
+      S.setup.dirty = false;
+      S.interview.open = false;
+      render();
+      var t = phone.querySelector('[data-testid="setup-instructions"]');
+      if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
+      toast('Saved. Edit them here.');
+    }
+  };
+
+  function closeInterview() {
+    var a = answered();
+    S.interview.open = false;
+    S.view = 'setup';
+    render();
+    if (a && a < QUESTIONS.length) toast(a + ' of ' + QUESTIONS.length + ' answers kept. Resume any time.');
+    else if (a === QUESTIONS.length) toast('All six answers kept.');
+  }
+
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest('[data-act]');
+    if (!el) return;
+    var fn = ACTS[el.dataset.act];
+    if (fn) { e.preventDefault(); fn(el); }
+  });
+
+  document.addEventListener('input', function (e) {
+    var el = e.target;
+    if (el.dataset.testid === 'composer-input' || el.getAttribute('data-testid') === 'composer-input') {
+      S.chat.draft = el.value;
+      var send = phone.querySelector('[data-testid="composer-send"]');
+      if (send) send.disabled = !el.value.trim() || S.chat.status === 'thinking';
+      return;
+    }
+    if (el.getAttribute('data-act') === 'instr') {
+      S.setup.instructions = el.value.slice(0, 500);
+      S.setup.dirty = true;
+      var count = phone.querySelector('[data-testid="setup-instructions-block"] .t-meta');
+      if (count) count.textContent = S.setup.instructions.length + ' / 500';
+      return;
+    }
+    if (el.getAttribute('data-act') === 'iv-free') {
+      S.interview.draft = el.value;
+      S.interview.answers[S.interview.step] = el.value.trim() || null;
+      var next = phone.querySelector('[data-testid="iv-next"]');
+      if (next) next.disabled = !el.value.trim();
+    }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      if (S.interview.open) { closeInterview(); return; }
+      if (S.modal) { S.modal = null; render(); return; }
+      if (S.dev) { S.dev = false; renderDev(); return; }
+    }
+    if (e.key === 'Enter' && !e.shiftKey && e.target.getAttribute && e.target.getAttribute('data-testid') === 'composer-input') {
+      e.preventDefault();
+      if (S.chat.draft.trim()) sendMessage(S.chat.draft.trim());
+    }
+  });
+
+  /* ---------------------------------------------------------------
+     Dev switcher. View and state, one list.
+     --------------------------------------------------------------- */
+  var PRESETS = [
+    ['Chat / populated', function () { }],
+    ['Chat / empty', function () { S.chat = { status: 'empty', msgs: [], draft: '', offer: null, offerSaved: false }; }],
+    ['Chat / thinking', function () { S.chat.status = 'thinking'; S.chat.msgs = SEED_MSGS.concat([{ role: 'user', time: '9:52', text: 'Should I push tomorrow on 7 hours of sleep?' }]); }],
+    ['Chat / error', function () {
+      S.chat.msgs = SEED_MSGS.concat([
+        { role: 'user', time: '9:52', text: 'Should I push tomorrow on 7 hours of sleep?' },
+        { role: 'coach', time: '9:52', error: true, text: 'The coach is down. Not your fault. Your question is still here.' }
+      ]);
+      S.chat.draft = 'Should I push tomorrow on 7 hours of sleep?';
+    }],
+    ['Chat / plan offered', function () {
+      S.chat.msgs = SEED_MSGS.concat([
+        { role: 'user', time: '9:52', text: 'Write me the next 8-week block.' },
+        { role: 'coach', time: '9:52', offer: true, text: 'Here is the next block. Eight weeks, three phases, built on the loads you are already hitting.' }
+      ]);
+      S.chat.offer = true;
+    }],
+    ['Chat / plan saved', function () {
+      S.chat.msgs = SEED_MSGS.concat([
+        { role: 'user', time: '9:52', text: 'Write me the next 8-week block.' },
+        { role: 'coach', time: '9:52', offer: true, text: 'Here is the next block. Eight weeks, three phases, built on the loads you are already hitting.' }
+      ]);
+      S.chat.offer = true; S.chat.offerSaved = true;
+      S.plan.data = clone(NEW_PLAN);
+    }],
+    ['Plan / populated', function () { S.view = 'plan'; }],
+    ['Plan / unbound', function () { S.view = 'plan'; S.plan.data = clone(NEW_PLAN); }],
+    ['Plan / empty', function () { S.view = 'plan'; S.plan.status = 'empty'; }],
+    ['Plan / loading', function () { S.view = 'plan'; S.plan.status = 'loading'; }],
+    ['Plan / error', function () { S.view = 'plan'; S.plan.status = 'error'; }],
+    ['Setup / populated', function () { S.view = 'setup'; }],
+    ['Setup / empty', function () {
+      S.view = 'setup';
+      S.setup.status = 'empty';
+      S.setup.instructions = '';
+      S.setup.memory = [];
+      S.setup.style = null;
+      PERMS.forEach(function (p) { S.setup.perms[p[0]] = false; });
+    }],
+    ['Setup / interview', function () {
+      S.view = 'setup';
+      S.interview.open = true;
+      S.interview.answers = ['4 days', 'Add size', 'Full gym', null, null, null];
+      S.interview.step = 3;
+    }],
+    ['Setup / answers review', function () {
+      S.view = 'setup';
+      S.interview.open = true;
+      S.interview.phase = 'review';
+      S.interview.answers = ['4 days', 'Add size', 'Full gym', 'Left knee', '60 minutes', 'Reshuffle the week'];
+    }],
+    ['Setup / writing', function () {
+      S.view = 'setup';
+      S.setup.status = 'loading';
+      S.interview.writeStep = 1;
+      S.interview.answers = ['4 days', 'Add size', 'Full gym', 'Left knee', '60 minutes', 'Reshuffle the week'];
+    }],
+    ['Setup / write failed', function () {
+      S.view = 'setup';
+      S.setup.status = 'error';
+      S.interview.answers = ['4 days', 'Add size', 'Full gym', 'Left knee', '60 minutes', 'Reshuffle the week'];
+    }]
+  ];
+
+  var menu = document.getElementById('dev-menu');
+  var toggle = document.getElementById('dev-toggle');
+  menu.innerHTML = PRESETS.map(function (p, i) {
+    return '<button class="dev__item" data-preset="' + i + '" aria-pressed="false" data-testid="dev-preset-' + i + '">' + p[0] + '</button>';
+  }).join('');
+  function renderDev() {
+    toggle.setAttribute('aria-expanded', String(S.dev));
+    menu.hidden = !S.dev;
+  }
+  toggle.addEventListener('click', function () { S.dev = !S.dev; renderDev(); });
+  menu.addEventListener('click', function (e) {
+    var b = e.target.closest('.dev__item');
+    if (!b) return;
+    applyPreset(Number(b.dataset.preset));
+  });
+  function applyPreset(i) {
+    reset();
+    PRESETS[i][1]();
+    Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
+      b.setAttribute('aria-pressed', String(Number(b.dataset.preset) === i));
+    });
+    render();
+  }
+
+  /* ---------------------------------------------------------------
+     Boot
+     --------------------------------------------------------------- */
+  reset();
+  var qs = new URLSearchParams(location.search);
+  var want = qs.get('preset');
+  if (want !== null && PRESETS[Number(want)]) applyPreset(Number(want));
+  else {
+    var view = qs.get('view');
+    if (view === 'plan' || view === 'setup') S.view = view;
+    render();
+  }
+})();
+</script>
+</body>
+</html>

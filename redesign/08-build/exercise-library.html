@@ -1,0 +1,1038 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — Exercise library</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+</head>
+<body>
+<!--
+  EXERCISE LIBRARY — what changed, and why.
+
+  The audits measured a screen that reads as "a menu of body parts": the
+  search field's border was 1.07:1 against its own fill, it vanished at
+  8px blur, it was not focused on arrival, and it disappeared entirely
+  once a group was open. Browsing cost 3 taps. Search matched name
+  substrings only, above a 2-character floor, so "chest" returned 7 of
+  30. Custom exercises never appeared in browse because the merge matched
+  on fields stored customs do not carry. The detail sheet's dominant
+  object was a 351x351 void — 81% of the sheet body — and its primary
+  action did nothing when the library was entered from its own tab.
+
+  DECISIONS
+
+  1. Search is the screen. The field sits above the scroll body, so it is
+     present at the root, inside a group and over results; it is focused
+     on arrival; it is raised off the ground and bounded by
+     --text-tertiary (4.71:1 on its own fill, 5.49:1 on the page ground).
+     Enter opens the top result, so a named lift costs 0 taps.
+  2. Search matches name, muscle group, region, equipment and a small
+     alias list (legs, arms, core, upper, lower), from the first
+     character, ranked: name prefix, word start, substring, region and
+     group, equipment. "chest" now returns all 31, not 7.
+  3. Browsing is two taps, not three. A group opens one flat list of all
+     its exercises with the regions as sticky headings, instead of a
+     second list of subgroup rows.
+  4. Customs merge on gid/sid — the fields a stored custom carries — so
+     they appear in browse, in counts and in search, marked CUSTOM.
+     Lower Chest reads 11, not 10.
+  5. The detail sheet is drawn, not fetched. Its illustration is a muscle
+     map rendered in SVG from the exercise's own group and region, so the
+     sheet is complete with no network: name, tags, map, four facts
+     (group, region, equipment, which split day uses it) and your logged
+     history. A demonstration clip is an extra when one is cached, never
+     the sheet's subject: loading is a skeleton in the same 16:9 box,
+     failure is one line and a Try again button, and neither leaves a
+     void, because nothing was ever holding the sheet up.
+  6. Every row leads somewhere. The sheet's primary action depends on the
+     entry: from a picker it adds to the summoning day; with a workout
+     running it adds to that workout; from the Library tab with nothing
+     running it starts a workout with the lift, and the secondary adds it
+     to a split day. No dead primary.
+
+  ACCENT: one accent fill per screen. On the browse and results screens
+  it is the focus ring on the search field — the screen's primary tool,
+  focused on arrival. When a sheet is open it is the sheet's primary
+  button. Never both: focus moves into the sheet.
+-->
+
+<div class="stage">
+  <div class="phone">
+    <div class="screen" id="screen" data-testid="screen-exercise-library" data-state="browse">
+
+      <header class="hdr" id="hdr"></header>
+
+      <div class="findbar" id="findbar">
+        <div class="search search--find">
+          <span class="search__ico" aria-hidden="true">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" focusable="false"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
+          </span>
+          <label class="vis-hidden" for="q">Search exercises by name, muscle or equipment</label>
+          <input class="input" id="q" type="text" autocomplete="off" autocorrect="off" spellcheck="false"
+                 enterkeyhint="search" placeholder="Search 227 exercises" data-testid="search-input">
+          <button class="search__clear" id="clear" type="button" hidden data-testid="search-clear" aria-label="Clear search">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>
+          </button>
+        </div>
+        <div class="chiprow mt-3" id="filters"></div>
+      </div>
+
+      <main class="body body--flush" id="body" tabindex="-1" data-testid="library-scroll"></main>
+
+      <nav class="tabbar" aria-label="Sections">
+        <button class="tabbar__item" type="button" data-testid="tab-home">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4v-5H9v5H5a1 1 0 0 1-1-1z"/></svg>
+          Home
+        </button>
+        <button class="tabbar__item" type="button" aria-current="page" data-testid="tab-train">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/></svg>
+          Train
+        </button>
+        <button class="tabbar__item" data-testid="tab-fuel">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3v8a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V3"/><path d="M9 13v8"/><path d="M17 3c-1.5 1.8-2 3.6-2 5.5 0 1.6.7 2.5 2 2.5s2-.9 2-2.5c0-1.9-.5-3.7-2-5.5Z"/><path d="M17 11v10"/></svg>
+          Fuel
+        </button>
+        <button class="tabbar__item" type="button" data-testid="tab-progress">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 19h16M7 16v-4M12 16V7M17 16v-6"/></svg>
+          Progress
+        </button>
+        <button class="tabbar__item" type="button" data-testid="tab-coach">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 15a3 3 0 0 1-3 3H9l-4 3V7a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3z"/></svg>
+          Coach
+        </button>
+      </nav>
+
+      <div id="layer"></div>
+    </div>
+  </div>
+</div>
+
+<div class="dev">
+  <button class="dev__toggle" id="dev-toggle" type="button" aria-expanded="false" aria-controls="dev-menu" data-testid="dev-toggle">State</button>
+  <div class="dev__menu" id="dev-menu" hidden data-testid="dev-menu"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------------------------------------------------------------
+     Icons. One set, one stroke weight, one optical size.
+     --------------------------------------------------------------- */
+  var P = {
+    back:  '<path d="M15 5l-7 7 7 7"/>',
+    chev:  '<path d="M9 6l6 6-6 6"/>',
+    close: '<path d="M6 6l12 12M18 6L6 18"/>',
+    plus:  '<path d="M12 5v14M5 12h14"/>',
+    play:  '<path d="M8 5.5v13l11-6.5z"/>',
+    alert: '<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/>',
+    search:'<circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/>',
+    lift:  '<path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/>',
+    star:  '<path d="M12 4l2.4 5.2 5.6.7-4.1 3.9 1.1 5.6-5-2.9-5 2.9 1.1-5.6L4 9.9l5.6-.7z"/>'
+  };
+  function ico(name, cls) {
+    return '<svg class="ico' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + P[name] + '</svg>';
+  }
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function n(v) { return '<span class="num">' + esc(v) + '</span>'; }
+  function kg(v) { return n(v) + ' kg'; }
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function when(daysAgo, iso) {
+    if (daysAgo === 0) return 'today';
+    if (daysAgo === 1) return 'yesterday';
+    if (daysAgo < 7) return n(daysAgo) + ' days ago';
+    var d = iso.split('-');
+    return MONTHS[Number(d[1]) - 1] + ' ' + n(String(Number(d[2])));
+  }
+
+  /* ---------------------------------------------------------------
+     Structure. Group and region names and their order, taken from
+     tests/fixtures/exercise-db.json. Stored customs carry gid and sid
+     only; every label on screen is resolved through this index, which
+     is why a custom can never fall out of a list again.
+     --------------------------------------------------------------- */
+  var GROUP_INDEX = [
+    ['chest', 'Chest', [['upper','Upper Chest'], ['mid','Mid Chest'], ['lower','Lower Chest']]],
+    ['back', 'Back', [['lats','Lats'], ['midback','Mid Back'], ['lowerback','Lower Back'], ['traps','Traps']]],
+    ['shoulders', 'Shoulders', [['front','Front Delt'], ['side','Side Delt'], ['rear','Rear Delt']]],
+    ['triceps', 'Triceps', [['long','Long Head'], ['lateral','Lateral Head'], ['medial','Medial Head']]],
+    ['biceps', 'Biceps', [['long','Long Head'], ['short','Short Head']]],
+    ['forearms', 'Forearms', [['all','Forearms']]],
+    ['quads', 'Quads', [['all','Quads']]],
+    ['hams', 'Hamstrings', [['all','Hamstrings']]],
+    ['glutes', 'Glutes', [['all','Glutes']]],
+    ['adduc', 'Inner/Outer Thigh', [['all','Inner/Outer Thigh']]],
+    ['abs', 'Abs', [['weighted','Weighted'], ['bw','Bodyweight']]],
+    ['calves', 'Calves', [['all','Calves']]]
+  ];
+  var GNAME = {}, SNAME = {}, GORDER = {}, SORDER = {};
+  GROUP_INDEX.forEach(function (g, i) {
+    GNAME[g[0]] = g[1]; GORDER[g[0]] = i;
+    g[2].forEach(function (s, j) { SNAME[g[0] + '/' + s[0]] = s[1]; SORDER[g[0] + '/' + s[0]] = j; });
+  });
+
+  /* Fallback catalogue: three exercises per region, so the page still
+     browses, searches and opens a sheet when it is loaded from disk with
+     no server and the fetch below cannot run. */
+  var FALLBACK = [
+    [101,'Incline Barbell Press','Barbell','chest','upper'], [102,'Incline DB Press','Dumbbell','chest','upper'],
+    [103,'Incline Cable Fly','Cable','chest','upper'], [111,'Barbell Bench Press','Barbell','chest','mid'],
+    [112,'Flat DB Press','Dumbbell','chest','mid'], [113,'Machine Chest Press','Machine','chest','mid'],
+    [121,'Decline Barbell Press','Barbell','chest','lower'], [122,'Decline DB Press','Dumbbell','chest','lower'],
+    [123,'Dip','Bodyweight','chest','lower'], [201,'Pull Up','Bodyweight','back','lats'],
+    [202,'Lat Pulldown','Cable','back','lats'], [203,'Chin Up','Bodyweight','back','lats'],
+    [211,'Barbell Row','Barbell','back','midback'], [212,'Dumbbell Row','Dumbbell','back','midback'],
+    [213,'Seated Cable Row','Cable','back','midback'], [221,'Deadlift','Barbell','back','lowerback'],
+    [222,'Romanian Deadlift','Barbell','back','lowerback'], [223,'Back Extension','Bodyweight','back','lowerback'],
+    [231,'Barbell Shrug','Barbell','back','traps'], [232,'Dumbbell Shrug','Dumbbell','back','traps'],
+    [233,'Cable Shrug','Cable','back','traps'], [301,'Overhead Barbell Press','Barbell','shoulders','front'],
+    [302,'Seated DB Press','Dumbbell','shoulders','front'], [303,'Arnold Press','Dumbbell','shoulders','front'],
+    [311,'DB Lateral Raise','Dumbbell','shoulders','side'], [312,'Cable Lateral Raise','Cable','shoulders','side'],
+    [313,'Machine Lateral Raise','Machine','shoulders','side'], [321,'Face Pull','Cable','shoulders','rear'],
+    [322,'Reverse Pec Deck','Machine','shoulders','rear'], [323,'Bent Over Reverse Fly','Dumbbell','shoulders','rear'],
+    [401,'Overhead Cable Extension','Cable','triceps','long'], [402,'Skull Crusher','EZ Bar','triceps','long'],
+    [403,'Overhead DB Extension','Dumbbell','triceps','long'], [411,'Rope Pushdown','Cable','triceps','lateral'],
+    [412,'Straight Bar Pushdown','Cable','triceps','lateral'], [413,'Close Grip Bench','Barbell','triceps','lateral'],
+    [421,'Reverse Grip Pushdown','Cable','triceps','medial'], [422,'Diamond Push Up','Bodyweight','triceps','medial'],
+    [423,'Cable Kickback','Cable','triceps','medial'], [501,'Incline DB Curl','Dumbbell','biceps','long'],
+    [502,'Bayesian Cable Curl','Cable','biceps','long'], [503,'Barbell Curl','Barbell','biceps','long'],
+    [511,'Preacher Curl','EZ Bar','biceps','short'], [512,'Concentration Curl','Dumbbell','biceps','short'],
+    [513,'Spider Curl','Dumbbell','biceps','short'], [601,'Barbell Wrist Curl','Barbell','forearms','all'],
+    [602,'Reverse Wrist Curl','Barbell','forearms','all'], [603,'Hammer Curl','Dumbbell','forearms','all'],
+    [701,'Back Squat','Barbell','quads','all'], [702,'Front Squat','Barbell','quads','all'],
+    [703,'Leg Press','Machine','quads','all'], [801,'Lying Leg Curl','Machine','hams','all'],
+    [802,'Seated Leg Curl','Machine','hams','all'], [803,'Nordic Curl','Bodyweight','hams','all'],
+    [901,'Hip Thrust','Barbell','glutes','all'], [902,'Cable Kickback','Cable','glutes','all'],
+    [903,'Bulgarian Split Squat','Dumbbell','glutes','all'], [1001,'Hip Adduction Machine','Machine','adduc','all'],
+    [1002,'Hip Abduction Machine','Machine','adduc','all'], [1003,'Cable Hip Adduction','Cable','adduc','all'],
+    [1011,'Cable Crunch','Cable','abs','weighted'], [1012,'Weighted Decline Sit Up','Plate','abs','weighted'],
+    [1013,'Machine Crunch','Machine','abs','weighted'], [1021,'Hanging Leg Raise','Bodyweight','abs','bw'],
+    [1022,'Plank','Bodyweight','abs','bw'], [1023,'Hollow Hold','Bodyweight','abs','bw'],
+    [1101,'Standing Calf Raise','Machine','calves','all'], [1102,'Seated Calf Raise','Machine','calves','all'],
+    [1103,'Leg Press Calf Raise','Machine','calves','all']
+  ];
+
+  /* Customs as they are actually stored: id, name, equipment, gid, sid.
+     No group or muscle string — the audited merge needed those and so
+     dropped every custom out of browse. */
+  var CUSTOMS = [
+    { id: 900001, name: 'Machine Decline Press', eq: 'Machine', gid: 'chest', sid: 'lower' },
+    { id: 900002, name: 'Copenhagen Plank', eq: 'Bodyweight', gid: 'adduc', sid: 'all' }
+  ];
+
+  /* Logged history, from the seeded guest profile (kg). */
+  var HISTORY = {
+    111: { last: { kg: 82.5, reps: 8, daysAgo: 2, iso: '2026-09-07' }, best: { kg: 90, reps: 5, iso: '2026-08-24' }, trend: [74, 76, 77, 78, 80, 82.5] },
+    101: { last: { kg: 60, reps: 10, daysAgo: 2, iso: '2026-09-07' }, best: { kg: 65, reps: 8, iso: '2026-08-31' }, trend: [52, 55, 55, 57.5, 60, 60] },
+    202: { last: { kg: 72.5, reps: 10, daysAgo: 1, iso: '2026-09-08' }, best: { kg: 80, reps: 7, iso: '2026-08-17' }, trend: [65, 67.5, 70, 70, 72.5, 72.5] },
+    211: { last: { kg: 85, reps: 8, daysAgo: 1, iso: '2026-09-08' }, best: { kg: 92.5, reps: 6, iso: '2026-08-24' }, trend: [75, 77.5, 80, 82.5, 85, 85] },
+    301: { last: { kg: 47.5, reps: 8, daysAgo: 6, iso: '2026-09-03' }, best: { kg: 55, reps: 5, iso: '2026-07-27' }, trend: [45, 45, 47.5, 45, 47.5, 47.5] },
+    701: { last: { kg: 120, reps: 5, daysAgo: 4, iso: '2026-09-05' }, best: { kg: 140, reps: 3, iso: '2026-08-15' }, trend: [105, 110, 110, 115, 120, 120] }
+  };
+
+  /* Which split day already uses a lift. */
+  var IN_SPLIT = { 111: 'PPL v2 · Push', 301: 'PPL v2 · Push', 411: 'PPL v2 · Push', 202: 'PPL v2 · Pull', 211: 'PPL v2 · Pull', 701: 'PPL v2 · Legs', 801: 'PPL v2 · Legs' };
+  var SPLIT_DAYS = [
+    { id: 'push', name: 'Push', split: 'PPL v2', count: 5 },
+    { id: 'pull', name: 'Pull', split: 'PPL v2', count: 5 },
+    { id: 'legs', name: 'Legs', split: 'PPL v2', count: 6 },
+    { id: 'upper', name: 'Upper', split: 'Upper / Lower', count: 7 }
+  ];
+
+  /* Words a lifter types that are not in the catalogue. */
+  var ALIAS = {
+    legs: ['quads', 'hams', 'glutes', 'calves', 'adduc'],
+    arms: ['biceps', 'triceps', 'forearms'],
+    core: ['abs'],
+    upper: ['chest', 'back', 'shoulders', 'biceps', 'triceps', 'forearms'],
+    lower: ['quads', 'hams', 'glutes', 'calves', 'adduc']
+  };
+
+  /* ---------------------------------------------------------------
+     State
+     --------------------------------------------------------------- */
+  var S = {
+    status: 'ready',      /* ready | loading | error */
+    source: 'inline',     /* inline | fetch */
+    raw: [],
+    customs: CUSTOMS.slice(),
+    items: [],
+    q: '',
+    gid: null,
+    scope: 'group',       /* group | all, while a group is open */
+    filter: 'all',        /* all | custom */
+    sheet: null,          /* exercise id */
+    media: 'none',        /* none | loading | error | image */
+    entry: 'tab',         /* tab | active | picker */
+    days: false,          /* split-day chooser open */
+    create: null,         /* { name, gid, sid } */
+    toast: null,
+    restore: null
+  };
+
+  function normalise(list) {
+    return list.map(function (x) {
+      var gid = x.gid, sid = x.sid;
+      return {
+        id: x.id, name: x.name, eq: x.eq, gid: gid, sid: sid,
+        group: GNAME[gid] || gid, muscle: SNAME[gid + '/' + sid] || sid,
+        custom: !!x.custom
+      };
+    });
+  }
+  function fromTuples(rows) {
+    return rows.map(function (r) { return { id: r[0], name: r[1], eq: r[2], gid: r[3], sid: r[4] }; });
+  }
+  /* The merge. gid and sid only: the two fields a stored custom carries. */
+  function rebuild() {
+    var customs = S.customs.map(function (c) {
+      return { id: c.id, name: c.name, eq: c.eq, gid: c.gid, sid: c.sid, custom: true };
+    });
+    S.items = normalise(S.raw.concat(customs)).sort(function (a, b) {
+      if (GORDER[a.gid] !== GORDER[b.gid]) return GORDER[a.gid] - GORDER[b.gid];
+      var sa = SORDER[a.gid + '/' + a.sid], sb = SORDER[b.gid + '/' + b.sid];
+      if (sa !== sb) return sa - sb;
+      if (a.custom !== b.custom) return a.custom ? 1 : -1;
+      return a.id - b.id;
+    });
+  }
+
+  /* ---------------------------------------------------------------
+     Search. Name, region, group, equipment and aliases, from the first
+     character. Every token must match; the score ranks the result.
+     --------------------------------------------------------------- */
+  function tokenScore(it, t) {
+    var name = it.name.toLowerCase();
+    if (name.indexOf(t) === 0) return 100;
+    if ((' ' + name).indexOf(' ' + t) > 0) return 80;
+    if (name.indexOf(t) > 0) return 60;
+    var m = it.muscle.toLowerCase(), g = it.group.toLowerCase();
+    if (m.indexOf(t) === 0 || g.indexOf(t) === 0) return 50;
+    if (m.indexOf(t) >= 0 || g.indexOf(t) >= 0) return 45;
+    if (it.eq.toLowerCase().indexOf(t) >= 0) return 30;
+    if (it.custom && 'custom'.indexOf(t) === 0) return 25;
+    for (var key in ALIAS) {
+      if (key.indexOf(t) === 0 && t.length >= 3 && ALIAS[key].indexOf(it.gid) >= 0) return 35;
+    }
+    return 0;
+  }
+  function search(pool, q) {
+    var tokens = q.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    if (!tokens.length) return [];
+    var out = [];
+    pool.forEach(function (it) {
+      var total = 0;
+      for (var i = 0; i < tokens.length; i++) {
+        var s = tokenScore(it, tokens[i]);
+        if (!s) return;
+        total += s;
+      }
+      out.push({ it: it, s: total });
+    });
+    out.sort(function (a, b) {
+      if (b.s !== a.s) return b.s - a.s;
+      if (GORDER[a.it.gid] !== GORDER[b.it.gid]) return GORDER[a.it.gid] - GORDER[b.it.gid];
+      return a.it.name.localeCompare(b.it.name);
+    });
+    return out.map(function (o) { return o.it; });
+  }
+
+  function pool() {
+    var list = S.items;
+    if (S.filter === 'custom') list = list.filter(function (x) { return x.custom; });
+    return list;
+  }
+  function inGroup(gid) { return pool().filter(function (x) { return x.gid === gid; }); }
+  function results() {
+    var base = (S.gid && S.scope === 'group') ? inGroup(S.gid) : pool();
+    return search(base, S.q);
+  }
+  function byId(id) {
+    for (var i = 0; i < S.items.length; i++) if (S.items[i].id === id) return S.items[i];
+    return null;
+  }
+
+  /* ---------------------------------------------------------------
+     Muscle map. The sheet's illustration, drawn from the exercise's own
+     group. No request, no cache, no void.
+     --------------------------------------------------------------- */
+  var FIG = {
+    front: '<circle class="bm-base" cx="24" cy="9" r="7"/>' +
+           '<rect class="bm-base" x="13" y="18" width="22" height="36" rx="6"/>' +
+           '<rect class="bm-base" x="15" y="52" width="18" height="10" rx="4"/>' +
+           '<rect class="bm-base" x="4" y="20" width="8" height="34" rx="4"/>' +
+           '<rect class="bm-base" x="36" y="20" width="8" height="34" rx="4"/>' +
+           '<rect class="bm-base" x="15" y="60" width="8" height="30" rx="4"/>' +
+           '<rect class="bm-base" x="25" y="60" width="8" height="30" rx="4"/>' +
+           '<rect class="bm-base" x="15.5" y="88" width="7" height="20" rx="3"/>' +
+           '<rect class="bm-base" x="25.5" y="88" width="7" height="20" rx="3"/>',
+    back: null /* same silhouette */
+  };
+  FIG.back = FIG.front;
+  var REGION = {
+    chest:     ['front', '<rect class="bm-on" x="15" y="21" width="18" height="13" rx="4"/>'],
+    abs:       ['front', '<rect class="bm-on" x="17" y="35" width="14" height="17" rx="4"/>'],
+    shoulders: ['front', '<ellipse class="bm-on" cx="12" cy="23" rx="5" ry="6"/><ellipse class="bm-on" cx="36" cy="23" rx="5" ry="6"/>'],
+    biceps:    ['front', '<rect class="bm-on" x="4.5" y="25" width="7" height="15" rx="3.5"/><rect class="bm-on" x="36.5" y="25" width="7" height="15" rx="3.5"/>'],
+    forearms:  ['front', '<rect class="bm-on" x="4.5" y="40" width="7" height="14" rx="3.5"/><rect class="bm-on" x="36.5" y="40" width="7" height="14" rx="3.5"/>'],
+    quads:     ['front', '<rect class="bm-on" x="15.5" y="61" width="7" height="27" rx="3.5"/><rect class="bm-on" x="25.5" y="61" width="7" height="27" rx="3.5"/>'],
+    adduc:     ['front', '<rect class="bm-on" x="21" y="61" width="6" height="22" rx="3"/>'],
+    back:      ['back',  '<rect class="bm-on" x="14" y="20" width="20" height="24" rx="5"/>'],
+    triceps:   ['back',  '<rect class="bm-on" x="4.5" y="25" width="7" height="16" rx="3.5"/><rect class="bm-on" x="36.5" y="25" width="7" height="16" rx="3.5"/>'],
+    glutes:    ['back',  '<rect class="bm-on" x="15" y="51" width="18" height="12" rx="5"/>'],
+    hams:      ['back',  '<rect class="bm-on" x="15.5" y="63" width="7" height="25" rx="3.5"/><rect class="bm-on" x="25.5" y="63" width="7" height="25" rx="3.5"/>'],
+    calves:    ['back',  '<rect class="bm-on" x="15.5" y="88" width="7" height="20" rx="3"/><rect class="bm-on" x="25.5" y="88" width="7" height="20" rx="3"/>']
+  };
+  function figure(side, gid) {
+    var r = REGION[gid] || ['front', ''];
+    return '<svg class="bodymap__fig" viewBox="0 0 48 112" aria-hidden="true" focusable="false">' +
+      FIG[side] + (r[0] === side ? r[1] : '') + '</svg>';
+  }
+  function bodymap(it) {
+    return '<div class="bodymap">' +
+      '<div class="bodymap__unit" role="img" aria-label="Muscle map, front: ' + esc(it.group) + ' highlighted">' + figure('front', it.gid) + '<span class="t-meta">Front</span></div>' +
+      '<div class="bodymap__unit" role="img" aria-label="Muscle map, back: ' + esc(it.group) + ' highlighted">' + figure('back', it.gid) + '<span class="t-meta">Back</span></div>' +
+      '<div class="grow stack stack--2">' +
+        '<span class="t-label">Works</span>' +
+        '<span class="t-body-em">' + esc(it.muscle) + '</span>' +
+        '<span class="t-detail">' + esc(it.group) + ' &middot; ' + esc(it.eq) + '</span>' +
+      '</div>' +
+    '</div>';
+  }
+
+  /* ---------------------------------------------------------------
+     Rows and lists
+     --------------------------------------------------------------- */
+  function exRow(it) {
+    var h = HISTORY[it.id];
+    return '<button class="row" type="button" data-action="open" data-id="' + it.id + '" data-testid="row-ex-' + it.id + '">' +
+      '<span class="row__main stack">' +
+        '<span class="row__title">' + esc(it.name) + (it.custom ? ' <span class="badge badge--accent">Custom</span>' : '') + '</span>' +
+        '<span class="row__sub truncate">' + esc(it.muscle) + ' &middot; ' + esc(it.eq) + '</span>' +
+      '</span>' +
+      (h ? '<span class="row__value">' + kg(h.last.kg) + '</span>' : '') +
+      '<span class="row__chev">' + ico('chev') + '</span>' +
+    '</button>';
+  }
+  function groupRow(gid) {
+    var list = inGroup(gid);
+    var subs = GROUP_INDEX[GORDER[gid]][2].map(function (s) { return s[1]; });
+    /* A group with one region would only repeat its own name, so it
+       previews its equipment instead. Either way the row says what is
+       inside before it is opened. */
+    if (subs.length < 2) {
+      subs = [];
+      list.forEach(function (x) { if (subs.indexOf(x.eq) < 0) subs.push(x.eq); });
+      subs = subs.slice(0, 4);
+    }
+    return '<button class="row" type="button" data-action="group" data-gid="' + gid + '" data-testid="row-group-' + gid + '">' +
+      '<span class="row__main stack">' +
+        '<span class="row__title">' + esc(GNAME[gid]) + '</span>' +
+        '<span class="row__sub truncate">' + esc(subs.join(' · ')) + '</span>' +
+      '</span>' +
+      '<span class="row__value">' + n(list.length) + '</span>' +
+      '<span class="row__chev">' + ico('chev') + '</span>' +
+    '</button>';
+  }
+  function listCard(rows) { return '<div class="card card--flush gutter">' + rows.join('') + '</div>'; }
+  function head(left, right) {
+    return '<div class="listhead"><h2 class="t-label">' + left + '</h2>' +
+      (right ? '<span class="t-meta">' + right + '</span>' : '') + '</div>';
+  }
+
+  /* ---------------------------------------------------------------
+     Body views
+     --------------------------------------------------------------- */
+  function viewGroups() {
+    var total = pool().length;
+    return head('Muscle groups', n(total) + ' exercises') +
+      listCard(GROUP_INDEX.map(function (g) { return groupRow(g[0]); })) +
+      '<p class="t-detail quiet mt-4 gutter">Search finds a lift by name, muscle, region or equipment. Browsing is two taps: a group, then the lift.</p>';
+  }
+
+  function viewGroup(gid) {
+    var list = inGroup(gid), out = '';
+    GROUP_INDEX[GORDER[gid]][2].forEach(function (s) {
+      var rows = list.filter(function (x) { return x.sid === s[0]; });
+      if (!rows.length) return;
+      out += head(esc(s[1]), n(rows.length)) + listCard(rows.map(exRow));
+    });
+    return out;
+  }
+
+  function viewResults() {
+    var list = results();
+    if (!list.length) return viewNoResults();
+    var scoped = S.gid && S.scope === 'group';
+    var wider = scoped ? search(pool(), S.q).length : 0;
+    return head(n(list.length) + ' ' + (list.length === 1 ? 'result' : 'results') + ' for &ldquo;' + esc(S.q) + '&rdquo;',
+        scoped ? esc(GNAME[S.gid]) + ' only' : '') +
+      listCard(list.map(exRow)) +
+      (scoped && wider > list.length
+        ? '<div class="gutter mt-3"><button class="btn btn--secondary btn--block" type="button" data-action="scope-all" data-testid="search-all">' +
+            '<span class="btn__label">Search all ' + n(pool().length) + ' exercises (' + n(wider - list.length) + ' more)</span></button></div>'
+        : '');
+  }
+
+  function viewNoResults() {
+    var suggestions = suggest(S.q);
+    return '<div class="empty" data-testid="state-no-results">' +
+      '<span class="empty__ico">' + ico('search', 'ico--lg') + '</span>' +
+      '<h2 class="empty__title">No exercise matches &ldquo;' + esc(S.q) + '&rdquo;</h2>' +
+      '<p class="empty__body">Search takes a muscle group, a region, a piece of equipment or part of the name. Try one of these, or add the lift yourself.</p>' +
+      '<div class="chiprow chiprow--center mt-2">' + suggestions.map(function (t) {
+        return '<button class="chip" type="button" data-action="try" data-q="' + esc(t) + '" data-testid="suggest-' + esc(t.toLowerCase().replace(/\s+/g, '-')) + '">' + esc(t) + '</button>';
+      }).join('') + '</div>' +
+      '<button class="btn btn--primary mt-2" type="button" data-action="create" data-testid="create-custom">' +
+        ico('plus') + '<span class="btn__label">Create &ldquo;' + esc(S.q.trim()) + '&rdquo;</span>' +
+      '</button>' +
+    '</div>';
+  }
+
+  /* Suggestions are the nearest real things in the catalogue: the group
+     whose name shares the most letters with the query, plus the two
+     commonest pieces of equipment. */
+  function suggest(q) {
+    var t = q.toLowerCase().trim().slice(0, 3);
+    var near = GROUP_INDEX.filter(function (g) { return t && g[1].toLowerCase().indexOf(t.charAt(0)) === 0; })
+      .map(function (g) { return g[1]; }).slice(0, 2);
+    if (!near.length) near = ['Chest', 'Back'];
+    return near.concat(['Dumbbell', 'Cable']).slice(0, 4);
+  }
+
+  function viewCustomEmpty() {
+    return '<div class="empty" data-testid="state-empty">' +
+      '<span class="empty__ico">' + ico('star', 'ico--lg') + '</span>' +
+      '<h2 class="empty__title">No custom exercises</h2>' +
+      '<p class="empty__body">Add a lift your gym has and the catalogue does not. It appears in browse, in search and in the counts, next to the rest.</p>' +
+      '<button class="btn btn--primary" type="button" data-action="create" data-testid="create-custom">' +
+        ico('plus') + '<span class="btn__label">Create a custom exercise</span>' +
+      '</button>' +
+    '</div>';
+  }
+
+  function viewLoading() {
+    var rows = '';
+    for (var i = 0; i < 7; i++) {
+      rows += '<div class="row"><span class="row__main stack stack--2">' +
+        '<span class="skel" style="height: var(--sp-4); width: ' + (72 - i * 4) + '%"></span>' +
+        '<span class="skel" style="height: var(--sp-3); width: ' + (48 - i * 2) + '%"></span>' +
+      '</span></div>';
+    }
+    return head('Muscle groups', 'Loading') +
+      '<div class="card card--flush gutter" role="status" aria-busy="true" aria-label="Loading the exercise library" data-testid="state-loading">' + rows + '</div>';
+  }
+
+  function viewError() {
+    return '<div class="gutter mt-4" data-testid="state-error">' +
+      '<div class="banner banner--error">' + ico('alert') +
+        '<span><strong>The exercise list did not load</strong>LOCKED could not read the catalogue on this device. Your ' +
+        n(S.customs.length) + ' custom exercises are still here.</span>' +
+      '</div>' +
+      '<button class="btn btn--primary btn--block mt-4" type="button" data-action="retry" data-testid="retry">' +
+        '<span class="btn__label">Try again</span></button>' +
+      '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="filter" data-filter="custom" data-testid="show-customs">' +
+        '<span class="btn__label">Show my custom exercises</span></button>' +
+    '</div>';
+  }
+
+  function renderBody() {
+    if (S.status === 'loading') return viewLoading();
+    if (S.status === 'error') return viewError();
+    if (S.q.trim()) return viewResults();
+    if (S.filter === 'custom') {
+      var list = pool();
+      if (!list.length) return viewCustomEmpty();
+      return head('Custom exercises', n(list.length)) +
+        listCard(list.map(exRow).concat([
+          '<button class="row" type="button" data-action="create" data-testid="create-custom">' +
+            '<span class="ico-well">' + ico('plus') + '</span>' +
+            '<span class="row__main stack"><span class="row__title accent">Create a custom exercise</span>' +
+            '<span class="row__sub">A lift your gym has and the catalogue does not</span></span>' +
+          '</button>'
+        ]));
+    }
+    if (S.gid) return viewGroup(S.gid);
+    return viewGroups();
+  }
+
+  /* ---------------------------------------------------------------
+     Detail sheet
+     --------------------------------------------------------------- */
+  function spark(trend) {
+    var w = 240, h = 44, min = Math.min.apply(null, trend), max = Math.max.apply(null, trend);
+    var span = (max - min) || 1;
+    var pts = trend.map(function (v, i) {
+      var x = (i / (trend.length - 1)) * (w - 8) + 4;
+      var y = h - 6 - ((v - min) / span) * (h - 14);
+      return [x, y];
+    });
+    var d = pts.map(function (p, i) { return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join(' ');
+    return '<svg class="chart chart--quiet" viewBox="0 0 ' + w + ' ' + h + '" height="' + h + '" aria-hidden="true" focusable="false">' +
+      '<path class="chart__line" d="' + d + '"/>' +
+      '<circle class="chart__dot" cx="' + pts[pts.length - 1][0].toFixed(1) + '" cy="' + pts[pts.length - 1][1].toFixed(1) + '" r="3"/>' +
+    '</svg>';
+  }
+
+  function historyBlock(it) {
+    var h = HISTORY[it.id];
+    if (!h) {
+      return '<div class="section"><div class="section__head"><h3 class="t-label">Your history</h3></div>' +
+        '<p class="t-detail">No sets logged yet. The first time you log this lift, your last and best set appear here.</p></div>';
+    }
+    return '<div class="section"><div class="section__head"><h3 class="t-label">Your history</h3>' +
+      '<span class="t-meta">Last 6 sessions</span></div>' +
+      '<div class="facts">' +
+        '<div class="stat"><span class="stat__label">Last set</span>' +
+          '<span class="stat__value">' + n(h.last.kg) + '<span class="stat__unit"> kg</span></span>' +
+          '<span class="t-detail">' + n(h.last.reps) + ' reps &middot; ' + when(h.last.daysAgo, h.last.iso) + '</span></div>' +
+        '<div class="stat"><span class="stat__label">Best set</span>' +
+          '<span class="stat__value">' + n(h.best.kg) + '<span class="stat__unit"> kg</span></span>' +
+          '<span class="t-detail">' + n(h.best.reps) + ' reps &middot; ' + when(99, h.best.iso) + '</span></div>' +
+      '</div>' +
+      '<div class="mt-3">' + spark(h.trend) +
+        '<div class="spread"><span class="t-meta">' + kg(h.trend[0]) + ', 6 sessions ago</span>' +
+        '<span class="t-meta">' + kg(h.trend[h.trend.length - 1]) + ', last</span></div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function factsBlock(it) {
+    return '<div class="facts mt-4">' +
+      '<div class="stack stack--1"><span class="t-label">Muscle group</span><span class="t-body-em">' + esc(it.group) + '</span></div>' +
+      '<div class="stack stack--1"><span class="t-label">Region</span><span class="t-body-em">' + esc(it.muscle) + '</span></div>' +
+      '<div class="stack stack--1"><span class="t-label">Equipment</span><span class="t-body-em">' + esc(it.eq) + '</span></div>' +
+      '<div class="stack stack--1"><span class="t-label">In your splits</span><span class="t-body-em">' +
+        (IN_SPLIT[it.id] ? esc(IN_SPLIT[it.id]) : 'Not in a split') + '</span></div>' +
+    '</div>';
+  }
+
+  /* The demonstration slot only exists when there is a clip to show.
+     It is never the sheet's subject, so its three states are three small
+     things in one 16:9 box, not a void. */
+  function mediaBlock(it) {
+    if (S.media === 'none') return '';
+    var inner;
+    if (S.media === 'loading') {
+      inner = '<div class="media" role="status" aria-busy="true" aria-label="Loading the demonstration clip" data-testid="media-loading">' +
+        '<span class="skel media__art"></span></div>';
+    } else if (S.media === 'error') {
+      inner = '<div class="banner banner--warn" data-testid="media-error">' + ico('alert') +
+        '<span><strong>The demonstration clip did not load</strong>It is not stored on this device. The muscle map and your history above do not need it.</span></div>' +
+        '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="media-retry" data-testid="media-retry">' +
+        '<span class="btn__label">Try again</span></button>';
+    } else {
+      inner = '<div class="media" data-testid="media-image">' +
+        '<svg class="media__art" viewBox="0 0 320 180" role="img" aria-label="Demonstration: the top and bottom position of ' + esc(it.name) + '" focusable="false">' +
+          '<rect class="bm-base" x="0" y="0" width="320" height="180"/>' +
+          '<g class="bm-base"><circle cx="96" cy="60" r="14"/><rect x="70" y="78" width="52" height="54" rx="10"/>' +
+            '<rect x="52" y="82" width="16" height="40" rx="8"/><rect x="124" y="82" width="16" height="40" rx="8"/>' +
+            '<rect x="78" y="132" width="16" height="34" rx="8"/><rect x="98" y="132" width="16" height="34" rx="8"/></g>' +
+          '<g class="bm-on"><circle cx="224" cy="60" r="14"/><rect x="198" y="78" width="52" height="54" rx="10"/>' +
+            '<rect x="180" y="70" width="16" height="40" rx="8"/><rect x="252" y="70" width="16" height="40" rx="8"/>' +
+            '<rect x="206" y="132" width="16" height="34" rx="8"/><rect x="226" y="132" width="16" height="34" rx="8"/></g>' +
+        '</svg></div>';
+    }
+    return '<div class="section"><div class="section__head"><h3 class="t-label">Demonstration</h3></div>' + inner + '</div>';
+  }
+
+  function actions(it) {
+    var primary, secondary = '';
+    if (S.entry === 'picker') {
+      primary = ['add-day', 'Add to Push', 'plus'];
+    } else if (S.entry === 'active') {
+      primary = ['add-workout', 'Add to today&rsquo;s workout', 'plus'];
+      secondary = 'Add to a split day';
+    } else {
+      primary = ['start', 'Start a workout with this', 'play'];
+      secondary = 'Add to a split day';
+    }
+    return '<div class="sheet__foot mt-4">' +
+      '<button class="btn btn--primary btn--block" type="button" data-action="' + primary[0] + '" data-id="' + it.id + '" data-testid="sheet-primary">' +
+        ico(primary[2]) + '<span class="btn__label">' + primary[1] + '</span></button>' +
+      (secondary
+        ? '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="choose-day" data-id="' + it.id + '" data-testid="sheet-secondary">' +
+            '<span class="btn__label">' + secondary + '</span></button>'
+        : '') +
+    '</div>';
+  }
+
+  function sheetDetail(it) {
+    return '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" data-testid="sheet-detail" data-media="' + S.media + '">' +
+        '<div class="sheet__grab"></div>' +
+        '<div class="sheet__head">' +
+          '<h2 class="t-section grow" id="sheet-title">' + esc(it.name) +
+            (it.custom ? ' <span class="badge badge--accent">Custom</span>' : '') + '</h2>' +
+          '<button class="iconbtn" type="button" data-action="close-sheet" data-testid="sheet-close" aria-label="Close">' + ico('close') + '</button>' +
+        '</div>' +
+        '<div class="sheet__body" tabindex="0">' +
+          bodymap(it) +
+          factsBlock(it) +
+          historyBlock(it) +
+          mediaBlock(it) +
+        '</div>' +
+        actions(it) +
+      '</div>';
+  }
+
+  function sheetDays(it) {
+    return '<div class="scrim" data-action="close-days" data-testid="scrim-days"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="days-title" data-testid="sheet-days">' +
+        '<div class="sheet__grab"></div>' +
+        '<div class="sheet__head">' +
+          '<h2 class="t-section grow" id="days-title">Add ' + esc(it.name) + ' to</h2>' +
+          '<button class="iconbtn" type="button" data-action="close-days" data-testid="days-close" aria-label="Close">' + ico('close') + '</button>' +
+        '</div>' +
+        '<div class="sheet__body" tabindex="0">' +
+          '<div class="card card--flush">' + SPLIT_DAYS.map(function (d) {
+            return '<button class="row" type="button" data-action="add-day" data-day="' + d.id + '" data-id="' + it.id + '" data-testid="row-day-' + d.id + '">' +
+              '<span class="row__main stack"><span class="row__title">' + esc(d.name) + '</span>' +
+              '<span class="row__sub">' + esc(d.split) + ' &middot; ' + n(d.count) + ' exercises</span></span>' +
+              '<span class="row__chev">' + ico('chev') + '</span></button>';
+          }).join('') + '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function sheetCreate() {
+    var d = S.create, subs = GROUP_INDEX[GORDER[d.gid]][2];
+    return '<div class="scrim" data-action="close-create" data-testid="scrim-create"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="create-title" data-testid="sheet-create">' +
+        '<div class="sheet__grab"></div>' +
+        '<div class="sheet__head">' +
+          '<h2 class="t-section grow" id="create-title">New exercise</h2>' +
+          '<button class="iconbtn" type="button" data-action="close-create" data-testid="create-close" aria-label="Close">' + ico('close') + '</button>' +
+        '</div>' +
+        '<div class="sheet__body" tabindex="0">' +
+          '<label class="field"><span class="field__label t-label">Name</span>' +
+            '<input class="input" id="cname" type="text" value="' + esc(d.name) + '" data-action="cname" data-testid="create-name" placeholder="Machine decline press"></label>' +
+          '<label class="field mt-4"><span class="field__label t-label">Muscle group</span>' +
+            '<select class="input" id="cgroup" data-action="cgroup" data-testid="create-group">' +
+              GROUP_INDEX.map(function (g) {
+                return '<option value="' + g[0] + '"' + (g[0] === d.gid ? ' selected' : '') + '>' + esc(g[1]) + '</option>';
+              }).join('') + '</select></label>' +
+          '<label class="field mt-4"><span class="field__label t-label">Region</span>' +
+            '<select class="input" id="csub" data-action="csub" data-testid="create-sub">' +
+              subs.map(function (s) {
+                return '<option value="' + s[0] + '"' + (s[0] === d.sid ? ' selected' : '') + '>' + esc(s[1]) + '</option>';
+              }).join('') + '</select></label>' +
+          '<p class="field__help">It is saved on this device and appears in browse, search and the counts.</p>' +
+        '</div>' +
+        '<div class="sheet__foot mt-4">' +
+          '<button class="btn btn--primary btn--block" type="button" data-action="save-custom" data-testid="create-save"' +
+            (d.name.trim() ? '' : ' disabled') + '>' + ico('plus') + '<span class="btn__label">Save exercise</span></button>' +
+        '</div>' +
+    '</div>';
+  }
+
+  function renderLayer() {
+    var html = '';
+    if (S.create) html = sheetCreate();
+    else if (S.days && S.sheet) html = sheetDays(byId(S.sheet));
+    else if (S.sheet) { var it = byId(S.sheet); if (it) html = sheetDetail(it); }
+    if (S.toast) {
+      html += '<div class="toast" role="status" data-testid="toast"><span class="toast__body">' + S.toast.text + '</span>' +
+        (S.toast.undo ? '<button class="toast__action" type="button" data-action="undo" data-testid="toast-undo">Undo</button>' : '') + '</div>';
+    }
+    return html;
+  }
+
+  /* ---------------------------------------------------------------
+     Header and filters
+     --------------------------------------------------------------- */
+  function renderHdr() {
+    var title, meta;
+    if (S.gid) { title = GNAME[S.gid]; meta = n(inGroup(S.gid).length) + ' exercises'; }
+    else if (S.filter === 'custom') { title = 'Custom'; meta = n(pool().length) + ' of your own'; }
+    else { title = 'Exercises'; meta = n(pool().length) + ' in the library'; }
+    return (S.gid
+      ? '<button class="hdr__back" type="button" data-action="back" data-testid="back" aria-label="Back to muscle groups">' + ico('back') + '</button>'
+      : '') +
+      '<div class="hdr__title stack stack--1">' +
+        '<span class="t-meta">' + meta + '</span>' +
+        '<h1 class="t-title">' + esc(title) + '</h1>' +
+      '</div>';
+  }
+
+  function renderFilters() {
+    var customs = S.items.filter(function (x) { return x.custom; }).length;
+    return [['all', 'All ' + S.items.length], ['custom', 'Custom ' + customs]].map(function (f) {
+      return '<button class="chip" type="button" data-action="filter" data-filter="' + f[0] + '" aria-pressed="' +
+        (S.filter === f[0]) + '" data-testid="filter-' + f[0] + '">' + esc(f[1]) + '</button>';
+    }).join('');
+  }
+
+  /* ---------------------------------------------------------------
+     Render
+     --------------------------------------------------------------- */
+  var screen = document.getElementById('screen');
+  var hdr = document.getElementById('hdr');
+  var body = document.getElementById('body');
+  var layer = document.getElementById('layer');
+  var input = document.getElementById('q');
+  var clear = document.getElementById('clear');
+  var filters = document.getElementById('filters');
+
+  function stateName() {
+    if (S.status !== 'ready') return S.status;
+    if (S.q.trim()) return results().length ? 'results' : 'no-results';
+    if (S.filter === 'custom' && !pool().length) return 'empty';
+    return S.gid ? 'group' : 'browse';
+  }
+
+  function render(opts) {
+    hdr.innerHTML = renderHdr();
+    filters.innerHTML = renderFilters();
+    body.innerHTML = renderBody();
+    layer.innerHTML = renderLayer();
+    clear.hidden = !S.q;
+    input.placeholder = S.gid && !S.q ? 'Search ' + GNAME[S.gid] + ' and the whole library' : 'Search ' + S.items.length + ' exercises';
+    screen.setAttribute('data-state', stateName());
+    screen.setAttribute('data-entry', S.entry);
+    screen.setAttribute('data-source', S.source);
+    Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.preset === String(S.preset)));
+    });
+    if (opts && opts.focus) {
+      var el = document.querySelector('[data-testid="' + opts.focus + '"]');
+      if (el) el.focus();
+    }
+    if (opts && opts.scrollTop) body.scrollTop = 0;
+  }
+
+  /* ---------------------------------------------------------------
+     Actions
+     --------------------------------------------------------------- */
+  function toast(text, undo) {
+    S.toast = { text: text, undo: !!undo };
+    clearTimeout(toast.t);
+    toast.t = setTimeout(function () { S.toast = null; render(); }, 4000);
+  }
+
+  var ACTIONS = {
+    group: function (el) { S.gid = el.getAttribute('data-gid'); S.scope = 'group'; render({ scrollTop: true }); },
+    back: function () { S.gid = null; render({ scrollTop: true, focus: 'search-input' }); },
+    filter: function (el) {
+      S.filter = el.getAttribute('data-filter');
+      S.gid = null;
+      render({ scrollTop: true });
+    },
+    'scope-all': function () { S.scope = 'all'; render({ scrollTop: true }); },
+    try: function (el) { S.q = el.getAttribute('data-q'); input.value = S.q; S.scope = 'all'; render({ scrollTop: true, focus: 'search-input' }); },
+    open: function (el) {
+      S.restore = 'row-ex-' + el.getAttribute('data-id');
+      S.sheet = Number(el.getAttribute('data-id'));
+      render({ focus: 'sheet-primary' });
+    },
+    'close-sheet': function () {
+      var back = S.restore; S.sheet = null; S.days = false; S.restore = null;
+      render({ focus: back });
+    },
+    'choose-day': function () { S.days = true; render({ focus: 'row-day-push' }); },
+    'close-days': function () { S.days = false; render({ focus: 'sheet-secondary' }); },
+    'add-day': function (el) {
+      var it = byId(Number(el.getAttribute('data-id')));
+      var day = el.getAttribute('data-day') || 'push';
+      var d = SPLIT_DAYS.filter(function (x) { return x.id === day; })[0];
+      S.days = false; S.sheet = null;
+      render({ focus: S.restore });
+      toast('Added ' + esc(it.name) + ' to ' + esc(d.name) + ', ' + esc(d.split) + '.', true);
+      render();
+    },
+    'add-workout': function (el) {
+      var it = byId(Number(el.getAttribute('data-id')));
+      S.sheet = null;
+      render({ focus: S.restore });
+      toast('Added ' + esc(it.name) + ' to today&rsquo;s workout.', true);
+      render();
+    },
+    start: function (el) {
+      var it = byId(Number(el.getAttribute('data-id')));
+      S.sheet = null; S.entry = 'active';
+      render({ focus: S.restore });
+      toast('Workout started with ' + esc(it.name) + '.', false);
+      render();
+    },
+    undo: function () { S.toast = null; render(); toast('Removed again.', false); render(); },
+    create: function () {
+      S.create = { name: S.q.trim(), gid: 'chest', sid: 'upper' };
+      render({ focus: 'create-name' });
+    },
+    'close-create': function () { S.create = null; render({ focus: 'search-input' }); },
+    'save-custom': function () {
+      var d = S.create;
+      if (!d.name.trim()) return;
+      var id = 900001 + S.customs.length + 1;
+      S.customs.push({ id: id, name: d.name.trim(), eq: 'Machine', gid: d.gid, sid: d.sid });
+      rebuild();
+      S.create = null; S.q = ''; input.value = ''; S.filter = 'all'; S.gid = d.gid;
+      render({ scrollTop: true });
+      toast(esc(d.name.trim()) + ' added to ' + esc(SNAME[d.gid + '/' + d.sid]) + '.', false);
+      render();
+    },
+    retry: function () { load(); },
+    'media-retry': function () {
+      S.media = 'loading'; render();
+      setTimeout(function () { S.media = 'error'; render(); }, 900);
+    }
+  };
+
+  var INPUTS = {
+    cname: function (el) { S.create.name = el.value; document.querySelector('[data-testid="create-save"]').disabled = !el.value.trim(); },
+    cgroup: function (el) {
+      S.create.gid = el.value;
+      S.create.sid = GROUP_INDEX[GORDER[el.value]][2][0][0];
+      render({ focus: 'create-group' });
+    },
+    csub: function (el) { S.create.sid = el.value; }
+  };
+
+  document.addEventListener('click', function (e) {
+    var dev = e.target.closest('[data-preset]');
+    if (dev) { applyPreset(Number(dev.getAttribute('data-preset'))); return; }
+    var el = e.target.closest('[data-action]');
+    if (!el || el.disabled) return;
+    var fn = ACTIONS[el.getAttribute('data-action')];
+    if (fn) { e.preventDefault(); fn(el); }
+  });
+
+  document.addEventListener('input', function (e) {
+    var el = e.target;
+    if (el === input) {
+      S.q = input.value;
+      if (!S.q.trim()) S.scope = 'group';
+      render({ scrollTop: true });
+      return;
+    }
+    var a = el.getAttribute && el.getAttribute('data-action');
+    if (a && INPUTS[a]) INPUTS[a](el);
+  });
+  document.addEventListener('change', function (e) {
+    var a = e.target.getAttribute && e.target.getAttribute('data-action');
+    if (a && INPUTS[a] && a !== 'cname') INPUTS[a](e.target);
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      if (S.create) { ACTIONS['close-create'](); return; }
+      if (S.days) { ACTIONS['close-days'](); return; }
+      if (S.sheet) { ACTIONS['close-sheet'](); return; }
+      if (S.q) { S.q = ''; input.value = ''; render({ focus: 'search-input' }); return; }
+      if (S.gid) { ACTIONS.back(); return; }
+    }
+    if (e.key === 'Enter' && e.target === input) {
+      var list = results();
+      if (list.length) {
+        e.preventDefault();
+        S.restore = 'row-ex-' + list[0].id;
+        S.sheet = list[0].id;
+        render({ focus: 'sheet-primary' });
+      }
+    }
+  });
+
+  clear.addEventListener('click', function () {
+    S.q = ''; input.value = ''; S.scope = 'group';
+    render({ scrollTop: true, focus: 'search-input' });
+  });
+
+  /* ---------------------------------------------------------------
+     Data. Fetched when a server is there, inline when the file is
+     opened from disk. Either way the page browses and searches.
+     --------------------------------------------------------------- */
+  function seed(rows, source) {
+    S.raw = rows; S.source = source; S.status = 'ready'; rebuild();
+  }
+  function load() {
+    S.status = 'loading';
+    render({ scrollTop: true });
+    var done = false;
+    var finish = function (rows, source) {
+      if (done) return; done = true;
+      seed(rows, source);
+      render();
+      if (!S.sheet && !S.create) input.focus();
+    };
+    try {
+      fetch('../tests/fixtures/exercise-db.json', { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
+        .then(function (rows) { finish(rows, 'fetch'); })
+        .catch(function () { finish(fromTuples(FALLBACK), 'inline'); });
+    } catch (err) {
+      finish(fromTuples(FALLBACK), 'inline');
+    }
+    setTimeout(function () { finish(fromTuples(FALLBACK), 'inline'); }, 1500);
+  }
+
+  /* ---------------------------------------------------------------
+     Dev state switcher
+     --------------------------------------------------------------- */
+  var PRESETS = [
+    ['Browse (library tab)', function () { reset(); }],
+    ['Search: "chest"', function () { reset(); S.q = 'chest'; input.value = 'chest'; }],
+    ['Search inside a group', function () { reset(); S.gid = 'back'; S.q = 'row'; input.value = 'row'; }],
+    ['No results', function () { reset(); S.q = 'kettlebell swing'; input.value = 'kettlebell swing'; }],
+    ['Group: Chest', function () { reset(); S.gid = 'chest'; }],
+    ['Detail: logged lift', function () { reset(); S.sheet = 111; S.media = 'none'; }],
+    ['Detail: never logged', function () { reset(); S.sheet = 123; S.media = 'none'; }],
+    ['Detail: clip loading', function () { reset(); S.sheet = 111; S.media = 'loading'; }],
+    ['Detail: clip failed', function () { reset(); S.sheet = 111; S.media = 'error'; }],
+    ['Detail: clip loaded', function () { reset(); S.sheet = 111; S.media = 'image'; }],
+    ['Detail: from a picker', function () { reset(); S.entry = 'picker'; S.sheet = 111; }],
+    ['Detail: workout running', function () { reset(); S.entry = 'active'; S.sheet = 111; }],
+    ['Create custom', function () { reset(); S.create = { name: '', gid: 'chest', sid: 'lower' }; }],
+    ['Empty: no customs', function () { reset(); S.customs = []; rebuild(); S.filter = 'custom'; }],
+    ['Loading', function () { reset(); S.status = 'loading'; }],
+    ['Error', function () { reset(); S.status = 'error'; }]
+  ];
+  function reset() {
+    S.q = ''; input.value = ''; S.gid = null; S.scope = 'group'; S.filter = 'all';
+    S.sheet = null; S.days = false; S.create = null; S.toast = null; S.media = 'none';
+    S.entry = 'tab'; S.status = 'ready'; S.customs = CUSTOMS.slice(); rebuild();
+  }
+  var menu = document.getElementById('dev-menu');
+  var toggle = document.getElementById('dev-toggle');
+  menu.innerHTML = PRESETS.map(function (p, i) {
+    return '<button class="dev__item" type="button" data-preset="' + i + '" aria-pressed="false" data-testid="dev-preset-' + i + '">' + p[0] + '</button>';
+  }).join('');
+  toggle.addEventListener('click', function () {
+    var open = toggle.getAttribute('aria-expanded') === 'true';
+    toggle.setAttribute('aria-expanded', String(!open));
+    menu.hidden = open;
+  });
+  function applyPreset(i) {
+    S.preset = i;
+    PRESETS[i][1]();
+    menu.hidden = true;
+    toggle.setAttribute('aria-expanded', 'false');
+    render({ scrollTop: true });
+    if (!S.sheet && !S.create && S.status === 'ready') input.focus();
+  }
+
+  /* ---------------------------------------------------------------
+     Boot. Inline data first so the screen is never blank, then the
+     full catalogue if a server can serve it. The field is focused on
+     arrival: the audited one was not.
+     --------------------------------------------------------------- */
+  seed(fromTuples(FALLBACK), 'inline');
+  S.preset = 0;
+  render();
+  input.focus();
+  fetch('../tests/fixtures/exercise-db.json', { cache: 'no-store' })
+    .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
+    .then(function (rows) {
+      if (!Array.isArray(rows) || !rows.length) return;
+      seed(rows, 'fetch');
+      render();
+    })
+    .catch(function () { /* inline catalogue stands */ });
+})();
+</script>
+</body>
+</html>
