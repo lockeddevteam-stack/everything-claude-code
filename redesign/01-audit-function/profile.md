@@ -19,7 +19,7 @@ Profile shows read-only identity and four lifetime totals, and is the app's only
 | Personal Records list | L30227-L30243, L30510 | broken | `slice(0,6)` caps the list at 6 while the tile reads 9; no "see all" or PR Vault link. `profile-populated-full.png` |
 | PR rows tappable | L30521 | dead | Plain `div`s, no handler; PR Vault renders identical rows as `[role=button]` (user-flows 146). Baseline: 2 interactive elements page-wide |
 | Plan / trial / usage | — | missing | `can(feature)` gates (L360-L372) and trial banner (L629-L650) exist; `profile-populated.png` names no plan, trial or usage |
-| Signed-in account state | isGuest L30242 | missing | Only signal is the guest banner; no email, sync status or sign-out (all Settings, L32318) |
+| Signed-in account state | isGuest L30242 | missing | Only signal is the guest banner; no email, sync or sign-out (all Settings, L32318) |
 
 ## Task walkthrough
 
@@ -27,9 +27,9 @@ Flow 8 is the only flow touching Profile (user-flows 265).
 
 | Flow | Steps | Taps | ms | Video | Hesitation |
 |---|---|---|---|---|---|
-| 8 Change units, return Home | Nav Profile → Settings → Switch to LBS → Nav Home | 4/4, pass, 0 errors | 972 total; 966 on Profile | `flow-8.json`: 1406 Nav Profile, 2372 Settings, 3315 LBS, 4300 Home, 4830 assertion | Step 2: the loudest element is the orange SIGN UP pill; "Settings" is 73x33 of muted outline in the corner. `flow-8-profile.png` |
+| 8 Change units, return Home | Nav Profile → Settings → LBS → Nav Home | 4/4, pass, 0 errors | 972 total; 966 on Profile | `flow-8.json`: 1406 Profile, 2372 Settings, 3315 LBS, 4300 Home, 4830 assertion | Step 2: the loudest element is the orange SIGN UP pill; "Settings" is 73x33 of muted outline in the corner. `flow-8-profile.png` |
 
-Profile has no task of its own: 2 controls, 1 of them the exit.
+Profile has no task of its own: 2 controls, 1 the exit.
 
 ## State coverage
 
@@ -48,8 +48,8 @@ A = 2, M = 0, W = 0, G = 1 → band table 4.
 | Result | Cause |
 |---|---|
 | Interactive 1/2 (`page-metrics.jsonl` 32) | Not a defect: `nonResponders: []`. The unclicked control is SIGN UP, skipped as destructive/allowlisted (auth overlay L1152). The finding is the denominator: 2 controls |
-| axe 1 critical (`axe.json` profile) | `meta-viewport` `user-scalable=no`; global shell, not this page |
-| Targets 2/8 under 44px | Both of the page's own buttons: SIGN UP 90x32 (L30273-L30288), Settings 73x33 (L30341-L30350) |
+| axe 1 critical (`axe.json`) | `meta-viewport` `user-scalable=no`; global shell, not this page |
+| Targets 2/8 under 44px | Both of the page's own buttons: SIGN UP 90x32 (L30273), Settings 73x33 (L30341) |
 | Populated, empty, console, page errors | all pass |
 
 ## Rubric scores
@@ -57,7 +57,7 @@ A = 2, M = 0, W = 0, G = 1 → band table 4.
 | Criterion | Score | Evidence |
 |---|---|---|
 | Purpose clarity | 2 | `profile-populated.png`: four equal tiles plus six equal rows read as "a stats page", a job Home's recap and PR Vault hold; the real job (reach Settings) is the quietest control, and the one accent-filled element, SIGN UP, advertises a different job. Accent-filled count 1, guest-only; signed-in users get zero primary actions |
-| Feature completeness | 3 | Feature table: identity and stats work; Volume broken (L30378), PR list 6 of 9, badges hidden by a default-off flag, locked ladder incomplete, PR rows dead. `profile-populated-full.png`, `-badges.png` |
+| Feature completeness | 3 | Feature table: identity and stats work; Volume broken (L30378), PR list 6 of 9, badges hidden by a default-off flag, locked ladder incomplete, rows dead. `profile-populated-full.png`, `-badges.png` |
 | Task success | 4 | Flow 8 passes first attempt, 4/4 taps, 0 errors (`flow-8.json`). Shortfall: "see my records" cannot complete here — 6 of 9, forcing Home → Progress → PR Vault (`profile-populated-full.png`) |
 | Speed | 4 | Settings is 2 taps from anywhere (`flow-8.json` 1406, 2372), +1 over a direct settings entry; nothing else is actionable |
 | State handling | 4 | A = 2 (loading/error N/A, page-map 2.16), M = 0, W = 0, G = 1: `profile-empty.png` distinguishable and correct, but its only instruction sits in the default-off badge block |
@@ -68,18 +68,18 @@ Function mean (6 scored): **3.2**
 
 ## Keep
 
-- `@username` and avatar: the only identity surface in the app (`profile-populated.png`).
+- `@username` and avatar: the app's only identity surface (`profile-populated.png`).
 - Lifetime totals: Home shows the week (L26383), PR Vault counts (L29783); lifetime volume and sets exist only here.
 - Guest banner placement: the one screen where account state is legible (`flow-8-profile.png`).
 
 ## Fix
 
 - Volume tile muted when non-zero: string-vs-0 compare, L30378 (`profile-populated.png`).
-- PR list capped at 6 beside a tile reading 9 (`profile-populated-full.png`).
+- PR list capped at 6 beside a tile reading 9 (`-full.png`).
 - SIGN UP 90x32 and Settings 73x33 under 44px (`targets.json`).
-- Settings entry is the page's job but its quietest control (`flow-8-profile.png`).
+- Settings entry, the page's job, is its quietest control (`flow-8-profile.png`).
 - Empty state teaches nothing with badges off (`profile-empty.png`).
-- Locked ladder gives no goal past 10 workouts (`profile-populated-badges.png`).
+- Locked ladder offers no goal past 10 workouts (`-badges.png`).
 - Surface plan, trial and gate usage here; today only a fixed banner (L629-L650), absent from `profile-populated.png`.
 
 ## Cut

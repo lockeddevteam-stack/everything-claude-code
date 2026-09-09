@@ -20,11 +20,10 @@
 | Memory switch | L49600 | working (`-scrolled-3.png`) |
 | Memory list, forget ×, Add, Clear all (two-tap) | L49640, L49666, L49690 | working (`-add-memory.png`) |
 | 9 data-visibility toggles | L49703 | working (18 switch clicks responded, baseline) |
-| Interview Q4 "How do you want me to talk to you?" | L49746 | redundant: COACHING STYLE below asks the same |
+| Interview Q4 (tone) | L49746 | redundant: COACHING STYLE below asks the same |
 | Interview Q3 injuries | L49745 | redundant: MEMORY holds the same facts, editable |
 | Interview Q1 goal | L49744 | redundant: Settings `goal` (L32771) already feeds the coach (L49045) |
 | "Rename your coach" pencil | header, 10×12 px | hidden: D12 lists it among 179 sub-44px targets |
-| `can("instructions"): false` | L368 | dead: never called |
 
 **Answer trace.** No answer is stored. The six `{q,a}` pairs live in component state, go out once as the POST body (L49772) and die with the modal; only the model's prose reaches `lk_coachInstructions`. Every other control writes a key the coach reads: `coachInstructions`, `coachMemory`+`coachMemoryOn` and `coachStyle().tone` enter the system prompt at `coachBuildContext` L49021-L49033; `coachDataPrefs` gates each context tier (L49009) and the receipt (L49387). The surface is honest; the interview is the lossy part.
 
@@ -51,7 +50,7 @@ Index defect: the error and loading "interview after first answer" rows both nam
 
 ## Baseline failures
 
-None. Populated **passed**, empty **passed**, error **N/A** (SUMMARY: the interview POST needs six answers first, not exercised), crawl 29/30, 3 recoveries, 0 console and 0 page errors. The lone non-responder "Coach name" is a harness artefact (SUMMARY note b: the input is already focused when clicked). Carried global defects: 1 axe violation (1 node, shell), 10/35 targets under 44 px including the 10×12 rename pencil (D12).
+None. Populated **passed**, empty **passed**, error **N/A** (SUMMARY: the interview POST needs six answers first, not exercised), crawl 29/30, 3 recoveries, 0 console and 0 page errors. The lone non-responder "Coach name" is a harness artefact (note b: the input is already focused when clicked). Carried global defects: 1 axe violation (1 node, shell), 10/35 targets under 44 px including the 10×12 rename pencil (D12).
 
 ## Rubric scores
 
