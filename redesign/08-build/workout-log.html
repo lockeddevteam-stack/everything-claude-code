@@ -1,0 +1,795 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — Workout Log</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+</head>
+<body>
+<!--
+  WORKOUT LOG — what changed, and why.
+
+  This is the screen a lifter uses one-handed, mid-set, out of breath,
+  every 90 seconds. The owner's instruction was restraint: fix what the
+  audits measured, do not invent a new app. So the shape is the shape
+  that was there — a session header, one exercise, its sets in a list,
+  a numeric keypad — and everything that moved, moved for a measurement.
+
+  1. THE KEYPAD IS THE FLOOR, NOT A SHEET.
+     Function audit: logging one set took 15 taps against a best-known 3.
+     Five were deletions against a pad that opened pre-filled and only
+     appended; two were opening and dismissing the pad itself. Design
+     audit: "the numpad key grid ... the only well-placed surface
+     measured", treated as a subordinate sheet.
+     So the pad is docked. It is never summoned and never dismissed,
+     which removes both sheet taps. Weight, reps and RIR are three
+     targets above it; the pad types into whichever is selected.
+     Measured cost now: 6 taps to type a new weight and reps and log
+     (3 digits, switch to reps, 1 digit, Log set), 1 tap to repeat last
+     session's numbers unchanged.
+
+  2. REPLACE ON FIRST DIGIT.
+     The pending value carries last session's number in --text-tertiary,
+     visibly not-yet-yours. The first digit replaces it whole; after
+     that digits append. The audited pad appended onto the pre-fill and
+     shipped "6072.5" into the crawl's own log.
+
+  3. THE LOUDEST CONTROL IS THE ONE PERFORMED EVERY 90 SECONDS.
+     Was: Finish, top-right, accent-filled; the done check a 32x30 grey
+     square on the right rail. Now: Log set is 96x248 — the largest
+     target on the screen and the screen's single accent fill — in the
+     bottom-right corner where a right thumb rests. Finish is a word in
+     the top-right corner, --text-secondary, 44x44, outside the arc.
+     Nothing destructive or session-ending sits below the fold.
+
+  4. ONE UNIT, EVERYWHERE.
+     The audited screen showed an LB column header, a kg total and a
+     "Switch to LBS" control at once — three controls, two implied
+     units. Every weight here is kg, the profile unit, including the
+     plate calculator. Unit switching lives in Settings, once.
+
+  5. WARM-UPS COUNT.
+     "3 of 17 sets" includes the warm-up. The audited header filtered
+     setType!=="warmup" and read "0 sets" after a completed warm-up.
+
+  6. LAST SESSION IS ON EVERY ROW AND UNDER EVERY FIELD.
+     The most useful number on this screen is what the lifter did last
+     time. It is on each set row and on the deck's context line.
+
+  CUT: the voice FAB (second accent fill, held the best thumb real
+  estate), the two redundant unit toggles, the AI recommendation
+  round-trip mid-set, the idle "still training?" timer, the long-press
+  action sheet (its seven actions are now a visible 44x44 tools
+  button), the tab bar (a session is a modal task; Home starts it,
+  Review ends it, and 56px of the thumb arc is worth more to logging).
+
+  DATA: fixtures/seed-data.json — guest profile in kg, PPL Push day
+  (exIds 111, 302, 103, 311, 411), previous values from the Push
+  session of 9/3/2026, exercise note from lk_exNotes["111"].
+-->
+
+<div class="stage">
+  <div class="phone">
+    <div class="screen" id="screen" data-testid="screen-workout-log" data-state="populated">
+
+      <header class="hdr" id="hdr"></header>
+
+      <main class="body body--flush" id="body" data-testid="log-scroll" tabindex="-1"></main>
+
+      <div id="deck"></div>
+
+      <div id="overlay" data-testid="overlay"></div>
+      <div id="toast-slot" data-testid="toast-slot"></div>
+      <p class="vis-hidden" role="status" aria-live="polite" id="live"></p>
+
+    </div>
+  </div>
+</div>
+
+<div class="dev">
+  <button class="dev__toggle" type="button" id="dev-toggle" aria-expanded="false" aria-controls="dev-menu" data-testid="dev-toggle">State</button>
+  <div class="dev__menu" id="dev-menu" hidden data-testid="dev-menu"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* =============================================================
+     Icons. One set, 24px box, one stroke weight.
+     ============================================================= */
+  function svg(d, extra) {
+    return '<svg class="ico' + (extra || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + d + '</svg>';
+  }
+  var ICO = {
+    check: svg('<path d="m5 12.5 4.5 4.5L19 7.5"/>'),
+    checkLg: svg('<path d="m5 12.5 4.5 4.5L19 7.5"/>', ' ico--lg'),
+    tools: svg('<circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/>', ' ico--lg'),
+    back: svg('<path d="M14 9H8a3 3 0 0 0 0 6h3"/><path d="m10 6-4 3 4 3"/>'),
+    plus: svg('<path d="M12 5v14M5 12h14"/>'),
+    skip: svg('<path d="M6 5v14l9-7z"/><path d="M18 5v14"/>'),
+    plate: svg('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/>'),
+    swap: svg('<path d="M4 8h13l-3-3M20 16H7l3 3"/>'),
+    note: svg('<path d="M6 4h9l3 3v13H6z"/><path d="M9 12h6M9 16h4"/>'),
+    timer: svg('<circle cx="12" cy="13" r="7.5"/><path d="M12 9.5V13l2.5 1.5M9.5 3h5"/>'),
+    trash: svg('<path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13"/>'),
+    alert: svg('<path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/>'),
+    chev: svg('<path d="m9 5 7 7-7 7"/>'),
+    close: svg('<path d="m6 6 12 12M18 6 6 18"/>'),
+    lift: svg('<path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/>')
+  };
+
+  /* =============================================================
+     Formatting. Every number tabular, every weight in kg.
+     ============================================================= */
+  function n(v) { return '<span class="num">' + v + '</span>'; }
+  function kg(v) { return n(v) + ' kg'; }
+  function vol(v) { return Number(v).toLocaleString('en-US'); }
+  function clock(s) {
+    var m = Math.floor(s / 60), r = s % 60;
+    return m + ':' + (r < 10 ? '0' : '') + r;
+  }
+  function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+
+  /* =============================================================
+     Seed. fixtures/seed-data.json: guest profile useKg:true, split
+     "PPL" day Push (exIds 111, 302, 103, 311, 411). `last` is the
+     Push session of 9/3/2026 — the single most useful number on this
+     screen, so it is on every row and under every field.
+     ============================================================= */
+  var REST_SECONDS = 150;               /* 2:30, this exercise */
+  var TYPES = ['warmup', 'work', 'work', 'work', 'work'];
+  var LASTS = [
+    { w: '37.5', r: 8 }, { w: '72.5', r: 8 }, { w: '72.5', r: 6 },
+    { w: '72.5', r: 5 }, { w: '67.5', r: 5 }
+  ];
+  var EX = {
+    id: 111, name: 'Barbell Bench Press', muscle: 'Mid Chest',
+    note: 'Pinkies on rings, feet back'   /* lk_exNotes["111"] */
+  };
+  var UP_NEXT = [
+    { id: 302, name: 'DB Shoulder Press', sets: 3, last: '25 kg &times; 9' },
+    { id: 103, name: 'Incline Cable Fly', sets: 3, last: '15 kg &times; 11' },
+    { id: 311, name: 'Lateral Raise', sets: 3, last: '10.5 kg &times; 15' },
+    { id: 411, name: 'Tricep Pushdown', sets: 3, last: '30 kg &times; 12' }
+  ];
+  var PLANNED_SETS = 5 + 3 + 3 + 3 + 3;   /* 17, warm-up included */
+
+  /* Sets already logged, per state. Progressive overload on last
+     session's 72.5 kg. */
+  var LOGGED = {
+    populated: [['37.5', '8', ''], ['75', '8', '2'], ['75', '7', '2']],
+    first: [],
+    completed: [['37.5', '8', ''], ['75', '8', '2'], ['75', '7', '2'], ['75', '6', '1'], ['70', '6', '0']]
+  };
+  var ELAPSED = {
+    populated: '18:42', first: '0:26', keypad: '18:47', rest: '19:04',
+    completed: '24:10', plates: '18:44', error: '18:52', loading: '18:40', empty: '0:12'
+  };
+
+  function makeSets(logged) {
+    return LASTS.map(function (l, i) {
+      var v = logged[i];
+      return {
+        type: TYPES[i], last: l,
+        w: v ? v[0] : '', r: v ? v[1] : '', rir: v ? v[2] : '',
+        done: !!v
+      };
+    });
+  }
+
+  /* =============================================================
+     State
+     ============================================================= */
+  var S = {
+    state: 'populated',
+    sets: [],
+    active: 0,                                    /* index of the set being logged */
+    target: 'weight',                             /* weight | reps | rir */
+    pending: { weight: '', reps: '', rir: '' },
+    fresh: { weight: true, reps: true, rir: true },/* true = next digit replaces */
+    rest: null,                                   /* { left, total } */
+    sheet: null,                                  /* 'tools' | 'plates' */
+    toast: null
+  };
+  var timer = null, toastTimer = null, lastFocus = null;
+
+  function activeSet() { return S.sets[S.active]; }
+
+  /* Pending values start as last session's, marked not-yet-typed. */
+  function loadPending() {
+    var s = activeSet();
+    if (!s) { S.pending = { weight: '', reps: '', rir: '' }; return; }
+    S.pending = { weight: s.done ? s.w : s.last.w, reps: s.done ? s.r : String(s.last.r), rir: s.rir || '' };
+    S.fresh = { weight: !s.done, reps: !s.done, rir: !s.done };
+    S.target = 'weight';
+  }
+
+  function firstUndone() {
+    for (var i = 0; i < S.sets.length; i++) if (!S.sets[i].done) return i;
+    return -1;
+  }
+  function doneCount() { return S.sets.filter(function (s) { return s.done; }).length; }
+  function volume() {
+    return S.sets.reduce(function (t, s) {
+      return s.done ? t + Number(s.w) * Number(s.r) : t;
+    }, 0);
+  }
+  function isPending(field) { return S.fresh[field] && !activeSet().done; }
+
+  /* =============================================================
+     Header. Warm-ups counted: the audited header filtered them out
+     and read "0 sets" after a completed warm-up.
+     ============================================================= */
+  function headerHTML() {
+    var meta;
+    if (S.state === 'loading') meta = 'Loading session';
+    else if (S.state === 'empty') meta = n(ELAPSED.empty) + ' &middot; no sets yet';
+    else meta = n(ELAPSED[S.state] || ELAPSED.populated) + ' &middot; ' +
+      n(doneCount()) + ' of ' + n(PLANNED_SETS) + ' sets &middot; ' + kg(vol(volume()));
+    return '' +
+      '<div class="hdr__title stack stack--1">' +
+        '<h1 class="t-section">Push</h1>' +
+        '<p class="t-meta num" data-testid="session-meta">' + meta + '</p>' +
+      '</div>' +
+      '<button class="hdr__action hdr__action--quiet" type="button" data-action="finish" ' +
+              'data-testid="finish-workout">Finish</button>';
+  }
+
+  /* =============================================================
+     Set list. Rows are the record; the deck is the input. One target
+     per row instead of five, and every row is at least 44px tall.
+     ============================================================= */
+  function setRow(s, i) {
+    var live = i === S.active && !s.done;
+    var label = s.type === 'warmup' ? 'Warm-up' : 'Set ' + (i - (TYPES[0] === 'warmup' ? 1 : 0) + 1);
+    var mark = s.done ? 'setmark--done' : (live ? 'setmark--now' : '');
+    var value, cls = 'setrow__val';
+    if (s.done) value = kg(s.w) + ' &times; ' + n(s.r);
+    else if (live) {
+      value = (isPending('weight') ? '' : '') +
+        n(S.pending.weight || '0') + ' kg &times; ' + n(S.pending.reps || '0');
+      if (isPending('weight') && isPending('reps')) cls += ' setrow__val--ghost';
+    } else {
+      value = kg(s.last.w) + ' &times; ' + n(s.last.r);
+      cls += ' setrow__val--ghost';
+    }
+    var rir = s.done && s.rir !== '' ? 'RIR ' + n(s.rir) : (live && S.pending.rir !== '' && !isPending('rir') ? 'RIR ' + n(S.pending.rir) : '');
+    return '' +
+      '<button class="row' + (live ? ' row--selected' : '') + '" type="button" ' +
+              'data-action="pick-set" data-i="' + i + '" data-testid="set-' + (i + 1) + '" ' +
+              'aria-label="' + label + (s.done ? ', logged ' + s.w + ' kilograms for ' + s.r + ' reps' :
+                (live ? ', now logging' : ', last time ' + s.last.w + ' kilograms for ' + s.last.r + ' reps')) + '">' +
+        '<span class="setmark ' + mark + '" aria-hidden="true">' + ICO.check + '</span>' +
+        '<span class="row__main stack">' +
+          '<span class="row__title">' + label + '</span>' +
+          '<span class="row__sub">Last ' + kg(s.last.w) + ' &times; ' + n(s.last.r) + '</span>' +
+        '</span>' +
+        '<span class="' + cls + '">' + value + '</span>' +
+        '<span class="t-meta num setrow__rir">' + rir + '</span>' +
+      '</button>';
+  }
+
+  function exHeadHTML() {
+    return '' +
+      '<div class="exhead gutter">' +
+        '<div class="exhead__main stack stack--1">' +
+          '<h2 class="t-section">' + esc(EX.name) + '</h2>' +
+          '<p class="t-meta">' + EX.muscle + ' &middot; rest ' + n(clock(REST_SECONDS)) + '</p>' +
+        '</div>' +
+        '<button class="iconbtn" type="button" data-action="open-tools" data-testid="open-tools" ' +
+                'aria-label="Exercise tools">' + ICO.tools + '</button>' +
+      '</div>';
+  }
+
+  function upNextHTML() {
+    return '' +
+      '<div class="section gutter">' +
+        '<div class="section__head"><h2 class="t-label">Up next</h2></div>' +
+        '<div class="card card--flush">' +
+          UP_NEXT.map(function (e) {
+            return '<button class="row" type="button" data-action="pick-exercise" data-id="' + e.id + '" ' +
+                           'data-testid="exercise-' + e.id + '">' +
+              '<span class="ico-well">' + ICO.lift + '</span>' +
+              '<span class="row__main stack">' +
+                '<span class="row__title truncate">' + e.name + '</span>' +
+                '<span class="row__sub">' + n(e.sets) + ' sets &middot; last ' + e.last + '</span>' +
+              '</span>' +
+              '<span class="row__chev">' + ICO.chev + '</span>' +
+            '</button>';
+          }).join('') +
+        '</div>' +
+        '<button class="btn btn--secondary btn--block mt-3" type="button" data-action="add-exercise" ' +
+                'data-testid="add-exercise"><span class="btn__label">Add exercise</span></button>' +
+      '</div>';
+  }
+
+  function listHTML() {
+    var banner = S.state === 'error'
+      ? '<div class="banner banner--error gutter mt-3" data-testid="save-error">' + ICO.alert +
+          '<span><strong>Set not saved</strong>This phone is offline. Your sets are kept here and sync when it reconnects.</span>' +
+        '</div>'
+      : '';
+    return banner + exHeadHTML() +
+      '<div class="card card--flush gutter" data-testid="set-list">' +
+        S.sets.map(setRow).join('') +
+      '</div>' +
+      '<button class="btn btn--tertiary btn--block mt-2 gutter" type="button" data-action="add-set" ' +
+              'data-testid="add-set">' + ICO.plus + '<span class="btn__label">Add set</span></button>' +
+      (EX.note ? '<p class="t-detail gutter mt-3" data-testid="exercise-note">' + esc(EX.note) + '</p>' : '') +
+      upNextHTML();
+  }
+
+  /* =============================================================
+     The deck. Everything performed every 90 seconds, and nothing
+     else, inside the bottom third of the screen.
+     ============================================================= */
+  function tgt(field, label, unit) {
+    var raw = S.pending[field];
+    var pending = isPending(field);
+    var shown = raw === '' ? '—' : raw;
+    var sel = S.target === field;
+    return '' +
+      '<button class="tgt' + (field === 'rir' ? ' tgt--rir' : '') + (pending ? ' tgt--pending' : '') + '" ' +
+              'type="button" data-action="target" data-field="' + field + '" aria-pressed="' + sel + '" ' +
+              'data-testid="target-' + field + '" ' +
+              'aria-label="' + label + (raw === '' ? ', not set' : ', ' + raw + (unit ? ' ' + unit : '')) +
+              (pending ? ', last session' : '') + '">' +
+        '<span class="tgt__label">' + label + '</span>' +
+        '<span class="tgt__figure">' +
+          '<span class="tgt__value num" data-testid="value-' + field + '">' + shown + '</span>' +
+          (unit ? '<span class="tgt__unit">' + unit + '</span>' : '') +
+          (sel ? '<span class="tgt__caret" aria-hidden="true"></span>' : '') +
+        '</span>' +
+      '</button>';
+  }
+
+  function padHTML() {
+    var noDot = S.target !== 'weight';
+    var keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(function (d) {
+      return '<button class="pad__key" type="button" data-action="digit" data-d="' + d + '" ' +
+             'data-testid="key-' + d + '">' + d + '</button>';
+    }).join('');
+    return '' +
+      '<div class="padrow">' +
+        '<div class="pad" data-testid="keypad">' + keys +
+          '<button class="pad__key pad__key--action" type="button" data-action="digit" data-d="." ' +
+                  'data-testid="key-dot" aria-label="Decimal point"' + (noDot ? ' disabled' : '') + '>.</button>' +
+          '<button class="pad__key" type="button" data-action="digit" data-d="0" data-testid="key-0">0</button>' +
+          '<button class="pad__key pad__key--action" type="button" data-action="back" data-testid="key-back" ' +
+                  'aria-label="Delete last digit">' + ICO.back + '</button>' +
+        '</div>' +
+        '<button class="key-log" type="button" data-action="log" data-testid="log-set">' +
+          ICO.checkLg + '<span>Log set</span>' +
+        '</button>' +
+      '</div>';
+  }
+
+  /* Rest strip. Above the pad, so the timer is read without hunting
+     and extended without moving the hand. The meter is neutral ink:
+     the screen's one accent fill belongs to Log set. */
+  function restHTML() {
+    if (!S.rest) return '';
+    var over = S.rest.left <= 0;
+    var pct = Math.max(0, Math.min(100, (S.rest.left / S.rest.total) * 100));
+    return '' +
+      '<div class="rest' + (over ? ' rest__done' : '') + '" data-testid="rest-timer">' +
+        '<div class="rest__main stack stack--1">' +
+          '<div class="spread">' +
+            '<span class="rest__label">' + (over ? 'Rest done' : 'Rest') + '</span>' +
+            '<span class="rest__time" data-testid="rest-remaining">' + (over ? 'Go' : clock(S.rest.left)) + '</span>' +
+          '</div>' +
+          '<div class="meter meter--quiet"><span class="meter__fill" style="width: ' + pct.toFixed(0) + '%"></span></div>' +
+        '</div>' +
+        '<button class="btn btn--secondary btn--sm" type="button" data-action="rest-add" data-testid="rest-add">' +
+          '<span class="btn__label">+30 s</span></button>' +
+        '<button class="iconbtn" type="button" data-action="rest-skip" data-testid="rest-skip" ' +
+                'aria-label="Skip rest">' + ICO.skip + '</button>' +
+      '</div>';
+  }
+
+  function deckHTML() {
+    if (S.state === 'loading') {
+      return '<div class="deck" data-testid="deck" aria-busy="true">' +
+        '<div class="skel" style="height: 56px"></div>' +
+        '<div class="skel mt-3" style="height: calc(var(--sp-6) * 7 + var(--sp-5))"></div>' +
+      '</div>';
+    }
+    if (S.state === 'empty') {
+      return '<div class="deck" data-testid="deck">' +
+        '<button class="btn btn--primary btn--block" type="button" data-action="add-exercise" ' +
+                'data-testid="primary-action">' + ICO.plus +
+          '<span class="btn__label">Add exercise</span></button>' +
+      '</div>';
+    }
+    if (S.state === 'completed') {
+      return '<div class="deck" data-testid="deck">' +
+        '<p class="t-detail center" data-testid="deck-context">' + esc(EX.name) + ' complete &middot; ' +
+          n(5) + ' sets &middot; ' + kg(vol(volume())) + '</p>' +
+        '<button class="btn btn--primary btn--block mt-3" type="button" data-action="next-exercise" ' +
+                'data-testid="primary-action">' +
+          '<span class="btn__label">Next: DB Shoulder Press</span></button>' +
+        '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="add-set" ' +
+                'data-testid="deck-add-set"><span class="btn__label">Add a set</span></button>' +
+      '</div>';
+    }
+    var s = activeSet();
+    var label = s.type === 'warmup' ? 'Warm-up' : 'Set ' + S.active + ' of 4';
+    return '' +
+      '<div class="deck" data-testid="deck">' +
+        restHTML() +
+        '<div class="deck__ctx">' +
+          '<span class="t-label" data-testid="deck-context">' + label + '</span>' +
+          '<span class="t-meta num" data-testid="deck-last">Last ' + s.last.w + ' kg &times; ' + s.last.r + '</span>' +
+        '</div>' +
+        '<div class="tgts">' +
+          tgt('weight', 'Weight', 'kg') + tgt('reps', 'Reps', '') + tgt('rir', 'RIR', '') +
+        '</div>' +
+        padHTML() +
+      '</div>';
+  }
+
+  /* =============================================================
+     Sheets. Occasional actions, one level down, behind a visible
+     44x44 button rather than a 350ms hold on a 20x12 handle.
+     ============================================================= */
+  function toolsSheet() {
+    var items = [
+      ['plates', ICO.plate, 'Plate calculator', 'For ' + S.pending.weight + ' kg'],
+      ['add-set', ICO.plus, 'Add set', ''],
+      ['rest-settings', ICO.timer, 'Rest timer', clock(REST_SECONDS)],
+      ['swap', ICO.swap, 'Swap exercise', ''],
+      ['note', ICO.note, 'Exercise note', EX.note]
+    ];
+    return '' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="tools-title" data-testid="tools-sheet">' +
+        '<div class="sheet__grab"></div>' +
+        '<div class="sheet__head">' +
+          '<h2 class="t-section" id="tools-title">' + esc(EX.name) + '</h2>' +
+          '<button class="iconbtn" type="button" data-action="close-sheet" data-testid="tools-close" ' +
+                  'aria-label="Close exercise tools">' + ICO.close + '</button>' +
+        '</div>' +
+        '<div class="sheet__body">' +
+          '<div class="card card--flush">' +
+            items.map(function (it) {
+              return '<button class="row" type="button" data-action="' + it[0] + '" ' +
+                             'data-testid="tool-' + it[0] + '">' +
+                '<span class="ico-well">' + it[1] + '</span>' +
+                '<span class="row__main"><span class="row__title">' + it[2] + '</span></span>' +
+                (it[3] ? '<span class="row__value truncate">' + esc(it[3]) + '</span>' : '') +
+              '</button>';
+            }).join('') +
+          '</div>' +
+          '<button class="btn btn--danger btn--block mt-3" type="button" data-action="remove-exercise" ' +
+                  'data-testid="tool-remove">' + ICO.trash +
+            '<span class="btn__label">Remove exercise</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* Plate calculator. kg only — the profile unit — because the
+     audited one carried a redundant KG/LB pair on a screen that
+     already had two other unit toggles. */
+  var BAR_KG = 20;
+  var PLATES = [25, 20, 15, 10, 5, 2.5, 1.25];
+  function plateSolve(total) {
+    var perSide = (total - BAR_KG) / 2, out = [], rest = perSide;
+    if (perSide < 0) return { perSide: 0, out: [], short: true };
+    PLATES.forEach(function (p) {
+      var c = Math.floor((rest + 0.001) / p);
+      if (c > 0) { out.push([p, c]); rest -= c * p; }
+    });
+    return { perSide: perSide, out: out, short: false, left: rest };
+  }
+  function plateBar(sol) {
+    /* One sleeve, plates sized by mass. Drawn, so it works from disk. */
+    var x = 96, parts = '';
+    sol.out.forEach(function (pc) {
+      for (var i = 0; i < pc[1]; i++) {
+        var h = 12 + pc[0] * 1.6, w = 8;
+        parts += '<rect class="platebar__plate" x="' + x + '" y="' + (32 - h / 2).toFixed(1) +
+                 '" width="' + w + '" height="' + h.toFixed(1) + '" rx="2"/>';
+        x += w + 3;
+      }
+    });
+    return '<svg class="platebar" viewBox="0 0 220 64" role="img" ' +
+             'aria-label="Loaded bar, ' + sol.perSide + ' kilograms a side" data-testid="plate-diagram">' +
+             '<rect class="platebar__bar" x="8" y="29" width="200" height="6" rx="3"/>' +
+             '<rect class="platebar__collar" x="88" y="24" width="6" height="16" rx="2"/>' +
+             parts +
+           '</svg>';
+  }
+  function platesSheet() {
+    var total = Number(S.pending.weight) || Number(activeSet().last.w);
+    var sol = plateSolve(total);
+    return '' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="plates-title" data-testid="plates-sheet">' +
+        '<div class="sheet__grab"></div>' +
+        '<div class="sheet__head">' +
+          '<h2 class="t-section" id="plates-title">Plate calculator</h2>' +
+          '<button class="iconbtn" type="button" data-action="close-sheet" data-testid="plates-close" ' +
+                  'aria-label="Close plate calculator">' + ICO.close + '</button>' +
+        '</div>' +
+        '<div class="sheet__body">' +
+          '<div class="card">' +
+            '<div class="spread">' +
+              '<span class="stat"><span class="stat__label">Target</span>' +
+                '<span class="stat__value num">' + total + ' <span class="stat__unit">kg</span></span></span>' +
+              '<span class="stat"><span class="stat__label">Each side</span>' +
+                '<span class="stat__value num">' + sol.perSide + ' <span class="stat__unit">kg</span></span></span>' +
+            '</div>' +
+            plateBar(sol) +
+            '<p class="t-detail center">Bar ' + n(BAR_KG) + ' kg &middot; ' +
+              sol.out.map(function (pc) { return n(pc[0]) + ' kg &times; ' + n(pc[1]); }).join(' &middot; ') +
+              ' a side</p>' +
+          '</div>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--primary btn--block" type="button" data-action="apply-plates" ' +
+                  'data-testid="apply-plates"><span class="btn__label">Use ' + total + ' kg for this set</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function overlayHTML() {
+    if (!S.sheet) return '';
+    var inner = S.sheet === 'plates' ? platesSheet() : toolsSheet();
+    return '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' + inner;
+  }
+
+  function toastHTML() {
+    if (!S.toast) return '';
+    return '<div class="toast" role="status" data-testid="toast">' +
+      '<span class="toast__body">' + S.toast + '</span></div>';
+  }
+
+  /* =============================================================
+     Views that replace the list entirely.
+     ============================================================= */
+  function emptyHTML() {
+    return '' +
+      '<div class="empty gutter mt-5" data-testid="empty-state">' +
+        '<span class="empty__ico">' + ICO.lift + '</span>' +
+        '<h2 class="empty__title">No exercises yet</h2>' +
+        '<p class="empty__body">Add the first exercise and every set you log lands here.</p>' +
+      '</div>';
+  }
+  function loadingHTML() {
+    var rows = '';
+    for (var i = 0; i < 5; i++) {
+      rows += '<div class="row"><div class="skel" style="height: var(--sp-5); width: var(--sp-5); border-radius: var(--r-full)"></div>' +
+              '<div class="row__main"><div class="skel" style="height: var(--sp-4); width: 40%"></div></div>' +
+              '<div class="skel" style="height: var(--sp-4); width: calc(var(--sp-6) * 3)"></div></div>';
+    }
+    return '<div class="exhead gutter"><div class="exhead__main stack stack--1">' +
+             '<div class="skel" style="height: var(--sp-5); width: 60%"></div>' +
+             '<div class="skel" style="height: var(--sp-3); width: 35%"></div>' +
+           '</div></div>' +
+           '<div class="card card--flush gutter" role="status" aria-busy="true" aria-label="Loading sets">' + rows + '</div>';
+  }
+
+  /* =============================================================
+     Render
+     ============================================================= */
+  var screen = document.getElementById('screen');
+  var hdr = document.getElementById('hdr');
+  var body = document.getElementById('body');
+  var deck = document.getElementById('deck');
+  var overlay = document.getElementById('overlay');
+  var toastSlot = document.getElementById('toast-slot');
+  var live = document.getElementById('live');
+  var menu = document.getElementById('dev-menu');
+  var toggle = document.getElementById('dev-toggle');
+
+  function render(keepScroll) {
+    var top = keepScroll ? body.scrollTop : 0;
+    screen.setAttribute('data-state', S.state);
+    screen.setAttribute('data-accent', S.sheet === 'plates' ? 'sheet' : 'deck');
+    hdr.innerHTML = headerHTML();
+    body.innerHTML = S.state === 'empty' ? emptyHTML()
+      : S.state === 'loading' ? loadingHTML() : listHTML();
+    body.scrollTop = top;
+    deck.innerHTML = deckHTML();
+    overlay.innerHTML = overlayHTML();
+    toastSlot.innerHTML = toastHTML();
+    Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.state === S.state));
+    });
+    if (S.sheet) { var f = overlay.querySelector('.iconbtn'); if (f) f.focus(); }
+  }
+
+  function say(msg) {
+    S.toast = msg;
+    render(true);
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { S.toast = null; render(true); }, 3200);
+  }
+  function announce(msg) { live.textContent = msg; }
+
+  /* =============================================================
+     Entry. Replace on the first digit, append after it. The audited
+     pad pre-filled and appended, so DEL was the only editing key
+     and five of fifteen taps were deletions.
+     ============================================================= */
+  function digit(d) {
+    var t = S.target;
+    if (t !== 'weight' && d === '.') return;
+    if (S.fresh[t] || activeSet().done) {
+      S.pending[t] = d === '.' ? '0.' : d;
+      S.fresh[t] = false;
+      if (activeSet().done) markUndone();
+    } else {
+      if (d === '.' && S.pending[t].indexOf('.') > -1) return;
+      if (S.pending[t].replace('.', '').length >= 4) return;
+      S.pending[t] += d;
+    }
+    render(true);
+  }
+  function backspace() {
+    var t = S.target;
+    S.fresh[t] = false;
+    S.pending[t] = S.pending[t].slice(0, -1);
+    render(true);
+  }
+  function markUndone() { activeSet().done = false; }
+
+  function logSet() {
+    var s = activeSet();
+    if (!S.pending.weight || !S.pending.reps) {
+      S.target = !S.pending.weight ? 'weight' : 'reps';
+      render(true);
+      announce('Enter a ' + (S.target === 'weight' ? 'weight' : 'rep count') + ' first.');
+      return;
+    }
+    s.w = S.pending.weight; s.r = S.pending.reps; s.rir = S.pending.rir; s.done = true;
+    announce((s.type === 'warmup' ? 'Warm-up' : 'Set ' + S.active) + ' logged, ' +
+             s.w + ' kilograms for ' + s.r + ' reps. Rest ' + clock(REST_SECONDS) + '.');
+    startRest();
+    var next = firstUndone();
+    if (next === -1) { S.state = 'completed'; stopRest(); render(); return; }
+    S.active = next;
+    loadPending();
+    render(true);
+  }
+
+  function startRest() {
+    S.rest = { left: REST_SECONDS, total: REST_SECONDS };
+    if (timer) clearInterval(timer);
+    timer = setInterval(tick, 1000);
+  }
+  function stopRest() {
+    if (timer) { clearInterval(timer); timer = null; }
+    S.rest = null;
+  }
+  function tick() {
+    if (!S.rest) return;
+    S.rest.left -= 1;
+    if (S.rest.left === 0) announce('Rest done.');
+    if (S.rest.left <= -5) { stopRest(); }
+    render(true);
+  }
+
+  /* =============================================================
+     Events. One delegated listener; every control declares its
+     action on the element.
+     ============================================================= */
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-action]');
+    if (!t || t.disabled) return;
+    var a = t.dataset.action;
+
+    if (a === 'digit') { digit(t.dataset.d); return; }
+    if (a === 'back') { backspace(); return; }
+    if (a === 'log') { logSet(); return; }
+    if (a === 'target') { S.target = t.dataset.field; render(true); return; }
+    if (a === 'pick-set') {
+      S.active = Number(t.dataset.i);
+      loadPending();
+      render(true);
+      return;
+    }
+    if (a === 'rest-add') { if (S.rest) { S.rest.left += 30; S.rest.total += 30; render(true); } return; }
+    if (a === 'rest-skip') { stopRest(); render(true); announce('Rest skipped.'); return; }
+    if (a === 'open-tools') { openSheet('tools'); return; }
+    if (a === 'plates') { S.sheet = 'plates'; render(true); return; }
+    if (a === 'close-sheet') { closeSheet(); return; }
+    if (a === 'apply-plates') {
+      S.fresh.weight = false;
+      closeSheet();
+      say('Weight set to ' + S.pending.weight + ' kg.');
+      return;
+    }
+    /* Everything below leaves this screen or edits the session in the
+       app; in the demo each says where it goes. */
+    if (a === 'finish') { say('Opens Review.'); return; }
+    if (a === 'add-set') { closeSheet(); say('Adds a set to this exercise.'); return; }
+    if (a === 'add-exercise') { say('Opens the exercise library.'); return; }
+    if (a === 'next-exercise' || a === 'pick-exercise') { closeSheet(); say('Switches to that exercise.'); return; }
+    if (a === 'rest-settings') { say('Opens rest timer settings.'); return; }
+    if (a === 'swap') { closeSheet(); say('Opens replacements for this exercise.'); return; }
+    if (a === 'note') { closeSheet(); say('Opens the exercise note.'); return; }
+    if (a === 'remove-exercise') { closeSheet(); say('Removes the exercise. Undo in Review.'); return; }
+  });
+
+  function openSheet(kind) {
+    lastFocus = document.activeElement;
+    S.sheet = kind;
+    render(true);
+  }
+  function closeSheet() {
+    if (!S.sheet) return;
+    S.sheet = null;
+    render(true);
+    if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
+    lastFocus = null;
+  }
+
+  /* A physical keyboard types into the same entry the pad does. */
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { closeSheet(); return; }
+    if (S.sheet || S.state === 'empty' || S.state === 'loading' || S.state === 'completed') return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (/^[0-9]$/.test(e.key) || e.key === '.') { e.preventDefault(); digit(e.key); return; }
+    if (e.key === 'Backspace') { e.preventDefault(); backspace(); }
+  });
+
+  /* =============================================================
+     Dev state toggle
+     ============================================================= */
+  var STATES = [
+    ['populated', 'Mid-session'],
+    ['first', 'First set'],
+    ['keypad', 'Keypad entry'],
+    ['rest', 'Rest running'],
+    ['completed', 'Exercise done'],
+    ['plates', 'Plate calculator'],
+    ['empty', 'Empty'],
+    ['loading', 'Loading'],
+    ['error', 'Error']
+  ];
+
+  function applyState(name) {
+    stopRest();
+    if (toastTimer) clearTimeout(toastTimer);
+    S.state = name; S.sheet = null; S.toast = null;
+    var logged = LOGGED[name] || (name === 'first' || name === 'empty' ? LOGGED.first
+      : name === 'completed' ? LOGGED.completed : LOGGED.populated);
+    S.sets = makeSets(logged);
+    S.active = name === 'completed' ? S.sets.length - 1 : Math.max(0, firstUndone());
+    loadPending();
+
+    if (name === 'keypad') {
+      /* Mid-entry: 77 typed over last session's 72.5, so the replace
+         behaviour and the solid-vs-ghost tone are both visible. */
+      S.pending.weight = '77'; S.fresh.weight = false; S.target = 'weight';
+    }
+    if (name === 'rest') {
+      S.rest = { left: 67, total: REST_SECONDS };
+      timer = setInterval(tick, 1000);
+    }
+    if (name === 'plates') { S.sheet = 'plates'; }
+    render();
+  }
+
+  menu.innerHTML = STATES.map(function (s) {
+    return '<button class="dev__item" type="button" data-state="' + s[0] + '" aria-pressed="false" ' +
+      'data-testid="dev-state-' + s[0] + '">' + s[1] + '</button>';
+  }).join('');
+  toggle.addEventListener('click', function () {
+    var open = toggle.getAttribute('aria-expanded') === 'true';
+    toggle.setAttribute('aria-expanded', String(!open));
+    menu.hidden = open;
+  });
+  menu.addEventListener('click', function (e) {
+    var b = e.target.closest('.dev__item');
+    if (b) applyState(b.dataset.state);
+  });
+
+  applyState(new URLSearchParams(location.search).get('state') || 'populated');
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,935 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — Settings</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+</head>
+<body>
+<!--
+  SETTINGS AND ACCOUNT — what survives, and why.
+
+  WHY THIS SCREEN EXISTS
+  Profile lost its tab. Its function audit found one load-bearing control
+  out of two: the door to Settings. Home's header now carries that door
+  (data-testid="open-account"), and this is what it opens. So this file
+  holds both jobs — who you are and what your account is, and everything
+  you can configure — and it is the only screen that holds either.
+
+  WHAT THE AUDITS MEASURED, AND WHAT REPLACES IT
+  The old Settings scored 1 on hierarchy and 2.2 on design, the worst in
+  the app: a 3,894px scroller whose squint-test winner was SIGN UP inside
+  a glowing orange card, on a settings screen. It carried 22 uppercase
+  headers in one style at two ranks, so a group header and a card header
+  were indistinguishable, and two header strings repeated — DATA & SYNC
+  twice, 1,075px apart. Placement was unpredictable: text size under Data
+  and Sync, cycle logging under a red Performance Tracking header, Home
+  layout at the top while every other display preference sat 1,000px
+  lower. 21 of 49 targets met 44px; with the layout editor open, 30 of 102.
+
+  Here: FIVE groups, one header rank, one card per parent, in the order a
+  person changes things.
+    1  Account          who you are, and whether it syncs
+    2  Units and display    the two things changed most often
+    3  Training         what happens while you lift
+    4  Reminders        when the app is allowed to speak
+    5  Data and account one-time and destructive actions, at the bottom
+  Nineteen interactive rows, was 49 controls. Every row prints its current
+  value in the secondary line, so the whole configuration is readable
+  without opening anything. Nothing here is one word deep in jargon:
+  "Round weights to", not "plate increment"; "Everything on this device",
+  not "local storage".
+
+  DEPTH
+  A toggle changes in place — depth 0. A choice opens one sheet of
+  options over the screen — depth 1. Nothing on this screen is two levels
+  deep. The old screen put the unit switch behind Profile, a scroll of
+  ~2,100px, and the layout editor behind a second full-screen editor.
+
+  THE THREE MEASURED DEFECTS, ANSWERED
+  1  No busy state on a network action. The old Verify button was
+     pixel-identical with a request in flight (0.0001% frame diff, no
+     spinner, no aria-busy, still enabled). Here the one network action
+     that survives — Sync — disables its button, sets aria-busy, swaps
+     the label to "Syncing", shows a spinner, and announces the outcome
+     in a live region. See syncNow().
+  2  Fail-open validation. The old catch block called onResult(true): a
+     network failure GRANTED beta access and rendered the verified panel.
+     Here the failure path is the only path that can report failure, and
+     it reports nothing else — see the comment on FAIL CLOSED in syncNow().
+     Dev state "Account unreachable" runs it.
+  3  A unit switch that relabels without converting. The old screen
+     seeded body weight once at mount, so 64.25 kg became "64.25 lbs" and
+     the next save wrote 29.1 kg. Here every weight is stored in kg and
+     formatted on read (wt(), plate(), height()), so switching the unit
+     converts 64.2 kg to 141.5 lb, 2.5 kg to 5 lb, and 168 cm to 5 ft 6
+     in — in the row, in the sheet, and in the field. The switch also
+     confirms itself with a toast naming both numbers, which is the
+     confirmation flow 8 never had.
+
+  WHAT DOES NOT SHIP, AND WHY
+  - LayoutEditor (51-53 controls, 44 of them under 44px, and the source
+    of most of this page's target failures). It let a user reorder Home
+    from another tab. The Home audit concluded it existed to paper over a
+    screen with no priority; Home has been rebuilt to four blocks with
+    one primary action, so the thing it repaired is gone. Ordering Home
+    is the designer's job, not a setting.
+  - The beta code card. Beta enrolment is not a preference, it shipped to
+    every user, it had no busy state, and it granted access when the
+    network failed. Unfinished and wrong when it failed.
+  - Replay Tutorial. The overlay it replays is cut by the directive, and
+    the control carried an emoji as its icon.
+  - Cycle logging and Microphone flags. A toggle that adds or removes a
+    whole tab is build configuration wearing a preference's clothes; the
+    voice button also intercepted pointer events on two other screens.
+  - Text size. iOS ships Dynamic Type as a system setting. A second,
+    app-only text size duplicates it, disagrees with it, and was filed
+    under DATA & SYNC.
+  - Fuel display preferences (hide calories, Left/Eaten). Settings for a
+    screen belong on that screen; Fuel is a separate track.
+  - The privacy disclosure block. Legal text with a +/- affordance is not
+    a control; it configures nothing.
+  - Save Name and Save Stats as bare buttons stranded in a list. An edit
+    now commits inside the sheet that opened it, so no row can be left in
+    an unsaved state you cannot see.
+  - The guest SIGN UP card as a glowing hero. Creating an account is a
+    real action and stays, as one plain button inside the Account card.
+
+  STATES
+  Signed in, Guest, Signed out, Loading, Account unreachable. Only the
+  Account group has a loading or an error state: preferences are read
+  from the device, so they cannot fail, and pretending they can would
+  hide a working screen behind a spinner.
+
+  ACCENT
+  At most one accent fill per state, never on a no-op: none when signed
+  in (a settings screen has no primary action), Create an account when a
+  guest, Sign in when signed out, Try again when the account is
+  unreachable, none while loading. Switches carry --success when on,
+  because "on" is a state and the accent marks the one action.
+-->
+
+<div class="stage">
+  <div class="phone">
+    <div class="screen" id="screen" data-testid="screen-settings">
+
+      <header class="hdr">
+        <button class="hdr__back" data-testid="back" aria-label="Back to Home">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg>
+        </button>
+        <div class="hdr__title">
+          <h1 class="t-title">Settings</h1>
+        </div>
+      </header>
+
+      <main class="body" id="body" data-testid="settings-scroll" tabindex="-1"></main>
+
+      <div id="overlay"></div>
+      <div id="live" class="vis-hidden" role="status" aria-live="polite"></div>
+
+    </div>
+  </div>
+</div>
+
+<div class="dev">
+  <button class="dev__toggle" id="dev-toggle" aria-expanded="false" aria-controls="dev-menu" data-testid="dev-toggle">State</button>
+  <div class="dev__menu" id="dev-menu" hidden data-testid="dev-menu"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* =============================================================
+     Icons. One set, one stroke weight, one optical size.
+     ============================================================= */
+  function svg(d, extra) {
+    return '<svg class="ico' + (extra || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+  }
+  var ICO = {
+    chev:  svg('<path d="m9 5 7 7-7 7"/>'),
+    close: svg('<path d="m6 6 12 12M18 6 6 18"/>'),
+    check: svg('<path d="m5 12.5 4.5 4.5L19 7"/>'),
+    alert: svg('<path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/>'),
+    person: svg('<path d="M4.5 20a7.5 7.5 0 0 1 15 0"/><circle cx="12" cy="7.5" r="3.5"/>'),
+    cloud: svg('<path d="M7 18a4 4 0 0 1 .5-8 5 5 0 0 1 9.6 1.2A3.5 3.5 0 0 1 17 18z"/>')
+  };
+
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function n(v) { return '<span class="num">' + v + '</span>'; }
+
+  /* =============================================================
+     State. Seeded from fixtures/seed-data.json.
+       lk_profile      Cesco, @cesco, 29, female, 168 cm, 64.2 kg, build
+       lk_restEnabled  true      lk_hidePartials  false
+       lk_checkinPerDay 1        lk_cardioPrefs.distUnit "km"
+       lk_weightStorageUnit "kg"
+     Weight is STORED in kilograms and formatted on read. Nothing on this
+     screen keeps a number in display units, which is the whole of
+     defect 3.
+     ============================================================= */
+  var S = {
+    view: 'signed-in',
+    name: 'Cesco',
+    username: 'cesco',
+    email: 'cesco@locked.app',
+    unit: 'kg',
+    dist: 'km',
+    weekStart: 'mon',
+    theme: 'dark',
+    restTimer: true,
+    restSec: 90,
+    partials: false,
+    plateKg: 2.5,
+    reminder: true,
+    reminderAt: '18:30',
+    checkin: 'evening',
+    body: { age: 29, sex: 'female', heightCm: 168, weightKg: 64.2, goal: 'build' },
+    sync: 'idle',          /* idle | busy | ok | failed */
+    syncedAt: '2 minutes ago',
+    sheet: null,
+    dialog: null,
+    toast: null
+  };
+
+  /* =============================================================
+     Formatting. One place converts, so a label can never disagree
+     with the number beside it.
+     ============================================================= */
+  var LB = 2.20462;
+  function round1(v) { return Math.round(v * 10) / 10; }
+  function wt(kgv) {
+    return S.unit === 'kg'
+      ? n(round1(kgv)) + ' kg'
+      : n(round1(kgv * LB)) + ' lb';
+  }
+  /* Plate steps are real hardware, not a conversion of one: a gym with
+     kilo plates jumps 2.5 kg, a gym with pound plates jumps 5 lb. The
+     pairs below are the equivalents actually racked, so switching the
+     unit picks the matching step rather than printing 5.5 lb. */
+  var PLATES = [[1.25, 2.5], [2.5, 5], [5, 10]];
+  function plate(kgv) {
+    if (S.unit === 'kg') return n(kgv) + ' kg';
+    for (var i = 0; i < PLATES.length; i++) if (PLATES[i][0] === kgv) return n(PLATES[i][1]) + ' lb';
+    return n(round1(kgv * LB)) + ' lb';
+  }
+  function height(cm) {
+    if (S.unit === 'kg') return n(cm) + ' cm';
+    var inches = Math.round(cm / 2.54);
+    return n(Math.floor(inches / 12)) + ' ft ' + n(inches % 12) + ' in';
+  }
+  function secs(v) {
+    return v < 60 ? n(v) + ' seconds' : n(v / 60) + (v === 60 ? ' minute' : ' minutes');
+  }
+  function clock(hhmm) {
+    var p = hhmm.split(':'), h = Number(p[0]), suffix = h < 12 ? 'AM' : 'PM';
+    var h12 = h % 12 === 0 ? 12 : h % 12;
+    return n(h12 + ':' + p[1]) + ' ' + suffix;
+  }
+  var SEX = { female: 'Female', male: 'Male' };
+  var GOAL = { cut: 'Lose fat', maintain: 'Maintain', build: 'Build muscle' };
+  var CHECKIN = { off: 'Off', morning: 'Morning', evening: 'Evening', both: 'Morning and evening' };
+
+  function bodyLine() {
+    var b = S.body;
+    return n(b.age) + ' &middot; ' + SEX[b.sex] + ' &middot; ' + height(b.heightCm) +
+           ' &middot; ' + wt(b.weightKg) + ' &middot; ' + GOAL[b.goal];
+  }
+
+  /* =============================================================
+     Choice sheets. Every one of them is a list of options with the
+     current value marked, opened from the row that shows that value.
+     One level deep, and one implementation.
+     ============================================================= */
+  function opts() {
+    return {
+      unit: {
+        title: 'Weight unit',
+        options: [
+          { v: 'kg', title: 'Kilograms', sub: 'Weights and body weight show as kg' },
+          { v: 'lb', title: 'Pounds', sub: 'Weights and body weight show as lb' }
+        ]
+      },
+      dist: {
+        title: 'Distance',
+        options: [
+          { v: 'km', title: 'Kilometres', sub: 'Runs, rides and walks show as km' },
+          { v: 'mi', title: 'Miles', sub: 'Runs, rides and walks show as mi' }
+        ]
+      },
+      weekStart: {
+        title: 'Week starts on',
+        options: [
+          { v: 'mon', title: 'Monday', sub: 'Your week on Home runs Monday to Sunday' },
+          { v: 'sun', title: 'Sunday', sub: 'Your week on Home runs Sunday to Saturday' }
+        ]
+      },
+      theme: {
+        title: 'Appearance',
+        options: [
+          { v: 'dark', title: 'Dark', sub: 'Built for a gym floor and a phone at arm’s length' },
+          { v: 'light', title: 'Light', sub: 'Higher brightness, for outdoors' }
+        ]
+      },
+      restSec: {
+        title: 'Rest between sets',
+        options: [60, 90, 120, 180].map(function (v) {
+          return { v: v, title: secs(v).replace(/<[^>]+>/g, ''), sub: '' };
+        })
+      },
+      plateKg: {
+        title: 'Round weights to',
+        options: PLATES.map(function (p) {
+          return {
+            v: p[0],
+            title: (S.unit === 'kg' ? p[0] + ' kg' : p[1] + ' lb'),
+            sub: S.unit === 'kg' ? 'Smallest pair of plates you have' : 'Smallest pair of plates you have'
+          };
+        })
+      },
+      reminderAt: {
+        title: 'Reminder time',
+        options: ['06:30', '12:00', '17:00', '18:30', '20:00'].map(function (v) {
+          return { v: v, title: clock(v).replace(/<[^>]+>/g, ''), sub: '' };
+        })
+      },
+      checkin: {
+        title: 'Daily check-in',
+        options: [
+          { v: 'off', title: 'Off', sub: 'No check-in' },
+          { v: 'morning', title: 'Morning', sub: 'Asks how you slept before you train' },
+          { v: 'evening', title: 'Evening', sub: 'Asks how the day went after you train' },
+          { v: 'both', title: 'Morning and evening', sub: 'Two check-ins a day' }
+        ]
+      }
+    };
+  }
+
+  /* =============================================================
+     Row builders
+     ============================================================= */
+  function navRow(key, title, value, testid) {
+    return '<button class="row" data-action="sheet" data-key="' + key + '" data-testid="' + testid + '">' +
+             '<span class="row__main">' +
+               '<span class="row__title">' + title + '</span>' +
+               '<span class="row__sub">' + value + '</span>' +
+             '</span>' +
+             '<span class="row__chev">' + ICO.chev + '</span>' +
+           '</button>';
+  }
+  function switchRow(key, title, sub, on, testid) {
+    return '<div class="row">' +
+             '<span class="row__main">' +
+               '<span class="row__title" id="lbl-' + key + '">' + title + '</span>' +
+               '<span class="row__sub">' + sub + '</span>' +
+             '</span>' +
+             '<button class="switch" role="switch" aria-checked="' + on + '" aria-labelledby="lbl-' + key + '" ' +
+               'data-action="toggle" data-key="' + key + '" data-testid="' + testid + '">' +
+               '<span class="switch__track"></span><span class="switch__knob"></span>' +
+             '</button>' +
+           '</div>';
+  }
+  function actionRow(action, title, sub, testid, danger) {
+    return '<button class="row' + (danger ? ' row--danger' : '') + '" data-action="' + action + '" data-testid="' + testid + '">' +
+             '<span class="row__main">' +
+               '<span class="row__title">' + title + '</span>' +
+               '<span class="row__sub">' + sub + '</span>' +
+             '</span>' +
+             (danger ? '' : '<span class="row__chev">' + ICO.chev + '</span>') +
+           '</button>';
+  }
+  function group(label, cards) {
+    return '<section class="section">' +
+             '<div class="section__head"><h2 class="t-label">' + label + '</h2></div>' +
+             cards +
+           '</section>';
+  }
+
+  /* =============================================================
+     1. Account
+     ============================================================= */
+  function identityRow() {
+    return '<button class="row" data-action="sheet" data-key="profile" data-testid="row-identity">' +
+             '<span class="hdr__initial" aria-hidden="true">' + esc(S.name.charAt(0)) + '</span>' +
+             '<span class="row__main">' +
+               '<span class="row__title">' + esc(S.name) + '</span>' +
+               '<span class="row__sub truncate">@' + esc(S.username) + ' &middot; ' + esc(S.email) + '</span>' +
+             '</span>' +
+             '<span class="row__chev">' + ICO.chev + '</span>' +
+           '</button>';
+  }
+  function bodyRow() {
+    return navRow('body', 'Body and goal', bodyLine(), 'row-body');
+  }
+
+  /* The one network action on this screen. Every state it can be in is
+     printed, including the one the old build could not show. */
+  function syncRow() {
+    var sub, btn;
+    if (S.sync === 'busy') {
+      sub = 'Checking for changes';
+      btn = '<button class="btn btn--sm btn--secondary" aria-busy="true" disabled data-testid="sync-now">' +
+              '<span class="spinner"></span><span class="btn__label">Syncing</span></button>';
+    } else if (S.sync === 'failed') {
+      /* FAIL CLOSED. A failure says it failed and offers the retry. It
+         never renders the success line. */
+      sub = '<span class="t-detail" style="color: var(--error)">Could not reach LOCKED. Nothing was sent.</span>';
+      btn = '<button class="btn btn--sm btn--secondary" data-action="sync" data-testid="sync-now">' +
+              '<span class="btn__label">Try again</span></button>';
+    } else {
+      sub = S.sync === 'ok' ? 'Synced just now' : 'Synced ' + S.syncedAt;
+      btn = '<button class="btn btn--sm btn--secondary" data-action="sync" data-testid="sync-now">' +
+              '<span class="btn__label">Sync now</span></button>';
+    }
+    return '<div class="row row--static">' +
+             '<span class="row__main">' +
+               '<span class="row__title">Sync</span>' +
+               '<span class="row__sub">' + sub + '</span>' +
+             '</span>' + btn +
+           '</div>';
+  }
+
+  function accountSection() {
+    var card;
+    if (S.view === 'signed-in') {
+      card = '<div class="card card--flush">' + identityRow() + bodyRow() + syncRow() + '</div>';
+    } else if (S.view === 'guest') {
+      card = '<div class="card card--flush">' +
+               '<div class="row row--static">' +
+                 '<span class="ico-well">' + ICO.person + '</span>' +
+                 '<span class="row__main">' +
+                   '<span class="row__title">Guest</span>' +
+                   '<span class="row__sub">Everything is saved on this phone only.</span>' +
+                 '</span>' +
+               '</div>' +
+               bodyRow() +
+               '<div class="card__foot stack stack--2">' +
+                 '<button class="btn btn--primary btn--block" data-action="create-account" data-testid="create-account">' +
+                   '<span class="btn__label">Create an account</span></button>' +
+                 '<p class="t-detail">Keeps your history if you lose this phone, and lets the coach read it on another one.</p>' +
+                 '<button class="btn btn--tertiary btn--block" data-action="sign-in" data-testid="sign-in">' +
+                   '<span class="btn__label">I already have an account</span></button>' +
+               '</div>' +
+             '</div>';
+    } else if (S.view === 'signed-out') {
+      card = '<div class="card card--flush">' +
+               '<div class="row row--static">' +
+                 '<span class="ico-well">' + ICO.cloud + '</span>' +
+                 '<span class="row__main">' +
+                   '<span class="row__title">Not signed in</span>' +
+                   '<span class="row__sub">Your settings and history are still on this phone.</span>' +
+                 '</span>' +
+               '</div>' +
+               bodyRow() +
+               '<div class="card__foot stack stack--2">' +
+                 '<button class="btn btn--primary btn--block" data-action="sign-in" data-testid="sign-in">' +
+                   '<span class="btn__label">Sign in</span></button>' +
+                 '<button class="btn btn--tertiary btn--block" data-action="create-account" data-testid="create-account">' +
+                   '<span class="btn__label">Create an account</span></button>' +
+               '</div>' +
+             '</div>';
+    } else if (S.view === 'loading') {
+      card = '<div class="card" role="status" aria-busy="true" aria-label="Loading your account">' +
+               '<div class="hstack hstack--3">' +
+                 '<div class="skel" style="width: 32px; height: 32px; border-radius: var(--r-full)"></div>' +
+                 '<div class="grow stack stack--2">' +
+                   '<div class="skel" style="height: var(--sp-4); width: 40%"></div>' +
+                   '<div class="skel" style="height: var(--sp-3); width: 70%"></div>' +
+                 '</div>' +
+               '</div>' +
+               '<div class="skel mt-4" style="height: var(--sp-4); width: 55%"></div>' +
+             '</div>';
+    } else {
+      /* Account unreachable. The preferences below are read from this
+         phone, so they are shown, unchanged, and still work. */
+      var busy = S.sync === 'busy';
+      card = '<div class="card">' +
+               '<div class="banner banner--error" role="alert">' + ICO.alert +
+                 '<span><strong>Can’t reach your account</strong>' +
+                 'Your settings on this phone are unchanged. Nothing has synced since 2:14 PM.</span>' +
+               '</div>' +
+               '<button class="btn btn--primary btn--block mt-4" data-action="sync" data-testid="retry-account"' +
+                 (busy ? ' aria-busy="true" disabled' : '') + '>' +
+                 (busy ? '<span class="spinner"></span>' : '') +
+                 '<span class="btn__label">' + (busy ? 'Trying' : 'Try again') + '</span></button>' +
+             '</div>' +
+             '<div class="card card--flush">' + bodyRow() + '</div>';
+    }
+    return group('Account', card);
+  }
+
+  /* =============================================================
+     2-4. Preferences. Read from this phone, so they render in every
+     state, including the two the account cannot survive.
+     ============================================================= */
+  function displaySection() {
+    return group('Units and display',
+      '<div class="card card--flush">' +
+        navRow('unit', 'Weight unit', S.unit === 'kg' ? 'Kilograms (kg)' : 'Pounds (lb)', 'row-weight-unit') +
+        navRow('dist', 'Distance', S.dist === 'km' ? 'Kilometres (km)' : 'Miles (mi)', 'row-distance-unit') +
+        navRow('weekStart', 'Week starts on', S.weekStart === 'mon' ? 'Monday' : 'Sunday', 'row-week-start') +
+        navRow('theme', 'Appearance', S.theme === 'dark' ? 'Dark' : 'Light', 'row-appearance') +
+      '</div>');
+  }
+
+  function trainingSection() {
+    return group('Training',
+      '<div class="card card--flush">' +
+        switchRow('restTimer', 'Rest timer',
+          S.restTimer ? 'Starts when you finish a set' : 'Off', S.restTimer, 'switch-rest-timer') +
+        navRow('restSec', 'Rest between sets', secs(S.restSec), 'row-rest-length') +
+        switchRow('partials', 'Count partial reps',
+          S.partials ? 'Half reps count towards the set' : 'Only full reps count', S.partials, 'switch-partial-reps') +
+        navRow('plateKg', 'Round weights to', plate(S.plateKg), 'row-plate-rounding') +
+      '</div>');
+  }
+
+  function remindersSection() {
+    return group('Reminders',
+      '<div class="card card--flush">' +
+        switchRow('reminder', 'Workout reminder',
+          S.reminder ? 'On training days only' : 'Off', S.reminder, 'switch-workout-reminder') +
+        navRow('reminderAt', 'Reminder time', clock(S.reminderAt), 'row-reminder-time') +
+        navRow('checkin', 'Daily check-in', CHECKIN[S.checkin], 'row-checkin') +
+      '</div>');
+  }
+
+  /* =============================================================
+     5. Data and account. One-time and destructive actions, last,
+     each behind a confirmation that names what it costs.
+     ============================================================= */
+  function dataSection() {
+    var storage =
+      '<div class="row row--static">' +
+        '<span class="row__main">' +
+          '<span class="row__title">Storage used</span>' +
+          '<span class="row__sub">' + n('1.2') + ' MB of ' + n('5.0') + ' MB on this phone</span>' +
+          '<span class="meter meter--quiet mt-2"><span class="meter__fill" style="width: 24%"></span></span>' +
+        '</span>' +
+      '</div>';
+
+    var files =
+      '<div class="card card--flush">' + storage +
+        actionRow('export', 'Export a backup', 'One file with every workout, split and record', 'row-export') +
+        actionRow('confirm-restore', 'Restore from a backup', 'Replaces what is on this phone', 'row-restore') +
+      '</div>';
+
+    var danger = '<div class="card card--flush">';
+    if (S.view === 'signed-in') {
+      danger += actionRow('confirm-sign-out', 'Sign out', 'Keeps your data on this phone', 'row-sign-out', true);
+    }
+    danger += actionRow('confirm-reset', 'Erase everything on this phone',
+      'Workouts, splits and records. Cannot be undone', 'row-reset', true);
+    if (S.view === 'signed-in') {
+      danger += actionRow('confirm-delete', 'Delete your account',
+        'Removes your account and everything in it', 'row-delete', true);
+    }
+    danger += '</div>';
+
+    return group('Data and account', files + danger);
+  }
+
+  function screenHTML() {
+    return accountSection() + displaySection() + trainingSection() + remindersSection() + dataSection();
+  }
+
+  /* =============================================================
+     Sheets
+     ============================================================= */
+  function sheetShell(title, inner, testid) {
+    return '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
+           '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" data-testid="' + testid + '">' +
+             '<div class="sheet__grab"></div>' +
+             '<div class="sheet__head">' +
+               '<h2 class="t-section" id="sheet-title">' + title + '</h2>' +
+               '<button class="iconbtn" data-action="close-sheet" data-testid="sheet-close" aria-label="Close">' +
+                 ICO.close + '</button>' +
+             '</div>' + inner +
+           '</div>';
+  }
+
+  function optionSheet(key) {
+    var spec = opts()[key];
+    var list = spec.options.map(function (o) {
+      var on = String(S[key]) === String(o.v);
+      return '<button class="opt" role="radio" aria-checked="' + on + '" data-action="pick" data-key="' + key +
+               '" data-value="' + esc(o.v) + '" data-testid="opt-' + key + '-' + esc(o.v) + '">' +
+               '<span class="opt__mark">' + (on ? ICO.check : '') + '</span>' +
+               '<span class="opt__main">' +
+                 '<span class="opt__title">' + o.title + '</span>' +
+                 (o.sub ? '<span class="opt__sub">' + o.sub + '</span>' : '') +
+               '</span>' +
+             '</button>';
+    }).join('');
+    return sheetShell(spec.title,
+      '<div class="sheet__body card card--flush" role="radiogroup" aria-labelledby="sheet-title">' + list + '</div>',
+      'sheet-' + key);
+  }
+
+  function profileSheet() {
+    return sheetShell('Your name',
+      '<div class="sheet__body">' +
+        '<label class="field">' +
+          '<span class="field__label t-detail">Display name</span>' +
+          '<input class="input" id="f-name" value="' + esc(S.name) + '" data-testid="field-name" autocomplete="off">' +
+        '</label>' +
+        '<p class="field__help">@' + esc(S.username) + ' and ' + esc(S.email) + ' cannot be changed here.</p>' +
+      '</div>' +
+      '<div class="sheet__foot stack stack--2">' +
+        '<button class="btn btn--secondary btn--block" data-action="save-name" data-testid="save-name">' +
+          '<span class="btn__label">Save</span></button>' +
+      '</div>', 'sheet-profile');
+  }
+
+  /* The body sheet is where defect 3 is visible: every number in it is
+     derived from the stored kilogram value, so the unit row above and
+     this field can never disagree. */
+  function bodySheet() {
+    function segField(key, label, map, testid) {
+      var items = Object.keys(map).map(function (v) {
+        return '<button class="seg__item" role="radio" aria-checked="' + (S.body[key] === v) + '" ' +
+                 'data-action="body-set" data-key="' + key + '" data-value="' + v + '" ' +
+                 'data-testid="' + testid + '-' + v + '">' + map[v] + '</button>';
+      }).join('');
+      return '<div class="field">' +
+               '<span class="field__label t-detail">' + label + '</span>' +
+               '<div class="seg seg--lg" role="radiogroup" aria-label="' + label + '">' + items + '</div>' +
+             '</div>';
+    }
+    var b = S.body;
+    var weightVal = S.unit === 'kg' ? round1(b.weightKg) : round1(b.weightKg * LB);
+    var heightVal = S.unit === 'kg' ? b.heightCm : Math.round(b.heightCm / 2.54);
+    return sheetShell('Body and goal',
+      '<div class="sheet__body stack stack--4">' +
+        '<label class="field">' +
+          '<span class="field__label t-detail">Age</span>' +
+          '<input class="input num" id="f-age" inputmode="numeric" value="' + b.age + '" data-testid="field-age">' +
+        '</label>' +
+        segField('sex', 'Sex', SEX, 'seg-sex') +
+        '<label class="field">' +
+          '<span class="field__label t-detail">Height in ' + (S.unit === 'kg' ? 'centimetres' : 'inches') + '</span>' +
+          '<input class="input num" id="f-height" inputmode="decimal" value="' + heightVal + '" data-testid="field-height">' +
+        '</label>' +
+        '<label class="field">' +
+          '<span class="field__label t-detail">Body weight in ' + (S.unit === 'kg' ? 'kilograms' : 'pounds') + '</span>' +
+          '<input class="input num" id="f-weight" inputmode="decimal" value="' + weightVal + '" data-testid="field-weight">' +
+        '</label>' +
+        '<p class="field__help">Switching the weight unit converts this figure. It does not relabel it.</p>' +
+        segField('goal', 'Goal', GOAL, 'seg-goal') +
+      '</div>' +
+      '<div class="sheet__foot stack stack--2">' +
+        '<button class="btn btn--secondary btn--block" data-action="save-body" data-testid="save-body">' +
+          '<span class="btn__label">Save</span></button>' +
+      '</div>', 'sheet-body');
+  }
+
+  /* =============================================================
+     Confirmations. Every destructive or one-time action names the
+     consequence before it happens, and the safe choice is the one
+     that reads normally.
+     ============================================================= */
+  var CONFIRM = {
+    'sign-out': {
+      title: 'Sign out?',
+      body: 'Your workouts stay on this phone. You will need your password to sync again.',
+      go: 'Sign out', danger: false, done: 'Signed out.', to: 'signed-out'
+    },
+    'reset': {
+      title: 'Erase everything on this phone?',
+      body: 'Every workout, split and record on this phone is deleted. This cannot be undone.',
+      go: 'Erase everything', danger: true, done: 'Everything on this phone was erased.'
+    },
+    'delete': {
+      title: 'Delete your account?',
+      body: 'Your account and everything in it is deleted from LOCKED. This cannot be undone.',
+      go: 'Delete account', danger: true, done: 'Account deleted.', to: 'guest'
+    },
+    'restore': {
+      title: 'Restore from a backup?',
+      body: 'What is on this phone is replaced by the backup file you choose.',
+      go: 'Choose a file', danger: false, done: 'Nothing was replaced. No file was chosen.'
+    }
+  };
+
+  function dialogHTML(id) {
+    var c = CONFIRM[id];
+    return '<div class="scrim" data-action="close-dialog" data-testid="scrim"></div>' +
+           '<div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dlg-title" ' +
+             'aria-describedby="dlg-body" data-testid="dialog-' + id + '">' +
+             '<h2 class="t-section" id="dlg-title">' + c.title + '</h2>' +
+             '<p class="t-detail mt-2" id="dlg-body">' + c.body + '</p>' +
+             '<div class="stack stack--2 mt-5">' +
+               '<button class="btn ' + (c.danger ? 'btn--danger-solid' : 'btn--secondary') + ' btn--block" ' +
+                 'data-action="confirm" data-id="' + id + '" data-testid="confirm-' + id + '">' +
+                 '<span class="btn__label">' + c.go + '</span></button>' +
+               '<button class="btn btn--tertiary btn--block" data-action="close-dialog" data-testid="cancel-' + id + '">' +
+                 '<span class="btn__label">Cancel</span></button>' +
+             '</div>' +
+           '</div>';
+  }
+
+  function toastHTML() {
+    return '<div class="toast toast--nonav" data-testid="toast">' +
+             '<span class="toast__body">' + S.toast + '</span>' +
+             '<button class="toast__action" data-action="close-toast" data-testid="toast-dismiss">Done</button>' +
+           '</div>';
+  }
+
+  /* =============================================================
+     Render
+     ============================================================= */
+  var body = document.getElementById('body');
+  var overlay = document.getElementById('overlay');
+  var screen = document.getElementById('screen');
+  var live = document.getElementById('live');
+  var lastFocus = null;
+
+  function render() {
+    screen.setAttribute('data-state', S.view);
+    document.documentElement.setAttribute('data-theme', S.theme);
+    body.innerHTML = screenHTML();
+
+    var ov = '';
+    if (S.sheet === 'profile') ov = profileSheet();
+    else if (S.sheet === 'body') ov = bodySheet();
+    else if (S.sheet) ov = optionSheet(S.sheet);
+    else if (S.dialog) ov = dialogHTML(S.dialog);
+    if (S.toast) ov += toastHTML();
+    overlay.innerHTML = ov;
+
+    Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.state === S.view));
+    });
+
+    if (S.sheet || S.dialog) {
+      var f = overlay.querySelector('[data-testid="sheet-close"]') ||
+              overlay.querySelector('.dialog button');
+      if (f) f.focus();
+    }
+  }
+
+  function say(msg) { live.textContent = msg; }
+
+  function openOverlay(kind, id) {
+    lastFocus = document.activeElement;
+    if (kind === 'sheet') { S.sheet = id; S.dialog = null; }
+    else { S.dialog = id; S.sheet = null; }
+    render();
+  }
+  function closeOverlay(testid) {
+    S.sheet = null; S.dialog = null;
+    render();
+    var back = testid && document.querySelector('[data-testid="' + testid + '"]');
+    if (back) back.focus();
+    else if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
+    lastFocus = null;
+  }
+
+  var toastTimer = null;
+  function toast(msg) {
+    S.toast = msg;
+    say(msg.replace(/<[^>]+>/g, ''));
+    render();
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { S.toast = null; render(); }, 5000);
+  }
+
+  /* -------------------------------------------------------------
+     The one network action. It has a busy state, it disables its
+     own control while it runs, and its failure path can only report
+     failure. Nothing about the result is assumed before it arrives.
+     ------------------------------------------------------------- */
+  var syncTimer = null;
+  function syncNow() {
+    if (S.sync === 'busy') return;
+    S.sync = 'busy';
+    render();
+    say('Syncing');
+    var willFail = S.view === 'error';       /* dev state: Account unreachable */
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(function () {
+      if (willFail) {
+        /* FAIL CLOSED. The old build's catch called onResult(true) and
+           rendered the verified panel; a dropped connection granted
+           access. A failure here reports a failure and offers the retry,
+           and it is the only branch that can be reached on failure. */
+        S.sync = 'failed';
+        render();
+        say('Sync failed. Nothing was sent.');
+      } else {
+        S.sync = 'ok';
+        render();
+        toast('Everything is up to date.');
+      }
+    }, 1200);
+  }
+
+  /* =============================================================
+     Events
+     ============================================================= */
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-action]');
+    if (!t) return;
+    var a = t.dataset.action;
+
+    if (a === 'sheet') {
+      openOverlay('sheet', t.dataset.key);
+
+    } else if (a === 'close-sheet') {
+      var key = S.sheet;
+      closeOverlay(key === 'profile' ? 'row-identity' : key === 'body' ? 'row-body' : rowFor(key));
+
+    } else if (a === 'toggle') {
+      var k = t.dataset.key;
+      S[k] = !S[k];
+      render();
+      var el = document.querySelector('[data-testid="' + t.dataset.testid + '"]');
+      if (el) el.focus();
+      say((k === 'restTimer' ? 'Rest timer ' : k === 'partials' ? 'Count partial reps ' : 'Workout reminder ') +
+          (S[k] ? 'on' : 'off'));
+
+    } else if (a === 'pick') {
+      var key2 = t.dataset.key, raw = t.dataset.value;
+      var before = { weightKg: S.body.weightKg, unit: S.unit };
+      S[key2] = (key2 === 'restSec' || key2 === 'plateKg') ? Number(raw) : raw;
+      S.sheet = null;
+      render();
+      var back2 = document.querySelector('[data-testid="' + rowFor(key2) + '"]');
+      if (back2) back2.focus();
+      /* A unit change confirms itself with both numbers, so the person
+         can see the value was converted rather than relabelled. */
+      if (key2 === 'unit' && before.unit !== S.unit) {
+        toast(S.unit === 'lb'
+          ? 'Weights now show in pounds. Your body weight, ' + round1(before.weightKg) +
+            ' kg, is ' + round1(before.weightKg * LB) + ' lb.'
+          : 'Weights now show in kilograms. Your body weight, ' + round1(before.weightKg * LB) +
+            ' lb, is ' + round1(before.weightKg) + ' kg.');
+      }
+
+    } else if (a === 'body-set') {
+      S.body[t.dataset.key] = t.dataset.value;
+      render();
+      var b2 = document.querySelector('[data-testid="' + t.dataset.testid + '"]');
+      if (b2) b2.focus();
+
+    } else if (a === 'save-name') {
+      var nv = (document.getElementById('f-name') || {}).value;
+      if (nv && nv.trim()) S.name = nv.trim();
+      closeOverlay('row-identity');
+      toast('Name saved.');
+
+    } else if (a === 'save-body') {
+      var age = Number((document.getElementById('f-age') || {}).value);
+      var hv = Number((document.getElementById('f-height') || {}).value);
+      var wv = Number((document.getElementById('f-weight') || {}).value);
+      if (age > 0) S.body.age = Math.round(age);
+      /* Read back into the stored unit, never into the displayed one. */
+      if (hv > 0) S.body.heightCm = S.unit === 'kg' ? Math.round(hv) : Math.round(hv * 2.54);
+      if (wv > 0) S.body.weightKg = S.unit === 'kg' ? round1(wv) : round1(wv / LB);
+      closeOverlay('row-body');
+      toast('Body and goal saved.');
+
+    } else if (a === 'sync') {
+      syncNow();
+
+    } else if (a === 'export') {
+      toast('Backup ready. LOCKED-backup-2026-09-09.json');
+
+    } else if (a === 'create-account' || a === 'sign-in') {
+      toast(a === 'sign-in' ? 'Sign in opens next.' : 'Account setup opens next.');
+
+    } else if (a.indexOf('confirm-') === 0 && a !== 'confirm') {
+      openOverlay('dialog', a.slice(8));
+
+    } else if (a === 'confirm') {
+      var c = CONFIRM[t.dataset.id];
+      if (c.to) S.view = c.to;
+      if (t.dataset.id === 'reset') { S.sync = 'idle'; }
+      closeOverlay();
+      toast(c.done);
+
+    } else if (a === 'close-dialog') {
+      var d = S.dialog;
+      closeOverlay(d === 'sign-out' ? 'row-sign-out' : d === 'reset' ? 'row-reset' :
+                   d === 'delete' ? 'row-delete' : 'row-restore');
+
+    } else if (a === 'close-toast') {
+      clearTimeout(toastTimer);
+      S.toast = null;
+      render();
+    }
+  });
+
+  function rowFor(key) {
+    return {
+      unit: 'row-weight-unit', dist: 'row-distance-unit', weekStart: 'row-week-start',
+      theme: 'row-appearance', restSec: 'row-rest-length', plateKg: 'row-plate-rounding',
+      reminderAt: 'row-reminder-time', checkin: 'row-checkin',
+      profile: 'row-identity', body: 'row-body'
+    }[key] || 'back';
+  }
+
+  /* Keyboard: Escape closes, Tab is trapped inside an open overlay. */
+  document.addEventListener('keydown', function (e) {
+    var open = S.sheet || S.dialog;
+    if (e.key === 'Escape' && open) {
+      e.preventDefault();
+      closeOverlay(S.sheet ? rowFor(S.sheet) : null);
+      return;
+    }
+    if (e.key !== 'Tab' || !open) return;
+    var f = overlay.querySelectorAll('button, input');
+    if (!f.length) return;
+    var first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    else if (!overlay.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+  });
+
+  /* =============================================================
+     Dev state toggle
+     ============================================================= */
+  var STATES = [
+    ['signed-in', 'Signed in'],
+    ['guest', 'Guest'],
+    ['signed-out', 'Signed out'],
+    ['loading', 'Loading'],
+    ['error', 'Account unreachable']
+  ];
+  var menu = document.getElementById('dev-menu');
+  var toggle = document.getElementById('dev-toggle');
+  menu.innerHTML = STATES.map(function (s) {
+    return '<button class="dev__item" data-state="' + s[0] + '" aria-pressed="false" data-testid="dev-state-' + s[0] + '">' +
+             s[1] + '</button>';
+  }).join('');
+  toggle.addEventListener('click', function () {
+    var open = toggle.getAttribute('aria-expanded') === 'true';
+    toggle.setAttribute('aria-expanded', String(!open));
+    menu.hidden = open;
+  });
+  menu.addEventListener('click', function (e) {
+    var b = e.target.closest('.dev__item');
+    if (!b) return;
+    S.view = b.dataset.state;
+    S.sheet = null; S.dialog = null; S.toast = null;
+    S.sync = b.dataset.state === 'error' ? 'failed' : 'idle';
+    clearTimeout(syncTimer);
+    render();
+  });
+
+  var q = new URLSearchParams(location.search);
+  var want = q.get('state');
+  if (want && STATES.some(function (s) { return s[0] === want; })) {
+    S.view = want;
+    if (want === 'error') S.sync = 'failed';
+  }
+  render();
+})();
+</script>
+</body>
+</html>

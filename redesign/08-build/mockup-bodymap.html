@@ -12,9 +12,16 @@
    Every value is a token except the SVG geometry itself, and the
    anatomy palette, which lives in tokens.css as documented data.
 
-   The figure is drawn as an anatomy chart: real muscle outlines in
-   bezier curves, fibre striations following each muscle's true fibre
-   direction, and labels in a column down each side on leader lines.
+   The figure is an anatomy chart, not a silhouette with patches on
+   it: a developed athletic build, every muscle a separate body with
+   a dark seam between it and its neighbour, a lit face and a shaded
+   face so each belly reads round, and fibre striations following the
+   real fibre direction of the muscle they sit in.
+
+   The twelve groups are LOCKED's own groups, taken from the exercise
+   database, so a group tapped on the body lists exactly what that
+   group holds. Five of them hold sub-regions and open into them;
+   the other seven go straight to their exercises.
    --------------------------------------------------------------- */
 
 .map {
@@ -42,98 +49,81 @@
 .view { transition: opacity var(--dur-slow) var(--ease), transform var(--dur-slow) var(--ease); }
 .view[data-hidden="true"] { opacity: 0; transform: scaleX(0.1); pointer-events: none; }
 
-.silhouette { fill: var(--anat-silhouette); }
-/* The inert body carries one hairline so the figure has an edge in
-   dark mode without any hue of its own. */
-.silhouette path { stroke: var(--anat-edge); stroke-width: 1; vector-effect: non-scaling-stroke; }
+/* The inert body: head, neck, limbs and trunk that carry no muscle,
+   plus the shorts. No hue, no meaning. */
+.sil { fill: var(--anat-silhouette); }
+.sil-line { fill: none; stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.75; }
+.shorts { fill: var(--anat-shorts); }
 
-/* A muscle group. Fill is set per group from the anatomy palette.
-   Saturation lifts on select and falls on the rest in 150ms; nothing
-   moves, because movement would mean more than a selection. */
+/* A muscle group. Every muscle is drawn twice: a dark ground in the
+   group's shade step, then the same path in the group's hue offset
+   1.3 units up and left and clipped back to the ground. What is left
+   of the ground is a rim on the lower right — one consistent light
+   direction — and, where two muscles touch, the two rims meet and
+   read as the seam between them. */
 .mg { cursor: pointer; }
-.mg__shape {
-  transition: fill var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease);
-}
+.mg__lit, .mg__gnd, .fib { transition: fill var(--dur-fast) var(--ease), stroke var(--dur-fast) var(--ease); }
 .mg .hit { fill: transparent; }
-.map[data-selected] .mg:not([data-on]) .mg__shape { fill: var(--anat-muted); }
-
-.mg--chest .mg__shape { fill: var(--anat-chest); }
-.mg--shoulders .mg__shape { fill: var(--anat-shoulders); }
-.mg--back .mg__shape { fill: var(--anat-back); }
-.mg--arms .mg__shape { fill: var(--anat-arms); }
-.mg--core .mg__shape { fill: var(--anat-core); }
-.mg--legs .mg__shape { fill: var(--anat-legs); }
-
-/* Fibre striations. Fine lines inside each muscle, following its own
-   fibre direction, drawn in a darker step of that muscle's own hue.
-   The darker step is derived from the group token, so the anatomy
-   palette stays the single source for body colour. */
-.fib { fill: none; stroke-width: 1; vector-effect: non-scaling-stroke; stroke-linecap: round; opacity: 0.5; }
-.mg--chest .fib     { stroke: color-mix(in srgb, var(--anat-chest) 45%, #000); }
-.mg--shoulders .fib { stroke: color-mix(in srgb, var(--anat-shoulders) 45%, #000); }
-.mg--back .fib      { stroke: color-mix(in srgb, var(--anat-back) 45%, #000); }
-.mg--arms .fib      { stroke: color-mix(in srgb, var(--anat-arms) 45%, #000); }
-.mg--core .fib      { stroke: color-mix(in srgb, var(--anat-core) 45%, #000); }
-.mg--legs .fib      { stroke: color-mix(in srgb, var(--anat-legs) 45%, #000); }
+.fib { fill: none; stroke-width: 1; vector-effect: non-scaling-stroke; stroke-linecap: round; opacity: 0.55; }
+</style>
+<style id="hues">
+/* One block per group, generated from the anatomy palette: the hue
+   for the lit face, a 45% mix of the hue into black for the ground,
+   the seam and the striations. */
+</style>
+<style>
+/* Deselected: the group falls to the neutral muted grey, so the
+   selected group is the only colour on the body. */
+.map[data-selected] .mg:not([data-on]) .mg__lit { fill: var(--anat-muted); }
+.map[data-selected] .mg:not([data-on]) .mg__gnd { fill: color-mix(in srgb, var(--anat-muted) 45%, #000); }
 .map[data-selected] .mg:not([data-on]) .fib { stroke: color-mix(in srgb, var(--anat-muted) 45%, #000); }
 
 /* Sub-regions: the same hue, three steps, so parts read as a family.
-   The three bands together are the pec fan, so the muscle is never a
-   different shape once it opens. */
-.pec[data-part="upper"] { fill: var(--anat-chest-1); }
-.pec[data-part="mid"]   { fill: var(--anat-chest-2); }
-.pec[data-part="lower"] { fill: var(--anat-chest-3); }
-.map:not([data-zoom]):not([data-part]) .pec { fill: var(--anat-chest); }
-.map[data-selected]:not([data-zoom]) .mg--chest:not([data-on]) .pec { fill: var(--anat-muted); }
-.map[data-part="upper"] .pec:not([data-part="upper"]) { fill: var(--anat-muted); }
-.pec { transition: fill var(--dur-slow) var(--ease), opacity var(--dur-slow) var(--ease); }
-
-/* Parts separate in sequence once the zoom settles: the single pec
-   becomes three tints, upper first, so the eye is led to them. */
-.pec[data-part="mid"] { transition-delay: 100ms; }
-.pec[data-part="lower"] { transition-delay: 200ms; }
+   The three bands together are the pec fan, so the muscle never
+   changes shape when it opens. */
+.pec[data-part="upper"] .mg__lit { fill: var(--anat-chest-1); }
+.pec[data-part="mid"] .mg__lit   { fill: var(--anat-chest-2); }
+.pec[data-part="lower"] .mg__lit { fill: var(--anat-chest-3); }
+.map:not([data-zoom]):not([data-part]) .pec .mg__lit { fill: var(--anat-chest); }
+.map[data-selected]:not([data-zoom]) .mg--chest:not([data-on]) .pec .mg__lit { fill: var(--anat-muted); }
+.map[data-part="upper"] .pec:not([data-part="upper"]) .mg__lit { fill: var(--anat-muted); }
+.pec .mg__lit { transition: fill var(--dur-slow) var(--ease); }
+.pec[data-part="mid"] .mg__lit { transition-delay: 100ms; }
+.pec[data-part="lower"] .mg__lit { transition-delay: 200ms; }
 .map[data-zoom] .mg:not(.mg--chest) { opacity: 0; pointer-events: none; }
+.map[data-zoom] .sil, .map[data-zoom] .shorts, .map[data-zoom] .sil-line { opacity: 0.55; }
 
 /* Focus follows the shape, in text white. The accent is never spent
    on the body. */
 .mg:focus-visible, .part:focus-visible { outline: none; }
-.mg:focus-visible .mg__shape,
-.part:focus-visible .pec {
+.mg:focus-visible .mg__gnd,
+.part:focus-visible .mg__gnd {
   stroke: var(--text);
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
 }
 
-/* Labels. The reference convention: a short name in a clean column
-   down each side, a hairline leader to a dot on the muscle, set at
-   the 11px step of the type scale and never larger. JS sets the font
-   size in user units from the measured scale so the rendered size is
-   the token, not whatever the viewBox happens to magnify. */
-.lab { pointer-events: none; transition: opacity var(--dur-slow) var(--ease); }
-.lab__line { stroke: var(--anat-edge); stroke-width: 1; vector-effect: non-scaling-stroke; fill: none; }
-.lab__dot { stroke: none; }
+/* The label. One at a time, on selection, in the reference's
+   convention: a filled disc carrying a line pictogram, the group
+   name beside it, and a hairline leader to a dot on the muscle.
+   Twelve labels at once would be unreadable at 393px, so the map
+   names what the lifter has just chosen and nothing else. */
+.lab { opacity: 0; transition: opacity var(--dur-fast) var(--ease); pointer-events: none; }
+.map[data-selected]:not([data-zoom]) .lab[data-on] { opacity: 1; transition: opacity var(--dur-slow) var(--ease) 80ms; }
+.lab__line { fill: none; stroke: var(--text-tertiary); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.lab__dot { fill: var(--text-tertiary); }
+.lab__disc { fill: currentColor; }
+.lab__ico { fill: none; stroke: var(--bg); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .lab__t {
   font-family: inherit;
-  font-weight: var(--w-medium);
+  font-weight: var(--w-semibold);
   letter-spacing: var(--tr-11);
-  fill: var(--text-tertiary);
+  fill: var(--text);
   dominant-baseline: middle;
 }
-/* On selection the named muscles take their own hue and the rest
-   stay a muted neutral, so the column reads as an index. */
-.map[data-selected] .lab[data-on] .lab__t { fill: currentColor; font-weight: var(--w-semibold); }
-.map[data-selected] .lab:not([data-on]) { opacity: 0.45; }
-.lab--chest     { color: var(--anat-chest); }
-.lab--shoulders { color: var(--anat-shoulders); }
-.lab--back      { color: var(--anat-back); }
-.lab--arms      { color: var(--anat-arms); }
-.lab--core      { color: var(--anat-core); }
-.lab--legs      { color: var(--anat-legs); }
-.map[data-zoom] .labs, .map--strip .labs { opacity: 0; }
-.labs { transition: opacity var(--dur-fast) var(--ease); }
 
-/* The three part labels use the same convention as the body labels,
-   so nothing new is introduced by zooming in. */
+/* The three part labels reuse the same convention, so zooming in
+   introduces nothing new. */
 .zlabs { opacity: 0; transition: opacity var(--dur-slow) var(--ease); }
 .map[data-zoom] .zlabs { opacity: 1; transition-delay: var(--dur-slow); }
 .zlab__t { font-family: inherit; font-weight: var(--w-semibold); letter-spacing: var(--tr-11); fill: var(--text); dominant-baseline: middle; }
@@ -159,7 +149,6 @@
 }
 .pick[data-open="true"] { transform: translateY(0); }
 .pick__dot { width: var(--sp-3); height: var(--sp-3); border-radius: var(--r-full); flex: none; }
-.pick__dot--chest { background: var(--anat-chest); }
 
 .findbar { padding: var(--sp-2) var(--page-x) var(--sp-3); }
 .listhead { display: flex; align-items: baseline; justify-content: space-between; padding: var(--sp-4) var(--page-x) var(--sp-2); }
@@ -172,12 +161,12 @@
   BODY MAP — visual mockup for approval. Not a build.
 
   Four stages: the body, a group selected, the group zoomed into its
-  parts, and the parts' exercises. Front and back views.
+  sub-regions, and the sub-region's exercises. Front and back views.
 
   The body is data, so it carries the anatomy palette; every other
   surface stays monochrome and the accent orange marks the one primary
   action on screen. Set the stage with ?stage=body|selected|zoom|list
-  and the view with &view=front|back.
+  and the view with &view=front|back, and the group with &g=<id>.
 -->
 
 <div class="stage">
@@ -192,33 +181,30 @@
             <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" focusable="false"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
           </span>
           <label class="vis-hidden" for="q">Search exercises by name, muscle or equipment</label>
-          <input class="input" id="q" type="text" autocomplete="off" spellcheck="false" placeholder="Search 227 exercises">
+          <input class="input" id="q" type="text" autocomplete="off" spellcheck="false" placeholder="Search 225 exercises">
         </div>
       </div>
 
       <div class="map" id="map" data-testid="bodymap">
-        <svg class="map__svg" id="svg" viewBox="-40 2 280 414" preserveAspectRatio="xMidYMid meet" role="group" aria-label="Muscle map, front view">
+        <svg class="map__svg" id="svg" viewBox="-30 6 260 400" preserveAspectRatio="xMidYMid meet" role="group" aria-label="Muscle map, front view">
           <defs id="defs"></defs>
           <g class="cam" id="cam">
-
-            <!-- ================= FRONT ================= -->
             <g class="view" id="view-front">
-              <g class="silhouette" id="f-base"></g>
+              <g id="f-base"></g>
               <g id="f-groups"></g>
+              <g id="f-wear"></g>
             </g>
-
-            <!-- ================= BACK ================== -->
             <g class="view" id="view-back" data-hidden="true">
-              <g class="silhouette" id="b-base"></g>
+              <g id="b-base"></g>
               <g id="b-groups"></g>
+              <g id="b-wear"></g>
             </g>
-
           </g>
 
           <!-- Labels live outside the camera so zooming the body never
                scales the type. -->
-          <g class="labs" id="labs-front" aria-hidden="true"></g>
-          <g class="labs" id="labs-back" aria-hidden="true"></g>
+          <g id="labs-front" aria-hidden="true"></g>
+          <g id="labs-back" aria-hidden="true"></g>
           <g class="zlabs" id="zlabs" aria-hidden="true"></g>
         </svg>
 
@@ -243,269 +229,289 @@
   "use strict";
 
   /* ---------------------------------------------------------------
-     Geometry.
+     THE FIGURE
 
-     One figure, seven and a half heads tall: crown at y=14, chin 64,
-     nipple line 108, navel 176, crotch 214, knee 300, sole 398.
-     Centre line is x = 100; every muscle is drawn once for the right
+     Seven and a half heads: crown y=13, chin 64, nipple line 110,
+     navel 180, iliac crest 192, crotch 216, knee 302, sole 404.
+     Shoulders 114 units across against a 60-unit waist, so the
+     V-taper is in the silhouette before any muscle is drawn. The arms
+     hang clear of the ribs so the lat and the arm outline both read.
+
+     Centre line is x = 100. Every muscle is drawn once for the right
      half and placed twice inside one group — the shape and its mirror
      — so tapping either side selects the pair. A lifter never trains
      one pec.
-
-     Muscles carry fibre lines: `f` is a list of paths in the same
-     coordinate space, clipped to the muscle, stroked in a darker step
-     of the muscle's hue. They follow the real fibre direction and
-     converge where the muscle converges.
      --------------------------------------------------------------- */
 
-  var HEAD = 'M100 13 C110 13 118 20 119 32 C120 43 116 54 108 61 C105 63 102 64 100 64 Z';
-  var NECK = 'M100 58 C106 59 110 63 111 70 C112 76 108 79 100 80 Z';
-
-  /* Trunk, arm, forearm, hand, thigh, shank, foot: the inert body. */
-  var FRONT_BASE = [
-    HEAD, NECK,
-    /* trunk  */ 'M100 70 C111 70 121 74 129 82 C135 88 139 96 140 106 C139 118 135 128 133 140 C131 152 130 162 129 172 C129 183 131 193 136 202 C139 209 136 215 127 215 L100 215 Z',
-    /* upper arm */ 'M129 80 C141 82 152 92 153 107 C154 123 152 141 150 155 C149 165 148 173 147 179 C146 184 137 184 136 178 C135 168 134 154 133 140 C132 119 130 97 129 80 Z',
-    /* forearm */ 'M135 174 C146 172 154 180 157 193 C160 205 161 217 161 227 C161 233 152 234 151 228 C150 218 147 207 144 197 C141 187 137 179 135 174 Z',
-    /* hand   */ 'M152 227 C159 226 163 232 163 241 C163 250 159 257 154 257 C149 257 147 251 148 243 C149 236 150 231 152 227 Z',
-    /* thigh  */ 'M100 210 C113 206 127 207 135 212 C137 228 135 252 131 274 C128 290 127 297 126 303 C118 306 110 306 104 303 C104 289 103 271 101 253 C99 237 99 221 100 210 Z',
-    /* shank  */ 'M104 302 C111 300 119 300 126 302 C128 316 127 333 124 347 C122 359 119 369 118 377 C114 379 109 379 106 377 C105 367 104 353 103 339 C102 323 102 311 104 302 Z',
-    /* foot   */ 'M106 375 C112 374 117 377 118 383 C120 389 124 393 129 396 C132 398 131 402 125 402 L107 402 C104 402 103 397 104 389 Z'
+  var SIL = [
+    /* head  */ 'M100 13 C111 13 120 21 121 34 C122 46 117 57 108 62 C105 64 102 65 100 65 Z',
+    /* neck  */ 'M100 59 C107 60 112 65 113 72 C114 79 111 83 106 85 L100 86 Z',
+    /* trunk */ 'M100 72 C113 72 126 77 135 86 C141 92 145 100 145 111 C144 119 140 126 136 133 C133 143 131 153 130 163 C129 171 129 177 129 183 C129 193 132 203 137 211 C140 217 137 223 127 223 L100 223 Z',
+    /* arm   */ 'M127 78 C141 80 153 90 156 106 C158 122 156 141 154 155 C153 165 153 173 154 181 C157 193 161 207 162 219 C163 229 162 238 159 245 C162 251 161 261 156 263 C150 265 146 259 147 251 C148 243 148 237 147 231 C145 219 142 207 139 195 C137 187 136 181 136 175 C135 161 133 141 131 121 C129 105 127 88 127 78 Z',
+    /* thigh */ 'M100 214 C114 210 130 212 139 219 C142 235 140 259 136 281 C133 293 131 299 130 307 C120 311 110 311 103 307 C103 291 102 271 100 251 C99 235 99 222 100 214 Z',
+    /* shank */ 'M103 306 C111 303 121 303 129 306 C131 321 129 339 126 353 C124 365 121 373 120 381 C115 383 109 383 105 381 C104 371 103 357 102 343 C101 327 101 315 103 306 Z',
+    /* foot  */ 'M105 379 C112 378 118 381 119 387 C121 393 126 398 132 401 C136 403 135 407 128 407 L107 407 C103 407 102 401 103 392 Z'
   ];
 
-  var BACK_BASE = FRONT_BASE;
+  /* One garment, both views: cut high on the flank so the lower and
+     outer glute still reads on the back, low at the centre so the
+     front is covered. */
+  var SHORTS = 'M100 196 C113 194 127 198 135 206 C139 212 141 218 139 222 C128 229 114 234 100 234 Z';
 
-  /* ---------------- FRONT MUSCLES ----------------
-     Order matters: later groups win where hit areas overlap, so the
-     chest is declared after the shoulder and the arm. */
+  /* ---------------- FRONT ----------------
+     Order is draw order and also hit-test order, so a group declared
+     later wins where two hit rectangles overlap. Shoulders before
+     chest, so the outer third of the pec belongs to the pec. */
 
-  var FRONT_MG = [
-    /* Anterior deltoid — a rounded cap over the shoulder joint that
-       overlaps the pec's upper outer edge, fibres converging down to
-       the deltoid tuberosity. */
-    { g: 'shoulders', d: 'M125 79 C137 81 147 91 150 105 C152 115 150 124 146 128 C142 132 137 129 136 122 C134 110 130 92 125 79 Z',
-      f: ['M128 81 C131 97 134 112 139 126',
-          'M133 83 C135 99 138 113 142 127',
-          'M138 87 C141 102 143 115 145 126',
-          'M143 93 C146 105 147 116 147 124',
-          'M147 101 C149 110 150 118 149 123'] },
+  var FRONT = [
+    /* --- Shoulders: two bodies, front head and side head, with the
+       seam between them running down the middle of the cap. --- */
+    { g: 'shoulders', d: 'M125 80 C135 83 143 91 145 101 C146 110 144 117 141 120 C137 123 134 119 133 111 C131 99 128 87 125 80 Z',
+      f: ['M127 83 C131 97 135 110 140 119', 'M132 85 C135 98 138 110 142 119', 'M137 91 C139 102 141 112 143 119'] },
+    { g: 'shoulders', d: 'M138 83 C148 87 156 97 157 110 C158 120 155 128 150 129 C146 130 144 126 145 118 C147 105 144 92 138 83 Z',
+      f: ['M141 87 C145 100 148 113 149 127', 'M146 92 C150 104 152 116 151 127', 'M151 100 C154 110 155 119 153 126'] },
 
-    /* Biceps brachii — a spindle: thin at the shoulder, fullest a
-       third of the way down, tapering into the elbow. */
-    { g: 'arms', d: 'M137 103 C145 107 149 118 150 132 C151 147 149 161 146 172 C144 180 139 180 138 172 C136 157 135 138 135 121 C135 111 136 105 137 103 Z',
-      f: ['M138 108 C141 128 143 150 142 173',
-          'M141 110 C145 130 147 151 144 173',
-          'M144 116 C148 134 149 152 147 170',
-          'M136 114 C138 134 140 154 140 172'] },
+    /* --- Biceps: a spindle, thin at the shoulder, fullest a third of
+       the way down, tapering into the elbow. --- */
+    { g: 'biceps', d: 'M139 110 C147 114 151 126 152 141 C153 155 151 168 148 177 C146 183 141 183 140 176 C138 161 137 141 137 125 C137 116 138 111 139 110 Z',
+      f: ['M140 116 C143 138 145 160 144 178', 'M143 118 C147 140 148 161 146 177',
+          'M147 126 C150 145 150 162 148 175', 'M138 122 C139 144 141 163 142 178'] },
 
-    /* Forearm flexors — full just below the elbow, tapering to a
-       narrow wrist. */
-    { g: 'arms', d: 'M136 175 C147 174 154 182 157 194 C159 204 160 215 160 224 C160 229 154 230 153 225 C151 213 147 200 142 190 C139 184 136 178 136 175 Z',
-      f: ['M139 179 C146 191 152 205 156 222',
-          'M143 178 C150 190 155 203 158 219',
-          'M137 181 C143 194 148 208 152 224'] },
+    /* --- Forearms: the brachioradialis on the outside and the flexor
+       bulk inside it, both full below the elbow and both tapering to
+       a narrow wrist. --- */
+    { g: 'forearms', d: 'M147 180 C155 182 160 192 162 204 C164 214 164 226 163 233 C162 238 157 238 157 232 C156 218 153 202 148 190 C146 185 146 181 147 180 Z',
+      f: ['M149 184 C155 196 160 212 161 231', 'M152 183 C158 196 161 211 163 228', 'M147 187 C152 200 156 216 158 233'] },
+    { g: 'forearms', d: 'M138 179 C144 182 149 192 152 204 C154 214 155 224 154 231 C153 236 148 236 147 230 C146 216 142 200 137 188 C135 184 136 180 138 179 Z',
+      f: ['M139 184 C144 197 149 212 150 230', 'M142 183 C147 196 151 210 152 227', 'M137 187 C141 200 145 215 147 231'] },
 
-    /* Pectoralis major, in three bands. At rest the bands are one
-       hue and read as one fan: wide across the sternum, wider and
-       flatter at the clavicle, fuller below, all of it converging to
-       the armpit. */
+    /* --- Pectoralis major, in three bands. Wide across the sternum,
+       flatter at the clavicle, fuller below, every fibre converging
+       on the insertion at the armpit. At rest the three read as one
+       fan in one hue. --- */
     { g: 'chest', part: 'upper', cls: 'pec',
-      d: 'M101 77 C112 77 122 79 130 85 C134 89 136 95 135 101 C127 97 114 94 101 94 Z',
-      f: ['M102 79 C114 82 126 88 134 97',
-          'M102 85 C113 87 124 91 134 99',
-          'M102 91 C112 92 123 94 133 100'] },
+      d: 'M101 82 C113 81 124 84 132 90 C136 94 138 100 137 106 C128 101 114 97 101 97 Z',
+      f: ['M102 84 C115 87 127 93 136 102', 'M102 90 C114 92 125 96 136 104', 'M102 95 C113 96 124 99 135 105'] },
     { g: 'chest', part: 'mid', cls: 'pec',
-      d: 'M101 96 C114 96 128 100 135 104 C135 110 134 115 131 119 C122 113 111 110 101 110 Z',
-      f: ['M102 98 C113 99 125 102 134 107',
-          'M102 103 C112 104 123 107 133 112',
-          'M102 108 C111 109 121 112 130 117'] },
+      d: 'M101 99 C115 99 129 104 137 109 C137 116 136 121 133 126 C123 119 111 115 101 115 Z',
+      f: ['M102 101 C114 102 127 107 136 112', 'M102 106 C113 108 125 112 135 117', 'M102 111 C112 113 123 117 132 122'] },
     { g: 'chest', part: 'lower', cls: 'pec',
-      d: 'M101 112 C111 112 122 115 130 121 C126 128 116 134 101 135 Z',
-      f: ['M102 114 C111 116 121 119 129 124',
-          'M102 120 C110 121 118 124 126 128',
-          'M102 127 C109 128 115 129 122 131'] },
+      d: 'M101 117 C112 117 124 121 133 128 C129 137 117 143 101 144 Z',
+      f: ['M102 119 C112 121 122 125 131 131', 'M102 126 C111 128 119 132 128 135', 'M102 134 C110 135 117 138 124 140'] },
 
-    /* Rectus abdominis — a column split by the linea alba: three
-       pairs of segments above the navel, widest at the ribs, then an
-       unsegmented lower portion. Fibres run vertically. */
-    { g: 'core', d: 'M102 136 C109 135 116 138 119 143 C119 146 119 148 118 151 C112 148 106 148 102 148 Z',
-      f: ['M106 138 L106 148', 'M110 139 L110 148', 'M114 141 L114 149'] },
-    { g: 'core', d: 'M102 152 C109 151 115 154 118 158 C118 161 118 163 117 165 C111 162 106 162 102 162 Z',
-      f: ['M106 153 L106 162', 'M110 154 L110 163', 'M114 156 L114 164'] },
-    { g: 'core', d: 'M102 166 C108 165 114 168 116 172 C116 175 116 177 115 179 C110 176 105 176 102 176 Z',
-      f: ['M106 167 L106 176', 'M109 168 L109 177', 'M113 170 L113 178'] },
-    { g: 'core', d: 'M102 180 C108 179 113 182 115 186 C115 194 113 202 109 209 C106 213 102 213 102 208 Z',
-      f: ['M106 182 C106 192 105 201 104 209', 'M110 184 C110 193 109 200 107 207', 'M113 188 C113 195 112 200 111 204'] },
+    /* --- Abs: the rectus column split by the linea alba, three pairs
+       of segments above the navel widening toward the ribs, then the
+       unsegmented lower portion; the external oblique flanking it,
+       angling down and forward to the hip; and the serratus, four
+       finger-like slips along the ribs under the armpit. The serratus
+       is what makes the drawing read as anatomy. --- */
+    { g: 'abs', d: 'M102 147 C110 146 117 149 120 154 C120 157 120 159 119 161 C112 158 106 158 102 158 Z',
+      f: ['M106 148 L106 158', 'M110 149 L110 159', 'M114 151 L114 160'] },
+    { g: 'abs', d: 'M102 162 C109 161 116 164 118 169 C118 172 118 174 117 176 C111 173 106 173 102 173 Z',
+      f: ['M106 163 L106 173', 'M110 164 L110 174', 'M114 166 L114 175'] },
+    { g: 'abs', d: 'M102 177 C109 176 114 179 116 184 C116 187 116 189 115 191 C110 188 105 188 102 188 Z',
+      f: ['M106 178 L106 188', 'M109 179 L109 189', 'M113 181 L113 190'] },
+    { g: 'abs', d: 'M102 192 C108 191 113 194 114 198 C114 203 112 209 109 213 C106 215 102 214 102 210 Z',
+      f: ['M105 194 C105 202 105 208 104 213', 'M109 195 C109 202 108 207 107 211', 'M112 198 C112 203 111 207 110 210'] },
+    { g: 'abs', d: 'M120 148 C127 154 131 165 132 178 C132 190 128 200 122 206 C118 210 112 213 108 213 C108 208 111 204 113 199 C117 190 119 176 119 162 C119 153 119 149 120 148 Z',
+      f: ['M121 152 C126 165 124 184 113 209', 'M125 159 C129 171 127 188 118 209',
+          'M129 170 C131 181 128 194 122 206', 'M131 184 C131 192 129 199 126 204'] },
+    { g: 'abs', d: 'M136 122 C131 125 126 129 122 134 C126 137 131 135 135 131 C138 129 139 124 136 122 Z',
+      f: ['M135 125 C131 126 127 129 124 133'] },
+    { g: 'abs', d: 'M136 133 C131 136 127 140 124 145 C128 148 132 146 136 142 C139 140 139 135 136 133 Z',
+      f: ['M135 136 C131 137 128 140 126 144'] },
+    { g: 'abs', d: 'M135 144 C131 147 127 151 125 156 C129 159 133 157 136 153 C138 151 138 146 135 144 Z',
+      f: ['M134 147 C130 148 127 151 126 155'] },
+    { g: 'abs', d: 'M133 155 C129 158 126 162 125 167 C129 170 132 168 134 164 C136 162 136 157 133 155 Z',
+      f: ['M132 158 C129 159 127 162 126 166'] },
 
-    /* External oblique — flanks the abs, wider at the ribs, angling
-       down and forward toward the hip. */
-    { g: 'core', d: 'M119 137 C125 142 129 152 130 164 C130 176 127 188 121 196 C117 201 111 204 107 205 C107 201 109 197 111 193 C115 185 117 173 117 159 C117 148 118 141 119 137 Z',
-      f: ['M120 141 C124 153 122 170 112 196',
-          'M124 148 C128 159 126 175 117 197',
-          'M128 158 C130 168 127 181 121 195',
-          'M129 172 C129 180 127 187 124 193'] },
-
-    /* Serratus anterior — four finger-like slips along the ribs below
-       the armpit. These are what make the drawing read as anatomy. */
-    { g: 'core', d: 'M133 114 C128 117 123 120 119 124 C123 127 128 126 132 123 C135 121 136 116 133 114 Z',
-      f: ['M132 117 C128 118 124 121 121 124'] },
-    { g: 'core', d: 'M134 123 C129 126 124 129 121 133 C125 136 130 134 134 131 C137 129 137 125 134 123 Z',
-      f: ['M133 126 C129 127 126 130 123 133'] },
-    { g: 'core', d: 'M134 133 C129 136 125 139 123 143 C127 146 131 144 134 141 C137 139 137 135 134 133 Z',
-      f: ['M133 136 C129 137 127 140 125 143'] },
-    { g: 'core', d: 'M133 143 C129 146 126 149 124 153 C128 156 131 154 134 151 C136 149 136 145 133 143 Z',
-      f: ['M132 146 C129 147 127 150 126 153'] },
-
-    /* Quadriceps — rectus femoris down the centre, vastus lateralis
+    /* --- Quads: rectus femoris down the centre, vastus lateralis
        sweeping the outer thigh, vastus medialis as a teardrop just
-       above the inner knee. */
-    { g: 'legs', d: 'M114 216 C121 217 125 226 126 240 C126 257 124 275 121 289 C119 297 115 297 114 289 C112 273 111 252 112 233 C112 223 113 218 114 216 Z',
-      f: ['M116 220 C119 240 120 265 118 290',
-          'M119 224 C122 243 122 266 120 288',
-          'M114 224 C115 244 116 268 116 290',
-          'M122 232 C124 248 124 268 122 284'] },
-    { g: 'legs', d: 'M128 212 C135 220 137 236 135 253 C133 268 129 283 124 293 C121 298 118 295 119 288 C123 273 126 254 127 238 C127 226 127 217 128 212 Z',
-      f: ['M129 216 C133 232 131 256 121 291',
-          'M133 224 C136 240 132 262 124 289',
-          'M126 220 C128 238 126 258 120 286'] },
-    { g: 'legs', d: 'M107 261 C113 261 117 268 118 279 C119 288 116 295 111 296 C107 297 104 292 104 283 C104 272 104 264 107 261 Z',
-      f: ['M107 266 C112 271 116 278 117 286',
-          'M105 273 C110 277 113 283 115 291',
-          'M109 263 C113 268 116 274 118 281'] },
+       above the inner knee. Three shapes, three seams. --- */
+    { g: 'quads', d: 'M116 232 C124 234 128 244 129 258 C129 274 126 288 122 298 C120 303 116 303 115 297 C113 280 112 258 113 242 C113 235 115 232 116 232 Z',
+      f: ['M117 237 C120 257 121 279 119 299', 'M121 240 C124 259 124 280 122 297',
+          'M114 241 C115 261 116 281 116 299', 'M125 250 C126 266 126 282 124 293'] },
+    { g: 'quads', d: 'M131 230 C138 240 139 256 136 272 C134 284 129 296 125 302 C122 305 119 302 121 295 C126 280 129 262 129 246 C129 236 130 232 131 230 Z',
+      f: ['M132 235 C136 252 133 276 122 301', 'M136 245 C138 260 133 282 125 300', 'M129 238 C131 256 128 278 121 298'] },
+    { g: 'quads', d: 'M106 268 C113 268 118 276 119 288 C120 297 116 303 110 304 C105 305 102 299 102 289 C102 277 103 271 106 268 Z',
+      f: ['M106 273 C111 278 116 285 118 294', 'M104 281 C109 285 113 291 115 299', 'M108 270 C112 275 116 281 118 288'] },
 
-    /* Tibialis anterior — the strap along the outer shin, pennate
-       fibres running into a central tendon. */
-    { g: 'legs', d: 'M119 306 C124 314 125 328 123 342 C121 355 119 366 117 374 C114 376 112 373 113 366 C115 353 117 339 117 325 C117 316 118 310 119 306 Z',
-      f: ['M119 310 C120 330 118 352 115 372',
-          'M122 318 C121 331 119 345 116 360',
-          'M124 330 C122 342 120 352 117 362'] }
+    /* --- Inner / outer thigh: the adductor group along the inner
+       thigh, and the tensor fasciae latae sweeping the outer hip. --- */
+    { g: 'adduc', d: 'M101 230 C108 231 113 239 113 251 C113 262 110 272 106 278 C103 281 101 280 101 275 Z',
+      f: ['M102 234 C107 243 110 256 108 272', 'M102 245 C106 252 108 262 107 274', 'M103 236 C108 244 111 253 111 262'] },
+    { g: 'adduc', d: 'M132 229 C137 233 140 241 139 251 C138 258 135 261 133 259 C132 249 132 237 132 229 Z',
+      f: ['M133 233 C136 240 137 249 135 257', 'M136 238 C138 244 138 251 137 256'] },
+
+    /* --- Calves from the front: the tibialis anterior strap along
+       the outer shin, and the medial head of the gastrocnemius
+       showing on the inside. --- */
+    { g: 'calves', d: 'M119 310 C124 318 125 332 123 346 C121 358 119 368 117 376 C114 378 112 375 113 368 C115 355 117 341 117 327 C117 318 118 312 119 310 Z',
+      f: ['M119 314 C120 334 118 356 115 374', 'M122 322 C121 335 119 349 116 362', 'M124 334 C122 346 120 356 117 366'] },
+    { g: 'calves', d: 'M103 310 C108 312 111 320 111 332 C111 342 109 350 106 352 C103 353 101 349 101 340 C101 328 101 316 103 310 Z',
+      f: ['M104 315 C108 324 109 338 107 350', 'M102 320 C105 328 106 339 105 349'] }
   ];
 
-  /* ---------------- BACK MUSCLES ---------------- */
+  /* ---------------- BACK ---------------- */
 
-  var BACK_MG = [
-    /* Posterior deltoid. */
-    { g: 'shoulders', d: 'M126 79 C138 82 148 92 151 106 C153 117 150 126 146 129 C142 132 137 129 136 121 C134 109 131 92 126 79 Z',
-      f: ['M129 82 C132 98 135 113 140 127',
-          'M134 84 C136 100 139 114 143 128',
-          'M139 89 C142 103 144 116 146 127',
-          'M144 96 C147 108 148 118 148 125'] },
+  var BACK = [
+    /* --- Back: the trapezius diamond from the base of the skull over
+       both shoulders and down to a point in the mid back; the
+       infraspinatus and teres pair on the scapula; the latissimus V,
+       wide under the armpit and sweeping down and in to the lower
+       back; and the erector spinae columns flanking the spine. --- */
+    { g: 'back', d: 'M100 63 C108 64 113 69 116 77 C124 81 133 87 140 95 C142 99 139 103 133 102 C126 100 119 102 115 109 C111 119 106 138 104 156 C103 166 101 172 100 178 Z',
+      f: ['M102 69 C112 74 126 83 137 95', 'M102 79 C112 84 123 91 133 98', 'M102 90 C110 93 119 97 128 101',
+          'M102 103 C108 101 114 98 120 103', 'M102 119 C107 114 112 109 118 106',
+          'M101 139 C105 129 110 117 115 109', 'M100 163 C102 151 106 133 111 116'] },
+    { g: 'back', d: 'M117 104 C126 103 133 107 136 114 C131 118 121 119 116 116 C114 112 114 106 117 104 Z',
+      f: ['M118 107 C124 108 130 111 134 115', 'M118 112 C123 113 128 114 132 116'] },
+    { g: 'back', d: 'M120 119 C128 118 135 121 138 127 C134 131 126 133 119 131 C116 129 116 121 120 119 Z',
+      f: ['M121 122 C127 123 132 125 136 128', 'M121 127 C126 128 131 129 135 130'] },
+    { g: 'back', d: 'M133 122 C138 133 139 148 136 161 C132 175 125 187 116 194 C110 199 104 202 101 203 L101 156 C107 152 115 144 121 134 C126 126 131 124 133 122 Z',
+      f: ['M102 201 C113 187 128 156 135 128', 'M102 187 C112 175 126 149 135 133',
+          'M102 173 C111 163 123 142 133 128', 'M102 161 C110 154 121 138 131 126',
+          'M103 154 C110 149 119 138 127 128'] },
+    { g: 'back', d: 'M101 166 C107 168 111 175 112 185 C113 195 111 203 108 208 C105 211 101 210 101 205 Z',
+      f: ['M103 170 C106 182 106 196 105 208', 'M106 175 C109 185 109 197 107 206'] },
 
-    /* Triceps — a three-headed mass, fuller at the top, both heads
-       converging into the common tendon above the elbow. */
-    { g: 'arms', d: 'M136 103 C142 106 145 117 146 131 C147 143 146 154 144 162 C142 168 137 168 136 161 C135 148 134 128 134 115 C134 107 135 104 136 103 Z',
-      f: ['M137 108 C140 126 142 145 141 163',
-          'M140 110 C143 128 144 146 143 162',
-          'M136 116 C137 133 138 150 139 163'] },
-    { g: 'arms', d: 'M146 107 C152 112 154 124 154 138 C154 150 152 160 149 168 C147 173 142 173 143 166 C145 153 147 139 147 127 C147 116 146 110 146 107 Z',
-      f: ['M148 113 C151 128 150 148 145 168',
-          'M151 120 C153 134 151 152 147 168',
-          'M146 116 C148 132 147 150 144 167'] },
-    { g: 'arms', d: 'M137 160 C143 158 148 162 150 170 C151 176 148 180 144 180 C140 180 137 176 136 170 Z',
-      f: ['M138 163 C143 165 147 170 149 175', 'M139 169 C143 171 146 174 148 177'] },
+    /* --- Shoulders: rear head and side head. --- */
+    { g: 'shoulders', d: 'M126 80 C136 83 144 91 146 102 C147 110 145 117 142 120 C138 123 135 119 134 111 C132 99 129 87 126 80 Z',
+      f: ['M128 83 C132 97 136 110 141 119', 'M133 85 C136 98 139 110 143 119', 'M138 91 C140 102 142 112 144 119'] },
+    { g: 'shoulders', d: 'M139 84 C149 88 156 98 157 111 C158 121 155 129 150 130 C146 131 144 127 145 119 C147 106 145 93 139 84 Z',
+      f: ['M142 88 C146 101 149 114 150 128', 'M147 93 C151 105 153 117 152 128', 'M152 101 C155 111 156 120 154 127'] },
 
-    /* Trapezius — a diamond from the base of the skull, spreading
-       over both shoulders and narrowing to a point in the mid back.
-       Upper fibres descend to the acromion, middle fibres run across,
-       lower fibres ascend from the spine to the scapula. */
-    { g: 'back', d: 'M100 63 C107 64 112 69 115 76 C123 80 131 85 137 92 C139 96 136 100 130 99 C123 98 117 100 113 106 C109 115 105 132 103 149 C102 160 101 166 100 172 Z',
-      f: ['M102 69 C112 74 125 83 135 93',
-          'M102 79 C112 84 122 90 131 96',
-          'M102 90 C110 93 118 96 126 100',
-          'M102 102 C108 100 114 97 119 103',
-          'M102 118 C107 113 112 108 117 105',
-          'M101 138 C105 128 110 116 115 108',
-          'M100 160 C102 148 106 130 111 114'] },
+    /* --- Triceps: the long head inside, the lateral head outside, and
+       the common tendon they both run into above the elbow. --- */
+    { g: 'triceps', d: 'M136 108 C142 111 145 122 146 136 C147 148 146 158 144 166 C142 172 137 172 136 165 C135 152 134 132 134 119 C134 111 135 108 136 108 Z',
+      f: ['M137 113 C140 131 142 150 141 167', 'M140 115 C143 133 144 151 143 166', 'M136 121 C137 138 138 155 139 167'] },
+    { g: 'triceps', d: 'M147 110 C154 116 157 128 157 142 C157 154 154 164 151 171 C149 176 144 176 145 169 C147 156 149 142 149 130 C149 118 148 113 147 110 Z',
+      f: ['M149 116 C152 131 151 151 146 172', 'M152 123 C154 137 152 155 148 172', 'M147 119 C149 135 148 153 145 171'] },
+    { g: 'triceps', d: 'M137 163 C144 161 150 166 152 174 C153 181 149 185 144 185 C139 185 136 180 136 173 Z',
+      f: ['M138 166 C143 168 148 173 150 179', 'M139 172 C143 174 147 177 149 181'] },
 
-    /* Latissimus dorsi — the V. Wide under the armpit, sweeping down
-       and inward to the lower back, every fibre converging on the
-       humeral insertion. */
-    { g: 'back', d: 'M132 105 C137 116 138 131 135 145 C132 159 126 172 118 183 C112 191 106 197 101 200 L101 150 C107 146 114 138 120 128 C126 118 130 110 132 105 Z',
-      f: ['M102 198 C113 183 127 151 134 112',
-          'M102 184 C112 172 125 145 134 120',
-          'M102 170 C111 160 123 139 132 124',
-          'M102 157 C110 150 121 134 130 122',
-          'M103 148 C110 143 120 132 127 124'] },
+    /* --- Forearm extensors. --- */
+    { g: 'forearms', d: 'M148 184 C156 186 161 196 163 208 C165 218 165 229 164 236 C163 241 158 241 158 235 C157 221 154 205 149 194 C147 189 147 185 148 184 Z',
+      f: ['M150 188 C156 200 161 216 162 234', 'M153 187 C159 200 162 215 164 231', 'M148 191 C153 204 157 220 159 236'] },
+    { g: 'forearms', d: 'M139 183 C145 186 150 196 153 208 C155 218 156 227 155 234 C154 239 149 239 148 233 C147 219 143 203 138 192 C136 188 137 184 139 183 Z',
+      f: ['M140 188 C145 201 150 216 151 233', 'M143 187 C148 200 152 214 153 230', 'M138 191 C142 204 146 219 148 234'] },
 
-    /* Erector spinae — two columns flanking the spine. */
-    { g: 'back', d: 'M102 150 C107 152 110 158 111 167 C112 179 111 190 108 199 C106 204 102 204 102 199 Z',
-      f: ['M104 154 C106 168 106 186 105 200', 'M107 158 C109 170 109 186 107 198'] },
+    /* --- Glutes: a rounded mass, wider than it is tall, fibres
+       running down and out from the sacrum to the femur. --- */
+    { g: 'glutes', d: 'M101 192 C112 190 124 194 132 201 C138 208 138 221 133 229 C127 238 114 243 105 241 C102 240 101 237 101 233 Z',
+      f: ['M102 196 C113 199 125 208 132 219', 'M102 206 C112 209 122 217 129 227',
+          'M102 216 C110 219 118 225 123 233', 'M103 227 C109 230 114 234 117 239',
+          'M105 194 C115 197 126 204 134 213'] },
 
-    /* Gluteus maximus — a rounded mass, wider than it is tall, fibres
-       running down and out from the sacrum to the femur. */
-    { g: 'legs', d: 'M101 195 C111 193 123 196 131 202 C137 208 137 219 132 227 C126 235 114 239 105 237 C102 236 101 233 101 229 Z',
-      f: ['M102 199 C112 202 124 210 131 220',
-          'M102 208 C111 211 121 218 128 227',
-          'M102 217 C110 220 117 225 122 232',
-          'M104 227 C109 229 113 232 116 236',
-          'M105 197 C114 199 124 205 132 213'] },
+    /* --- Hamstrings: the outer and the inner group, hip to knee. --- */
+    { g: 'hams', d: 'M126 234 C133 242 135 258 133 274 C131 287 127 296 123 300 C120 302 117 299 119 292 C123 279 125 262 125 246 C125 238 125 235 126 234 Z',
+      f: ['M128 239 C132 257 130 279 121 299', 'M131 247 C134 262 131 281 125 297', 'M126 243 C128 261 126 279 120 297'] },
+    { g: 'hams', d: 'M107 234 C113 236 117 246 117 262 C117 277 115 290 112 298 C110 303 105 302 105 296 C104 281 104 262 105 248 C105 240 106 235 107 234 Z',
+      f: ['M108 240 C112 258 113 279 110 299', 'M111 245 C114 262 114 280 112 296', 'M106 243 C107 261 107 280 107 298'] },
 
-    /* Hamstrings — the outer and the inner group, hip to knee. */
-    { g: 'legs', d: 'M124 238 C131 245 133 260 131 275 C129 288 126 296 122 300 C119 302 116 299 118 293 C122 280 124 263 124 250 C124 243 124 239 124 238 Z',
-      f: ['M126 243 C130 260 128 281 120 298',
-          'M129 250 C132 265 129 282 123 296',
-          'M124 246 C126 263 124 280 119 295'] },
-    { g: 'legs', d: 'M107 238 C113 239 117 249 117 263 C117 277 115 289 112 297 C110 302 105 301 105 295 C104 281 104 262 105 250 C105 243 106 239 107 238 Z',
-      f: ['M108 243 C112 260 113 280 110 298',
-          'M111 248 C114 264 114 281 112 295',
-          'M106 246 C107 263 107 281 107 297'] },
-
-    /* Gastrocnemius — two heads forming a diamond, both tapering into
-       the Achilles. */
-    { g: 'legs', d: 'M107 303 C113 306 117 318 117 333 C117 345 114 353 111 356 C108 358 105 354 105 346 C105 332 104 315 107 303 Z',
-      f: ['M108 308 C113 320 114 338 110 355',
-          'M111 314 C115 325 115 340 112 353',
-          'M106 312 C108 326 108 342 107 354'] },
-    { g: 'legs', d: 'M120 303 C125 310 127 322 126 334 C125 343 122 350 119 351 C116 352 115 347 116 341 C118 330 119 315 120 303 Z',
-      f: ['M121 309 C124 322 123 338 118 350',
-          'M124 318 C126 328 124 341 120 349'] },
-    { g: 'legs', d: 'M110 355 C115 354 119 358 120 366 C121 373 118 377 114 377 C110 377 108 373 108 366 Z',
-      f: ['M111 358 C114 362 116 369 116 375'] }
+    /* --- Calves: the two heads of the gastrocnemius forming the
+       diamond, the soleus below them on the outside, and the Achilles
+       they all run into. --- */
+    { g: 'calves', d: 'M105 306 C111 309 115 320 115 335 C115 347 112 355 109 358 C106 359 103 355 103 347 C103 333 102 316 105 306 Z',
+      f: ['M107 311 C112 323 113 341 110 356', 'M110 317 C114 328 114 343 111 354', 'M104 315 C106 329 106 345 105 356'] },
+    { g: 'calves', d: 'M120 305 C125 312 127 324 126 336 C125 345 122 352 119 353 C116 354 115 349 116 343 C118 332 119 317 120 305 Z',
+      f: ['M121 311 C124 324 123 340 118 352', 'M124 320 C126 330 124 343 120 351'] },
+    { g: 'calves', d: 'M117 340 C122 342 124 350 123 360 C122 368 119 372 116 372 C114 372 113 368 114 362 C115 354 116 346 117 340 Z',
+      f: ['M118 345 C121 352 121 362 117 370'] },
+    { g: 'calves', d: 'M108 356 C113 355 118 360 119 368 C120 375 117 379 113 379 C109 379 106 374 106 367 Z',
+      f: ['M110 359 C114 363 116 369 116 375'] }
   ];
 
-  /* Labels. [text, group, anchor x, anchor y, column y] — anchors are
-     given on the right half; a left-column label mirrors its anchor
-     to 200 - x. The column y values are spaced evenly so the two
-     columns read as lists, not as scatter. */
+  /* ---------------------------------------------------------------
+     The twelve groups, straight from the exercise database, with the
+     sub-regions the five divisible ones hold. A group with no
+     sub-regions goes from selection to its exercises without a zoom.
+     --------------------------------------------------------------- */
+  var GROUPS = {
+    chest:    { name: 'Chest',     n: 30, subs: ['Upper Chest', 'Mid Chest', 'Lower Chest'], last: 'Trained 3 days ago · Incline DB Press 32 kg' },
+    back:     { name: 'Back',      n: 40, subs: ['Lats', 'Mid Back', 'Lower Back', 'Traps'], last: 'Trained 2 days ago · Barbell Row 80 kg' },
+    shoulders:{ name: 'Shoulders', n: 29, subs: ['Front Delt', 'Side Delt', 'Rear Delt'], last: 'Trained 5 days ago · DB Lateral Raise 12 kg' },
+    triceps:  { name: 'Triceps',   n: 30, subs: ['Long Head', 'Lateral Head', 'Medial Head'], last: 'Trained 5 days ago · Rope Pushdown 30 kg' },
+    biceps:   { name: 'Biceps',    n: 20, subs: ['Long Head', 'Short Head'], last: 'Trained 5 days ago · EZ Bar Curl 35 kg' },
+    forearms: { name: 'Forearms',  n: 8,  subs: null, last: 'Trained 9 days ago · Wrist Curl 20 kg' },
+    quads:    { name: 'Quads',     n: 9,  subs: null, last: 'Trained 6 days ago · Back Squat 120 kg' },
+    hams:     { name: 'Hamstrings',n: 10, subs: null, last: 'Trained 6 days ago · Romanian Deadlift 90 kg' },
+    glutes:   { name: 'Glutes',    n: 10, subs: null, last: 'Trained 6 days ago · Hip Thrust 140 kg' },
+    adduc:    { name: 'Inner/Outer Thigh', n: 10, subs: null, last: 'Trained 12 days ago · Hip Abduction 55 kg' },
+    abs:      { name: 'Abs',       n: 20, subs: ['Weighted', 'Bodyweight'], last: 'Trained 8 days ago · Cable Crunch 45 kg' },
+    calves:   { name: 'Calves',    n: 9,  subs: null, last: 'Trained 6 days ago · Standing Calf Raise 90 kg' }
+  };
+  var ORDER = ['chest', 'back', 'shoulders', 'triceps', 'biceps', 'forearms',
+               'quads', 'hams', 'glutes', 'adduc', 'abs', 'calves'];
+
+  /* Label pictograms, on the same 24-unit grid and the same stroke
+     weight as the icons in components.css. Each is a mark for the
+     shape of the muscle, not a picture of it. */
+  var ICO = {
+    chest:    'M12 7 C7 7 4 9 4 12 C4 16 8 18 12 18 M12 7 C17 7 20 9 20 12 C20 16 16 18 12 18',
+    back:     'M5 5 L12 19 L19 5',
+    shoulders:'M4 17 C4 8 20 8 20 17',
+    triceps:  'M4 7 C5 15 8 17 12 17 C16 17 19 15 20 7',
+    biceps:   'M4 17 C5 9 8 7 12 7 C16 7 19 9 20 17',
+    forearms: 'M5 6 L19 12 L5 18',
+    quads:    'M8 5 C7 11 7 15 8 19 M12 5 L12 19 M16 5 C17 11 17 15 16 19',
+    hams:     'M9 5 C7 11 8 15 10 19 M15 5 C17 11 16 15 14 19',
+    glutes:   'M5 12 C5 7 10 5 14 7 C18 9 18 17 13 18 C8 19 5 16 5 12 Z',
+    adduc:    'M9 5 L9 19 M15 5 L15 19 M3 12 L6 12 M18 12 L21 12',
+    abs:      'M12 5 L12 19 M7 9 L17 9 M7 14 L17 14',
+    calves:   'M12 4 C16 8 16 16 12 20 C8 16 8 8 12 4 Z'
+  };
+
+  /* One label per group per view: which side it sits on, where its
+     leader lands on the muscle, and where its row sits in the column.
+     Only one is ever visible, so the column is a place, not a list. */
   var LABELS = {
     front: {
-      left: [
-        ['Deltoid',          'shoulders', 142,  95,  86],
-        ['Pectoralis major', 'chest',     118, 101, 116],
-        ['Serratus anterior','core',      130, 138, 146],
-        ['Rectus abdominis', 'core',      110, 158, 176],
-        ['Quadriceps',       'legs',      119, 252, 254]
-      ],
-      right: [
-        ['Biceps brachii',    'arms', 143, 138, 132],
-        ['External oblique',  'core', 126, 172, 172],
-        ['Forearm flexors',   'arms', 152, 205, 212],
-        ['Tibialis anterior', 'legs', 121, 332, 332]
-      ]
+      shoulders: ['R', 146,  96,  92],
+      biceps:    ['R', 146, 142, 142],
+      forearms:  ['R', 158, 210, 206],
+      chest:     ['L', 119, 108, 106],
+      abs:       ['L', 110, 166, 164],
+      quads:     ['L', 120, 258, 252],
+      adduc:     ['L', 107, 250, 300],
+      calves:    ['R', 121, 340, 336]
     },
     back: {
-      left: [
-        ['Trapezius',        'back',  118,  88,  84],
-        ['Latissimus dorsi', 'back',  124, 142, 130],
-        ['Erector spinae',   'back',  107, 178, 176],
-        ['Gluteus maximus',  'legs',  118, 214, 218],
-        ['Gastrocnemius',    'legs',  112, 332, 332]
-      ],
-      right: [
-        ['Posterior deltoid', 'shoulders', 143,  99,  96],
-        ['Triceps brachii',   'arms',      147, 136, 140],
-        ['Hamstrings',        'legs',      126, 268, 268]
-      ]
+      shoulders: ['R', 148,  99,  96],
+      triceps:   ['R', 147, 140, 140],
+      forearms:  ['R', 159, 210, 206],
+      back:      ['L', 122, 145, 142],
+      glutes:    ['L', 118, 214, 212],
+      hams:      ['L', 116, 268, 264],
+      calves:    ['R', 121, 336, 336]
     }
   };
 
-  var GROUPS = {
-    chest:     { name: 'Chest',     n: 31, last: 'Trained 3 days ago · Incline DB Press 32 kg' },
-    shoulders: { name: 'Shoulders', n: 27, last: 'Trained 5 days ago · DB Lateral Raise 12 kg' },
-    back:      { name: 'Back',      n: 42, last: 'Trained 2 days ago · Barbell Row 80 kg' },
-    arms:      { name: 'Arms',      n: 34, last: 'Trained 5 days ago · Rope Pushdown 30 kg' },
-    core:      { name: 'Core',      n: 22, last: 'Trained 8 days ago · Cable Crunch 45 kg' },
-    legs:      { name: 'Legs',      n: 39, last: 'Trained 6 days ago · Back Squat 120 kg' }
+  /* Hit areas. The drawn biceps is 15 units across, about 22 CSS px
+     on this frame, and a single ab segment is smaller still, so every
+     group carries invisible rectangles — sized and ordered so each
+     group keeps at least one 44 by 44 target after the overlaps are
+     resolved. Later entries win. */
+  var HITS = {
+    front: [
+      ['shoulders', 124,  76, 33, 40],
+      ['biceps',    132, 116, 32, 60],
+      ['forearms',  134, 178, 32, 58],
+      ['chest',     100,  78, 34, 62],
+      ['abs',       100, 142, 33, 56],
+      ['quads',     114, 226, 33, 52], ['quads', 102, 268, 34, 44],
+      ['adduc',     100, 224, 32, 42],
+      ['calves',    100, 306, 33, 72]
+    ],
+    back: [
+      ['back',      100,  62, 38, 142],
+      ['shoulders', 124,  76, 33, 40],
+      ['triceps',   132, 112, 32, 68],
+      ['forearms',  134, 180, 32, 58],
+      ['glutes',    100, 192, 34, 46],
+      ['hams',      102, 240, 33, 58],
+      ['calves',    100, 302, 33, 76]
+    ]
   };
 
   var MIRROR = 'matrix(-1 0 0 1 200 0)';
@@ -519,57 +525,55 @@
     return n;
   }
 
-  /* One muscle, drawn twice: the shape and its mirror. The fibre
-     lines are clipped to the muscle and sit inside the same mirrored
-     group, so they mirror with it. */
+  /* Generate the per-group fill rules from the palette, so the twelve
+     hues are declared once, in tokens.css, and nowhere else. */
+  (function hues() {
+    var css = ORDER.map(function (gid) {
+      var v = 'var(--anat-' + gid + ')';
+      return '.mg--' + gid + ' .mg__lit { fill: ' + v + '; }\n' +
+             '.mg--' + gid + ' .mg__gnd { fill: color-mix(in srgb, ' + v + ' 45%, #000); }\n' +
+             '.mg--' + gid + ' .fib { stroke: color-mix(in srgb, ' + v + ' 45%, #000); }\n' +
+             '.lab--' + gid + ' { color: ' + v + '; }\n' +
+             '.pick__dot--' + gid + ' { background: ' + v + '; }';
+    }).join('\n');
+    document.getElementById('hues').textContent = css;
+  })();
+
+  /* One muscle, drawn twice: the shape and its mirror. Inside each
+     side, the dark ground, then the hue offset toward the light and
+     clipped back to the ground, then the fibre lines. The offset is
+     flipped on the mirrored side so both halves are lit from the same
+     direction on screen. */
   function muscle(host, m, cls, part) {
-    var clip = null;
-    if (m.f && m.f.length) {
-      clip = 'fib' + (++uid);
-      var cp = el('clipPath', { id: clip });
-      cp.appendChild(el('path', { d: m.d }));
-      defs.appendChild(cp);
-    }
-    [null, MIRROR].forEach(function (t) {
-      var side = el('g', { transform: t });
-      side.appendChild(el('path', { d: m.d, class: cls, 'data-part': part }));
-      if (clip) {
-        var fg = el('g', { 'clip-path': 'url(#' + clip + ')' });
-        m.f.forEach(function (d) { fg.appendChild(el('path', { d: d, class: 'fib' })); });
-        side.appendChild(fg);
-      }
-      host.appendChild(side);
+    var clip = 'm' + (++uid);
+    var cp = el('clipPath', { id: clip });
+    cp.appendChild(el('path', { d: m.d }));
+    defs.appendChild(cp);
+    [[null, -1.3], [MIRROR, 1.3]].forEach(function (s) {
+      var side = el('g', { transform: s[0] });
+      side.appendChild(el('path', { d: m.d, class: 'mg__gnd' }));
+      var inner = el('g', { 'clip-path': 'url(#' + clip + ')' });
+      inner.appendChild(el('path', { d: m.d, class: 'mg__lit',
+        transform: 'translate(' + s[1] + ' -1.3)' }));
+      (m.f || []).forEach(function (d) { inner.appendChild(el('path', { d: d, class: 'fib' })); });
+      side.appendChild(inner);
+      var wrap = el('g', { class: cls });
+      wrap.appendChild(side);
+      if (part) wrap.setAttribute('data-part', part);
+      host.appendChild(wrap);
     });
   }
 
-  function base(host, paths) {
+  function plain(host, paths, cls) {
     paths.forEach(function (d) {
-      [null, MIRROR].forEach(function (t) { host.appendChild(el('path', { d: d, transform: t })); });
+      [null, MIRROR].forEach(function (t) {
+        host.appendChild(el('path', { d: d, class: cls, transform: t }));
+        host.appendChild(el('path', { d: d, class: 'sil-line', transform: t }));
+      });
     });
   }
 
-  /* Hit areas. The drawn biceps is 15 units wide, about 21 CSS px on
-     this frame, and the abdominal column is narrower still. Each group
-     carries an invisible rect per side, sized so the measured target
-     clears 44 by 44 on a 393px screen. */
-  function hit(g, x, y, w, h) {
-    [null, MIRROR].forEach(function (t) {
-      g.appendChild(el('rect', { class: 'hit', x: x, y: y, width: w, height: h, transform: t }));
-    });
-  }
-
-  var HITS = {
-    front: {
-      shoulders: [122, 76, 33, 50], arms: [128, 130, 33, 128],
-      chest: [100, 74, 36, 62], core: [100, 137, 34, 78], legs: [100, 206, 36, 196]
-    },
-    back: {
-      shoulders: [124, 76, 33, 50], arms: [132, 100, 33, 82],
-      back: [100, 62, 38, 142], legs: [100, 192, 36, 210]
-    }
-  };
-
-  function buildView(host, defsList, hits) {
+  function buildView(host, list, hits) {
     var made = {};
     function groupFor(gid) {
       if (made[gid]) return made[gid];
@@ -582,48 +586,58 @@
       made[gid] = g;
       return g;
     }
-    defsList.forEach(function (m) {
-      var host2 = groupFor(m.g);
+    list.forEach(function (m) {
+      var g = groupFor(m.g);
       if (m.part) {
         var pg = el('g', { class: 'part', 'data-part': m.part, tabindex: '-1', role: 'button',
           'aria-label': m.part + ' chest' });
-        muscle(pg, m, m.cls || 'mg__shape', m.part);
-        host2.appendChild(pg);
+        muscle(pg, m, m.cls || '', m.part);
+        g.appendChild(pg);
       } else {
-        muscle(host2, m, m.cls || 'mg__shape', null);
+        muscle(g, m, m.cls || '', null);
       }
     });
-    Object.keys(hits).forEach(function (gid) {
-      var h = hits[gid];
-      hit(groupFor(gid), h[0], h[1], h[2], h[3]);
+    hits.forEach(function (h) {
+      [null, MIRROR].forEach(function (t) {
+        groupFor(h[0]).appendChild(el('rect', { class: 'hit', x: h[1], y: h[2],
+          width: h[3], height: h[4], transform: t }));
+      });
     });
   }
 
-  base(document.getElementById('f-base'), FRONT_BASE);
-  base(document.getElementById('b-base'), BACK_BASE);
-  buildView(document.getElementById('f-groups'), FRONT_MG, HITS.front);
-  buildView(document.getElementById('b-groups'), BACK_MG, HITS.back);
+  plain(document.getElementById('f-base'), SIL, 'sil');
+  plain(document.getElementById('b-base'), SIL, 'sil');
+  buildView(document.getElementById('f-groups'), FRONT, HITS.front);
+  buildView(document.getElementById('b-groups'), BACK, HITS.back);
+  plain(document.getElementById('f-wear'), [SHORTS], 'shorts');
+  plain(document.getElementById('b-wear'), [SHORTS], 'shorts');
 
-  /* Labels: a hairline from the column to a dot on the muscle. */
-  var COL_L = 44, COL_R = 156;
+  /* Labels: disc, pictogram, name, and a hairline leader to a dot on
+     the muscle. Left-hand labels read disc-then-name toward the body;
+     right-hand labels mirror that, so both columns read outward-in. */
+  var COL_L = -26, COL_R = 226, R = 8;
 
   function buildLabels(host, set) {
-    ['left', 'right'].forEach(function (sideName) {
-      var isLeft = sideName === 'left';
-      set[sideName].forEach(function (L) {
-        var ax = isLeft ? 200 - L[2] : L[2], ay = L[3], cy = L[4];
-        var cx = isLeft ? COL_L : COL_R;
-        var g = el('g', { class: 'lab lab--' + L[1], 'data-g': L[1] });
-        var bend = isLeft ? cx + 14 : cx - 14;
-        g.appendChild(el('path', { class: 'lab__line',
-          d: 'M' + cx + ' ' + cy + ' L' + bend + ' ' + cy + ' L' + ax + ' ' + ay }));
-        g.appendChild(el('circle', { class: 'lab__dot', cx: ax, cy: ay, r: 1.8, fill: 'currentColor' }));
-        var t = el('text', { class: 'lab__t', x: isLeft ? cx - 4 : cx + 4, y: cy,
-          'text-anchor': isLeft ? 'end' : 'start' });
-        t.textContent = L[0];
-        g.appendChild(t);
-        host.appendChild(g);
-      });
+    Object.keys(set).forEach(function (gid) {
+      var L = set[gid], left = L[0] === 'L';
+      var ax = left ? 200 - L[1] : L[1], ay = L[2], cy = L[3];
+      var g = el('g', { class: 'lab lab--' + gid, 'data-g': gid });
+      var dx = left ? COL_L + R : COL_R - R;               /* disc centre */
+      var tx = left ? dx + R + 5 : dx - R - 5;             /* text edge */
+      var lead = left ? tx + 62 : tx - 62;                 /* leader start */
+      g.appendChild(el('path', { class: 'lab__line',
+        d: 'M' + lead + ' ' + cy + ' L' + (left ? lead + 10 : lead - 10) + ' ' + cy +
+           ' L' + ax + ' ' + ay }));
+      g.appendChild(el('circle', { class: 'lab__dot', cx: ax, cy: ay, r: 2 }));
+      g.appendChild(el('circle', { class: 'lab__disc', cx: dx, cy: cy, r: R }));
+      var ig = el('g', { transform: 'translate(' + (dx - R * 0.78) + ' ' + (cy - R * 0.78) +
+        ') scale(' + (R * 1.56 / 24) + ')' });
+      ig.appendChild(el('path', { class: 'lab__ico', d: ICO[gid] }));
+      g.appendChild(ig);
+      var t = el('text', { class: 'lab__t', x: tx, y: cy, 'text-anchor': left ? 'start' : 'end' });
+      t.textContent = GROUPS[gid].name;
+      g.appendChild(t);
+      host.appendChild(g);
     });
   }
   buildLabels(document.getElementById('labs-front'), LABELS.front);
@@ -632,7 +646,7 @@
   /* ---------------------------------------------------------------
      State
      --------------------------------------------------------------- */
-  var S = { stage: 'body', view: 'front', gid: null, part: null };
+  var S = { stage: 'body', view: 'front', gid: null };
 
   var map = document.getElementById('map'),
       svg = document.getElementById('svg'),
@@ -643,22 +657,20 @@
       rotate = document.getElementById('rotate'),
       zlabs = document.getElementById('zlabs');
 
-  var EX = {
-    upper: [
-      ['Incline Barbell Press', 'Barbell', '70 kg'],
-      ['Incline DB Press', 'Dumbbell', '32 kg'],
-      ['Incline Cable Fly', 'Cable', '15 kg'],
-      ['Low-to-High Cable Fly', 'Cable', '12.5 kg'],
-      ['Incline Machine Press', 'Machine', '55 kg'],
-      ['Incline Push Up', 'Bodyweight', ''],
-      ['Reverse Grip Bench Press', 'Barbell', '55 kg'],
-      ['Incline Smith Press', 'Machine', '60 kg'],
-      ['Landmine Press', 'Barbell', '30 kg']
-    ]
-  };
+  var EX = [
+    ['Incline Barbell Press', 'Barbell', '70 kg'],
+    ['Incline DB Press', 'Dumbbell', '32 kg'],
+    ['Incline Cable Fly', 'Cable', '15 kg'],
+    ['Incline Machine Press', 'Machine', '55 kg'],
+    ['Smith Machine Incline', 'Smith Machine', '60 kg'],
+    ['Low-to-High Cable Fly', 'Cable', '12.5 kg'],
+    ['Incline DB Fly', 'Dumbbell', '16 kg'],
+    ['Landmine Press', 'Barbell', '30 kg'],
+    ['Incline Push Up', 'Bodyweight', ''],
+    ['Cable Upper Chest Crossover', 'Cable', '14 kg']
+  ];
 
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]; }); }
-
   function chev() {
     return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
   }
@@ -669,30 +681,35 @@
   function renderHeader() {
     var title = 'Body map', sub = 'Tap a muscle group', back = null;
     if (S.stage === 'selected') { sub = GROUPS[S.gid].name + ' selected'; }
-    if (S.stage === 'zoom') { title = 'Chest'; sub = 'Tap a region'; back = 'Body'; }
-    if (S.stage === 'list') { title = 'Upper Chest'; sub = '9 exercises'; back = 'Chest'; }
+    if (S.stage === 'zoom') { title = GROUPS[S.gid].name; sub = 'Tap a region'; back = 'Body'; }
+    if (S.stage === 'list') { title = 'Upper Chest'; sub = '10 exercises'; back = 'Chest'; }
     hdr.innerHTML =
       (back ? '<button class="hdr__back" type="button" data-action="back" aria-label="Back to ' + esc(back) + '">' + backIco() + '</button>' : '') +
       '<div class="hdr__title"><h1 class="t-section">' + esc(title) + '</h1>' +
       '<p class="t-meta">' + esc(sub) + '</p></div>';
   }
 
+  /* The card names what the tap will do. A group with sub-regions
+     opens into them; a group without them goes to its exercises, and
+     says so, so the path is never a dead end. */
   function renderPick() {
     if (!S.gid) { pick.innerHTML = ''; return; }
     var g = GROUPS[S.gid];
+    var act = g.subs ? 'Open ' + g.name : 'See ' + g.n + ' exercises';
     pick.innerHTML =
-      '<div class="hstack hstack--2"><span class="pick__dot pick__dot--chest"></span>' +
-        '<h2 class="t-section grow">' + esc(g.name) + '</h2>' +
+      '<div class="hstack hstack--2"><span class="pick__dot pick__dot--' + S.gid + '"></span>' +
+        '<h2 class="t-section grow truncate">' + esc(g.name) + '</h2>' +
         '<span class="t-meta" data-num>' + g.n + ' exercises</span></div>' +
       '<p class="t-detail mt-2">' + esc(g.last) + '</p>' +
+      (g.subs ? '<p class="t-meta mt-2">' + esc(g.subs.join(' · ')) + '</p>' : '') +
       '<button class="btn btn--primary btn--block mt-3" type="button" data-action="open">' +
-        '<span class="btn__label">Open ' + esc(g.name) + '</span></button>';
+        '<span class="btn__label">' + esc(act) + '</span></button>';
   }
 
   function renderList() {
     list.innerHTML =
-      '<div class="listhead"><h2 class="t-label">Upper chest</h2><span class="t-meta" data-num>9</span></div>' +
-      '<div class="card card--flush gutter">' + EX.upper.map(function (x) {
+      '<div class="listhead"><h2 class="t-label">Upper chest</h2><span class="t-meta" data-num>10</span></div>' +
+      '<div class="card card--flush gutter">' + EX.map(function (x) {
         return '<button class="row" type="button">' +
           '<span class="row__main stack"><span class="row__title">' + esc(x[0]) + '</span>' +
           '<span class="row__sub truncate">Chest &middot; Upper &middot; ' + esc(x[1]) + '</span></span>' +
@@ -701,42 +718,36 @@
       }).join('') + '</div>';
   }
 
-  /* Zoom camera: the pec pair centres on (100, 106) and fills the
-     frame at 2.9x, leaving the side gutters for the part labels. */
+  /* Zoom camera: the pec pair centres on (100, 112) and fills the
+     frame, leaving the right gutter for the part labels. */
   function camera() {
-    if (S.stage === 'zoom') {
-      return 'translate(100 209) scale(2.9) translate(-100 -106)';
-    }
-    return 'translate(0 0) scale(1)';
+    return S.stage === 'zoom'
+      ? 'translate(100 206) scale(2.7) translate(-100 -112)'
+      : 'translate(0 0) scale(1)';
   }
 
-  /* The three part labels are placed from the band they name, in the
-     same column-and-leader convention as the body labels, so nothing
-     new is introduced by zooming in. Screen coordinates are converted
-     back to viewBox units so the type never scales with the camera. */
-  var PART_N = { upper: 9, mid: 12, lower: 10 };
+  var PART_N = { upper: 10, mid: 10, lower: 10 };
   function placeZoomLabels() {
     zlabs.textContent = '';
     if (S.stage !== 'zoom') return;
-    var box = svg.getBoundingClientRect();
-    var vb = svg.viewBox.baseVal;
+    var box = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal;
     var s = Math.min(box.width / vb.width, box.height / vb.height);
     var ox = box.width / 2 - (vb.x + vb.width / 2) * s;
     var oy = box.height / 2 - (vb.y + vb.height / 2) * s;
-    var col = vb.x + vb.width - 6;
+    var col = vb.x + vb.width - 8;
     ['upper', 'mid', 'lower'].forEach(function (part) {
       var band = document.querySelector('#view-front .pec[data-part="' + part + '"]');
       if (!band) return;
       var r = band.getBoundingClientRect();
-      var ax = ((r.left + r.width * 0.78) - box.left - ox) / s;
+      var ax = ((r.left + r.width * 0.8) - box.left - ox) / s;
       var ay = ((r.top + r.height / 2) - box.top - oy) / s;
-      var g = el('g', { class: 'lab', id: 'zlab-' + part });
+      var g = el('g', { class: 'lab', style: 'opacity:1' });
       g.appendChild(el('path', { class: 'lab__line',
-        d: 'M' + col + ' ' + ay + ' L' + (col - 16) + ' ' + ay + ' L' + ax + ' ' + ay }));
-      g.appendChild(el('circle', { class: 'lab__dot', cx: ax, cy: ay, r: 2, fill: 'var(--text)' }));
-      var t = el('text', { class: 'zlab__t', x: col + 4, y: ay, 'text-anchor': 'start' });
+        d: 'M' + col + ' ' + ay + ' L' + (col - 18) + ' ' + ay + ' L' + ax + ' ' + ay }));
+      g.appendChild(el('circle', { class: 'lab__dot', cx: ax, cy: ay, r: 2.5 }));
+      var t = el('text', { class: 'zlab__t', x: col + 5, y: ay, 'text-anchor': 'start' });
       t.textContent = part.charAt(0).toUpperCase() + part.slice(1);
-      var n = el('tspan', { class: 'zlab__n', dx: 5 });
+      var n = el('tspan', { class: 'zlab__n', dx: 6 });
       n.textContent = PART_N[part];
       t.appendChild(n);
       g.appendChild(t);
@@ -745,11 +756,12 @@
     sizeType();
   }
 
-  /* Labels are set at the 11px step of the type scale as measured on
-     screen: the user-unit size is 11 divided by the current scale. */
+  /* Type is set at the 11px step of the scale as measured on screen:
+     the user-unit size is 11 divided by the current viewBox scale, so
+     the rendered size is the token and not whatever the viewBox
+     happens to magnify. */
   function sizeType() {
-    var box = svg.getBoundingClientRect();
-    var vb = svg.viewBox.baseVal;
+    var box = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal;
     if (!box.width || !vb.width) return;
     var s = Math.min(box.width / vb.width, box.height / vb.height);
     var px = (11 / s) + 'px';
@@ -763,17 +775,14 @@
     renderHeader();
     map.toggleAttribute('data-zoom', S.stage === 'zoom');
     if (S.gid) map.setAttribute('data-selected', S.gid); else map.removeAttribute('data-selected');
-    Array.prototype.forEach.call(document.querySelectorAll('.mg'), function (g) {
-      if (g.getAttribute('data-g') === S.gid) g.setAttribute('data-on', ''); else g.removeAttribute('data-on');
-    });
-    Array.prototype.forEach.call(document.querySelectorAll('.lab[data-g]'), function (g) {
+    Array.prototype.forEach.call(document.querySelectorAll('.mg, .lab[data-g]'), function (g) {
       if (g.getAttribute('data-g') === S.gid) g.setAttribute('data-on', ''); else g.removeAttribute('data-on');
     });
     cam.setAttribute('transform', camera());
     document.getElementById('view-front').setAttribute('data-hidden', S.view === 'front' ? 'false' : 'true');
     document.getElementById('view-back').setAttribute('data-hidden', S.view === 'back' ? 'false' : 'true');
-    document.getElementById('labs-front').style.opacity = S.view === 'front' ? '' : '0';
-    document.getElementById('labs-back').style.opacity = S.view === 'back' ? '' : '0';
+    document.getElementById('labs-front').style.display = S.view === 'front' ? '' : 'none';
+    document.getElementById('labs-back').style.display = S.view === 'back' ? '' : 'none';
     document.getElementById('tab-front').setAttribute('aria-selected', S.view === 'front');
     document.getElementById('tab-back').setAttribute('aria-selected', S.view === 'back');
 
@@ -784,7 +793,7 @@
     list.hidden = S.stage !== 'list';
     map.classList.toggle('map--strip', S.stage === 'list');
     if (S.stage === 'list') map.setAttribute('data-part', 'upper'); else map.removeAttribute('data-part');
-    svg.setAttribute('viewBox', S.stage === 'list' ? '62 70 76 72' : '-40 2 280 414');
+    svg.setAttribute('viewBox', S.stage === 'list' ? '62 74 76 74' : '-30 6 260 400');
     if (S.stage === 'list') renderList();
     requestAnimationFrame(function () { sizeType(); placeZoomLabels(); });
   }
@@ -799,11 +808,8 @@
     var act = e.target.closest ? e.target.closest('[data-action]') : null;
     if (act) {
       var a = act.getAttribute('data-action');
-      if (a === 'open') { S.stage = 'zoom'; render(); return; }
-      if (a === 'back') {
-        S.stage = S.stage === 'list' ? 'zoom' : 'selected';
-        render(); return;
-      }
+      if (a === 'open') { S.stage = GROUPS[S.gid].subs ? 'zoom' : 'list'; render(); return; }
+      if (a === 'back') { S.stage = S.stage === 'list' && GROUPS[S.gid].subs ? 'zoom' : 'selected'; render(); return; }
     }
     if (e.target.closest('.part') && S.stage === 'zoom') { S.stage = 'list'; render(); return; }
     if (mg) { select(mg.getAttribute('data-g')); return; }
@@ -817,11 +823,14 @@
     if (mg) { e.preventDefault(); select(mg.getAttribute('data-g')); }
   });
 
-  /* Stage and view are addressable so each can be captured. */
+  /* Stage, view and group are addressable so each can be captured. */
   var p = new URLSearchParams(location.search);
   S.view = p.get('view') === 'back' ? 'back' : 'front';
   var st = p.get('stage');
-  if (st === 'selected' || st === 'zoom' || st === 'list') { S.stage = st; S.gid = 'chest'; }
+  if (st === 'selected' || st === 'zoom' || st === 'list') {
+    S.stage = st;
+    S.gid = GROUPS[p.get('g')] ? p.get('g') : 'chest';
+  }
   render();
   requestAnimationFrame(function () { window.__ready = true; });
 })();
