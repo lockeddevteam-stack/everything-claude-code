@@ -290,6 +290,31 @@ const RUNTIME = String.raw`
     });
   }
 
+  /* A window whose writes land on the screen, not on the page. Screens ship
+     test hooks (onboarding sets window.__locked); two screens setting the same
+     name would otherwise overwrite each other. Reads still see the real window,
+     so setTimeout, matchMedia and the rest behave normally. */
+  function scopedWindow(rec, doc) {
+    var store = rec.globals;
+    return new Proxy(window, {
+      get: function (t, p) {
+        if (Object.prototype.hasOwnProperty.call(store, p)) return store[p];
+        if (p === 'document') return doc;
+        var v = t[p];
+        return (typeof v === 'function' && !v.prototype) ? v.bind(t) : v;
+      },
+      set: function (t, p, v) { store[p] = v; return true; },
+      has: function (t, p) { return Object.prototype.hasOwnProperty.call(store, p) || (p in t); },
+      deleteProperty: function (t, p) { delete store[p]; return true; },
+      getOwnPropertyDescriptor: function (t, p) {
+        if (Object.prototype.hasOwnProperty.call(store, p)) {
+          return { value: store[p], writable: true, enumerable: true, configurable: true };
+        }
+        return Object.getOwnPropertyDescriptor(t, p);
+      }
+    });
+  }
+
   /* Screens fetch their seed data. Nothing is on the network here: the
      assembler inlined those files, and anything else fails fast. */
   function scopedFetch(id) {
@@ -358,7 +383,8 @@ const RUNTIME = String.raw`
     rec.booted = true;
     var before = Object.getOwnPropertyNames(window);
     try {
-      defs[rec.id](scopedDocument(rec.root), window, window.location, scopedFetch(rec.id));
+      var doc = scopedDocument(rec.root);
+      defs[rec.id](doc, scopedWindow(rec, doc), window.location, scopedFetch(rec.id));
     } catch (err) {
       console.error('[demo] ' + rec.id + ' failed to boot', err);
     }
@@ -394,6 +420,14 @@ const RUNTIME = String.raw`
   }
 
   var current = null;
+  var prevRoute = null;
+
+  function labelOfRoute(r) {
+    if (!r) return null;
+    if (r.top) return (screens[r.top] || {}).label || r.top;
+    var t = tabOf(r.base);
+    return t ? t.label : r.base;
+  }
 
   function show(id) {
     order.forEach(function (sid) {
@@ -425,18 +459,20 @@ const RUNTIME = String.raw`
     show(id);
     syncTabs(route);
 
-    var pushed = route.top ? PUSHED[route.top] || {} : null;
     var bar = document.getElementById('demo-back');
     if (route.top) {
-      var parentLabel = (tabOf(route.base) || {}).label || route.base;
+      /* Named for where you actually came from, since that is where it goes. */
+      var fromLabel = (prevRoute && (prevRoute.top !== route.top || prevRoute.base !== route.base))
+        ? labelOfRoute(prevRoute)
+        : (tabOf(route.base) || {}).label || route.base;
       bar.hidden = false;
-      bar.querySelector('.demo-back__label').textContent = 'Back to ' + parentLabel;
-      bar.setAttribute('aria-label', 'Back to ' + parentLabel);
+      bar.querySelector('.demo-back__label').textContent = 'Back to ' + fromLabel;
+      bar.setAttribute('aria-label', 'Back to ' + fromLabel);
     } else {
       bar.hidden = true;
     }
     document.title = 'LOCKED demo — ' + ((screens[id] || {}).label || id);
-    void pushed;
+    prevRoute = route;
   }
 
   function goTab(tabId) { location.hash = '#/' + tabId; }
@@ -445,7 +481,14 @@ const RUNTIME = String.raw`
     var parent = (PUSHED[screenId] && PUSHED[screenId].parent) || route.base;
     location.hash = '#/' + parent + '/' + screenId;
   }
-  function back() { history.back(); }
+  function back() {
+    /* No entry to go back to (a deep link opened straight into a pushed
+       screen): fall back to that screen's parent rather than leaving the page. */
+    var route = parseHash();
+    if (!prevRoute || !route.top) { history.back(); return; }
+    if (history.length > 1) history.back();
+    else location.hash = '#/' + ((PUSHED[route.top] && PUSHED[route.top].parent) || route.base);
+  }
 
   /* ---------------------------------------------------------------
      Clicks that leave a screen: taken in the capture phase, before the
@@ -577,7 +620,7 @@ const RUNTIME = String.raw`
     booted = true;
 
     CFG.screens.forEach(function (meta) {
-      var rec = mount({ id: meta.id, label: meta.label, tab: meta.tab || null, booted: false });
+      var rec = mount({ id: meta.id, label: meta.label, tab: meta.tab || null, booted: false, globals: {} });
       screens[meta.id] = rec;
       order.push(meta.id);
       wire(rec);

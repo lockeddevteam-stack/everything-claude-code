@@ -103,6 +103,7 @@
 
       <main class="body" id="body" data-testid="review-scroll" tabindex="-1"></main>
 
+      <div id="overlay-slot"></div>
       <div id="bar-slot"></div>
       <div id="toast-slot" data-testid="toast-slot"></div>
 
@@ -128,7 +129,13 @@
     record: svg('<path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3"/><path d="M12 14v3M9 20h6"/>'),
     alert:  svg('<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/>'),
     empty:  svg('<path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/>', ' ico--lg'),
-    spark:  svg('<path d="M12 4.5 13.7 9l4.8.3-3.7 3 1.2 4.6L12 14.4 7.9 16.9 9.2 12.3l-3.7-3L10.3 9z"/>')
+    /* One mark per kind of difference, so the kind is carried by the
+       drawing as well as by the sentence beside it. */
+    swap:   svg('<path d="M4 8h13l-3-3M20 16H7l3 3"/>'),
+    plus:   svg('<path d="M12 5v14M5 12h14"/>'),
+    minus:  svg('<path d="M5 12h14"/>'),
+    check:  svg('<path d="m5 12.5 4.5 4.5L19 7.5"/>'),
+    close:  svg('<path d="M6 6l12 12M18 6L6 18"/>')
   };
 
   /* ---- formatting ------------------------------------------------ */
@@ -179,6 +186,12 @@
     lift('Barbell Bench Press', 72.5, 8, 1715, 72.5, 8, 1715)
   ].concat(LIFTS_RECORD.slice(1));
 
+  /* A lift the prior session does not contain. It has no delta, because
+     inventing one would compare two different exercises. */
+  function liftNew(name, tw, tr, tvol) {
+    return { name: name, top: [tw, tr], vol: tvol, priorTop: null, priorVol: 0, delta: null };
+  }
+
   var DATA = {
     record: {
       title: 'Push', date: 'WED, SEP 9',
@@ -204,6 +217,68 @@
     error:   { title: 'Push', date: 'WED, SEP 9', sets: 16, volumeKg: 4383, minutes: 52 }
   };
 
+  /* ---- the split, and how today differed from it -------------------
+     lk_splits: the PPL split's Push day prescribes, in order, Barbell
+     Bench Press, DB Shoulder Press, Incline Cable Fly, Lateral Raise,
+     Tricep Pushdown. A difference is the prescribed list against the
+     exercises with at least one completed set:
+       ADDED    performed, not prescribed
+       SKIPPED  prescribed, never started
+       SWAPPED  one skipped and one added filling the same slot, which
+                is one decision and is drawn as one line
+     The card appears only when that difference is non-empty and only
+     when the session came from a split. A freestyle session and an
+     identical session both draw nothing at all: no card, no empty
+     state, no "no changes detected".
+     ------------------------------------------------------------------ */
+
+  var SPLIT = { name: 'PPL', day: 'Push' };
+
+  var D_SWAP    = { kind: 'swap', to: 'Machine Chest Press', from: 'Barbell Bench Press',
+                    slot: 'Mid Chest', sets: 4 };
+  var D_ADD     = { kind: 'added', to: 'Incline Dumbbell Press', slot: 'Upper Chest', sets: 3 };
+  var D_ADD2    = { kind: 'added', to: 'Incline Dumbbell Press', slot: 'Upper Chest', sets: 2 };
+  var D_SKIP    = { kind: 'skipped', from: 'Lateral Raise', slot: 'Side Delt', sets: 3 };
+
+  /* Each variant's lift list is the session that produced its
+     difference, so the comparison above the card and the card itself
+     describe the same workout. */
+  var TAIL = LIFTS_RECORD.slice(1);            /* shoulder, fly, lateral, pushdown */
+  var TAIL_NO_LAT = [TAIL[0], TAIL[1], TAIL[3]];
+
+  DATA['diff-swap'] = {
+    title: 'Push', date: 'WED, SEP 9', sets: 16, volumeKg: 4508, minutes: 51,
+    lifts: [liftNew('Machine Chest Press', 50, 10, 1900)].concat(TAIL),
+    record: null, mixed: true, split: SPLIT, diffs: [D_SWAP],
+    insight: 'The machine press let you hold 50 kg for four sets where the ' +
+             'barbell has been dropping a set by the third. Same slot, ' +
+             'steadier reps.'
+  };
+  DATA['diff-add-skip'] = {
+    title: 'Push', date: 'WED, SEP 9', sets: 16, volumeKg: 4815, minutes: 54,
+    lifts: [LIFTS_FLAT[0], TAIL[0], TAIL[1],
+            liftNew('Incline Dumbbell Press', 30, 10, 870), TAIL[3]],
+    record: null, mixed: true, split: SPLIT, diffs: [D_ADD, D_SKIP],
+    insight: 'Upper chest got its own movement for the first time in six ' +
+             'Push sessions, and the side delts got none.'
+  };
+  DATA['diff-skip'] = {
+    title: 'Push', date: 'WED, SEP 9', sets: 13, volumeKg: 3945, minutes: 41,
+    lifts: [LIFTS_FLAT[0]].concat(TAIL_NO_LAT),
+    record: null, mixed: true, split: SPLIT, diffs: [D_SKIP],
+    insight: 'Four of five lifts held their loads in eleven fewer minutes. ' +
+             'The one that went missing is the one that runs last.'
+  };
+  DATA['diff-many'] = {
+    title: 'Push', date: 'WED, SEP 9', sets: 15, volumeKg: 4700, minutes: 53,
+    lifts: [liftNew('Machine Chest Press', 50, 10, 1900), TAIL[0], TAIL[1],
+            liftNew('Incline Dumbbell Press', 30, 10, 570), TAIL[3]],
+    record: null, mixed: true, split: SPLIT, diffs: [D_SWAP, D_ADD2, D_SKIP],
+    insight: 'Three of the five slots ran differently from the programme. ' +
+             'Two of the three have now run that way twice.'
+  };
+  DATA['diff-updated'] = DATA['diff-swap'];
+
   var FEELINGS = [
     ['easy',   'Easy'],
     ['steady', 'Steady'],
@@ -213,7 +288,10 @@
 
   /* ---- screen state ---------------------------------------------- */
   var S = { view: 'record', saved: false, feel: null, discardArmed: false,
-            ai: 'idle', toast: null };
+            ai: 'idle', toast: null,
+            /* split: 'pending' | 'updated' | 'kept'. picks: indices chosen
+               in the per-change sheet, empty until the lifter picks. */
+            split: 'pending', applied: [], picks: [], sheet: false };
 
   /* ---- blocks ----------------------------------------------------- */
 
@@ -251,14 +329,21 @@
     var pctText = (delta >= 0 ? '+' : '−') + Math.abs(pct).toFixed(1) + '%';
 
     var rows = d.lifts.map(function (l) {
+      /* A lift the prior session did not contain gets no number: it is
+         marked new and left uncompared, because a delta against nothing
+         is not a measurement. */
+      var isNew = l.priorTop === null;
       return '' +
         '<div class="row" data-testid="lift-' + l.name.toLowerCase().replace(/[^a-z]+/g, '-') + '">' +
           '<span class="row__main">' +
             '<span class="row__title">' + l.name + '</span>' +
-            '<span class="row__sub">' + set(l.top[0], l.top[1]) + ', was ' +
-              set(l.priorTop[0], l.priorTop[1]) + '</span>' +
+            '<span class="row__sub">' + set(l.top[0], l.top[1]) +
+              (isNew ? ', not in the Sep 3 session'
+                     : ', was ' + set(l.priorTop[0], l.priorTop[1])) + '</span>' +
           '</span>' +
-          '<span class="row__value delta--' + dir(l.delta) + '">' + signedKg(l.delta) + '</span>' +
+          (isNew
+            ? '<span class="row__value delta--flat">New</span>'
+            : '<span class="row__value delta--' + dir(l.delta) + '">' + signedKg(l.delta) + '</span>') +
         '</div>';
     }).join('');
 
@@ -283,7 +368,177 @@
           '<p class="t-detail mt-2 num">' + kg(d.volumeKg) + ' today, ' + kg(PRIOR.volumeKg) + ' on ' + PRIOR.dateLabel + '</p>' +
         '</div>' +
         '<div class="card card--flush mt-3">' + rows + '</div>' +
-        '<p class="t-meta mt-2">Change is working-set volume. Warm-ups excluded.</p>' +
+        '<p class="t-meta mt-2">Change is working-set volume. Warm-ups excluded.' +
+          (d.mixed ? ' The exercises differ from Sep 3, so the day total is not like for like.' : '') +
+        '</p>' +
+      '</div>';
+  }
+
+  /* ---- the split card ----------------------------------------------
+     A secondary decision standing next to a primary action, so both of
+     its actions are secondary: the accent fill stays on Save, and this
+     never gates it. Saving is one tap whether or not this is answered.
+     ------------------------------------------------------------------ */
+
+  /* One line per difference, each naming the exercise and enough detail
+     to judge it without opening anything. */
+  function diffLine(diff, i, forSheet) {
+    var ico, title, sub;
+    if (diff.kind === 'swap') {
+      ico = ICO.swap;
+      title = diff.to + ' instead of ' + diff.from;
+      sub = n(diff.sets) + ' sets logged · same slot, ' + diff.slot;
+    } else if (diff.kind === 'added') {
+      ico = ICO.plus;
+      title = 'Added ' + diff.to + ', ' + diff.sets + ' sets';
+      sub = 'Not in ' + SPLIT.day + ' · ' + diff.slot;
+    } else {
+      ico = ICO.minus;
+      title = 'Skipped ' + diff.from;
+      sub = n(diff.sets) + ' sets prescribed · none started';
+    }
+    if (!forSheet) {
+      return '<div class="row" data-testid="split-diff-' + i + '">' +
+               '<span class="ico-well" aria-hidden="true">' + ico + '</span>' +
+               '<span class="row__main">' +
+                 '<span class="row__title">' + title + '</span>' +
+                 '<span class="row__sub">' + sub + '</span>' +
+               '</span>' +
+             '</div>';
+    }
+    /* In the sheet every row starts unselected, so opening it and
+       confirming without reading changes nothing. */
+    var picked = S.picks.indexOf(i) > -1;
+    return '<button class="opt" type="button" role="checkbox" aria-checked="' + picked + '" ' +
+             'data-pick="' + i + '" data-testid="split-pick-' + i + '">' +
+             '<span class="opt__mark">' + ICO.check + '</span>' +
+             '<span class="opt__main">' +
+               '<span class="opt__title">' + title + '</span>' +
+               '<span class="opt__sub">' + sub +
+                 (diff.kind === 'skipped'
+                   ? ' · choosing this removes it from ' + SPLIT.day
+                   : ' · choosing this writes it into ' + SPLIT.day) +
+               '</span>' +
+             '</span>' +
+           '</button>';
+  }
+
+  /* What a given set of applied differences did, in one named line. */
+  function appliedLine(applied, diffs) {
+    var parts = applied.map(function (dd) {
+      if (dd.kind === 'swap') return dd.to + ' replaces ' + dd.from + '.';
+      if (dd.kind === 'added') return dd.to + ' added.';
+      return dd.from + ' removed.';
+    });
+    var keptSkips = diffs.filter(function (dd) {
+      return dd.kind === 'skipped' && applied.indexOf(dd) === -1;
+    });
+    keptSkips.forEach(function (dd) { parts.push(dd.from + ' stays in ' + SPLIT.day + '.'); });
+    return parts.join(' ');
+  }
+
+  function splitCard(d) {
+    if (!d.split || !d.diffs || !d.diffs.length) return '';
+    var diffs = d.diffs;
+    var head = '<div class="section" data-testid="section-split">' +
+                 '<div class="section__head"><h2 class="t-label">' +
+                   SPLIT.name + ' · ' + SPLIT.day + ' day</h2></div>';
+
+    if (S.split === 'updated') {
+      return head +
+        '<div class="card" data-testid="card-split-updated">' +
+          '<div class="banner banner--success" role="status">' + ICO.check +
+            '<span><strong>' + SPLIT.day + ' updated</strong>' +
+            appliedLine(S.applied, diffs) + '</span></div>' +
+          '<button class="btn btn--secondary btn--block mt-3" data-testid="split-undo">' +
+            '<span class="btn__label">Undo update</span></button>' +
+        '</div></div>';
+    }
+    if (S.split === 'kept') {
+      /* A quiet acknowledgement, and the screen does not ask again. */
+      return head + '<p class="t-meta" data-testid="split-kept">' +
+             SPLIT.day + ' kept as it is.</p></div>';
+    }
+
+    var skips = diffs.filter(function (dd) { return dd.kind === 'skipped'; });
+    var applicable = diffs.filter(function (dd) { return dd.kind !== 'skipped'; });
+    var skipOnly = applicable.length === 0;
+
+    /* A skip is usually the rack or the clock, not a change of plan, so
+       it is never applied unless it is picked by name. When a skip is
+       the only difference, the card says so and keeping is the reading
+       the copy and the button order both point at. */
+    var note = skipOnly
+      ? 'Missing a lift once is usually the rack or the clock, not a change of ' +
+        'plan. ' + SPLIT.day + ' stays as it is unless you say otherwise.'
+      : (skips.length
+          ? 'Update ' + SPLIT.day + ' applies the ' +
+            (applicable.length > 1 ? 'swap and the addition' : applicable[0].kind === 'swap' ? 'swap' : 'addition') +
+            '. Skipped exercises stay in ' + SPLIT.day + ' unless you pick them one by one.'
+          : 'Update ' + SPLIT.day + ' writes this into the split. Later ' +
+            SPLIT.day + ' sessions start from it.');
+
+    var actions = skipOnly
+      ? '<button class="btn btn--secondary btn--block" data-testid="split-keep">' +
+          '<span class="btn__label">Keep ' + SPLIT.day + ' as it is</span></button>' +
+        '<button class="btn btn--secondary btn--block mt-2" data-testid="split-update">' +
+          '<span class="btn__label">Remove ' + skips[0].from + ' from ' + SPLIT.day + '</span></button>'
+      : '<button class="btn btn--secondary btn--block" data-testid="split-update">' +
+          '<span class="btn__label">Update ' + SPLIT.day + '</span></button>' +
+        '<button class="btn btn--secondary btn--block mt-2" data-testid="split-keep">' +
+          '<span class="btn__label">Keep ' + SPLIT.day + ' as it is</span></button>';
+
+    /* The third route exists only when there is more than one decision
+       to separate. */
+    var perChange = diffs.length > 1
+      ? '<button class="btn btn--tertiary btn--block mt-2" data-testid="split-per-change">' +
+          '<span class="btn__label">Choose per change</span></button>'
+      : '';
+
+    return head +
+      '<div class="card card--flush">' +
+        '<div class="card__head">' +
+          '<span class="t-label grow">' + SPLIT.day + ' ran differently</span>' +
+          '<span class="badge">' + diffs.length +
+            (diffs.length === 1 ? ' change' : ' changes') + '</span>' +
+        '</div>' +
+        diffs.map(function (dd, i) { return diffLine(dd, i, false); }).join('') +
+        '<div class="card__foot">' +
+          '<p class="t-detail">' + note + '</p>' +
+          '<div class="mt-3">' + actions + perChange + '</div>' +
+        '</div>' +
+      '</div></div>';
+  }
+
+  /* Per-change sheet. Nothing is pre-selected, so confirming without
+     reading is a no-op rather than a silent edit. */
+  function splitSheet(d) {
+    var diffs = d.diffs;
+    return '' +
+      '<div class="scrim" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="split-sheet-title" ' +
+           'data-testid="split-sheet">' +
+        '<div class="sheet__grab"></div>' +
+        '<div class="sheet__head">' +
+          '<h2 class="t-section" id="split-sheet-title">Update ' + SPLIT.day + '</h2>' +
+          '<button class="iconbtn" type="button" data-testid="split-sheet-close" ' +
+                  'aria-label="Close, change nothing">' + ICO.close + '</button>' +
+        '</div>' +
+        '<p class="t-detail">Nothing is selected. Pick only the changes you want ' +
+          'in the split.</p>' +
+        '<div class="sheet__body mt-3">' +
+          '<div class="card card--flush">' +
+            diffs.map(function (dd, i) { return diffLine(dd, i, true); }).join('') +
+          '</div>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<div class="hstack hstack--2">' +
+            '<button class="btn btn--secondary grow" data-testid="split-sheet-cancel">' +
+              '<span class="btn__label">Cancel</span></button>' +
+            '<button class="btn btn--secondary grow" data-testid="split-sheet-apply">' +
+              '<span class="btn__label">Apply to ' + SPLIT.day + '</span></button>' +
+          '</div>' +
+        '</div>' +
       '</div>';
   }
 
@@ -394,12 +649,21 @@
   function full(d) {
     return {
       body: receipt(d) + (d.record ? recordCard(d.record) : '') + compare(d) +
-            aiCard(d) + feelSection() + discardSection(d.sets),
-      bar: saveBar({ status: d.record ? 'Record included' : '' })
+            splitCard(d) + aiCard(d) + feelSection() + discardSection(d.sets),
+      bar: saveBar({ status: d.record ? 'Record included' : '' }),
+      overlay: (S.sheet && d.diffs) ? splitSheet(d) : ''
     };
   }
   VIEWS.record = function () { return full(DATA.record); };
   VIEWS.populated = function () { return full(DATA.populated); };
+  /* Every difference variant is the same screen with a different
+     session behind it. Record, populated and error carry no split
+     difference and so draw no card at all. */
+  VIEWS['diff-swap']     = function () { return full(DATA['diff-swap']); };
+  VIEWS['diff-add-skip'] = function () { return full(DATA['diff-add-skip']); };
+  VIEWS['diff-skip']     = function () { return full(DATA['diff-skip']); };
+  VIEWS['diff-many']     = function () { return full(DATA['diff-many']); };
+  VIEWS['diff-updated']  = function () { return full(DATA['diff-updated']); };
 
   /* Nothing logged. The old screen printed WORKOUT COMPLETE over zero
      sets and left both save paths live. There is no Save control here
@@ -415,7 +679,7 @@
                 '<span class="btn__label">Back to workout</span></button>' +
             '</div>' +
             discardSection(0),
-      bar: ''
+      bar: '', overlay: ''
     };
   };
 
@@ -438,7 +702,7 @@
                 '<div class="skel mt-4" style="height: var(--sp-5)"></div>' +
               '</div>' +
             '</div>',
-      bar: saveBar({ disabled: true, status: 'Reading your last Push session' })
+      bar: saveBar({ disabled: true, status: 'Reading your last Push session' }), overlay: ''
     };
   };
 
@@ -459,21 +723,27 @@
                 '<span class="btn__label">Try again</span></button>' +
             '</div>' +
             feelSection() + discardSection(d.sets),
-      bar: saveBar({ status: '' })
+      bar: saveBar({ status: '' }), overlay: ''
     };
   };
 
   /* ---- render ------------------------------------------------------ */
   var STATES = [
-    ['record',    'New record'],
-    ['populated', 'Populated'],
-    ['empty',     'Nothing logged'],
-    ['loading',   'Loading'],
-    ['error',     'Error']
+    ['record',        'New record'],
+    ['populated',     'Populated'],
+    ['diff-swap',     'Split: swap'],
+    ['diff-add-skip', 'Split: add + skip'],
+    ['diff-skip',     'Split: skip only'],
+    ['diff-many',     'Split: per-change sheet'],
+    ['diff-updated',  'Split: updated'],
+    ['empty',         'Nothing logged'],
+    ['loading',       'Loading'],
+    ['error',         'Error']
   ];
 
   var body = document.getElementById('body');
   var barSlot = document.getElementById('bar-slot');
+  var overlaySlot = document.getElementById('overlay-slot');
   var toastSlot = document.getElementById('toast-slot');
   var screen = document.getElementById('screen');
   var hdrDate = document.getElementById('hdr-date');
@@ -497,6 +767,7 @@
     hdrTitle.textContent = d.title;
     body.innerHTML = out.body;
     barSlot.innerHTML = out.bar;
+    overlaySlot.innerHTML = out.overlay || '';
     toastSlot.innerHTML = toastHTML();
     body.scrollTop = keepScroll ? top : 0;
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
@@ -505,8 +776,14 @@
   }
 
   function show(view) {
-    S = { view: VIEWS[view] ? view : 'record', saved: false, feel: null,
-          discardArmed: false, ai: 'idle', toast: null };
+    var v = VIEWS[view] ? view : 'record';
+    S = { view: v, saved: false, feel: null, discardArmed: false, ai: 'idle',
+          toast: null, split: 'pending', applied: [], picks: [], sheet: false };
+    /* Two of the dev states are a mid-decision snapshot rather than an
+       entry state: the sheet already open, and the split already
+       updated by the swap. */
+    if (v === 'diff-many') S.sheet = true;
+    if (v === 'diff-updated') { S.split = 'updated'; S.applied = DATA['diff-swap'].diffs.slice(); }
     if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
     paint(false);
   }
@@ -520,10 +797,18 @@
   /* One delegated handler. Every control on the screen is in here, so
      there is no path that reaches a control with no behaviour. */
   document.addEventListener('click', function (e) {
-    var el = e.target.closest('[data-testid], [data-feel]');
+    var el = e.target.closest('[data-testid], [data-feel], [data-pick]');
     if (!el) return;
     var id = el.getAttribute('data-testid');
+    var d = DATA[S.view] || {};
 
+    if (el.dataset.pick !== undefined) {
+      var pi = Number(el.dataset.pick);
+      var at = S.picks.indexOf(pi);
+      if (at > -1) S.picks.splice(at, 1); else S.picks.push(pi);
+      paint(true);
+      return;
+    }
     if (el.dataset.feel) {
       S.feel = S.feel === el.dataset.feel ? null : el.dataset.feel;
       paint(true);
@@ -558,9 +843,52 @@
       case 'action-back':
       case 'action-back-to-workout':
         toast('Back to the workout. Nothing was saved.'); paint(true); return;
+
+      /* ---- the split decision. None of these touch S.saved: the
+         session can be banked before, after, or instead of answering. */
+      case 'split-update':
+        /* A skip is applied only when it is the sole difference and the
+           lifter pressed the button that names the removal. Otherwise
+           Update writes the swaps and additions and leaves skips alone. */
+        var applicable = d.diffs.filter(function (dd) { return dd.kind !== 'skipped'; });
+        S.applied = applicable.length ? applicable : d.diffs.slice();
+        S.split = 'updated';
+        paint(true);
+        return;
+      case 'split-keep':
+        S.split = 'kept'; paint(true); return;
+      case 'split-per-change':
+        S.picks = []; S.sheet = true; paint(true); return;
+      case 'split-sheet-close':
+      case 'split-sheet-cancel':
+        S.sheet = false; S.picks = []; paint(true); return;
+      case 'scrim':
+        S.sheet = false; S.picks = []; paint(true); return;
+      case 'split-sheet-apply':
+        S.sheet = false;
+        if (!S.picks.length) {
+          /* Opened, read, nothing picked. That is a decision to keep. */
+          S.split = 'kept'; S.picks = []; paint(true); return;
+        }
+        S.applied = S.picks.slice().sort(function (a, b) { return a - b; })
+                      .map(function (i) { return d.diffs[i]; });
+        S.picks = []; S.split = 'updated';
+        paint(true);
+        return;
+      case 'split-undo':
+        S.split = 'pending'; S.applied = []; S.picks = [];
+        paint(true);
+        toast(SPLIT.day + ' update undone. The split is back as it was.');
+        return;
       default:
         return;
     }
+  });
+
+  /* A sheet closes on Escape, and closing it changes nothing. */
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (S.sheet) { S.sheet = false; S.picks = []; paint(true); }
   });
 
   /* ---- dev toggle -------------------------------------------------- */
