@@ -1,6 +1,6 @@
 # Design audit: Train Hub (`train-hub`)
 
-Captures: `00-inventory/screenshots/current/train-hub-{populated,populated-full,populated-scrolled-3,populated-history,empty}.png`, `exercise-library-populated.png`. Numbers: `tests/baseline/{targets,contrast,axe}.json` and my Playwright dumps, 393×852 dark, populated seed.
+Captures: `00-inventory/screenshots/current/train-hub-{populated,populated-full,populated-scrolled-3,populated-history,empty}.png`, `exercise-library-populated.png`. Numbers: `tests/baseline/{targets,contrast,axe}.json` and my Playwright dumps at 393×852 dark, populated seed.
 
 ## 1. Squint and 5-second test
 
@@ -40,10 +40,10 @@ The page also carries **three "start" idioms**: `Quick Start` (gradient pill, r1
 |---|---|---|
 | Hierarchy | 2 | 8px blur, `train-hub-populated.png`: 3 masses at equal weight, 11 further accent controls competing, `Start day` (86×24) gone. |
 | Typography | 3 | 6 sizes, line-height unset on 5/11 pairs, 700 on 37 nodes ≤13px; `-populated-full.png`. |
-| Spacing | 2 | 328/474 = 69.2%, undocumented. Band 2 = 60–79%. |
+| Spacing | 2 | 328/474 = 69.2%, undocumented; band 2. |
 | Contrast | 4 | 97/97 pass, 2 unknown over gradients (one the primary label); `contrast.json`. |
 | Component consistency | 1 | 3 "start" variants, 8 radii; `-populated-full.png`, `-scrolled-3.png`. |
-| Targets | 1 | 14/33 = 42.4% ≥44px, band 1 (<75%); `targets.json`. |
+| Targets | 1 | 14/33 = 42.4% ≥44px, band 1; `targets.json`. |
 | Motion and feedback | 2 | 3/5 pressed (base 3), decorative `cardRise`/`pillIn` → −1. |
 | HIG fit | 1 | 3 sections: Buttons (destructive equals primary, `-scrolled-3.png`), Tab bars (no `role=tablist`, Library navigates away, `exercise-library-populated.png`), Layout (19/33 under 44px). |
 | AI-look penalty | 1 | 4 tells: emoji icon (🎙️ FAB), 8 mixed radii, gradient + glow button, stacked equal-weight split cards. |
@@ -55,13 +55,13 @@ The page also carries **three "start" idioms**: `Quick Start` (gradient pill, r1
 |---|---|---|---|
 | 1 | Primary action obvious | fail | 2 accent-filled elements (Quick Start, FAB); 5-sec test names Quick Start. |
 | 2 | Type scale | fail | `line-height: normal` on 14/13/12/11px (5 of 11 pairs). |
-| 3 | 8px grid | fail | 69.2% (328/474) vs 95%. |
-| 4 | Control states | fail | `Delete` and `Start day` unchanged at 100ms under real `mouse.down()`. |
+| 3 | 8px grid | fail | 69.2% (328/474), threshold 95%. |
+| 4 | Control states | fail | `Delete`, `Start day` unchanged at 100ms under real `mouse.down()`. |
 | 5 | Meaningful motion | fail | `cardRise 0.5s`, `pillIn 0.45s`, load entrances. |
 | 6 | Empty/error copy | fail | `train-hub-empty.png`: **two** action controls (Build Manually, AI Split Builder), rule is one. Error N/A. |
 | 7 | Numbers | fail | 0 `tabular-nums`; "9/7/2026" absolute at 2 days old beside "Sep 6". |
 | 8 | One icon set | fail | 1 emoji (🎙️) as the FAB icon. |
-| 9 | Scroll and targets | fail | 19/33 under 44×44; no root overflow. |
+| 9 | Scroll and targets | fail | 19/33 under 44×44, no root overflow. |
 | 10 | Native dark | fail | L\* 0.0 → 10.3 → 18.1 ✓, but accent glow on Quick Start and FAB. |
 | 11 | Copy | **pass** | Labels ≤4 words, 0 exclamation marks in innerText, no filler. |
 
