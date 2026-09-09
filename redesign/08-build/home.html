@@ -13,31 +13,42 @@
 
   The audits measured a 1,688px screen whose only real action started at
   y659 of a 781px fold, behind 534px of read-only material. This screen
-  answers one question — train today, or not, and if so, what — and the
-  answer plus its action sit in the first card.
+  answers one question — train today, or not, and if so, what — and puts
+  the answer, the reason to act on it, and the action in the first fold.
 
-  KEPT (4 blocks, was 10):
-  1. Header "Today" + the date. One line of orientation. The date is the
-     only thing the old 125px greeting block carried that a lifter uses.
-  2. Answer card. The session name, its shape (exercises, duration), and
-     the accent-filled primary. This is the screen. Rest day swaps the
-     answer and the action; it must not look like a training day.
+  FOUR BLOCKS (was 10):
+  1. Momentum band. The hero figure the old screen never had: weeks on
+     plan (5, measured from lk_history: weeks of Aug 3, 10, 17, 24 and 31
+     each carry three lifting sessions; the week of Jul 27 carries two,
+     which is where the count starts). Beside it, the week rhythm — a
+     sunken track showing the seven days as trained, today, planned or
+     rest. Streak plus this week, one line, no chrome. Not interactive,
+     so nothing here is a target under 44px.
+  2. Answer card. Session name, its shape, the accent-filled primary.
+     Raised on a training day, sunken on a rest day: the two states are
+     given different tone, not different colour.
   3. Last session row. One tap back into the thing most likely to be
-     wrong or unfinished, and the only place a relative date belongs.
-     Replaces Recent Workouts (408px, 5 rows) with its first row.
-  4. Week meter. "Am I on track" in one line and one control, replacing
-     the 179px stat grid that returned zero interactive elements.
+     unfinished, and the only place a relative date belongs.
+  4. Climbing lift row. The third timescale: the squat's top set across
+     five weeks, drawn as a sparkline whose endpoints are named in text.
 
-  CUT: greeting block, 2x2 stat grid (179px, 0 controls, no units, PR
-  count disagreed with storage), quick actions (5 of 8 pointed at Fuel),
+  CUT: greeting block, 2x2 stat grid (179px, 0 controls), quick actions,
   feed cards (source of the "999 days" sentinel), VIEW PROGRESS (a button
-  standing in for a tab), Weekly Recap (50px for a repeat sheet),
-  calendar (338px, no tappable cells, Progress owns it), cycle row,
-  ThrowbackCard (dead), the voice FAB (second accent fill, and it
-  intercepted pointer events over the last block).
+  standing in for a tab), Weekly Recap, calendar (338px, no tappable
+  cells), cycle row, ThrowbackCard, the voice FAB (second accent fill,
+  and it intercepted pointer events over the last block).
 
-  ACCENT: exactly one accent fill per state, always on the primary
-  action. Nothing else on the screen is filled with --accent.
+  MOTION: one entry animation per state, on the block that answers the
+  question. Training rises into place; rest settles down into it. The
+  week track fills left to right and stops on today. Both are switched
+  off under prefers-reduced-motion.
+
+  ACCENT: exactly one accent fill per state, on the primary action.
+  Today's mark in the week track carries a 2px --accent-text ring, not
+  a fill, and only on a training day.
+
+  NUMBERS: every figure is tabular and carries its unit. Dates are
+  relative inside the week, absolute after it, never a sentinel.
 -->
 
 <div class="stage">
@@ -116,23 +127,67 @@
     return MONTHS[Number(d[1]) - 1] + ' ' + n(String(Number(d[2])));
   }
 
-  /* ---- seed (fixtures/seed-data.json, guest profile in kg) -------- */
+  /* ---- seed (fixtures/seed-data.json, guest profile in kg) --------
+     momentum.weeks   counted from lk_history, Monday weeks with three
+                      lifting sessions: Aug 3, 10, 17, 24, 31 = 5.
+     momentum.days    this week, Monday first.
+     lift             Barbell Squat top set per Legs day, Aug 3 to Sep 7:
+                      75, 77.5, 80, 82.5, 85, 87.5 kg.                 */
+  var LIFT = {
+    name: 'Barbell Squat',
+    topKg: 87.5, fromKg: 75, gainKg: 12.5, weeks: 5,
+    series: [75, 77.5, 80, 82.5, 85, 87.5]
+  };
   var DATA = {
     training: {
       date: 'WED, SEP 9',
+      momentum: {
+        weeks: 5,
+        days: [['M','done'],['T','rest'],['W','today'],['T','rest'],['F','planned'],['S','rest'],['S','rest']],
+        read: 'This week, Monday first: Monday trained, Tuesday rest, Wednesday is today and planned, ' +
+              'Thursday rest, Friday planned, Saturday rest, Sunday rest.'
+      },
       next: { name: 'Push', split: 'PPL', exercises: 5, minutes: 50 },
-      last: { name: 'PPL - Legs', daysAgo: 2, dateISO: '2026-09-07', sets: 16, volumeKg: 14363, minutes: 52 },
-      week: { done: 2, planned: 3 }
+      last: { name: 'PPL - Legs', daysAgo: 2, dateISO: '2026-09-07', sets: 16, volumeKg: 14363 }
     },
     rest: {
       date: 'WED, SEP 9',
+      momentum: {
+        weeks: 5,
+        days: [['M','done'],['T','done'],['W','today-rest'],['T','planned'],['F','rest'],['S','rest'],['S','rest']],
+        read: 'This week, Monday first: Monday trained, Tuesday trained, Wednesday is today and a rest day, ' +
+              'Thursday planned, Friday rest, Saturday rest, Sunday rest.'
+      },
       next: { name: 'Pull', split: 'PPL', dayLabel: 'tomorrow' },
-      last: { name: 'PPL - Push', daysAgo: 1, dateISO: '2026-09-08', sets: 16, volumeKg: 4266, minutes: 55 },
-      week: { done: 3, planned: 3 }
+      last: { name: 'PPL - Push', daysAgo: 1, dateISO: '2026-09-08', sets: 16, volumeKg: 4266 }
     }
   };
 
   /* ---- blocks ----------------------------------------------------- */
+
+  /* The hero figure and the week rhythm, side by side on the page
+     ground. Read-only, so there is no target here to undersize. */
+  function momentum(m) {
+    var days = m.days.map(function (d) {
+      var now = d[1] === 'today' || d[1] === 'today-rest';
+      return '<span class="week__day' + (now ? ' week__day--now' : '') + '">' +
+               '<span class="week__mark week__mark--' + d[1] + '"></span>' +
+               '<span class="week__cap" aria-hidden="true">' + d[0] + '</span>' +
+             '</span>';
+    }).join('');
+    return '' +
+      '<div class="hstack hstack--4 mt-4" data-testid="momentum">' +
+        '<div class="hero">' +
+          '<span class="hero__figure">' +
+            '<span class="hero__value num" data-testid="hero-value">' + m.weeks + '</span>' +
+            '<span class="hero__unit">weeks</span>' +
+          '</span>' +
+          '<span class="hero__label">On plan</span>' +
+        '</div>' +
+        '<div class="week grow" role="img" aria-label="' + m.read + '" data-testid="week-rhythm">' + days + '</div>' +
+      '</div>';
+  }
+
   function lastRow(last) {
     return '' +
       '<div class="section">' +
@@ -151,18 +206,34 @@
       '</div>';
   }
 
-  function weekCard(week) {
-    var pct = Math.round((week.done / week.planned) * 100);
+  /* Sparkline. Six top sets, plotted in a 64x24 box, endpoints named
+     in the row text so the drawing is never the only source. */
+  function sparkline(series) {
+    var lo = Math.min.apply(null, series), hi = Math.max.apply(null, series);
+    var pts = series.map(function (v, i) {
+      var x = (i / (series.length - 1)) * 60 + 2;
+      var y = 22 - ((v - lo) / (hi - lo)) * 20;
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    });
+    var end = pts[pts.length - 1].split(',');
+    return '<svg class="spark" viewBox="0 0 64 24" aria-hidden="true">' +
+             '<polyline class="spark__line" points="' + pts.join(' ') + '"/>' +
+             '<circle class="spark__dot" cx="' + end[0] + '" cy="' + end[1] + '" r="2.5"/>' +
+           '</svg>';
+  }
+
+  function liftRow(l) {
     return '' +
       '<div class="section">' +
-        '<div class="section__head"><h2 class="t-label">This week</h2></div>' +
+        '<div class="section__head"><h2 class="t-label">Climbing</h2></div>' +
         '<div class="card card--flush">' +
-          '<button class="row" data-testid="card-week">' +
-            '<span class="row__main stack stack--2">' +
-              '<span class="row__title">' + n(week.done) + ' of ' + n(week.planned) + ' sessions</span>' +
-              '<span class="meter meter--quiet"><span class="meter__fill" style="width: ' + pct + '%"></span></span>' +
+          '<button class="row" data-testid="row-climbing-lift">' +
+            '<span class="row__main stack">' +
+              '<span class="row__title">' + l.name + '</span>' +
+              '<span class="row__sub">Up ' + kg(l.gainKg) + ' in ' + n(l.weeks) + ' weeks</span>' +
             '</span>' +
-            '<span class="row__value">' + n(pct) + '%</span>' +
+            sparkline(l.series) +
+            '<span class="row__value">' + kg(l.topKg) + '</span>' +
             '<span class="row__chev">' + ICO.chev + '</span>' +
           '</button>' +
         '</div>' +
@@ -172,13 +243,15 @@
   /* ---- states ----------------------------------------------------- */
   var VIEWS = {};
 
+  /* Training day. Raised card, verb first, rises into place. */
   VIEWS.training = function () {
     var d = DATA.training, s = d.next;
     return '' +
-      '<div class="card card--raised mt-3" data-testid="card-answer" data-answer="train">' +
-        '<div class="t-label">Today&rsquo;s session</div>' +
-        '<div class="t-title mt-2">' + s.name + '</div>' +
-        '<div class="t-detail mt-2">' + s.split + ' &middot; ' + n(s.exercises) + ' exercises &middot; about ' + n(s.minutes) + ' min</div>' +
+      momentum(d.momentum) +
+      '<div class="card card--raised mt-4 enter-rise" data-testid="card-answer" data-answer="train">' +
+        '<h2 class="t-title">' + s.name + '</h2>' +
+        '<p class="t-detail mt-2">' + s.split + ' &middot; ' + n(s.exercises) + ' exercises &middot; about ' +
+          n(s.minutes) + ' min</p>' +
         '<button class="btn btn--primary btn--block mt-4" data-testid="primary-action">' +
           ICO.play + '<span class="btn__label">Start ' + s.name + '</span>' +
         '</button>' +
@@ -186,32 +259,35 @@
           '<span class="btn__label">Choose another session</span>' +
         '</button>' +
       '</div>' +
-      lastRow(d.last) + weekCard(d.week);
+      lastRow(d.last) + liftRow(LIFT);
   };
 
+  /* Rest day. Sunken card, sentence first, settles into place. The
+     session is still one tap away, but nothing here asks for it. */
   VIEWS.rest = function () {
     var d = DATA.rest, s = d.next;
     return '' +
-      '<div class="card mt-3" data-testid="card-answer" data-answer="rest">' +
+      momentum(d.momentum) +
+      '<div class="card card--sunken mt-4 enter-settle" data-testid="card-answer" data-answer="rest">' +
         '<div class="hstack hstack--3">' +
           '<span class="ico-well">' + ICO.moon + '</span>' +
           '<div class="grow stack stack--1">' +
-            '<div class="t-label">Today</div>' +
-            '<div class="t-section">Rest day</div>' +
+            '<h2 class="t-section">Rest day</h2>' +
+            '<p class="t-detail">' + n(2) + ' sessions logged this week. Next is ' + s.name + ', ' + s.dayLabel + '.</p>' +
           '</div>' +
         '</div>' +
-        '<div class="t-detail mt-3">' + n(d.week.done) + ' of ' + n(d.week.planned) +
-          ' sessions done. Next is ' + s.name + ', ' + s.dayLabel + '.</div>' +
         '<button class="btn btn--primary btn--block mt-4" data-testid="primary-action">' +
           ICO.play + '<span class="btn__label">Start ' + s.name + ' early</span>' +
         '</button>' +
       '</div>' +
-      lastRow(d.last) + weekCard(d.week);
+      lastRow(d.last) + liftRow(LIFT);
   };
 
+  /* Empty. Nothing has been earned yet, so nothing is claimed: no
+     hero figure, no week track, one sentence, one action. */
   VIEWS.empty = function () {
     return '' +
-      '<div class="empty mt-5" data-testid="card-answer" data-answer="empty">' +
+      '<div class="empty mt-5 enter-settle" data-testid="card-answer" data-answer="empty">' +
         '<span class="empty__ico">' + ICO.plan + '</span>' +
         '<h2 class="empty__title">No sessions yet</h2>' +
         '<p class="empty__body">Build a split and LOCKED puts one session on this screen each training day.</p>' +
@@ -223,21 +299,26 @@
 
   VIEWS.loading = function () {
     return '' +
-      '<div class="card card--raised mt-3" role="status" aria-busy="true" aria-label="Loading today" data-testid="card-answer" data-answer="loading">' +
-        '<div class="skel" style="height: var(--sp-3); width: 40%"></div>' +
-        '<div class="skel mt-3" style="height: var(--sp-5); width: 60%"></div>' +
+      '<div class="hstack hstack--4 mt-4" role="status" aria-busy="true" aria-label="Loading today">' +
+        '<div class="stack stack--1">' +
+          '<div class="skel" style="height: var(--sp-6); width: var(--sp-6)"></div>' +
+          '<div class="skel" style="height: var(--sp-3); width: var(--sp-6)"></div>' +
+        '</div>' +
+        '<div class="skel grow" style="height: calc(var(--sp-6) * 2)"></div>' +
+      '</div>' +
+      '<div class="card card--raised mt-4" data-testid="card-answer" data-answer="loading">' +
+        '<div class="skel" style="height: var(--sp-5); width: 45%"></div>' +
         '<div class="skel mt-3" style="height: var(--sp-4); width: 80%"></div>' +
         '<div class="skel mt-4" style="height: var(--tap)"></div>' +
-      '</div>' +
-      '<div class="card mt-3">' +
-        '<div class="skel" style="height: var(--sp-4); width: 55%"></div>' +
-        '<div class="skel mt-3" style="height: var(--sp-3); width: 75%"></div>' +
       '</div>';
   };
 
+  /* Error. What happened, and the one thing that fixes it. No hero
+     figure: the momentum data did not load either, and a number that
+     might be wrong is worse than no number. */
   VIEWS.error = function () {
     return '' +
-      '<div class="card card--raised mt-3" data-testid="card-answer" data-answer="error">' +
+      '<div class="card card--raised mt-4 enter-rise" data-testid="card-answer" data-answer="error">' +
         '<div class="banner banner--error">' +
           ICO.alert +
           '<span><strong>Today did not load</strong>Your last sync failed, so the session for today is unknown.</span>' +

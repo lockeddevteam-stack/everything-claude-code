@@ -1,0 +1,728 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — Progress</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+</head>
+<body>
+<!--
+  PROGRESS — what survives, and why.
+
+  The audits measured a screen that promised a trend and showed none: a
+  448px tab strip inside a 353px box (PR Vault clipped to zero visible
+  pixels, no scroll affordance), five unrelated surfaces on one strip,
+  and the app's only per-lift chart two levels deep behind the invisible
+  tab. That chart had no axes, rescaled so the lowest point always sat on
+  the floor, spaced points by index while labelling them with dates,
+  letterboxed into 120 of 319px, and two of its three ranges returned
+  identical data. The worst contrast in the app was here: 2.2:1 on a chip
+  label dimmed by a row-level opacity:.5.
+
+  THIS SCREEN ANSWERS ONE QUESTION: am I getting stronger.
+
+  KEPT / REBUILT (4 blocks, was 5 tabs):
+  1. Range. Two options, both of which change the data. 4 weeks returns
+     4 points per lift, 12 weeks returns 6 and a wider date window.
+  2. Answer card. The question in one sentence, with the count, the
+     sessions behind it, and the biggest single gain.
+  3. Trend chart, on the screen, no tabs, no drill-down. Labelled y axis
+     on round numbers (never the data min), gridlines, x positions
+     proportional to real dates with three dated ticks, full card width.
+  4. Records. The PR Vault's payload as a first-class section, not a
+     clipped tab. Every row sets the chart above: one tap to any lift.
+
+  CUT
+  - The tab strip itself. Five destinations do not fit one row at 44px.
+  - Photos (906 lines, its own header and tab bar, wearing Progress's
+    chrome; it does not serve the lift-trend job).
+  - Calendar (338px, day cells were non-interactive divs with a hover
+    tooltip — dead on touch; the month belongs with history in Train).
+  - Day-1-vs-PR cards. Two static numbers cannot show a trend.
+  - Strength Profile bar chart (restated the estimate at a second
+    rounding), the "1RM —" chip (empty on 9 of 9 rows), ThrowbackCard
+    (25% random, unreproducible), the dashed accent outline that made
+    the primary read as a placeholder.
+  - The third range option: on this history 90D and ALL are the same
+    data. A control that does nothing is worse than one fewer control.
+  - Goals as a surface: reduced to one row that leaves for its own
+    screen. Body weight likewise: one row, one number, one delta.
+
+  ACCENT: exactly one per state. In the populated state it is the trend
+  line and its dots — the data is the point of this screen, so no button
+  is accent-filled. Empty and error states have no chart, so the accent
+  moves to their single primary action.
+
+  CONTRAST: no opacity is applied to any text-bearing element anywhere on
+  this page. The dimming that produced 2.2:1 has no equivalent here.
+
+  DATA: inlined subset of tests/fixtures/seed-data.json — lk_history
+  (18 strength sessions, 2026-07-30 to 2026-09-07, best working set per
+  exercise per session, Epley), lk_prs (12 records over 9 lifts),
+  lk_weightLog, lk_goals. Units kg, from lk_profile.useKg.
+-->
+
+<div class="stage">
+  <div class="phone">
+    <div class="screen" id="screen" data-testid="screen-progress" data-state="populated">
+
+      <header class="hdr">
+        <div class="hdr__title stack stack--1">
+          <span class="t-meta">STRENGTH</span>
+          <h1 class="t-title">Progress</h1>
+        </div>
+      </header>
+
+      <main class="body" id="body" data-testid="progress-scroll" tabindex="-1"></main>
+
+      <nav class="tabbar" aria-label="Sections">
+        <button class="tabbar__item" data-testid="tab-home">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4v-5H9v5H5a1 1 0 0 1-1-1z"/></svg>
+          Home
+        </button>
+        <button class="tabbar__item" data-testid="tab-train">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/></svg>
+          Train
+        </button>
+        <button class="tabbar__item" aria-current="page" data-testid="tab-progress">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19h16M7 16v-4M12 16V7M17 16v-6"/></svg>
+          Progress
+        </button>
+        <button class="tabbar__item" data-testid="tab-coach">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 15a3 3 0 0 1-3 3H9l-4 3V7a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3z"/></svg>
+          Coach
+        </button>
+        <button class="tabbar__item" data-testid="tab-profile">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
+          Profile
+        </button>
+      </nav>
+
+      <div id="overlay" data-testid="overlay"></div>
+
+    </div>
+  </div>
+</div>
+
+<div class="dev">
+  <button class="dev__toggle" id="dev-toggle" aria-expanded="false" aria-controls="dev-menu" data-testid="dev-toggle">State</button>
+  <div class="dev__menu" id="dev-menu" hidden data-testid="dev-menu"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* =============================================================
+     Icons. One set, one stroke weight, one optical size.
+     ============================================================= */
+  function svg(d, extra) {
+    return '<svg class="ico' + (extra || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+  }
+  var ICO = {
+    chev: svg('<path d="m9 5 7 7-7 7"/>'),
+    close: svg('<path d="M6 6l12 12M18 6 6 18"/>'),
+    alert: svg('<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/>'),
+    chart: svg('<path d="M4 19h16M7 16v-4M12 16V7M17 16v-6"/>', ' ico--lg'),
+    lift: svg('<path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/>'),
+    scale: svg('<path d="M5 20h14M12 4v16M6.5 12 12 4l5.5 8a5.5 5.5 0 0 1-11 0z"/>'),
+    flag: svg('<path d="M6 21V4h12l-2.5 4L18 12H6"/>'),
+    plus: svg('<path d="M12 5v14M5 12h14"/>')
+  };
+
+  /* =============================================================
+     Seed subset. From tests/fixtures/seed-data.json.
+     pts: [dateISO, estimated 1RM kg, weight kg, reps] — best working
+     set of that session, Epley, one rounding convention (1 decimal).
+     ============================================================= */
+  var TODAY = '2026-09-09';
+
+  var LIFTS = [
+    { id: 703, name: "Leg Press", muscle: "Quads", pts: [["2026-08-03",196,140,12], ["2026-08-10",198.2,145,11], ["2026-08-17",210,150,12], ["2026-08-24",217,155,12], ["2026-08-31",224,160,12], ["2026-09-07",231,165,12]] },
+    { id: 221, name: "Barbell Deadlift", muscle: "Lower Back", pts: [["2026-08-01",108,90,6], ["2026-08-08",110.8,95,5], ["2026-08-15",120,100,6], ["2026-08-22",126,105,6], ["2026-08-29",132,110,6], ["2026-09-05",134.2,115,5]] },
+    { id: 701, name: "Barbell Squat", muscle: "Quads", pts: [["2026-08-03",95,75,8], ["2026-08-10",95.6,77.5,7], ["2026-08-17",101.3,80,8], ["2026-08-24",101.8,82.5,7], ["2026-08-31",104.8,85,7], ["2026-09-07",110.8,87.5,8]] },
+    { id: 1101, name: "Standing Calf Raise", muscle: "Calves", pts: [["2026-08-03",90,60,15], ["2026-08-10",93.8,62.5,15], ["2026-08-17",97.5,65,15], ["2026-08-24",101.3,67.5,15], ["2026-08-31",105,70,15], ["2026-09-07",106.3,72.5,14]] },
+    { id: 801, name: "Romanian Deadlift", muscle: "Hamstrings", pts: [["2026-08-03",86.7,65,10], ["2026-08-10",90,67.5,10], ["2026-08-17",91,70,9], ["2026-08-24",96.7,72.5,10], ["2026-08-31",100,75,10], ["2026-09-07",103.3,77.5,10]] },
+    { id: 111, name: "Barbell Bench Press", muscle: "Mid Chest", pts: [["2026-07-30",74,60,7], ["2026-08-06",79.2,62.5,8], ["2026-08-13",80.2,65,7], ["2026-08-20",85.5,67.5,8], ["2026-08-27",86.3,70,7], ["2026-09-03",91.8,72.5,8]] },
+    { id: 202, name: "Lat Pulldown", muscle: "Lats", pts: [["2026-08-01",66.7,50,10], ["2026-08-08",68.3,52.5,9], ["2026-08-15",71.5,55,9], ["2026-08-22",74.8,57.5,9], ["2026-08-29",78,60,9], ["2026-09-05",83.3,62.5,10]] },
+    { id: 213, name: "Seated Cable Row", muscle: "Mid Back", pts: [["2026-08-01",61.5,45,11], ["2026-08-08",66.5,47.5,12], ["2026-08-15",68.3,50,11], ["2026-08-22",71.8,52.5,11], ["2026-08-29",75.2,55,11], ["2026-09-05",80.5,57.5,12]] },
+    { id: 802, name: "Lying Leg Curl", muscle: "Hamstrings", pts: [["2026-08-03",54.7,40,11], ["2026-08-10",58.1,42.5,11], ["2026-08-17",61.5,45,11], ["2026-08-24",66.5,47.5,12], ["2026-08-31",68.3,50,11], ["2026-09-07",73.5,52.5,12]] },
+    { id: 411, name: "Tricep Pushdown", muscle: "Lateral Head", pts: [["2026-07-30",35,25,12], ["2026-08-06",36.4,26,12], ["2026-08-13",37.8,27,12], ["2026-08-20",38.3,28,11], ["2026-08-27",40.6,29,12], ["2026-09-03",42,30,12]] },
+    { id: 503, name: "Barbell Curl", muscle: "Long Head", pts: [["2026-08-01",32.5,25,9], ["2026-08-08",33.8,26,9], ["2026-08-15",35.1,27,9], ["2026-08-22",37.3,28,10], ["2026-08-29",38.7,29,10], ["2026-09-05",40,30,10]] },
+    { id: 302, name: "DB Shoulder Press", muscle: "Front Delt", pts: [["2026-07-30",26.7,20,10], ["2026-08-06",28,21,10], ["2026-08-13",28.6,22,9], ["2026-08-20",29.9,23,9], ["2026-08-27",31.2,24,9], ["2026-09-03",32.5,25,9]] },
+    { id: 321, name: "Face Pull", muscle: "Rear Delt", pts: [["2026-08-01",22.5,15,15], ["2026-08-08",24,16,15], ["2026-08-15",25.5,17,15], ["2026-08-22",27,18,15], ["2026-08-29",28.5,19,15], ["2026-09-05",29.3,20,14]] },
+    { id: 103, name: "Incline Cable Fly", muscle: "Upper Chest", pts: [["2026-07-30",17.5,12.5,12], ["2026-08-06",17.8,13,11], ["2026-08-13",18.9,13.5,12], ["2026-08-20",19.1,14,11], ["2026-08-27",20.3,14.5,12], ["2026-09-03",20.5,15,11]] },
+    { id: 311, name: "Lateral Raise", muscle: "Side Delt", pts: [["2026-07-30",11.7,8,14], ["2026-08-06",12.5,8.5,14], ["2026-08-13",13.2,9,14], ["2026-08-20",14.3,9.5,15], ["2026-08-27",15,10,15], ["2026-09-03",15.8,10.5,15]] }
+  ];
+
+  /* lk_prs: 12 records over 9 lifts. */
+  var RECORDS = [
+    { id: 701, reps: 8, kg: 87.5, date: "2026-09-07" },
+    { id: 701, reps: 5, kg: 82.5, date: "2026-09-07" },
+    { id: 703, reps: 10, kg: 165, date: "2026-09-07" },
+    { id: 801, reps: 8, kg: 77.5, date: "2026-09-07" },
+    { id: 202, reps: 8, kg: 62.5, date: "2026-09-05" },
+    { id: 213, reps: 10, kg: 57.5, date: "2026-09-05" },
+    { id: 221, reps: 4, kg: 115, date: "2026-09-05" },
+    { id: 503, reps: 8, kg: 30, date: "2026-09-05" },
+    { id: 111, reps: 8, kg: 72.5, date: "2026-09-03" },
+    { id: 111, reps: 5, kg: 72.5, date: "2026-09-03" },
+    { id: 302, reps: 8, kg: 25, date: "2026-09-03" },
+    { id: 221, reps: 6, kg: 110, date: "2026-08-29" }
+  ];
+
+  var SESSIONS = ["2026-07-30","2026-08-01","2026-08-03","2026-08-06","2026-08-08","2026-08-10",
+    "2026-08-13","2026-08-15","2026-08-17","2026-08-20","2026-08-22","2026-08-24",
+    "2026-08-27","2026-08-29","2026-08-31","2026-09-03","2026-09-05","2026-09-07"];
+
+  var WEIGHT_LOG = [["2026-07-27",65.3],["2026-08-03",65.3],["2026-08-10",64.9],["2026-08-17",64.7],
+    ["2026-08-24",64.6],["2026-08-31",64.5],["2026-09-07",64.2]];
+
+  var GOALS_ACTIVE = 3;
+
+  var RANGES = [
+    { id: '4w', label: '4 weeks', days: 28 },
+    { id: '12w', label: '12 weeks', days: 84 }
+  ];
+
+  /* =============================================================
+     Formatting. One date format for axes and rows, one rounding.
+     ============================================================= */
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var MONTHS_LONG = ['January','February','March','April','May','June','July',
+    'August','September','October','November','December'];
+
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function n(v) { return '<span class="num">' + v + '</span>'; }
+  function ms(iso) {
+    var p = iso.split('-');
+    return Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  }
+  function dayLabel(iso) {
+    var p = iso.split('-');
+    return MONTHS[Number(p[1]) - 1] + ' ' + Number(p[2]);
+  }
+  function dayLabelFromMs(t) {
+    var d = new Date(t);
+    return MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate();
+  }
+  function longDate(iso) {
+    var p = iso.split('-');
+    return MONTHS_LONG[Number(p[1]) - 1] + ' ' + Number(p[2]) + ', ' + p[0];
+  }
+  /* One convention: at most one decimal, no trailing .0 on whole numbers. */
+  function num1(v) {
+    var r = Math.round(v * 10) / 10;
+    return (Math.abs(r % 1) < 0.05 ? String(Math.round(r)) : r.toFixed(1));
+  }
+  function kg(v) { return n(num1(v)) + ' kg'; }
+  function signed(v) { return (v > 0 ? '+' : v < 0 ? '−' : '') + num1(Math.abs(v)); }
+  function signedKg(v) { return n(signed(v)) + ' kg'; }
+
+  /* =============================================================
+     Selection maths. Every number on the screen comes from here.
+     ============================================================= */
+  function windowStart(days) { return ms(TODAY) - days * 86400000; }
+
+  function ptsIn(lift, days) {
+    var from = windowStart(days);
+    return lift.pts.filter(function (p) { return ms(p[0]) >= from; });
+  }
+  function liftById(id) {
+    for (var i = 0; i < LIFTS.length; i++) if (LIFTS[i].id === id) return LIFTS[i];
+    return null;
+  }
+  function sessionsIn(days) {
+    var from = windowStart(days);
+    return SESSIONS.filter(function (d) { return ms(d) >= from; }).length;
+  }
+  function summary(days) {
+    var up = 0, tracked = 0, best = null;
+    LIFTS.forEach(function (l) {
+      var p = ptsIn(l, days);
+      if (p.length < 2) return;
+      tracked++;
+      var delta = p[p.length - 1][1] - p[0][1];
+      if (delta > 0) up++;
+      if (!best || delta > best.delta) best = { name: l.name, delta: delta, id: l.id };
+    });
+    return { up: up, tracked: tracked, best: best, sessions: sessionsIn(days) };
+  }
+  function recordsFor(id) {
+    return RECORDS.filter(function (r) { return r.id === id; })
+      .sort(function (a, b) { return b.kg * (1 + b.reps / 30) - a.kg * (1 + a.reps / 30); });
+  }
+  function recordLifts() {
+    var seen = {}, out = [];
+    RECORDS.forEach(function (r) {
+      if (seen[r.id]) return;
+      seen[r.id] = 1;
+      var rs = recordsFor(r.id), l = liftById(r.id);
+      out.push({ id: r.id, name: l ? l.name : '', muscle: l ? l.muscle : '', best: rs[0], count: rs.length });
+    });
+    out.sort(function (a, b) { return a.best.date < b.best.date ? 1 : a.best.date > b.best.date ? -1 : 0; });
+    return out;
+  }
+  function e1rm(w, r) { return w * (1 + r / 30); }
+
+  /* =============================================================
+     The chart.
+
+     Fixes measured by the audits, one by one:
+       y axis    labelled ticks on round numbers, chosen by a 1/2/2.5/5
+                 step. The floor is a tick below the data, never the
+                 data minimum, so a flat run draws flat.
+       x axis    position is proportional to the real date. A 3-day gap
+                 and a 10-day gap draw differently. Three dated ticks.
+       width     the svg viewBox is built from the measured container
+                 width, so 1 unit = 1px and nothing letterboxes.
+       range     each range changes both the point count and the date
+                 domain, and the axis labels say so.
+     ============================================================= */
+  function niceStep(span, intervals) {
+    var raw = span / intervals;
+    var mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    var norm = raw / mag;
+    var mult = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10;
+    return mult * mag;
+  }
+  function yScale(values) {
+    var min = Math.min.apply(null, values), max = Math.max.apply(null, values);
+    var span = max - min;
+    if (span <= 0) span = Math.max(1, max * 0.1);
+    var step = niceStep(span, 4);
+    var lo = Math.floor(min / step) * step;
+    var hi = Math.ceil(max / step) * step;
+    if (hi - lo < step * 1.5) hi = lo + step * 2;
+    var ticks = [], v = lo, guard = 0;
+    while (v <= hi + step * 0.001 && guard++ < 20) { ticks.push(Math.round(v * 100) / 100); v += step; }
+    return { lo: lo, hi: ticks[ticks.length - 1], ticks: ticks };
+  }
+
+  function chartSVG(lift, pts, days, width) {
+    var W = Math.max(240, Math.round(width));
+    var H = 184;
+    var padL = 42, padR = 10, padT = 12, padB = 26;
+    var plotW = W - padL - padR, plotH = H - padT - padB;
+
+    var vals = pts.map(function (p) { return p[1]; });
+    var ys = yScale(vals);
+    var t0 = ms(pts[0][0]), t1 = ms(pts[pts.length - 1][0]);
+    if (t1 === t0) { t0 -= 86400000; t1 += 86400000; }
+
+    function X(t) { return padL + (t - t0) / (t1 - t0) * plotW; }
+    function Y(v) { return padT + (1 - (v - ys.lo) / (ys.hi - ys.lo)) * plotH; }
+
+    var out = [];
+    /* horizontal gridlines with a label each */
+    ys.ticks.forEach(function (t) {
+      var y = Math.round(Y(t)) + 0.5;
+      out.push('<line class="chart__grid" x1="' + padL + '" y1="' + y + '" x2="' + (padL + plotW) + '" y2="' + y + '"/>');
+      out.push('<text class="chart__axis" x="' + (padL - 8) + '" y="' + (y + 4) + '" text-anchor="end">' + num1(t) + '</text>');
+    });
+    /* dated x ticks: first, true midpoint of the time domain, last */
+    var mid = t0 + (t1 - t0) / 2;
+    var xt = [[t0, 'start'], [mid, 'middle'], [t1, 'end']];
+    xt.forEach(function (p) {
+      var x = X(p[0]);
+      out.push('<line class="chart__grid" x1="' + x.toFixed(1) + '" y1="' + (padT + plotH) + '" x2="' + x.toFixed(1) + '" y2="' + (padT + plotH + 4) + '"/>');
+      out.push('<text class="chart__axis" x="' + x.toFixed(1) + '" y="' + (H - 8) + '" text-anchor="' + p[1] + '">' + dayLabelFromMs(p[0]) + '</text>');
+    });
+    /* the line, positioned by date */
+    var poly = pts.map(function (p) { return X(ms(p[0])).toFixed(1) + ',' + Y(p[1]).toFixed(1); }).join(' ');
+    out.push('<polyline class="chart__line" points="' + poly + '"/>');
+    pts.forEach(function (p, i) {
+      var last = i === pts.length - 1;
+      out.push('<circle class="chart__dot" cx="' + X(ms(p[0])).toFixed(1) + '" cy="' + Y(p[1]).toFixed(1) + '" r="' + (last ? 4.5 : 3) + '"/>');
+    });
+
+    var first = pts[0], lastp = pts[pts.length - 1];
+    var desc = lift.name + ', estimated 1 rep max. ' + pts.length + ' sessions from ' +
+      longDate(first[0]) + ' to ' + longDate(lastp[0]) + '. ' +
+      num1(first[1]) + ' to ' + num1(lastp[1]) + ' kilograms, ' +
+      (lastp[1] > first[1] ? 'up ' : lastp[1] < first[1] ? 'down ' : 'unchanged, ') +
+      num1(Math.abs(lastp[1] - first[1])) + ' kilograms. Vertical axis ' +
+      num1(ys.lo) + ' to ' + num1(ys.hi) + ' kilograms.';
+
+    return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H +
+      '" role="img" aria-label="' + esc(desc) + '" data-testid="trend-chart" data-range="' + days +
+      '" data-points="' + pts.length + '" data-ylo="' + num1(ys.lo) + '" data-yhi="' + num1(ys.hi) + '">' +
+      out.join('') + '</svg>' +
+      '<ul class="vis-hidden">' + pts.map(function (p) {
+        return '<li>' + dayLabel(p[0]) + ': ' + num1(p[1]) + ' kilograms, from ' + num1(p[2]) + ' kilograms for ' + p[3] + ' reps</li>';
+      }).join('') + '</ul>';
+  }
+
+  /* =============================================================
+     State
+     ============================================================= */
+  var S = {
+    view: 'populated',
+    range: '12w',
+    liftId: 111,      /* lk_featuredLifts[0] */
+    sheet: false
+  };
+  function rangeDays() {
+    for (var i = 0; i < RANGES.length; i++) if (RANGES[i].id === S.range) return RANGES[i].days;
+    return 84;
+  }
+  function rangeLabel() {
+    for (var i = 0; i < RANGES.length; i++) if (RANGES[i].id === S.range) return RANGES[i].label;
+    return '';
+  }
+
+  /* =============================================================
+     Blocks
+     ============================================================= */
+  function rangeControl() {
+    return '' +
+      '<div class="section" style="margin-top: var(--sp-3)">' +
+        '<div class="seg seg--lg" role="radiogroup" aria-label="Range" data-testid="range-control">' +
+          RANGES.map(function (r) {
+            return '<button class="seg__item" role="radio" aria-checked="' + (S.range === r.id) +
+              '" data-action="range" data-range="' + r.id + '" data-testid="range-' + r.id + '">' +
+              'Last ' + r.label + '</button>';
+          }).join('') +
+        '</div>' +
+      '</div>';
+  }
+
+  function answerCard() {
+    var days = rangeDays(), s = summary(days);
+    var from = dayLabelFromMs(windowStart(days));
+    var headline = s.up === s.tracked
+      ? 'Every tracked lift is heavier'
+      : n(s.up) + ' of ' + n(s.tracked) + ' lifts are heavier';
+    return '' +
+      '<div class="card mt-3" data-testid="card-answer" data-up="' + s.up + '" data-tracked="' + s.tracked + '">' +
+        '<div class="t-label">Since ' + from + '</div>' +
+        '<h2 class="t-title mt-2">' + headline + '</h2>' +
+        '<p class="t-detail mt-2">' + n(s.sessions) + ' sessions logged. Biggest gain: ' +
+          esc(s.best.name) + ', ' + signedKg(s.best.delta) + ' on the estimate.</p>' +
+      '</div>';
+  }
+
+  function trendCard() {
+    var days = rangeDays();
+    var lift = liftById(S.liftId);
+    var pts = ptsIn(lift, days);
+    var cur = pts[pts.length - 1];
+    var delta = cur[1] - pts[0][1];
+    var trendClass = delta > 0 ? ' trend-up' : delta < 0 ? ' trend-down' : '';
+    var deltaText = delta === 0
+      ? 'level since ' + dayLabel(pts[0][0])
+      : signedKg(delta) + ' since ' + dayLabel(pts[0][0]);
+
+    return '' +
+      '<div class="section">' +
+        '<div class="section__head">' +
+          '<h2 class="t-label">Estimated 1 rep max</h2>' +
+          '<span class="t-meta">' + n(pts.length) + ' sessions</span>' +
+        '</div>' +
+        '<div class="card" data-testid="card-trend" data-lift="' + lift.id + '">' +
+          '<div class="spread">' +
+            '<div class="stack stack--1 grow">' +
+              '<span class="t-section">' + esc(lift.name) + '</span>' +
+              '<span class="t-meta">' + esc(lift.muscle) + '</span>' +
+            '</div>' +
+            '<div class="stack stack--1" style="text-align: right">' +
+              '<span class="stat__value" data-testid="trend-current">' + kg(cur[1]) + '</span>' +
+              '<span class="t-meta' + trendClass + '" data-testid="trend-delta">' + deltaText + '</span>' +
+            '</div>' +
+          '</div>' +
+          '<div class="mt-3" id="chart-holder" data-testid="chart-holder"></div>' +
+          '<p class="t-meta mt-2" data-testid="chart-caption">Vertical axis in kilograms, starting at ' +
+            '<span class="num" data-testid="axis-floor">' + num1(chartFloor(pts)) + '</span>, not at zero. ' +
+            'Points sit on the day they were lifted.</p>' +
+          '<p class="t-detail mt-3">Last set: ' + kg(cur[2]) + ' &times; ' + n(cur[3]) +
+            ' on ' + dayLabel(cur[0]) + '.</p>' +
+          '<button class="btn btn--secondary btn--block mt-3" data-action="open-picker" data-testid="choose-lift">' +
+            '<span class="btn__label">Choose another lift</span>' +
+          '</button>' +
+        '</div>' +
+      '</div>';
+  }
+  function chartFloor(pts) {
+    return yScale(pts.map(function (p) { return p[1]; })).lo;
+  }
+
+  function recordsSection() {
+    var rows = recordLifts();
+    return '' +
+      '<div class="section">' +
+        '<div class="section__head">' +
+          '<h2 class="t-label">Records</h2>' +
+          '<span class="t-meta">' + n(RECORDS.length) + ' across ' + n(rows.length) + ' lifts</span>' +
+        '</div>' +
+        '<div class="card card--flush" data-testid="records-list">' +
+          rows.map(function (r) {
+            var sel = r.id === S.liftId;
+            return '<button class="row' + (sel ? ' row--selected' : '') + '" data-action="pick-lift" data-id="' + r.id +
+              '" data-testid="record-' + r.id + '"' + (sel ? ' aria-current="true"' : '') + '>' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + esc(r.name) + '</span>' +
+                '<span class="row__sub">' + dayLabel(r.best.date) + ' &middot; ' + kg(r.best.kg) +
+                  ' &times; ' + n(r.best.reps) + (r.count > 1 ? ' &middot; ' + n(r.count) + ' records' : '') + '</span>' +
+              '</span>' +
+              '<span class="row__value">' + kg(e1rm(r.best.kg, r.best.reps)) + '</span>' +
+              '<span class="row__chev">' + ICO.chev + '</span>' +
+            '</button>';
+          }).join('') +
+        '</div>' +
+        '<button class="btn btn--tertiary btn--block mt-2" data-action="log-record" data-testid="log-record">' +
+          ICO.plus + '<span class="btn__label">Log a record without a workout</span>' +
+        '</button>' +
+      '</div>';
+  }
+
+  function moreSection() {
+    var w = WEIGHT_LOG[WEIGHT_LOG.length - 1], w0 = WEIGHT_LOG[0];
+    var d = w[1] - w0[1];
+    return '' +
+      '<div class="section">' +
+        '<div class="section__head"><h2 class="t-label">Also tracked</h2></div>' +
+        '<div class="card card--flush">' +
+          '<button class="row" data-action="open-weight" data-testid="row-body-weight">' +
+            '<span class="ico-well">' + ICO.scale + '</span>' +
+            '<span class="row__main stack">' +
+              '<span class="row__title">Body weight</span>' +
+              '<span class="row__sub">' + signedKg(d) + ' since ' + dayLabel(w0[0]) + '</span>' +
+            '</span>' +
+            '<span class="row__value">' + kg(w[1]) + '</span>' +
+            '<span class="row__chev">' + ICO.chev + '</span>' +
+          '</button>' +
+          '<button class="row" data-action="open-goals" data-testid="row-goals">' +
+            '<span class="ico-well">' + ICO.flag + '</span>' +
+            '<span class="row__main stack">' +
+              '<span class="row__title">Goals</span>' +
+              '<span class="row__sub">' + n(GOALS_ACTIVE) + ' active, next due Nov 7</span>' +
+            '</span>' +
+            '<span class="row__chev">' + ICO.chev + '</span>' +
+          '</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* =============================================================
+     Views
+     ============================================================= */
+  var VIEWS = {};
+
+  VIEWS.populated = function () {
+    return rangeControl() + answerCard() + trendCard() + recordsSection() + moreSection();
+  };
+
+  VIEWS.empty = function () {
+    return '' +
+      '<div class="empty mt-5" data-testid="progress-empty">' +
+        '<span class="empty__ico">' + ICO.chart + '</span>' +
+        '<h2 class="empty__title">No trend yet</h2>' +
+        '<p class="empty__body">Log two sessions of the same lift and this screen charts it, ' +
+          'with the record it beat.</p>' +
+        '<button class="btn btn--primary" data-action="start-workout" data-testid="empty-action">' +
+          '<span class="btn__label">Start a workout</span>' +
+        '</button>' +
+      '</div>';
+  };
+
+  VIEWS.loading = function () {
+    return '' +
+      '<div class="section" style="margin-top: var(--sp-3)" role="status" aria-busy="true" aria-label="Loading your progress" data-testid="progress-loading">' +
+        '<div class="skel" style="height: var(--tap)"></div>' +
+        '<div class="card mt-3">' +
+          '<div class="skel" style="height: var(--sp-3); width: 35%"></div>' +
+          '<div class="skel mt-3" style="height: var(--sp-5); width: 70%"></div>' +
+          '<div class="skel mt-3" style="height: var(--sp-4); width: 85%"></div>' +
+        '</div>' +
+        '<div class="card mt-3">' +
+          '<div class="skel" style="height: var(--sp-4); width: 50%"></div>' +
+          '<div class="skel mt-3" style="height: 184px"></div>' +
+        '</div>' +
+        '<div class="card mt-3">' +
+          '<div class="skel" style="height: var(--sp-4); width: 60%"></div>' +
+          '<div class="skel mt-3" style="height: var(--sp-4); width: 45%"></div>' +
+        '</div>' +
+      '</div>';
+  };
+
+  VIEWS.error = function () {
+    return '' +
+      '<div class="card mt-3" data-testid="progress-error">' +
+        '<div class="banner banner--error" role="alert">' +
+          ICO.alert +
+          '<span><strong>Progress did not load</strong>Your last sync failed, so sessions after ' +
+            'Aug 24 are missing. Nothing was lost on this phone.</span>' +
+        '</div>' +
+        '<button class="btn btn--primary btn--block mt-4" data-action="retry" data-testid="retry">' +
+          '<span class="btn__label">Try again</span>' +
+        '</button>' +
+        '<button class="btn btn--secondary btn--block mt-2" data-action="show-cached" data-testid="show-cached">' +
+          '<span class="btn__label">Show what is on this phone</span>' +
+        '</button>' +
+      '</div>';
+  };
+
+  /* =============================================================
+     Lift picker sheet. Every lift with history, not only those with
+     a record, because a lift you are building has no record yet.
+     ============================================================= */
+  function sheetHTML() {
+    var days = rangeDays();
+    return '' +
+      '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" data-testid="lift-sheet">' +
+        '<div class="sheet__grab"></div>' +
+        '<div class="sheet__head">' +
+          '<h2 class="t-section" id="sheet-title">Choose a lift</h2>' +
+          '<button class="iconbtn" data-action="close-sheet" data-testid="sheet-close" aria-label="Close lift picker">' +
+            ICO.close + '</button>' +
+        '</div>' +
+        '<div class="sheet__body" role="radiogroup" aria-label="Lifts with history">' +
+          '<div class="card card--flush">' +
+            LIFTS.map(function (l) {
+              var p = ptsIn(l, days);
+              var on = l.id === S.liftId;
+              var d = p.length > 1 ? p[p.length - 1][1] - p[0][1] : 0;
+              return '<button class="row' + (on ? ' row--selected' : '') + '" role="radio" aria-checked="' + on +
+                '" data-action="pick-lift" data-id="' + l.id + '" data-testid="sheet-lift-' + l.id + '">' +
+                '<span class="ico-well">' + ICO.lift + '</span>' +
+                '<span class="row__main stack">' +
+                  '<span class="row__title">' + esc(l.name) + '</span>' +
+                  '<span class="row__sub">' + esc(l.muscle) + ' &middot; ' + n(p.length) + ' sessions</span>' +
+                '</span>' +
+                '<span class="row__value">' + kg(p[p.length - 1][1]) + '</span>' +
+              '</button>';
+            }).join('') +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* =============================================================
+     Render
+     ============================================================= */
+  var body = document.getElementById('body');
+  var overlay = document.getElementById('overlay');
+  var screen = document.getElementById('screen');
+  var lastFocus = null;
+
+  function drawChart() {
+    var holder = document.getElementById('chart-holder');
+    if (!holder) return;
+    var lift = liftById(S.liftId);
+    var pts = ptsIn(lift, rangeDays());
+    var w = holder.clientWidth || 329;
+    holder.innerHTML = chartSVG(lift, pts, rangeDays(), w);
+  }
+
+  function render() {
+    screen.setAttribute('data-state', S.view);
+    body.innerHTML = (VIEWS[S.view] || VIEWS.populated)();
+    drawChart();
+    overlay.innerHTML = S.sheet ? sheetHTML() : '';
+    Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.state === S.view));
+    });
+    if (S.sheet) {
+      var f = overlay.querySelector('[data-testid="sheet-close"]');
+      if (f) f.focus();
+    }
+  }
+
+  function openSheet() {
+    lastFocus = document.activeElement;
+    S.sheet = true;
+    render();
+  }
+  function closeSheet(refocus) {
+    S.sheet = false;
+    render();
+    var back = refocus && document.querySelector('[data-testid="choose-lift"]');
+    if (back) back.focus();
+    else if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
+    lastFocus = null;
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-action]');
+    if (!t) return;
+    var a = t.dataset.action;
+    if (a === 'range') {
+      S.range = t.dataset.range;
+      render();
+    } else if (a === 'open-picker') {
+      openSheet();
+    } else if (a === 'close-sheet') {
+      closeSheet(true);
+    } else if (a === 'pick-lift') {
+      S.liftId = Number(t.dataset.id);
+      var wasSheet = S.sheet;
+      S.sheet = false;
+      render();
+      var card = document.querySelector('[data-testid="card-trend"]');
+      if (card) card.scrollIntoView({ block: 'nearest' });
+      if (wasSheet) {
+        var back = document.querySelector('[data-testid="choose-lift"]');
+        if (back) back.focus();
+      }
+    } else if (a === 'retry' || a === 'show-cached') {
+      S.view = 'populated';
+      render();
+    }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && S.sheet) { e.preventDefault(); closeSheet(true); return; }
+    if (e.key !== 'Tab' || !S.sheet) return;
+    var f = overlay.querySelectorAll('button');
+    if (!f.length) return;
+    var first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    else if (!overlay.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+  });
+
+  var resizeTimer = null;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(drawChart, 100);
+  });
+
+  /* ---- dev state toggle ------------------------------------------ */
+  var STATES = [
+    ['populated', 'Populated'],
+    ['empty', 'Empty'],
+    ['loading', 'Loading'],
+    ['error', 'Error']
+  ];
+  var menu = document.getElementById('dev-menu');
+  var toggle = document.getElementById('dev-toggle');
+  menu.innerHTML = STATES.map(function (s) {
+    return '<button class="dev__item" data-state="' + s[0] + '" aria-pressed="false" data-testid="dev-state-' + s[0] + '">' + s[1] + '</button>';
+  }).join('');
+  toggle.addEventListener('click', function () {
+    var open = toggle.getAttribute('aria-expanded') === 'true';
+    toggle.setAttribute('aria-expanded', String(!open));
+    menu.hidden = open;
+  });
+  menu.addEventListener('click', function (e) {
+    var b = e.target.closest('.dev__item');
+    if (!b) return;
+    S.view = b.dataset.state;
+    S.sheet = false;
+    render();
+  });
+
+  var q = new URLSearchParams(location.search);
+  if (q.get('state') && VIEWS[q.get('state')]) S.view = q.get('state');
+  if (q.get('range')) S.range = q.get('range');
+  render();
+})();
+</script>
+</body>
+</html>
