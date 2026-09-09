@@ -1,6 +1,5 @@
 # Function audit — Exercise Library (ExLib L7761, ExerciseDetailModal L7202)
 
-
 ## 1. Purpose
 
 A 225-exercise catalogue you search or drill into by muscle group, to read an exercise or hand it to the screen that summoned the picker.
@@ -35,8 +34,8 @@ Only flow 1 touches this page (flow 4 and 6 tapLogs never enter it).
 
 | Flow | Steps here | Taps | ms (flow total) |
 |---|---|---|---|
-| 1A cold start | Add Exercise → type "Bench" → row → ADD TO WORKOUT | 2 of 17 | 3716 |
-| 1B seeded guest | same | 2 of 14 | 3090 |
+| 1A cold | Add Exercise → type "Bench" → row → ADD TO WORKOUT | 2 of 17 | 3716 |
+| 1B seeded | same | 2 of 14 | 3090 |
 
 No hesitation: typed search is the fast path, and ADD TO WORKOUT works from this entry. No per-step timestamp log exists (no `flow-<n>.json` in `tests/baseline/`); video at `baseline/artifacts/flows-01-*/video.webm`.
 
@@ -51,7 +50,7 @@ Measured by hand against the 225-item fixture (`tests/fixtures/exercise-db.json`
 | Error | `-error.png` | yes (GIF box gone) | **PRESENT-BUT-WRONG** — a worker abort reads "No form video found for this exercise."; the GIF failure says nothing |
 | Populated | `-populated.png` | yes | correct |
 
-A=4, M=1, W=1, G=1.
+A=4; M=1, W=1, G=1.
 
 ## 5. Baseline failures
 
@@ -79,15 +78,15 @@ Function mean **2.6**.
 
 **Keep**
 - Group → subgroup → exercise browse: 3 taps, counts and previews correct.
-- Per-exercise notes, autosaved and flushed on unmount (`-detail-modal.png`, survives the abort in `-error.png`).
-- Create Custom Exercise with the collision-free id (L8149), persisted to `lk_customEx` (`-create-custom.png`).
+- Per-exercise notes, autosaved and flushed on unmount (`-detail-modal.png`, survive the abort in `-error.png`).
+- Create Custom Exercise with the collision-free id (L8149), persisted to `lk_customEx` (`-populated-create-custom.png`).
 
 **Fix**
 - Render inside the Train hub instead of replacing it; delete the unreachable `tab==="library"` branch (L15958).
 - `mergedSub` must match on `gid`/`sid`, so customs appear and count (Lower Chest 10 → 11).
 - Hide ADD TO WORKOUT when no `onSelect` is passed (L7463); a dead primary from the Library tab.
 - Search equipment and muscle, drop the 2-character floor, autofocus the field ("chest" → 7 of 30).
-- Offline: name the cause once for GIF and video; add a loading skeleton so `-loading.png` differs from populated.
+- Offline: name the cause once for GIF and video; add a loading skeleton so `-loading.png` differs.
 - Empty state should offer Create Custom Exercise, not "No results".
 
 **Cut**
