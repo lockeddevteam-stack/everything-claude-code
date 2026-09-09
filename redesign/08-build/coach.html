@@ -319,14 +319,16 @@
 
   function tabbar() {
     var items = [
-      ['home', 'Home', 'lift'], ['train', 'Train', 'lift'], ['progress', 'Progress', 'lift'],
-      ['coach', 'Coach', 'coach'], ['profile', 'Profile', 'user']
+      ['home', 'Home', 'lift'], ['train', 'Train', 'lift'], ['fuel', 'Fuel', 'fuel'],
+      ['progress', 'Progress', 'lift'], ['coach', 'Coach', 'coach']
     ];
     return '<nav class="tabbar" aria-label="Sections">' + items.map(function (t) {
       var cur = t[0] === 'coach' ? ' aria-current="page"' : '';
       var glyph = t[0] === 'home'
         ? '<path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4v-5H9v5H5a1 1 0 0 1-1-1z"/>'
-        : t[0] === 'progress' ? '<path d="M4 19h16M7 16v-4M12 16V7M17 16v-6"/>' : P[t[2]];
+        : t[0] === 'progress' ? '<path d="M4 19h16M7 16v-4M12 16V7M17 16v-6"/>'
+        : t[0] === 'fuel' ? '<path d="M7 3v8a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V3"/><path d="M9 13v8"/><path d="M17 3c-1.5 1.8-2 3.6-2 5.5 0 1.6.7 2.5 2 2.5s2-.9 2-2.5c0-1.9-.5-3.7-2-5.5Z"/><path d="M17 11v10"/>'
+        : P[t[2]];
       return '<button class="tabbar__item"' + cur + ' data-testid="tab-' + t[0] + '">' +
         '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + glyph + '</svg>' +
         t[1] + '</button>';
@@ -425,7 +427,7 @@
     html += c.msgs.map(bubble).join('');
     if (c.status === 'thinking') {
       html += '' +
-        '<article class="msg" role="status" aria-live="polite" data-testid="msg-thinking">' +
+        '<div class="msg" role="status" aria-live="polite" data-testid="msg-thinking">' +
           '<span class="msg__avatar">' + ico('coach') + '</span>' +
           '<div class="msg__col">' +
             '<div class="msg__head"><span class="msg__who">Coach</span><span class="msg__time">now</span></div>' +
@@ -438,7 +440,7 @@
               '<span class="btn__label">Stop</span></button>' +
             '</div>' +
           '</div>' +
-        '</article>';
+        '</div>';
     }
     html += '</div>';
     return html;
@@ -459,26 +461,27 @@
      --------------------------------------------------------------- */
   function targetRow(t, i, state) {
     var pr = progress(t);
-    var sub, right = '', bar = '';
+    var sub, basis, right = '', bar = '';
     if (state === 'future') {
-      sub = 'Target ' + fmt(t.value) + ' kg &middot; starts week ' + t.weekStart;
+      sub = 'Target ' + n(fmt(t.value)) + ' kg';
+      basis = 'Starts week ' + t.weekStart;
       right = '<span class="t-meta">Not started</span>';
     } else if (!pr.has) {
-      sub = 'No set at ' + pr.reps + ' reps or more yet';
+      sub = 'Target ' + n(fmt(t.value)) + ' kg';
+      basis = 'No set of ' + pr.reps + '+ logged yet';
       right = '<span class="t-meta">No data</span>';
     } else {
-      sub = pr.lift + ' &middot; best set of ' + n(pr.reps) + ' or more';
+      sub = n(fmt(pr.now)) + ' of ' + n(fmt(t.value)) + ' kg';
+      basis = pr.lift + ' &middot; best set of ' + pr.reps + '+';
       right = pr.met
         ? '<span class="row__value good">Met</span>'
         : '<span class="row__value">' + n(pr.pct) + '%</span>';
       bar = '<span class="meter meter--quiet mt-2"><span class="meter__fill" style="width: ' + Math.min(100, pr.pct) + '%"></span></span>';
     }
-    var head = pr.has && state !== 'future'
-      ? esc(t.name) + ' &middot; ' + n(fmt(pr.now)) + ' of ' + n(fmt(t.value)) + ' kg'
-      : esc(t.name) + ' &middot; ' + n(fmt(t.value)) + ' kg';
     return '<button class="row" data-act="target" data-i="' + i + '" data-testid="plan-target-' + i + '">' +
-      '<span class="row__main"><span class="row__title">' + head + '</span>' +
-      '<span class="row__sub">' + sub + '</span>' + bar + '</span>' +
+      '<span class="row__main"><span class="row__title">' + esc(t.name) + '</span>' +
+      '<span class="row__sub">' + sub + '</span>' +
+      '<span class="row__sub quiet">' + basis + '</span>' + bar + '</span>' +
       right + '<span class="row__chev">' + ico('chev') + '</span></button>';
   }
 
@@ -580,11 +583,13 @@
             ico('link') + '<span class="btn__label">Run it on a split</span></button>' +
         '</div></section>';
     } else {
+      var notStarted = week === 0;
       act = '<section class="section" data-testid="plan-this-week">' +
-        '<div class="section__head"><h2 class="t-label">This week</h2></div>' +
+        '<div class="section__head"><h2 class="t-label">' + (notStarted ? 'First week' : 'This week') + '</h2></div>' +
         '<div class="card">' +
-          '<div class="t-section">' + esc(ph.name) + ' &middot; week ' + n(week - ph.weekStart + 1) + ' of ' + n(ph.weekEnd - ph.weekStart + 1) + '</div>' +
-          '<p class="t-detail mt-2">' + esc(ph.note) + '</p>' +
+          '<div class="t-section">' + esc(ph.name) + ' &middot; ' +
+            (notStarted ? 'week 1 of ' + n(ph.weekEnd - ph.weekStart + 1) : 'week ' + n(week - ph.weekStart + 1) + ' of ' + n(ph.weekEnd - ph.weekStart + 1)) + '</div>' +
+          '<p class="t-detail mt-2">' + (notStarted ? 'Starts ' + dayLabel(p.start) + '. ' : '') + esc(ph.note) + '</p>' +
           '<div class="card card--flush card--raised mt-3">' +
             '<button class="row" data-act="open-split" data-testid="plan-open-split">' +
               '<span class="ico-well">' + ico('lift') + '</span>' +
@@ -593,7 +598,7 @@
               '<span class="row__chev">' + ico('chev') + '</span></button>' +
           '</div>' +
           '<button class="btn btn--primary btn--block mt-3" data-act="start" data-testid="plan-start">' +
-            ico('play') + '<span class="btn__label">Start ' + esc(p.nextDay) + '</span></button>' +
+            ico('play') + '<span class="btn__label">Start ' + esc(p.nextDay) + (notStarted ? ' early' : '') + '</span></button>' +
         '</div></section>';
     }
 

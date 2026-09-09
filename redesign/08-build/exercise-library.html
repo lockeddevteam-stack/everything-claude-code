@@ -750,6 +750,8 @@
     var title, meta;
     if (S.gid) { title = GNAME[S.gid]; meta = n(inGroup(S.gid).length) + ' exercises'; }
     else if (S.filter === 'custom') { title = 'Custom'; meta = n(pool().length) + ' of your own'; }
+    else if (S.status === 'error') { title = 'Exercises'; meta = 'List unavailable'; }
+    else if (S.status === 'loading') { title = 'Exercises'; meta = 'Loading'; }
     else { title = 'Exercises'; meta = n(pool().length) + ' in the library'; }
     return (S.gid
       ? '<button class="hdr__back" type="button" data-action="back" data-testid="back" aria-label="Back to muscle groups">' + ico('back') + '</button>'
@@ -761,6 +763,7 @@
   }
 
   function renderFilters() {
+    if (S.status !== 'ready') return '';
     var customs = S.items.filter(function (x) { return x.custom; }).length;
     return [['all', 'All ' + S.items.length], ['custom', 'Custom ' + customs]].map(function (f) {
       return '<button class="chip" type="button" data-action="filter" data-filter="' + f[0] + '" aria-pressed="' +
@@ -792,7 +795,9 @@
     body.innerHTML = renderBody();
     layer.innerHTML = renderLayer();
     clear.hidden = !S.q;
-    input.placeholder = S.gid && !S.q ? 'Search ' + GNAME[S.gid] + ' and the whole library' : 'Search ' + S.items.length + ' exercises';
+    input.disabled = S.status !== 'ready';
+    input.placeholder = S.status !== 'ready' ? 'Search'
+      : (S.gid && !S.q ? 'Search ' + GNAME[S.gid] + ' and the whole library' : 'Search ' + S.items.length + ' exercises');
     screen.setAttribute('data-state', stateName());
     screen.setAttribute('data-entry', S.entry);
     screen.setAttribute('data-source', S.source);
@@ -821,6 +826,10 @@
     filter: function (el) {
       S.filter = el.getAttribute('data-filter');
       S.gid = null;
+      /* Reached from the error state: the catalogue is gone, the customs
+         on this device are not, and the list says so rather than staying
+         on the error. */
+      if (S.status === 'error') { S.raw = []; S.status = 'ready'; rebuild(); }
       render({ scrollTop: true });
     },
     'scope-all': function () { S.scope = 'all'; render({ scrollTop: true }); },
