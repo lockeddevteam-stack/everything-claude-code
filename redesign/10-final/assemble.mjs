@@ -55,7 +55,10 @@ const MANIFEST = {
   pushed: {
     'split-builder': { parent: 'train', backSelector: '[data-action="manual-back"]' },
     'exercise-library': { parent: 'train' },
-    onboarding: { parent: 'home', standalone: true }
+    onboarding: { parent: 'home', standalone: true },
+    settings: { parent: 'home', backSelector: '[data-testid="back"]' },
+    'workout-log': { parent: 'train' },
+    review: { parent: 'train', backSelector: '[data-testid="action-back"]' }
   },
 
   /* Taps that leave a screen. Selector is matched with closest() inside the
@@ -70,7 +73,10 @@ const MANIFEST = {
     { from: 'train', selector: '[data-action="new-split"]', to: 'split-builder', mode: 'push' },
     { from: 'train', selector: '[data-action="edit-split"]', to: 'split-builder', mode: 'push' },
     { from: 'coach', selector: '[data-act="open-split"]', to: 'split-builder', mode: 'push' },
-    { from: 'coach', selector: '[data-act="plan-start"]', to: 'train', mode: 'tab' }
+    { from: 'coach', selector: '[data-act="plan-start"]', to: 'train', mode: 'tab' },
+    { from: 'home', selector: '[data-testid="open-account"]', to: 'settings', mode: 'push' },
+    { from: 'train', selector: '[data-action="start-today"]', to: 'workout-log', mode: 'push' },
+    { from: 'workout-log', selector: '[data-action="finish"]', to: 'review', mode: 'push' }
   ],
 
   /* Where a screen keeps its own state switcher. Harvested for the demo-level
@@ -318,11 +324,29 @@ const RUNTIME = String.raw`
     document.getElementById('demo-screens').appendChild(host);
 
     var root = host.attachShadow({ mode: 'open' });
-    if (SHEET) root.adoptedStyleSheets = [SHEET];
-    else { var st = document.createElement('style'); st.textContent = GLOBAL_CSS; root.appendChild(st); }
+    var frag = document.getElementById('demo-tpl-' + rec.id).content.cloneNode(true);
 
-    var tpl = document.getElementById('demo-tpl-' + rec.id);
-    root.appendChild(tpl.content.cloneNode(true));
+    /* The screen's own CSS has to land AFTER the design system, exactly as it
+       did in the standalone page: some screens rely on cascade order rather
+       than specificity (onboarding's trailing [hidden] { display: none }).
+       Adopted sheets cascade after anything in the tree, so the screen's style
+       is adopted second rather than left as a <style> in the tree. */
+    var own = Array.prototype.slice.call(frag.querySelectorAll('style[data-screen-css]'));
+    var ownCss = own.map(function (s) { return s.textContent; }).join('\n');
+    own.forEach(function (s) { s.parentNode.removeChild(s); });
+
+    if (SHEET) {
+      var sheets = [SHEET];
+      if (ownCss.trim()) {
+        try { var s2 = new CSSStyleSheet(); s2.replaceSync(ownCss); sheets.push(s2); }
+        catch (e) { var f = document.createElement('style'); f.textContent = ownCss; frag.insertBefore(f, frag.firstChild); }
+      }
+      root.adoptedStyleSheets = sheets;
+    } else {
+      var g = document.createElement('style'); g.textContent = GLOBAL_CSS; root.appendChild(g);
+      if (ownCss.trim()) { var o = document.createElement('style'); o.textContent = ownCss; root.appendChild(o); }
+    }
+    root.appendChild(frag);
 
     rec.host = host;
     rec.root = root;
@@ -687,7 +711,7 @@ function build() {
     .map(
       (r) =>
         `<template id="demo-tpl-${attr(r.id)}">\n` +
-        (r.css ? `<style>\n/* ${r.id}: this screen's own CSS, inside this screen's shadow root only */\n${r.css}\n</style>\n` : '') +
+        (r.css ? `<style data-screen-css>\n/* ${r.id}: this screen's own CSS, scoped to this screen's shadow root */\n${r.css}\n</style>\n` : '') +
         `${r.markup}\n</template>`
     )
     .join('\n\n');
