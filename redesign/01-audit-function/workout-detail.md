@@ -1,6 +1,6 @@
 # Wave 1 Function Audit — Workout Detail (`workout-detail`)
 
-`WorkoutDetail` L17084, `ConvertToSplitModal` L16622. Page-map 2.9.
+`WorkoutDetail` L17084, `ConvertToSplitModal` L16622; page-map 2.9.
 
 ## 1. Purpose
 
@@ -20,7 +20,7 @@ A read-only record of one finished session — name, date, note, feelings, every
 | Edit fields, Add Set, remove set/exercise | L17198-17510 | working | `-populated-edit.png` |
 | Empty-state copy "No exercises…" | L17509 | **dead** | edit-mode only; Edit hidden when `exercises.length===0`, so unreachable |
 | Compare to last time | — | absent | no prior-session values in `-populated-full.png` |
-| Repeat / start again | — | absent | only via Convert → split |
+| Repeat / start again | — | absent | only via Convert |
 
 ## 3. Task walkthrough
 
@@ -46,11 +46,11 @@ A = 2. Loading and error **N/A** — page-map 2.9 row `L/X | n/a`, no network br
 | loading | — | N/A | |
 | error | — | N/A | |
 
-M=0, W=1, G=0. (Reading the `0` as a render artefact instead gives M=1, W=0 and score 2; noted for the reviewer.)
+M=0, W=1, G=0. (Reading the `0` as a render artefact instead gives M=1, W=0, score 2.)
 
 ## 5. Baseline failures
 
-`SUMMARY.md` L35: populated passed, empty failed, error N/A, 3/4 clicked, 0 non-responders, 0 errors. Delete skipped as destructive, not a defect.
+`SUMMARY.md` L35: populated passed, empty failed, error N/A, 3/4 clicked, 0 non-responders, 0 errors. Delete skipped as destructive.
 
 1. **Empty spec failed** (D6, `page-metrics.jsonl:56`, check `text=/no exercises/i`). The copy sits at L17509 inside `if (editing)`; read mode returns at L17511 with no empty branch. Edit and Convert are gated on `w.exercises.length > 0` (L17562, L17599), so an empty session cannot enter edit mode — the copy is unreachable by any path, not merely misplaced.
 2. **Stray "0"**: L17710 gates the EXERCISES card on `w.sets &&`, so `w.sets === 0` makes React print `0`. Visible mid-page in `-empty.png`.
@@ -81,10 +81,10 @@ M=0, W=1, G=0. (Reading the `0` as a render artefact instead gives M=1, W=0 and 
 
 **Fix**
 - Render the "No exercises" copy in read mode; kill the `w.sets &&` truthiness bug at L17710 that prints `0`.
-- Ungate Edit from `exercises.length > 0` (L17562) so an empty session can be repaired, not only deleted.
+- Ungate Edit from `exercises.length > 0` (L17562) so an empty session can be repaired, not just deleted.
 - `saveEdit` must preserve `setType`, `done` and out-of-range RIR, and not recount warm-ups into the header (L17160, L17451).
 - Add a discard confirm to edit-mode Back (L17220).
-- Add a previous-session column beside each set, so compare costs 0 extra taps, not 3 plus memory.
+- Add a previous-session column beside each set: compare then costs 0 extra taps, not 3 plus memory.
 - Add a Repeat action that starts this session directly; 5 taps through Convert is the wrong price.
 
 **Cut**
