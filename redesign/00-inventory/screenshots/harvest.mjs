@@ -166,6 +166,24 @@ const O = {
 // ---------- page scenarios ----------
 async function goProgress(r) { if (!(await r.click('button:has-text("VIEW PROGRESS")', 'Home "VIEW PROGRESS"'))) throw new Error('no VIEW PROGRESS'); }
 async function goSettings(r) { await r.click(NAV('Profile'), 'Nav Profile'); await r.click('button:has-text("Settings")', 'Profile "Settings"'); }
+// Settings beta card: a code from DEFAULT_BETA_CODES, so the local pre-check passes and /beta-validate is actually issued.
+const BETA_CODE = 'PUBLICBETA';
+/** Scroll the Settings "BETA TESTING" card to the middle of the viewport. Pass `pin` to re-apply an earlier offset. Returns scrollTop. */
+async function betaScroll(r, pin) {
+  return r.page.evaluate((pin) => {
+    const sc = document.querySelector('.lk-scroll') || [...document.querySelectorAll('*')].filter(e => /(auto|scroll)/.test(getComputedStyle(e).overflowY) && e.scrollHeight > e.clientHeight + 10).sort((a, b) => b.clientHeight - a.clientHeight)[0];
+    if (!sc) return null;
+    let t = pin;
+    if (t == null) {
+      const card = [...document.querySelectorAll('div')].filter(d => { const p = d.querySelector(':scope > p'); return p && p.textContent.trim() === 'BETA TESTING'; }).pop();
+      if (!card) return null;
+      const cr = card.getBoundingClientRect(), sr = sc.getBoundingClientRect();
+      t = sc.scrollTop + (cr.top - sr.top) - (sr.height - cr.height) / 2;
+    }
+    sc.scrollTop = Math.max(0, Math.min(t, sc.scrollHeight - sc.clientHeight));
+    return Math.round(sc.scrollTop);
+  }, pin);
+}
 async function goShop(r) { await r.click(NAV('Fuel'), 'Nav Fuel'); await r.click('button[aria-label="Shopping and budget"]', 'Fuel [aria-label="Shopping and budget"]'); }
 async function goWorkoutLog(r) { await r.click('button:has-text("Resume")', 'Resume dialog "Resume"'); await r.has('button:has-text("Finish")'); }
 async function shopTab(r, t) { await r.click(`[aria-label="Shopping section"] button:has-text("${t}")`, `Shop tab "${t}"`); }
@@ -630,13 +648,33 @@ const pages = {
     await scenario({ page: 'settings', state: 'populated', overrides: states.light(), setup: 'seed + lk_theme=light' }, async (r) => {
       await goSettings(r); await r.shot('settings-populated-light-theme');
     });
-    await scenario({ page: 'settings', state: 'error', abortWorker: true, setup: 'Settings → beta "Enter invite code" → Verify with worker aborted' }, async (r) => {
+    // --- beta card trio (0D-fix): one shared scroll offset so loading / error / control differ only by state.
+    // BETA_CODE must be a DEFAULT_BETA_CODES entry, otherwise validateBetaCodeRemote() short-circuits on the
+    // local pre-check and /beta-validate is never requested (that was the original capture defect).
+    await scenario({ page: 'settings', state: 'populated', setup: `Settings → beta code "${BETA_CODE}" typed, Verify NOT pressed` }, async (r) => {
       await goSettings(r);
-      if (await r.fill('input[placeholder="Enter invite code"]', 'BADCODE', 'beta code')) { await r.click('button:has-text("Verify")', 'Verify'); await wait(1200); await r.shot('settings-error', { note: 'settingsBetaErr after /beta-validate abort' }); }
+      if (await r.fill('input[placeholder="Enter invite code"]', BETA_CODE, `beta code "${BETA_CODE}"`)) {
+        const top = await betaScroll(r); r.log(`centre BETA TESTING card (scrollTop ${top}px)`);
+        await r.shot('settings-populated-beta', { subview: `beta card centred (scrollTop ${top}px), no request in flight`, wait: 700, note: 'matched control for settings-loading / settings-error: same page, dark theme and scroll offset, code typed, Verify not pressed' });
+      }
     });
-    await scenario({ page: 'settings', state: 'loading', delayWorker: 60000, setup: 'Settings → beta Verify with worker delayed' }, async (r) => {
+    await scenario({ page: 'settings', state: 'error', setup: `Settings → beta code "${BETA_CODE}" → Verify, /beta-validate resolves without valid:true` }, async (r) => {
       await goSettings(r);
-      if (await r.fill('input[placeholder="Enter invite code"]', 'BADCODE', 'beta code')) { await r.click('button:has-text("Verify")', 'Verify'); await wait(500); await r.shot('settings-loading', { note: 'beta Verify pending (guest: sync/password/delete loading are signed-in only)' }); }
+      if (await r.fill('input[placeholder="Enter invite code"]', BETA_CODE, `beta code "${BETA_CODE}"`)) {
+        const top = await betaScroll(r); r.log(`centre BETA TESTING card (scrollTop ${top}px)`);
+        await r.click('button:has-text("Verify")', 'Verify');
+        await wait(1800); await betaScroll(r, top);
+        await r.shot('settings-error', { subview: `beta card centred (scrollTop ${top}px), settingsBetaErr rendered`, wait: 700, note: 'settingsBetaErr "Invalid code" under the input after /beta-validate resolves without valid:true. NB: aborting the worker instead yields the VERIFIED state, not an error → validateBetaCodeRemote .catch() calls onResult(true).' });
+      }
+    });
+    await scenario({ page: 'settings', state: 'loading', delayWorker: 60000, setup: `Settings → beta code "${BETA_CODE}" → Verify with /beta-validate delayed 60s` }, async (r) => {
+      await goSettings(r);
+      if (await r.fill('input[placeholder="Enter invite code"]', BETA_CODE, `beta code "${BETA_CODE}"`)) {
+        const top = await betaScroll(r); r.log(`centre BETA TESTING card (scrollTop ${top}px)`);
+        await r.click('button:has-text("Verify")', 'Verify');
+        await wait(1800); await betaScroll(r, top);
+        await r.shot('settings-loading', { subview: `beta card centred (scrollTop ${top}px), /beta-validate in flight`, wait: 700, note: 'POST /beta-validate genuinely pending; the beta card renders NO pending affordance (no spinner, skeleton, progress bar, label change, disabled or aria-busy Verify) → pixel-identical to settings-populated-beta' });
+      }
     });
     unreachable.push({ page: 'settings', state: 'empty', subview: '-', reason: 'no empty branch (page-map 2.17 E n/a)' });
   },
