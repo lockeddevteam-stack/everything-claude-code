@@ -36,6 +36,12 @@ const MANIFEST = {
   outFile: 'locked-demo.html',
   css: ['tokens.css', 'components.css'],
 
+  /* Shared scripts every screen links with <script src=...> in <head>. They
+     are inlined once, at the top of the page and outside every screen closure,
+     so the global they define (LKPatch) is the same object for every screen —
+     exactly as the two stylesheets are one parsed copy adopted by every root. */
+  js: ['theme.js', 'app.js'],
+
   /* Files in srcDir that are not app screens. */
   exclude: [/^mockup-/],
 
@@ -732,6 +738,11 @@ function demoCss() {
 function build() {
   const screens = discover();
   const cssText = MANIFEST.css.map((f) => read(join(SRC, f))).join('\n\n');
+  const sharedJs = MANIFEST.js.map((f) => {
+    const text = read(join(SRC, f));
+    if (/<\/script/i.test(text)) throw new Error(`${f}: contains a closing script tag`);
+    return `<script>\n/* ${f} — inlined verbatim from 08-build/${f} */\n${text}\n</script>`;
+  }).join('\n');
   const assets = buildAssets(screens);
 
   const fuelId = 'fuel-placeholder';
@@ -797,6 +808,9 @@ function build() {
   cannot cross between screens. Every screen's script runs in its own closure
   with a document proxy bound to that root. tokens.css and components.css are
   inlined once and adopted by each root. No iframes, no network.
+
+  app.js (LKPatch) is inlined once, before anything else runs, and every
+  screen's render goes through it instead of assigning innerHTML.
 -->
 <style id="demo-global-css">
 ${cssText}
@@ -804,6 +818,7 @@ ${cssText}
 <style id="demo-chrome-css">
 ${demoCss()}
 </style>
+${sharedJs}
 </head>
 <body>
 

@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
 <script src="theme.js"></script>
+<script src="app.js"></script>
 </head>
 <body>
 <!--
@@ -733,8 +734,14 @@
             '<span class="opt__main"><span class="opt__title">' + p[1] + '</span>' +
             '<span class="opt__sub">' + p[2] + '</span></span></button>';
         }).join('') +
-        '<div class="card__foot"><button class="btn btn--tertiary btn--sm" data-act="perms-off" data-testid="setup-perms-off">' +
-          '<span class="btn__label">Turn all off</span></button></div>' +
+        '<div class="card__foot hstack hstack--2">' +
+          '<button class="btn btn--tertiary btn--sm" data-act="perms-on" data-testid="setup-perms-on"' +
+            (permCount() === PERMS.length ? ' disabled' : '') + '>' +
+            '<span class="btn__label">Turn all on</span></button>' +
+          '<button class="btn btn--tertiary btn--sm" data-act="perms-off" data-testid="setup-perms-off"' +
+            (permCount() === 0 ? ' disabled' : '') + '>' +
+            '<span class="btn__label">Turn all off</span></button>' +
+        '</div>' +
       '</div></section>';
 
     var lead = empty
@@ -917,14 +924,14 @@
        the plan card while the card is waiting to be saved. */
     var accent = (S.view === 'chat' && S.chat.offer && !S.chat.offerSaved) ? 'card' : 'action';
 
-    phone.innerHTML = '' +
+    LKPatch(phone, '' +
       '<div class="screen" data-state="' + currentState() + '" data-view="' + S.view + '" data-accent="' + accent + '" data-testid="view-' + S.view + '">' +
         header() +
         '<main class="body" tabindex="-1" data-testid="' + S.view + '-scroll">' +
           '<div id="panel-' + S.view + '" role="tabpanel" aria-labelledby="tab-' + S.view + '">' + body + '</div>' +
         '</main>' +
         '<footer>' + foot + tabbar() + '</footer>' + overlays() +
-      '</div>';
+      '</div>');
 
     if (S.view === 'chat' && S.chat.status !== 'empty') {
       var scroll = phone.querySelector('.body');
@@ -1114,6 +1121,12 @@
       S.setup.dirty = true;
       if (S.setup.status === 'empty' && permCount()) S.setup.status = 'ready';
       render();
+    },
+    'perms-on': function () {
+      PERMS.forEach(function (p) { S.setup.perms[p[0]] = true; });
+      S.setup.dirty = true;
+      render();
+      toast('All sources on. The coach reads your training, body and goals when you message it.');
     },
     'perms-off': function () {
       PERMS.forEach(function (p) { S.setup.perms[p[0]] = false; });
@@ -1319,9 +1332,9 @@
 
   var menu = document.getElementById('dev-menu');
   var toggle = document.getElementById('dev-toggle');
-  menu.innerHTML = PRESETS.map(function (p, i) {
+  LKPatch(menu, PRESETS.map(function (p, i) {
     return '<button class="dev__item" data-preset="' + i + '" aria-pressed="false" data-testid="dev-preset-' + i + '">' + p[0] + '</button>';
-  }).join('');
+  }).join(''));
   function renderDev() {
     toggle.setAttribute('aria-expanded', String(S.dev));
     menu.hidden = !S.dev;

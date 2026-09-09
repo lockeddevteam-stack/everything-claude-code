@@ -13,6 +13,9 @@
   cannot cross between screens. Every screen's script runs in its own closure
   with a document proxy bound to that root. tokens.css and components.css are
   inlined once and adopted by each root. No iframes, no network.
+
+  app.js (LKPatch) is inlined once, before anything else runs, and every
+  screen's render goes through it instead of assigning innerHTML.
 -->
 <style id="demo-global-css">
 /* LOCKED design tokens
@@ -65,7 +68,35 @@
   --surface-raised: #1C1C1F;/* sheet, popover, L* 10.6 */
   --surface-sunken: #050506;/* inset wells, keypad ground */
   --hairline: #2A2A2E;     /* separators, 1px */
-  --border: #35353A;       /* control borders, 3:1 against surface */
+  /* Control borders. The shipped value was #35353A, which the pair table
+     recorded as 3.06:1 against --surface; measured, it is 1.51 -- and
+     1.39 against a sheet. Every control whose only boundary is that
+     border (the text input, the composer, the switch's off track, the
+     checkbox mark, the set mark, the value targets) therefore failed
+     WCAG 1.4.11 in the primary theme, while the light theme passed it.
+     #6A6A74 clears 3:1 on all four grounds: 3.81 sunken, 3.70 bg,
+     3.44 surface, 3.18 raised, and still carries --text at 4.91 for the
+     one control that uses it as a pressed fill. */
+  --border: #6A6A74;
+
+  /* ---- Fills. The three tokens that make the system theme-reversible.
+     In dark, "a fill that stands out on a card" and "a surface that sits
+     above the page" are the same colour, so the build used
+     --surface-raised for both. In light they are opposites: an overlay
+     rises to white, while a chip, a meter track or a pressed row must
+     go DARKER than the card it sits on. --surface-raised keeps the
+     elevation job; these three take the fill job.
+       --fill        quiet fill on top of any surface level: chips,
+                     badges, icon wells, meter and progress tracks,
+                     skeletons, avatars, keypad keys, secondary buttons
+       --fill-press  the ground a row or key takes while pressed
+       --track       the inset ground of the segmented control, so the
+                     selected item (--surface-raised) reads on it
+     Their dark values are exactly what those components already used,
+     so dark is byte-identical to before. ---- */
+  --fill: #1C1C1F;
+  --fill-press: #1C1C1F;
+  --track: #141416;
 
   /* ---- Text ---- */
   --text: #F5F5F7;
@@ -187,39 +218,190 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-/* Light theme. Defined and contrast-checked. No light screens are built. */
+/* ---------------------------------------------------------------
+   LIGHT THEME
+   Two selectors, one palette. The block is emitted twice from a single
+   source and the audit script asserts the two copies are identical, so
+   they cannot drift: CSS has no way to give one declaration block both
+   an attribute selector and a media query.
+     [data-theme="light"]  an explicit choice, stored in lk_theme
+     prefers-color-scheme  "Match device", which is the absence of an
+                           explicit choice. theme.js clears the attribute
+                           for it; this rule is what makes it mean
+                           something.
+   --------------------------------------------------------------- */
 :root[data-theme="light"] {
   color-scheme: light;
-  /* Elevation ramp mirrors dark: the ground is darkest, raised is lightest.
-     Measured L*: 90.74 -> 94.57 -> 98.32 -> 100.00, strictly increasing.
-     The previous values put bg and surface-raised both at pure white, so a
-     raised card had a 1.00:1 boundary against the page. */
-  --bg: #EFEFF4;
-  --surface: #FAFAFC;
+
+  /* Elevation. The dark ramp is 1.39 -> 2.76 -> 6.39 -> 10.38 L*: each
+     step up is roughly 4 L* lighter. Light mirrors it away from white:
+     88.05 -> 92.53 -> 96.61 -> 100.00, steps of 4.48, 4.08 and 3.39.
+     The shipped light ramp put surface at 98.32 and raised at 100.00 —
+     1.68 L* apart, half the dark step — so a sheet, a selected segment
+     and a secondary button all vanished into the card behind them. */
+  --bg: #E9E9F0;
+  --surface: #F5F5F8;
   --surface-raised: #FFFFFF;
-  --surface-sunken: #E4E4EA;
+  --surface-sunken: #DCDCE7;
   --hairline: #C9C9D2;
-  --border: #868690;   /* 3.14:1 on bg, 3.46:1 on surface, 3.60:1 on raised */
+  --border: #767681;       /* 3.30 sunken, 3.71 bg, 4.12 surface, 4.49 raised */
+
+  /* Fills run the other way from elevation here: down, not up. */
+  --fill: #D8D8E5;         /* 5.84 L* below bg, 9.93 below surface;
+                              dark's fill sits 7.62 above bg, 4.00 above surface */
+  --fill-press: #CFCFDD;
+  --track: #D8D8E5;
+
   --text: #0A0A0B;
   --text-secondary: #55555E;
-  --text-tertiary: #6B6B75;  /* 5.05:1 on surface, 4.60:1 on bg */
+  --text-tertiary: #5E5E68;  /* 4.71 on sunken, the darkest ground it lands on */
   --text-on-accent: #FFFFFF;
+  --text-on-solid: #FFFFFF;
+
+  /* The accent as ink is a step deeper than the shipped #B03A0A so it
+     still clears 4.5 on its own tinted ground. */
   --accent: #C2410C;
-  --accent-text: #B03A0A;
+  --accent-text: #9E3408;
   --accent-deep: #9A3412;
-  --accent-quiet: #FDEDE4;
-  --success: #127A4B;
-  --success-quiet: #E4F6EC;
-  --error: #C42525;
+  --accent-quiet: #FAD1B9;
+
+  /* The quiet tints sit at L* 85.5-86.5, six L* below the page ground -- the same tone step dark's quiet tints take above their ground (6.6 to 11.1), so
+     a banner, a selected row or a chat bubble is a surface rather than a
+     rumour. The shipped tints sat at 94-96, level with the ground: an
+     accent-quiet chat bubble measured 1.00:1 against the page behind it.
+     Measured, ink on its own tint: accent 5.05, success 4.61, error 4.73,
+     warning 4.95, info 5.54. The
+     semantic inks deepen to match, so each still clears 4.5 on its tint. */
+  --success: #0F6B41;
+  --success-quiet: #AFE4C7;
+  --error: #B31F1F;
   --error-solid: #C42525;
-  --error-quiet: #FCE9E9;
-  --warning: #8A5A00;
-  --warning-quiet: #FDF3E0;
+  --error-quiet: #F8CFCF;
+  --warning: #7A4F00;
+  --warning-quiet: #F7D28F;
   --info: #17538F;
-  --info-quiet: #E7F0FA;
-  --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.12);
-  --shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.18);
+  --info-quiet: #C5DBF3;
+
+  --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.14);
+  --shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.20);
   --scrim: rgba(0, 0, 0, 0.35);
+
+  /* Anatomy palette, light. The twelve hues are the same twelve hues at
+     the same angles; only their depth changes, because a colour picked to
+     read on near-black washes out on white. Each is darkened until it
+     clears 3.6:1 on --surface-raised (3.3 on --surface, 2.97 on --bg with
+     the seam carrying the boundary), and the seam is still 45% of the hue
+     mixed into black, which clears 3.03:1 against every hue it separates. */
+  --anat-chest: #DB5C7C;
+  --anat-back: #6A82DE;
+  --anat-shoulders: #A372CB;
+  --anat-calves: #C366B0;
+  --anat-abs: #9B862F;
+  --anat-forearms: #11987D;
+  --anat-biceps: #32949E;
+  --anat-triceps: #588DAE;
+  --anat-hams: #848D32;
+  --anat-quads: #489919;
+  --anat-adduc: #629169;
+  --anat-glutes: #1C9963;
+  /* Sub-regions run away from a white ground instead of a black one:
+     6.22 -> 4.70 -> 3.60 on --surface-raised. White leaves no room above
+     the base hue, so in light the base is the shallowest of the three
+     steps rather than the middle one. */
+  --anat-chest-1: #9E4259;
+  --anat-chest-2: #BC4F6B;
+  --anat-chest-3: #DB5C7C;
+  --anat-muted: #83838E;       /* 3.10 on bg: an unselected region keeps its 3:1 */
+  --anat-silhouette: #A8A8B2;  /* 2.17 on surface: a figure, not a competitor */
+  --anat-shorts: #C6C6CF;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+
+    /* Elevation. The dark ramp is 1.39 -> 2.76 -> 6.39 -> 10.38 L*: each
+       step up is roughly 4 L* lighter. Light mirrors it away from white:
+       88.05 -> 92.53 -> 96.61 -> 100.00, steps of 4.48, 4.08 and 3.39.
+       The shipped light ramp put surface at 98.32 and raised at 100.00 —
+       1.68 L* apart, half the dark step — so a sheet, a selected segment
+       and a secondary button all vanished into the card behind them. */
+    --bg: #E9E9F0;
+    --surface: #F5F5F8;
+    --surface-raised: #FFFFFF;
+    --surface-sunken: #DCDCE7;
+    --hairline: #C9C9D2;
+    --border: #767681;       /* 3.30 sunken, 3.71 bg, 4.12 surface, 4.49 raised */
+
+    /* Fills run the other way from elevation here: down, not up. */
+    --fill: #D8D8E5;         /* 5.84 L* below bg, 9.93 below surface;
+                                dark's fill sits 7.62 above bg, 4.00 above surface */
+    --fill-press: #CFCFDD;
+    --track: #D8D8E5;
+
+    --text: #0A0A0B;
+    --text-secondary: #55555E;
+    --text-tertiary: #5E5E68;  /* 4.71 on sunken, the darkest ground it lands on */
+    --text-on-accent: #FFFFFF;
+    --text-on-solid: #FFFFFF;
+
+    /* The accent as ink is a step deeper than the shipped #B03A0A so it
+       still clears 4.5 on its own tinted ground. */
+    --accent: #C2410C;
+    --accent-text: #9E3408;
+    --accent-deep: #9A3412;
+    --accent-quiet: #FAD1B9;
+
+    /* The quiet tints sit at L* 85.5-86.5, six L* below the page ground -- the same tone step dark's quiet tints take above their ground (6.6 to 11.1), so
+       a banner, a selected row or a chat bubble is a surface rather than a
+       rumour. The shipped tints sat at 94-96, level with the ground: an
+       accent-quiet chat bubble measured 1.00:1 against the page behind it.
+       Measured, ink on its own tint: accent 5.05, success 4.61, error 4.73,
+       warning 4.95, info 5.54. The
+       semantic inks deepen to match, so each still clears 4.5 on its tint. */
+    --success: #0F6B41;
+    --success-quiet: #AFE4C7;
+    --error: #B31F1F;
+    --error-solid: #C42525;
+    --error-quiet: #F8CFCF;
+    --warning: #7A4F00;
+    --warning-quiet: #F7D28F;
+    --info: #17538F;
+    --info-quiet: #C5DBF3;
+
+    --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.14);
+    --shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.20);
+    --scrim: rgba(0, 0, 0, 0.35);
+
+    /* Anatomy palette, light. The twelve hues are the same twelve hues at
+       the same angles; only their depth changes, because a colour picked to
+       read on near-black washes out on white. Each is darkened until it
+       clears 3.6:1 on --surface-raised (3.3 on --surface, 2.97 on --bg with
+       the seam carrying the boundary), and the seam is still 45% of the hue
+       mixed into black, which clears 3.03:1 against every hue it separates. */
+    --anat-chest: #DB5C7C;
+    --anat-back: #6A82DE;
+    --anat-shoulders: #A372CB;
+    --anat-calves: #C366B0;
+    --anat-abs: #9B862F;
+    --anat-forearms: #11987D;
+    --anat-biceps: #32949E;
+    --anat-triceps: #588DAE;
+    --anat-hams: #848D32;
+    --anat-quads: #489919;
+    --anat-adduc: #629169;
+    --anat-glutes: #1C9963;
+    /* Sub-regions run away from a white ground instead of a black one:
+       6.22 -> 4.70 -> 3.60 on --surface-raised. White leaves no room above
+       the base hue, so in light the base is the shallowest of the three
+       steps rather than the middle one. */
+    --anat-chest-1: #9E4259;
+    --anat-chest-2: #BC4F6B;
+    --anat-chest-3: #DB5C7C;
+    --anat-muted: #83838E;       /* 3.10 on bg: an unselected region keeps its 3:1 */
+    --anat-silhouette: #A8A8B2;  /* 2.17 on surface: a figure, not a competitor */
+    --anat-shorts: #C6C6CF;
+  }
 }
 
 /* ---------------------------------------------------------------
@@ -316,47 +498,82 @@ body { overflow-x: hidden; }
    --------------------------------------------------------------- */
 
 /* ---------------------------------------------------------------
-   Verified contrast pairs (WCAG 2.1, measured by script)
+   VERIFIED CONTRAST PAIRS (WCAG 2.1, measured by script against the
+   rendered page, not estimated). Both themes, side by side, so a change
+   to one that is not made to the other is visible here.
 
-   DARK                                            ratio   result
-   text          on bg                             18.18   AA
-   text          on surface                        16.90   AA
-   text-secondary on surface                        7.17   AA
-   text-tertiary on surface                         5.10   AA
-   accent-text   on bg                              8.44   AA
-   accent-text   on surface                         7.85   AA
-   text-on-accent on accent (primary button)        7.06   AA
-   text-on-solid on accent-deep                     5.18   AA
-   text-on-solid on error-solid                     4.81   AA
-   success       on surface                        10.08   AA
-   error         on surface                         6.63   AA
-   warning       on surface                        10.20   AA
-   info          on surface                         7.49   AA
-   border        on surface                         3.06   AA (non-text)
+   pair                              DARK    LIGHT   result
+   text            on bg            18.18    16.38   AA
+   text            on surface       16.90    18.19   AA
+   text            on raised        15.61    19.79   AA
+   text-secondary  on surface        7.17     6.78   AA
+   text-tertiary   on surface        5.10     5.89   AA
+   text-tertiary   on bg             5.48     5.30   AA
+   text-tertiary   on sunken         5.65     4.71   AA
+   text-tertiary   on fill           4.71     4.54   AA
+   accent-text     on bg             8.44     5.89   AA
+   accent-text     on surface        7.85     6.55   AA
+   accent-text     on accent-quiet   7.08     5.05   AA
+   text-on-accent  on accent         7.06     5.18   AA
+   text-on-solid   on accent-deep    5.18     7.31   AA
+   text-on-solid   on error-solid    4.81     5.77   AA
+   success         on surface       10.08     6.03   AA
+   success         on success-quiet  8.57     4.61   AA
+   error           on surface        6.63     6.16   AA
+   error           on error-quiet    6.25     4.73   AA
+   warning         on surface       10.20     6.55   AA
+   warning         on warning-quiet  8.87     4.95   AA
+   info            on surface        7.49     7.23   AA
+   info            on info-quiet     6.86     5.54   AA
+   border          on sunken         3.81     3.30   AA (non-text)
+   border          on bg             3.70     3.71   AA (non-text)
+   border          on surface        3.44     4.12   AA (non-text)
+   border          on raised         3.18     4.49   AA (non-text)
 
-   White on --accent measures 2.80 and is forbidden. Orange is a light
-   colour; the primary button carries dark text. Use --accent-deep when a
-   fill must carry white text.
-
-   LIGHT                                           ratio   result
-   text          on bg                             17.27   AA
-   text          on surface                        18.98   AA
-   text          on surface-raised                 19.79   AA
-   text-secondary on surface                        7.08   AA
-   text-tertiary on surface                         5.05   AA
-   text-tertiary on bg                              4.60   AA
-   border        on bg                              3.14   AA (non-text)
-   border        on surface                         3.46   AA (non-text)
-   border        on surface-raised                  3.60   AA (non-text)
+   White on dark --accent measures 2.80 and is forbidden. Orange is a
+   light colour; the primary button carries dark text in dark. In light
+   --accent is the deeper #C2410C and white on it measures 5.18, so light
+   carries white text on the same button. That is why --text-on-accent is
+   a token and not a constant.
 
    --hairline is a 1px separator between rows, not a control boundary, so
    WCAG 1.4.11 does not apply to it. Every control boundary uses --border.
 
-   Elevation, measured L*:
-     dark    1.39 -> 2.76 -> 6.39 -> 10.38   (sunken, bg, surface, raised)
-     light  90.74 -> 94.57 -> 98.32 -> 100.00
-   Both ramps are strictly monotonic, so elevation reads by tone alone and
-   shadow stays secondary.
+   ELEVATION, measured L*. Both ramps are strictly monotonic, so elevation
+   reads by tone alone and shadow stays secondary.
+                 sunken    bg  surface  raised
+     dark          1.39  2.76     6.39   10.38   steps 1.37 / 3.63 / 3.99
+     light        88.05 92.53    96.61  100.00   steps 4.48 / 4.08 / 3.39
+
+   FILLS, measured L* distance from the surface they sit on. In dark a
+   fill rises; in light it sinks. Same job, opposite direction, which is
+   the whole reason these are separate tokens from --surface-raised.
+                        vs bg  vs surface  vs raised
+     dark --fill         7.62        4.00       0.00 (identical to raised)
+     light --fill        5.84        9.93      13.31
+     dark --fill-press   7.62        4.00       0.00
+     light --fill-press  9.03       13.11      16.50
+   Selected segment (--surface-raised) against its track (--track):
+     dark 4.00 L*, light 13.31 L*.
+
+   QUIET TINTS, measured L* distance from the page ground. A banner, a
+   selected row or a chat bubble has to be a surface, not a rumour.
+                    dark   light
+     accent-quiet   8.65    5.81
+     success-quiet 11.13    6.16
+     error-quiet    6.64    5.98
+     warning-quiet 10.24    6.60
+     info-quiet     8.06    6.02
+
+   KNOWN, ACCEPTED, AND IDENTICAL IN BOTH THEMES
+   A chip, a badge, an icon well, a secondary button and a keypad key are
+   bounded by a tone step rather than a border: 1.16:1 in dark, 1.17:1 in
+   light on the page ground. They are named controls whose label or icon
+   carries the identification, so 1.4.11 is met by the text rather than
+   the edge; the tone step is the system's idiom and it is now the same
+   strength in both themes. Anything that has no label -- an input, a
+   switch track, a checkbox, a set mark -- carries --border instead and
+   clears 3:1 on every ground.
    --------------------------------------------------------------- */
 
 
@@ -408,7 +625,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   border-radius: var(--r-full);
   color: var(--text);
 }
-.hdr__back:active { background: var(--surface); }
+.hdr__back:active { background: var(--fill-press); }
 .hdr__title { flex: 1; min-width: 0; }
 .hdr__action {
   display: flex;
@@ -423,7 +640,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   font-size: var(--type-15); line-height: var(--lh-15); letter-spacing: var(--tr-15);
   font-weight: var(--w-medium);
 }
-.hdr__action:active { background: var(--surface); }
+.hdr__action:active { background: var(--fill-press); }
 
 /* Scroll body. The only scrolling element on a screen. */
 .body {
@@ -459,12 +676,12 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
 .btn--primary:active { background: var(--accent-deep); color: var(--text-on-solid); }
 
 /* Secondary. Same shape, quieter. */
-.btn--secondary { background: var(--surface-raised); color: var(--text); }
+.btn--secondary { background: var(--fill); color: var(--text); }
 .btn--secondary:active { background: var(--hairline); }
 
 /* Tertiary. Text only, for the third thing. */
 .btn--tertiary { background: none; color: var(--accent-text); font-weight: var(--w-medium); }
-.btn--tertiary:active { background: var(--surface); }
+.btn--tertiary:active { background: var(--fill-press); }
 
 /* Destructive. Never an accent fill. */
 .btn--danger { background: none; color: var(--error); }
@@ -523,7 +740,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   background: var(--surface);
   color: var(--text);
 }
-.row:active { background: var(--surface-raised); }
+.row:active { background: var(--fill-press); }
 .row + .row { box-shadow: inset 0 1px 0 var(--hairline); }
 .row__main { flex: 1; min-width: 0; }
 .row__title { display: block; font-size: var(--type-15); letter-spacing: var(--tr-15); line-height: var(--lh-15); font-weight: var(--w-medium); }
@@ -539,7 +756,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   display: flex; align-items: center; justify-content: center;
   width: 32px; height: 32px; flex: none;
   border-radius: var(--r-sm);
-  background: var(--surface-raised);
+  background: var(--fill);
   color: var(--text-secondary);
 }
 
@@ -609,7 +826,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   min-height: var(--tap);
   padding: 0 var(--sp-3);
   border-radius: var(--r-full);
-  background: var(--surface-raised);
+  background: var(--fill);
   color: var(--text-secondary);
   font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13);
   font-weight: var(--w-medium);
@@ -622,7 +839,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   display: flex;
   gap: 2px;
   padding: 2px;
-  background: var(--surface);
+  background: var(--track);
   border-radius: var(--r-md);
 }
 .seg__item {
@@ -633,7 +850,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   font-weight: var(--w-medium);
   color: var(--text-secondary);
 }
-.seg__item[aria-selected="true"] { background: var(--surface-raised); color: var(--text); font-weight: var(--w-semibold); }
+.seg__item[aria-selected="true"] { background: var(--surface-raised); color: var(--text); font-weight: var(--w-semibold); box-shadow: var(--shadow-raised); }
 .seg--wrap { flex-wrap: wrap; }
 /* A segmented control never scrolls sideways. If items do not fit, it wraps. */
 
@@ -759,7 +976,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
 
 /* Skeleton. A loading state you can tell from a loaded one. */
 .skel {
-  background: var(--surface-raised);
+  background: var(--fill);
   border-radius: var(--r-sm);
   animation: pulse 1.4s var(--ease) infinite;
 }
@@ -774,7 +991,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
 .stat__unit { font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13); font-weight: var(--w-medium); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .stat__label { font-size: var(--type-11); line-height: var(--lh-11); letter-spacing: var(--tr-11); text-transform: uppercase; font-weight: var(--w-semibold); color: var(--text-tertiary); }
 
-.meter { height: var(--sp-2); border-radius: var(--r-full); background: var(--surface-raised); overflow: hidden; }
+.meter { height: var(--sp-2); border-radius: var(--r-full); background: var(--fill); overflow: hidden; }
 .meter__fill { height: 100%; border-radius: var(--r-full); background: var(--accent); transition: width var(--dur-slow) var(--ease); }
 
 /* Chart. Axes and labels are not optional. */
@@ -792,12 +1009,12 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
 .pad__key {
   min-height: 56px;
   border-radius: var(--r-md);
-  background: var(--surface);
+  background: var(--fill);
   font-size: var(--type-22); line-height: var(--lh-22); letter-spacing: var(--tr-22);
   font-weight: var(--w-medium);
   font-variant-numeric: tabular-nums;
 }
-.pad__key:active { background: var(--surface-raised); }
+.pad__key:active { background: var(--fill-press); }
 .pad__key--action { background: none; color: var(--text-secondary); font-size: var(--type-15); line-height: var(--lh-15); letter-spacing: var(--tr-15); }
 
 
@@ -867,7 +1084,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   color: var(--text-secondary);
   background: none;
 }
-.iconbtn:active { background: var(--surface-raised); }
+.iconbtn:active { background: var(--fill-press); }
 .iconbtn--danger { color: var(--error); }
 .iconbtn--danger:active { background: var(--error-quiet); }
 
@@ -881,7 +1098,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   flex: none;
   border-radius: var(--r-md);
   color: var(--text-secondary);
-  background: var(--surface-raised);
+  background: var(--fill);
   touch-action: none;
 }
 .grip:active { background: var(--hairline); }
@@ -985,7 +1202,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   flex: 1;
   height: var(--sp-1);
   border-radius: var(--r-full);
-  background: var(--surface-raised);
+  background: var(--fill);
   overflow: hidden;
 }
 .stepbar__fill {
@@ -1016,7 +1233,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   border-radius: var(--r-sm);
   color: var(--text-secondary);
 }
-.field__reveal:active { background: var(--surface-raised); }
+.field__reveal:active { background: var(--fill-press); }
 
 /* Password strength. Four segments and a sentence. The sentence carries
    the meaning; the segments are a summary of it, never the whole story. */
@@ -1026,7 +1243,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   flex: 1;
   height: var(--sp-1);
   border-radius: var(--r-full);
-  background: var(--surface-raised);
+  background: var(--fill);
   transition: background-color var(--dur-fast) var(--ease);
 }
 .strength__seg--weak { background: var(--error); }
@@ -1161,7 +1378,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   display: flex; align-items: center; justify-content: center;
   width: var(--sp-6); height: var(--sp-6); flex: none;
   border-radius: var(--r-full);
-  background: var(--surface-raised);
+  background: var(--fill);
   color: var(--accent-text);
 }
 .msg__col { display: flex; flex-direction: column; min-width: 0; max-width: 86%; }
@@ -1224,7 +1441,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
 .composer__send:active { background: var(--accent-deep); color: var(--text-on-solid); }
 /* When a card in the thread is the thing to act on, the accent moves to
    it and the send button steps back. One accent fill, always. */
-.screen[data-accent="card"] .composer__send { background: var(--surface-raised); color: var(--accent-text); }
+.screen[data-accent="card"] .composer__send { background: var(--fill); color: var(--accent-text); }
 
 /* Choice and permission row. A check, not a switch: the switch's on-state
    is an accent fill, and the accent belongs to the primary action alone. */
@@ -1237,7 +1454,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   color: var(--text);
 }
 .opt + .opt { box-shadow: inset 0 1px 0 var(--hairline); }
-.opt:active { background: var(--surface-raised); }
+.opt:active { background: var(--fill-press); }
 .opt__mark {
   display: flex; align-items: center; justify-content: center;
   width: var(--sp-5); height: var(--sp-5); flex: none;
@@ -1274,8 +1491,9 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
 
 /* Prominent search. The audited field carried a 1.07:1 border on its own
    fill and disappeared under an 8px blur. This one is raised off the
-   ground and bounded by --text-tertiary: 4.71:1 against its fill,
-   5.49:1 against the page ground. */
+   ground and bounded by --text-tertiary, measured in both themes:
+   4.71 dark / 6.41 light against its own fill, 5.48 dark / 5.30 light
+   against the page ground. */
 .search--find .input {
   background: var(--surface-raised);
   border-color: var(--text-tertiary);
@@ -1313,7 +1531,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   display: inline-flex; align-items: center;
   padding: 0 var(--sp-2);
   border-radius: var(--r-full);
-  background: var(--surface-raised);
+  background: var(--fill);
   color: var(--text-secondary);
   font-size: var(--type-11);
   line-height: var(--lh-11);
@@ -1335,7 +1553,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
 .bodymap { display: flex; gap: var(--sp-5); align-items: flex-start; }
 .bodymap__unit { display: flex; flex-direction: column; align-items: center; gap: var(--sp-1); }
 .bodymap__fig { height: 112px; width: auto; flex: none; }
-.bm-base { fill: var(--surface); stroke: var(--hairline); stroke-width: 1; }
+.bm-base { fill: var(--surface); stroke: var(--border); stroke-width: 1; }
 .bm-on { fill: var(--accent-quiet); stroke: var(--accent-text); stroke-width: 1.5; }
 
 /* Demonstration slot. Fixed aspect, so loading, loaded and unavailable
@@ -1367,7 +1585,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
    when the group is a radiogroup rather than a tablist. The 40px
    variant stays for controls that sit inside a padded toolbar. */
 .seg--lg .seg__item { min-height: var(--tap); }
-.seg__item[aria-checked="true"] { background: var(--surface-raised); color: var(--text); font-weight: var(--w-semibold); }
+.seg__item[aria-checked="true"] { background: var(--surface-raised); color: var(--text); font-weight: var(--w-semibold); box-shadow: var(--shadow-raised); }
 
 /* Direction of a measured change. Colour repeats the sign, it does not
    replace it: every delta on screen carries + or − as text. */
@@ -1395,12 +1613,12 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   border-radius: var(--r-full);
   color: var(--text-secondary);
 }
-.hdr__account:active { background: var(--surface); }
+.hdr__account:active { background: var(--fill-press); }
 .hdr__initial {
   display: flex; align-items: center; justify-content: center;
   width: 32px; height: 32px;
   border-radius: var(--r-full);
-  background: var(--surface-raised);
+  background: var(--fill);
   color: var(--text-secondary);
   font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13);
   font-weight: var(--w-semibold);
@@ -1507,10 +1725,12 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
    screen of switches cannot spend the accent on every "on": the accent
    fill marks the one primary action, so twelve accent pills in a list
    would mark nothing. "On" is a state, not an action, so it takes the
-   semantic success tone the way an iOS switch does — measured 10.08:1
-   against --surface. The off track is --hairline, only 1.29:1 against
-   the card it sits on, so it also carries a --border ring (3.06:1) and
-   stays a visible control when off (WCAG 1.4.11). */
+   semantic success tone the way an iOS switch does — 10.08:1 against
+   --surface in dark, 6.03:1 in light. The off track is --hairline, only
+   1.51:1 against the card it sits on, so it also carries a --border ring
+   — 3.44:1 dark, 4.12:1 light — and stays a visible control when off
+   (WCAG 1.4.11). The knob is --knob, white in BOTH themes: it rides a
+   coloured track, so it must not follow --text, which inverts. */
 .switch__track { box-shadow: inset 0 0 0 1px var(--border); }
 .switch[aria-checked="true"] .switch__track { background: var(--success); box-shadow: none; }
 
@@ -1533,146 +1753,228 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
    nav, so the toast sits on the safe area instead of above 56px of it. */
 .toast--nonav { bottom: calc(var(--sp-4) + var(--safe-bottom)); }
 
+
 /* ===============================================================
    Added for workout-log. Tokens only, no new values.
 
-   The audits measured the app's most-repeated control — mark set
-   done — at 32x30 on the right rail, and the numeric keypad, the
-   only well-placed surface on the screen, treated as a dismissible
-   sheet that opened pre-filled and appended. Here the keypad IS the
-   floor of the screen: it never has to be summoned or dismissed, it
-   sits entirely inside the thumb arc, and the commit key is the
-   largest target on the page.
+   This screen is a RESTORATION. The shipped shape — a dark card per
+   exercise, a dense grid of directly editable sets inside it, a
+   summoned numeric pad, orange accents — is the shape the owner
+   uses and asked to keep. Only the four measured defects moved:
+     - every hit area is now >= 44x44 while the drawn control keeps
+       roughly its shipped size, so the card stays as dense as it was
+       (one set still occupies ~96px, exactly as shipped);
+     - the pad replaces the pending value on the first digit instead
+       of appending to it (5 of 15 taps were deletions);
+     - one unit, the profile's, on the column head, the totals, the
+       pad and the plate calculator;
+     - the accent fill moves off Finish and onto the done control,
+       which is the act performed every 90 seconds.
    =============================================================== */
 
-/* Sticky exercise head. The name of the thing being logged never
-   scrolls away; the tools button beside it replaces a 350ms hold on
-   a 20x12 handle. */
-.exhead {
-  position: sticky; top: 0; z-index: 1;
-  display: flex; align-items: center; gap: var(--sp-3);
-  padding: var(--sp-3) 0 var(--sp-2);
-  background: var(--bg);
-}
-.exhead__main { flex: 1; min-width: 0; }
-
-/* Header action that is not the primary action. Finish ends the
-   workout: it is a word in the corner, never a fill, and never in
-   the thumb arc. */
-.hdr__action--quiet { color: var(--text-secondary); font-weight: var(--w-medium); }
-
-/* Set status mark. Non-interactive: the whole row is the target. */
-.setmark {
-  display: flex; align-items: center; justify-content: center;
-  width: var(--sp-5); height: var(--sp-5); flex: none;
-  border-radius: var(--r-full);
-  box-shadow: inset 0 0 0 1px var(--border);
-  color: transparent;
-}
-.setmark--done { background: var(--success-quiet); box-shadow: none; color: var(--success); }
-.setmark--now { box-shadow: inset 0 0 0 2px var(--accent-text); }
-/* The live set carries a dot, never a tick: a tick on a set that has not
-   been performed is the screen telling the lifter something untrue. */
-.setmark__dot { width: var(--sp-2); height: var(--sp-2); border-radius: var(--r-full); background: var(--accent-text); }
-
-/* A logged value, and a value that is only last session's. The ghost
-   tone is the answer to the audited hesitation at pad open: a number
-   the lifter has not typed never looks like one they have. */
-.setrow__val { font-size: var(--type-15); line-height: var(--lh-15); letter-spacing: var(--tr-15); font-weight: var(--w-semibold); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.setrow__val--ghost { color: var(--text-tertiary); font-weight: var(--w-medium); }
-.setrow__rir { flex: none; width: calc(var(--sp-6) + var(--sp-4)); text-align: right; }
-
-/* ---------------------------------------------------------------
-   The logging deck. A landmark of its own: it is the working surface
-   of the screen, not a footer under the list.
-   --------------------------------------------------------------- */
-.deckwrap { flex: none; }
-
-/* Pinned notice slot between the header and the list. A failed save is
-   not something the lifter should be able to scroll away from. */
-.notice { flex: none; padding: 0 var(--page-x); }
-.notice:empty { display: none; }
-
-/* ---------------------------------------------------------------
-   The logging deck. Pinned to the bottom of the screen: everything
-   performed every 90 seconds lives here, nothing else does.
-   --------------------------------------------------------------- */
-.deck {
+/* --- Session header ------------------------------------------- */
+.sess { display: flex; align-items: center; gap: var(--sp-2); }
+.sess__main { flex: 1; min-width: 0; }
+.sess__meta { display: flex; align-items: center; gap: var(--sp-3); margin-top: 2px; }
+.sess__time { color: var(--accent-text); font-variant-numeric: tabular-nums; }
+/* Quick action. A 44x44 outlined square, the shipped bolt. */
+.qa {
   flex: none;
-  padding: var(--sp-3) var(--page-x) calc(var(--sp-3) + var(--safe-bottom));
-  background: var(--surface);
-  box-shadow: inset 0 1px 0 var(--hairline);
-}
-.deck__ctx {
-  display: flex; align-items: baseline; justify-content: space-between;
-  gap: var(--sp-3); margin-bottom: var(--sp-2);
-}
-
-/* Rest strip. Directly above the pad, so the timer is read without
-   hunting and extended without moving the hand. */
-.rest { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-3); }
-.rest__main { flex: 1; min-width: 0; }
-.rest__time {
-  font-size: var(--type-22); line-height: var(--lh-22); letter-spacing: var(--tr-22);
-  font-weight: var(--w-bold); font-variant-numeric: tabular-nums;
-}
-.rest__label { font-size: var(--type-11); line-height: var(--lh-11); letter-spacing: var(--tr-11); font-weight: var(--w-semibold); text-transform: uppercase; color: var(--text-tertiary); }
-.rest__done .rest__time { color: var(--success); }
-
-/* Value targets: weight, reps, RIR. One mechanism for all three —
-   tap the target, type into the pad. The audited fields were 109x33
-   and were the most-tapped controls on the screen. */
-.tgts { display: flex; gap: var(--sp-2); }
-.tgt {
-  flex: 1; min-width: 0;
-  display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
-  min-height: 56px;
-  padding: 0 var(--sp-3);
-  border: 1px solid var(--border);
+  width: var(--tap); height: var(--tap);
+  display: flex; align-items: center; justify-content: center;
   border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  color: var(--accent-text);
+  background: none;
+}
+.qa:active { background: var(--accent-quiet); }
+/* Finish. Outlined, not filled: it ends the workout, it is not the
+   thing being done every 90 seconds. Discard is quieter still. */
+.btn--outline {
+  background: none;
+  color: var(--accent-text);
+  box-shadow: inset 0 0 0 1px var(--accent-text);
+}
+.btn--outline:active { background: var(--accent-quiet); }
+
+/* --- Exercise card -------------------------------------------- */
+.exc { background: var(--surface); border-radius: var(--r-lg); overflow: hidden; }
+.exc + .exc, .exc + .block, .block + .exc, .block + .block { margin-top: var(--sp-3); }
+.exc__head {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  box-shadow: inset 0 -1px 0 var(--hairline);
+}
+.exc__main { flex: 1; min-width: 0; text-align: left; background: none; color: inherit; padding: var(--sp-1) 0; min-height: var(--tap); display: flex; flex-direction: column; justify-content: center; }
+.exc__name { display: block; font-size: var(--type-17); line-height: var(--lh-17); letter-spacing: var(--tr-17); font-weight: var(--w-semibold); }
+.exc__muscle { display: block; font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13); color: var(--text-secondary); }
+/* Drag handle. Drawn at its shipped width, 44x44 of hit area around it. */
+.exc__grip {
+  flex: none; width: var(--tap); height: var(--tap);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-tertiary); border-radius: var(--r-sm);
+}
+.exc__grip:active, .exc__grip[aria-pressed="true"] { background: var(--fill-press); color: var(--text); }
+.exc--lifted { box-shadow: inset 0 0 0 2px var(--accent-text); }
+
+/* --- The set grid. The dense part, and the point of the screen. */
+.sets { padding: var(--sp-2) var(--sp-3) var(--sp-3); }
+.setgrid {
+  display: grid;
+  grid-template-columns: var(--sp-5) 1fr 1fr calc(var(--sp-6) + var(--sp-5)) var(--tap);
+  gap: var(--sp-2);
+  align-items: center;
+}
+.setgrid__head { font-size: var(--type-11); line-height: var(--lh-11); letter-spacing: var(--tr-11); font-weight: var(--w-semibold); text-transform: uppercase; color: var(--text-tertiary); text-align: center; padding-bottom: var(--sp-1); }
+.setgrid__head--n { text-align: left; }
+.setgrid__head--unit { color: var(--accent-text); }
+.setgrid__n { font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13); color: var(--text-tertiary); font-variant-numeric: tabular-nums; text-align: center; }
+.setgrid__n--warm { color: var(--warning); }
+
+/* An editable value. Every set's cell is live, not just the current
+   one: tapping any of them opens the pad on that set. */
+.cell {
+  min-height: var(--tap);
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
   background: var(--surface-sunken);
   color: var(--text);
-  text-align: left;
-}
-.tgt--rir { flex: 0 0 calc(var(--sp-6) * 3); }
-.tgt__label { font-size: var(--type-11); line-height: var(--lh-11); letter-spacing: var(--tr-11); font-weight: var(--w-semibold); text-transform: uppercase; color: var(--text-tertiary); }
-.tgt__figure { display: flex; align-items: baseline; gap: var(--sp-1); }
-.tgt__value { font-size: var(--type-22); line-height: var(--lh-22); letter-spacing: var(--tr-22); font-weight: var(--w-bold); font-variant-numeric: tabular-nums; }
-.tgt__unit { font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13); font-weight: var(--w-medium); color: var(--text-secondary); }
-.tgt--pending .tgt__value, .tgt--pending .tgt__unit { color: var(--text-tertiary); }
-.tgt[aria-pressed="true"] { border-color: var(--accent-text); box-shadow: 0 0 0 var(--sp-1) var(--accent-quiet); }
-.tgt__caret {
-  display: inline-block;
-  width: 2px; height: var(--sp-5);
-  background: var(--accent-text);
-  animation: blink 1.2s var(--ease) infinite;
-}
-
-/* Pad and commit key share one row: three columns of digits, one
-   column that logs the set. The commit key is 96x248 — the largest
-   target on the screen, in the corner the thumb rests in. */
-.padrow { display: flex; gap: var(--sp-2); margin-top: var(--sp-3); }
-.padrow .pad { flex: 1; min-width: 0; }
-.key-log {
-  flex: 0 0 calc(var(--sp-6) * 3);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-1);
-  border-radius: var(--r-md);
-  background: var(--accent);
-  color: var(--text-on-accent);
-  font-size: var(--type-15); line-height: var(--lh-15); letter-spacing: var(--tr-15);
+  font-size: var(--type-17); line-height: var(--lh-17); letter-spacing: var(--tr-17);
   font-weight: var(--w-semibold);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  padding: 0 var(--sp-1);
 }
-.key-log:active { background: var(--accent-deep); color: var(--text-on-solid); }
-/* One accent fill per screen: when a sheet owns the primary action,
-   the commit key steps back rather than competing with it. */
-.screen[data-accent="sheet"] .key-log { background: var(--surface-raised); color: var(--accent-text); }
+.cell:active { background: var(--fill-press); }
+.cell--empty { color: var(--text-tertiary); font-weight: var(--w-medium); }
+.cell--editing { border-color: var(--accent-text); box-shadow: 0 0 0 2px var(--accent-quiet); }
+.cell--rir { font-size: var(--type-15); line-height: var(--lh-15); letter-spacing: var(--tr-15); }
 
-/* Plate diagram. Drawn, not fetched, and in the profile unit only:
-   the audited screen carried three unit controls implying two units. */
+/* Done. The accent fill on this screen. 44x44. */
+.done {
+  width: var(--tap); height: var(--tap);
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-sm);
+  background: none;
+  box-shadow: inset 0 0 0 2px var(--border);
+  color: transparent;
+}
+.done:active { background: var(--fill-press); }
+.done--ready { box-shadow: inset 0 0 0 2px var(--accent-text); color: var(--accent-text); }
+.done[aria-pressed="true"] { background: var(--accent); box-shadow: none; color: var(--text-on-accent); }
+.done[aria-pressed="true"]:active { background: var(--accent-deep); color: var(--text-on-solid); }
+
+/* Partials. One per set, on its own line, as shipped. */
+.partials {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-2);
+  min-height: var(--tap);
+}
+.partials__label { font-size: var(--type-11); line-height: var(--lh-11); letter-spacing: var(--tr-11); font-weight: var(--w-semibold); text-transform: uppercase; color: var(--accent-text); }
+.partials__btn {
+  width: var(--tap); height: var(--tap); flex: none;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--accent-text);
+  background: var(--accent-quiet);
+  color: var(--accent-text);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13); font-weight: var(--w-semibold);
+}
+.partials__btn:active { background: var(--accent-deep); color: var(--text-on-solid); }
+
+/* Card foot: Add Set, AI Rec. */
+.exc__foot { display: flex; gap: var(--sp-2); padding: 0 var(--sp-3) var(--sp-3); }
+.exc__foot .btn { flex: none; }
+.exc__foot .btn--secondary { flex: 1; min-width: 0; }
+
+/* A block: a note or timed section between exercises. */
+.block { background: var(--surface); border-radius: var(--r-lg); padding: var(--sp-3); display: flex; align-items: center; gap: var(--sp-3); }
+.block__main { flex: 1; min-width: 0; }
+
+/* --- Add exercise / block row --------------------------------- */
+.addrow { display: flex; gap: var(--sp-3); margin-top: var(--sp-3); align-items: stretch; }
+.btn--dashed {
+  flex: 1; min-width: 0;
+  background: var(--accent-quiet);
+  border: 1px dashed var(--accent-text);
+  color: var(--accent-text);
+}
+.btn--dashed:active { background: var(--accent-deep); color: var(--text-on-solid); }
+
+/* --- The numeric pad. Summoned, as shipped; it replaces on the
+   first digit instead of appending, which is the whole fix. ----- */
+.padsheet { padding-bottom: calc(var(--sp-3) + var(--safe-bottom)); }
+.padsheet__read { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); margin-bottom: var(--sp-3); }
+.padsheet__what { font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13); color: var(--text-secondary); }
+.padsheet__figure { display: flex; align-items: baseline; gap: var(--sp-1); }
+.padsheet__value { font-size: var(--type-28); line-height: var(--lh-28); letter-spacing: var(--tr-28); font-weight: var(--w-bold); font-variant-numeric: tabular-nums; }
+.padsheet__value--pending { color: var(--text-tertiary); }
+.padsheet__unit { font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13); color: var(--text-secondary); }
+.padsheet__hint { font-size: var(--type-11); line-height: var(--lh-11); letter-spacing: var(--tr-11); color: var(--text-tertiary); margin: 0 0 var(--sp-2); }
+.padchips { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.padchip {
+  min-height: var(--tap);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--accent-text);
+  background: var(--accent-quiet);
+  color: var(--accent-text);
+  font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13);
+  font-weight: var(--w-semibold); font-variant-numeric: tabular-nums;
+}
+.padchip:active { background: var(--accent-deep); color: var(--text-on-solid); }
+.pad__key--del { color: var(--error); }
+.padsheet__foot { display: flex; gap: var(--sp-2); margin-top: var(--sp-3); }
+.padsheet__foot .btn--secondary { flex: 0 0 calc(var(--sp-6) * 3); }
+.padsheet__foot .btn--primary { flex: 1; min-width: 0; }
+
+/* --- Rest strip. Runs under the header while resting. ---------- */
+.rest {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-2) var(--page-x);
+  background: var(--accent-quiet);
+}
+.rest__main { flex: 1; min-width: 0; }
+.rest__time { font-size: var(--type-22); line-height: var(--lh-22); letter-spacing: var(--tr-22); font-weight: var(--w-bold); font-variant-numeric: tabular-nums; color: var(--accent-text); }
+.rest__label { font-size: var(--type-11); line-height: var(--lh-11); letter-spacing: var(--tr-11); font-weight: var(--w-semibold); text-transform: uppercase; color: var(--text-tertiary); }
+
+/* --- Plate calculator ----------------------------------------- */
 .platebar { width: 100%; height: calc(var(--sp-6) * 2); display: block; }
 .platebar__bar { fill: var(--border); }
 .platebar__plate { fill: var(--text-secondary); }
 .platebar__collar { fill: var(--hairline); }
+.plates { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-2); }
+.plate {
+  min-height: calc(var(--tap) + var(--sp-3));
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--fill);
+  color: var(--text);
+  font-size: var(--type-15); line-height: var(--lh-15); letter-spacing: var(--tr-15);
+  font-weight: var(--w-semibold); font-variant-numeric: tabular-nums;
+}
+.plate:active { background: var(--fill-press); }
+.plate__unit { font-size: var(--type-11); line-height: var(--lh-11); letter-spacing: var(--tr-11); color: var(--text-tertiary); font-weight: var(--w-medium); }
+
+/* --- Action sheet rows, tools popover -------------------------- */
+.sheetlist { display: flex; flex-direction: column; gap: var(--sp-2); }
+.sheetact {
+  display: flex; align-items: center; gap: var(--sp-3);
+  min-height: calc(var(--tap) + var(--sp-2));
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-md);
+  background: var(--fill);
+  color: var(--text);
+  font-size: var(--type-15); line-height: var(--lh-15); letter-spacing: var(--tr-15); font-weight: var(--w-medium);
+  text-align: left;
+}
+.sheetact:active { background: var(--fill-press); }
+.sheetact--danger { color: var(--error); }
+.sheetact--danger:active { background: var(--error-quiet); }
+.sheetact__ico { flex: none; color: var(--text-tertiary); display: flex; }
+.sheetact--danger .sheetact__ico { color: var(--error); }
 
 </style>
 <style id="demo-chrome-css">
@@ -1743,6 +2045,538 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13);
 }
 </style>
+<script>
+/* theme.js — inlined verbatim from 08-build/theme.js */
+/* LOCKED — theme initialiser.
+
+   One file, loaded by every screen in <head> before any stylesheet-
+   dependent paint, so the stored appearance is on the root element the
+   first time the page is painted and there is no flash of the wrong
+   theme. Nothing here touches the DOM beyond the root attribute, so it
+   runs safely before <body> exists.
+
+   THREE VALUES, stored in localStorage under lk_theme:
+     "dark"    the demo's primary theme, and the default
+     "light"   the contrast-checked light palette
+     "system"  Match device. The attribute is REMOVED, and the
+               prefers-color-scheme rule in tokens.css decides.
+
+   Why the attribute is removed rather than resolved to dark or light:
+   the CSS is then the single source of truth for what "match device"
+   means, the page keeps following the device if the user changes it
+   mid-session with no listener needed, and a screen still themes
+   correctly if this script never runs.
+
+   localStorage can throw (private mode, a file:// origin with site data
+   blocked). Every access is guarded and the failure mode is the default
+   theme, never a broken screen. */
+(function () {
+  'use strict';
+
+  var KEY = 'lk_theme';
+  var VALUES = { dark: 1, light: 1, system: 1 };
+  var DEFAULT = 'dark';
+  var root = document.documentElement;
+
+  function read() {
+    var v;
+    try { v = window.localStorage.getItem(KEY); } catch (e) { v = null; }
+    return VALUES[v] ? v : DEFAULT;
+  }
+
+  function paint(pref) {
+    if (pref === 'system') root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', pref);
+  }
+
+  paint(read());
+
+  /* The one API the screens use. Settings writes through set(); every
+     other screen only ever reads what Settings stored. */
+  window.LKTheme = {
+    key: KEY,
+    get: read,
+    set: function (pref) {
+      if (!VALUES[pref]) pref = DEFAULT;
+      try { window.localStorage.setItem(KEY, pref); } catch (e) {}
+      paint(pref);
+      return pref;
+    },
+    /* "Dark" / "Light" / "Match device", for a row that shows its value. */
+    label: function (pref) {
+      return pref === 'system' ? 'Match device' : pref === 'light' ? 'Light' : 'Dark';
+    }
+  };
+
+  /* A second tab, or the same screen reopened behind this one, changing
+     the preference. Cheap, and it keeps two open demo screens agreeing. */
+  window.addEventListener('storage', function (e) {
+    if (e.key === KEY) paint(read());
+  });
+})();
+
+</script>
+<script>
+/* app.js — inlined verbatim from 08-build/app.js */
+/* LOCKED — DOM reconciler.
+
+   Loaded by every screen in <head>, next to tokens.css and components.css:
+
+       <script src="app.js"> ... close the tag
+
+   No dependencies, no build step, no network. Works from file://.
+
+   WHY THIS FILE EXISTS
+   Every screen renders by building an HTML string and assigning it to a
+   container. That is a fine way to describe a screen and a terrible way to
+   apply one: `el.innerHTML = html` destroys every node in the container and
+   builds new ones, so on every state change the caret leaves the input you
+   were typing in, focus lands back on <body>, scroll snaps to the top, and
+   every CSS entry animation replays on elements that did not change. That is
+   the "screen resets and jumps" people report.
+
+   The fix is to keep the string and change what is done with it. LKPatch
+   morphs the container's existing children into the shape the new markup
+   describes: it matches nodes, updates the ones that stayed, inserts the ones
+   that are new, removes the ones that are gone, and leaves everything else —
+   identity, focus, caret, scroll, running animations — exactly where it was.
+
+       LKPatch(container, html);      // instead of container.innerHTML = html
+
+   HOW NODES ARE MATCHED
+   By a stable key first: data-testid, then id, then data-key. A keyed node
+   that is still described by the new markup keeps its identity and is never
+   replaced — it is moved at most. Unkeyed nodes fall back to tag name plus
+   position among their siblings, which is what the screens' own lists need.
+
+   THE RULE FOR FORM STATE
+   `.value`, `.checked` and `.selected` are live state that diverges from the
+   markup the moment a person touches the control. So they are written only
+   when the DECLARED value changed — when the new markup says something
+   different from what the old markup said — never merely because the live
+   value differs from the markup. A re-render fired by a keystroke therefore
+   cannot move the caret or clear the field, while a state change that really
+   does set a new value still lands.
+
+   ANIMATIONS
+   A CSS animation restarts when its element is inserted into the document or
+   when the declaration under it changes. Surviving nodes are neither removed
+   nor reinserted and their class attribute is written only when it actually
+   differs, so an entry animation runs on a genuinely new node and stays quiet
+   on every node that merely survived a state change.
+
+   SVG
+   Several screens draw charts and a body map inline. SVG children are parsed
+   in the SVG namespace and matched by localName, so <path> is never confused
+   with an HTML element of the same name and nothing lands in the wrong
+   namespace.
+*/
+(function (global) {
+  'use strict';
+
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  var XLINK_NS = 'http://www.w3.org/1999/xlink';
+
+  /* Live properties, keyed by the attribute that declares them. Each entry is
+     [property name, attribute name]. */
+  var VALUE_PROPS = [
+    ['value', 'value'],
+    ['checked', 'checked'],
+    ['selected', 'selected'],
+    ['indeterminate', null]
+  ];
+
+  /* ---------------------------------------------------------------
+     Keys
+     --------------------------------------------------------------- */
+
+  function keyOf(node) {
+    if (!node || node.nodeType !== 1 || !node.getAttribute) return null;
+    var k = node.getAttribute('data-testid');
+    if (k) return 't\u0000' + k;
+    k = node.getAttribute('id');
+    if (k) return 'i\u0000' + k;
+    k = node.getAttribute('data-key');
+    if (k) return 'k\u0000' + k;
+    return null;
+  }
+
+  /* A key that survives being written into a selector, for re-finding a node
+     that had to be replaced. */
+  function keySelector(key) {
+    if (!key) return null;
+    var kind = key.charAt(0);
+    var val = key.slice(2);
+    if (kind === 't') return '[data-testid="' + cssEscape(val) + '"]';
+    if (kind === 'i') return '[id="' + cssEscape(val) + '"]';
+    return '[data-key="' + cssEscape(val) + '"]';
+  }
+
+  function cssEscape(s) {
+    return String(s).replace(/["\\]/g, '\\$&');
+  }
+
+  /* Two nodes can be morphed into one another only if they are the same kind
+     of thing in the same namespace. */
+  function sameType(a, b) {
+    if (!a || !b) return false;
+    if (a.nodeType !== b.nodeType) return false;
+    if (a.nodeType !== 1) return true;
+    return a.localName === b.localName && a.namespaceURI === b.namespaceURI;
+  }
+
+  /* ---------------------------------------------------------------
+     Parsing, in the container's own namespace and parse context
+     --------------------------------------------------------------- */
+
+  function parseChildren(container, html) {
+    var doc = container.ownerDocument || document;
+
+    if (container.namespaceURI === SVG_NS) {
+      /* innerHTML on an SVG element is unreliable across engines; parse a
+         real SVG document and import what is inside its root. */
+      var parsed = new DOMParser().parseFromString(
+        '<svg xmlns="' + SVG_NS + '" xmlns:xlink="' + XLINK_NS + '">' + html + '</svg>',
+        'image/svg+xml'
+      );
+      var root = parsed.documentElement;
+      if (!root || root.getElementsByTagName('parsererror').length ||
+          root.localName === 'parsererror') {
+        /* Malformed SVG: fall back to the old behaviour rather than blank the
+           chart. Loud in the console, visible in the screen. */
+        if (global.console && console.error) {
+          console.error('LKPatch: could not parse SVG markup; falling back to innerHTML');
+        }
+        container.innerHTML = html;
+        return null;
+      }
+      var out = [];
+      for (var n = root.firstChild; n; n = n.nextSibling) out.push(doc.importNode(n, true));
+      return out;
+    }
+
+    /* An element of the same tag parses the string under the same rules the
+       container itself would use, so <tr>, <td>, <option> and friends survive
+       the round trip. A detached clone with no children costs nothing. */
+    var host;
+    try {
+      host = container.cloneNode(false);
+      host.innerHTML = html;
+    } catch (e) {
+      host = doc.createElement('div');
+      host.innerHTML = html;
+    }
+    var list = [];
+    for (var m = host.firstChild; m; m = m.nextSibling) list.push(m);
+    /* Detach them from the scratch host so insertBefore is a plain move. */
+    for (var i = 0; i < list.length; i++) host.removeChild(list[i]);
+    return list;
+  }
+
+  /* ---------------------------------------------------------------
+     Focus and scroll, captured before and restored after
+     --------------------------------------------------------------- */
+
+  /* activeElement, following shadow roots, so this works both in a
+     standalone screen and inside the assembled demo where every screen
+     lives in its own shadow root. */
+  function deepActive(node) {
+    var root = node.getRootNode ? node.getRootNode() : document;
+    var el = root.activeElement || document.activeElement;
+    while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+    return el;
+  }
+
+  function captureFocus(container) {
+    var el = deepActive(container);
+    if (!el || el === document.body || !container.contains(el)) return null;
+    var snap = { el: el, key: keyOf(el), start: null, end: null, dir: null };
+    try {
+      if (typeof el.selectionStart === 'number') {
+        snap.start = el.selectionStart;
+        snap.end = el.selectionEnd;
+        snap.dir = el.selectionDirection;
+      }
+    } catch (e) { /* selectionStart throws on some input types */ }
+    return snap;
+  }
+
+  function restoreFocus(container, snap) {
+    if (!snap) return;
+    var now = deepActive(container);
+    if (now === snap.el) return;                       /* never moved: done */
+
+    var target = null;
+    if (snap.el.isConnected && container.contains(snap.el)) target = snap.el;
+    else if (snap.key) {
+      var sel = keySelector(snap.key);
+      if (sel) target = container.querySelector(sel);
+    }
+    if (!target || typeof target.focus !== 'function') return;
+
+    try { target.focus({ preventScroll: true }); } catch (e) { target.focus(); }
+    if (snap.start !== null && typeof target.setSelectionRange === 'function') {
+      try { target.setSelectionRange(snap.start, snap.end, snap.dir || 'none'); } catch (e) {}
+    }
+  }
+
+  /* Every scroller that could be disturbed: the container, anything scrolled
+     inside it, and every scrolling ancestor above it (patching a header must
+     not move the body underneath). */
+  function captureScroll(container) {
+    var seen = [];
+    var els = [];
+    var push = function (el) {
+      if (!el || el.nodeType !== 1 || els.indexOf(el) !== -1) return;
+      var t = el.scrollTop, l = el.scrollLeft;
+      if (!t && !l) return;
+      els.push(el);
+      seen.push({ el: el, key: keyOf(el), top: t, left: l, inside: container.contains(el) });
+    };
+
+    push(container);
+    var all = container.querySelectorAll('*');
+    for (var i = 0; i < all.length; i++) push(all[i]);
+
+    /* Up and out, through shadow boundaries, so patching a header cannot
+       scroll the body it sits above. */
+    var up = container.parentNode;
+    while (up) {
+      if (up.nodeType === 1) { push(up); up = up.parentNode; }
+      else if (up.nodeType === 11) { up = up.host || null; }   /* shadow root */
+      else { up = up.parentNode || null; }
+    }
+
+    push((container.ownerDocument || document).scrollingElement);
+    return seen;
+  }
+
+  function restoreScroll(container, snaps) {
+    for (var i = 0; i < snaps.length; i++) {
+      var s = snaps[i];
+      var el = s.el;
+      if (!el.isConnected) {
+        /* Replaced outright — find the node that took its place. */
+        if (!s.inside || !s.key) continue;
+        var sel = keySelector(s.key);
+        el = sel ? container.querySelector(sel) : null;
+        if (!el) continue;
+      }
+      if (el.scrollTop !== s.top) el.scrollTop = s.top;
+      if (el.scrollLeft !== s.left) el.scrollLeft = s.left;
+    }
+  }
+
+  /* ---------------------------------------------------------------
+     Attributes and live properties
+     --------------------------------------------------------------- */
+
+  function syncAttributes(oldEl, newEl) {
+    var i, a;
+
+    var na = newEl.attributes;
+    for (i = 0; i < na.length; i++) {
+      a = na[i];
+      if (a.namespaceURI) {
+        if (oldEl.getAttributeNS(a.namespaceURI, a.localName) !== a.value) {
+          oldEl.setAttributeNS(a.namespaceURI, a.name, a.value);
+        }
+      } else if (oldEl.getAttribute(a.name) !== a.value) {
+        /* Written only when it differs: rewriting class with the same string
+           would still be a style invalidation, and a changed animation-name
+           is exactly what replays an entry animation. */
+        oldEl.setAttribute(a.name, a.value);
+      }
+    }
+
+    var oa = oldEl.attributes;
+    for (i = oa.length - 1; i >= 0; i--) {
+      a = oa[i];
+      if (a.namespaceURI) {
+        if (!newEl.hasAttributeNS(a.namespaceURI, a.localName)) {
+          oldEl.removeAttributeNS(a.namespaceURI, a.localName);
+        }
+      } else if (!newEl.hasAttribute(a.name)) {
+        oldEl.removeAttribute(a.name);
+      }
+    }
+  }
+
+  /* Live form state. Written only when the markup's own declaration changed,
+     so a re-render fired while someone is typing cannot touch the field under
+     their caret, and a genuine state change still lands. */
+  function syncLiveProps(oldEl, newEl, declaredBefore) {
+    var name = oldEl.localName;
+    if (name !== 'input' && name !== 'textarea' && name !== 'select' && name !== 'option') return;
+
+    for (var i = 0; i < VALUE_PROPS.length; i++) {
+      var prop = VALUE_PROPS[i][0];
+      var attrName = VALUE_PROPS[i][1];
+      if (!attrName) continue;
+      if (!(prop in oldEl)) continue;
+
+      var before = declaredBefore[attrName];
+      var after = newEl.hasAttribute(attrName) ? newEl.getAttribute(attrName) : null;
+      if (before === after) continue;              /* markup did not change it */
+
+      if (prop === 'value') {
+        var next = after === null ? '' : after;
+        if (oldEl.value !== next) {
+          var caret = null;
+          try { caret = typeof oldEl.selectionStart === 'number' ? [oldEl.selectionStart, oldEl.selectionEnd] : null; } catch (e) {}
+          oldEl.value = next;
+          if (caret && typeof oldEl.setSelectionRange === 'function') {
+            var max = next.length;
+            try { oldEl.setSelectionRange(Math.min(caret[0], max), Math.min(caret[1], max)); } catch (e) {}
+          }
+        }
+      } else {
+        var on = after !== null;
+        if (oldEl[prop] !== on) oldEl[prop] = on;
+      }
+    }
+  }
+
+  /* ---------------------------------------------------------------
+     Morph
+     --------------------------------------------------------------- */
+
+  function morph(oldNode, newNode) {
+    if (oldNode.nodeType !== 1) {
+      /* Text and comments: written only when the data actually differs, so a
+         re-render does not churn text nodes people may be selecting. */
+      if (oldNode.nodeValue !== newNode.nodeValue) oldNode.nodeValue = newNode.nodeValue;
+      return oldNode;
+    }
+
+    /* Read what the OLD markup declared before the attributes are overwritten;
+       syncLiveProps compares declaration to declaration, not to live state. */
+    var declaredBefore = {
+      value: oldNode.hasAttribute('value') ? oldNode.getAttribute('value') : null,
+      checked: oldNode.hasAttribute('checked') ? oldNode.getAttribute('checked') : null,
+      selected: oldNode.hasAttribute('selected') ? oldNode.getAttribute('selected') : null
+    };
+
+    syncAttributes(oldNode, newNode);
+    syncLiveProps(oldNode, newNode, declaredBefore);
+
+    /* <textarea>'s children are its default value; morphing them normally is
+       correct and leaves a dirty (typed-in) textarea alone, which is what the
+       browser does with defaultValue. */
+    patchChildren(oldNode, childArray(newNode));
+    return oldNode;
+  }
+
+  function childArray(node) {
+    var out = [];
+    for (var n = node.firstChild; n; n = n.nextSibling) out.push(n);
+    return out;
+  }
+
+  function patchChildren(parent, incoming) {
+    if (!incoming) return;
+
+    /* Every keyed child that is already here, so a keyed node is found even if
+       it moved a long way. */
+    var keyed = null;
+    var n, k;
+    for (n = parent.firstChild; n; n = n.nextSibling) {
+      k = keyOf(n);
+      if (!k) continue;
+      if (!keyed) keyed = Object.create(null);
+      if (!(k in keyed)) keyed[k] = n;
+    }
+
+    var used = typeof Set === 'function' ? new Set() : null;
+    var usedList = used ? null : [];
+    var isUsed = function (node) { return used ? used.has(node) : usedList.indexOf(node) !== -1; };
+    var markUsed = function (node) { if (used) used.add(node); else usedList.push(node); };
+
+    var cursor = parent.firstChild;
+
+    for (var i = 0; i < incoming.length; i++) {
+      var nc = incoming[i];
+      var nk = keyOf(nc);
+      var match = null;
+
+      /* 1. by key — identity wins over position, always */
+      if (nk && keyed && keyed[nk] && !isUsed(keyed[nk]) && sameType(keyed[nk], nc)) {
+        match = keyed[nk];
+      }
+
+      /* 2. by position, but never by stealing a node that carries a different
+            key: that node belongs to whichever new child claims its key. */
+      if (!match) {
+        while (cursor && isUsed(cursor)) cursor = cursor.nextSibling;
+        if (cursor && sameType(cursor, nc)) {
+          var ck = keyOf(cursor);
+          if (!ck || ck === nk) match = cursor;
+        }
+      }
+
+      if (match) {
+        morph(match, nc);
+      } else {
+        /* Genuinely new. Inserted once, so its entry animation runs once. */
+        match = nc;
+      }
+
+      markUsed(match);
+
+      if (match === cursor) {
+        cursor = cursor.nextSibling;
+      } else {
+        /* A move is a remove-and-insert as far as CSS animations are
+           concerned, so it happens only when the order genuinely changed. */
+        parent.insertBefore(match, cursor);
+      }
+    }
+
+    /* Whatever the new markup no longer describes. */
+    var stale = [];
+    for (n = parent.firstChild; n; n = n.nextSibling) if (!isUsed(n)) stale.push(n);
+    for (var j = 0; j < stale.length; j++) parent.removeChild(stale[j]);
+  }
+
+  /* ---------------------------------------------------------------
+     Public entry point
+     --------------------------------------------------------------- */
+
+  /* Morph `container`'s children into `html`, in place.
+     Returns the container, so it reads like the assignment it replaces. */
+  function patch(container, html) {
+    if (!container) return container;
+    if (html == null) html = '';
+
+    /* Empty is a fast path, and still the honest one: everything really is
+       gone, so everything really is removed. */
+    if (html === '' && !container.firstChild) return container;
+
+    var focusSnap = captureFocus(container);
+    var scrollSnaps = captureScroll(container);
+
+    if (html === '') {
+      while (container.firstChild) container.removeChild(container.firstChild);
+    } else {
+      var incoming = parseChildren(container, String(html));
+      if (incoming === null) return container;   /* parse failed, already handled */
+      patchChildren(container, incoming);
+    }
+
+    restoreScroll(container, scrollSnaps);
+    restoreFocus(container, focusSnap);
+    return container;
+  }
+
+  patch.version = '1.0.0';
+  patch.keyOf = keyOf;
+
+  global.LKPatch = patch;
+  if (!global.LK) global.LK = {};
+  global.LK.patch = patch;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
 </head>
 <body>
 
@@ -2845,11 +3679,15 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
     screen belong on that screen; Fuel is a separate track.
   - The privacy disclosure block. Legal text with a +/- affordance is not
     a control; it configures nothing.
-  - The old App Style's five options, and "Match device". Appearance
-    offers Dark and Light, both of which change the screen, because
-    tokens.css defines exactly those two contrast-checked themes and no
-    prefers-color-scheme rule a third option could read. A control that
-    does nothing is worse than one fewer control.
+  - The old App Style's five options. Appearance offers Dark, Light and
+    Match device: three values, all of which change the screen. "Match
+    device" was cut in the first pass only because tokens.css carried no
+    prefers-color-scheme rule for it to read; the rule exists now, so the
+    option is back. A control that does nothing is worse than one fewer
+    control, but a device that ignores its own appearance setting is
+    worse than both. The choice is stored in localStorage under lk_theme
+    and applied by theme.js on every screen, so it survives a reload and
+    Appearance is not a preference that only themes its own page.
   - The storage progress bar. The sentence above it already says 1.2 MB
     of 5.0 MB; a second, lower-contrast reading of the same number is
     decoration.
@@ -2868,9 +3706,10 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   ADDED TO components.css FOR THIS SCREEN (tokens only, no new values)
   The switch, which no screen had used before: "on" takes --success, not
   --accent, and the off track gains a --border ring so it is still a
-  visible control at 1.29:1. Plus .row--danger, .row--static, a ground
-  for a quiet button on a dialog, and .toast--nonav for a pushed screen
-  that sits above no tab bar.
+  visible control when the track itself is only 1.51:1 on the card.
+  Plus .row--danger, .row--static, a ground for a quiet button on a
+  dialog, and .toast--nonav for a pushed screen that sits above no tab
+  bar.
 
   ACCENT
   At most one accent fill per state, never on a no-op: none when signed
@@ -3826,7 +4665,7 @@ DEMO.define("home", function (document, window, location, fetch) {
     current = VIEWS[state] ? state : 'training';
     document.getElementById('screen').setAttribute('data-state', current);
     hdrDate.textContent = (DATA[current] || DATA.training).date;
-    body.innerHTML = VIEWS[current]();
+    LKPatch(body, VIEWS[current]());
     body.scrollTop = 0;
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.state === current));
@@ -3836,9 +4675,9 @@ DEMO.define("home", function (document, window, location, fetch) {
   /* ---- dev toggle -------------------------------------------------- */
   var menu = document.getElementById('dev-menu');
   var toggle = document.getElementById('dev-toggle');
-  menu.innerHTML = STATES.map(function (s) {
+  LKPatch(menu, STATES.map(function (s) {
     return '<button class="dev__item" data-state="' + s[0] + '" aria-pressed="false" data-testid="dev-state-' + s[0] + '">' + s[1] + '</button>';
-  }).join('');
+  }).join(''));
   toggle.addEventListener('click', function () {
     var open = toggle.getAttribute('aria-expanded') === 'true';
     toggle.setAttribute('aria-expanded', String(!open));
@@ -4464,13 +5303,13 @@ DEMO.define("train", function (document, window, location, fetch) {
     var top = keepScroll ? body.scrollTop : 0;
     screen.setAttribute('data-state', S.state);
     screen.setAttribute('data-view', S.view);
-    hdr.innerHTML = headerHTML();
-    body.innerHTML = (S.view === 'history' && S.state === 'populated')
+    LKPatch(hdr, headerHTML());
+    LKPatch(body, (S.view === 'history' && S.state === 'populated')
       ? historyView()
-      : (VIEWS[S.state] || VIEWS.populated)();
+      : (VIEWS[S.state] || VIEWS.populated)());
     body.scrollTop = top;
-    overlay.innerHTML = overlayHTML();
-    toastSlot.innerHTML = toastHTML();
+    LKPatch(overlay, overlayHTML());
+    LKPatch(toastSlot, toastHTML());
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.state === S.state));
     });
@@ -4544,7 +5383,7 @@ DEMO.define("train", function (document, window, location, fetch) {
        the caret. */
     var tmp = document.createElement('div');
     tmp.innerHTML = activitySheet();
-    holder.innerHTML = tmp.querySelector('.sheet__body').innerHTML;
+    LKPatch(holder, tmp.querySelector('.sheet__body').innerHTML);
   });
 
   document.addEventListener('keydown', function (e) {
@@ -4562,10 +5401,10 @@ DEMO.define("train", function (document, window, location, fetch) {
     ['loading', 'Loading'],
     ['error', 'Error']
   ];
-  menu.innerHTML = STATES.map(function (s) {
+  LKPatch(menu, STATES.map(function (s) {
     return '<button class="dev__item" type="button" data-state="' + s[0] + '" aria-pressed="false" ' +
       'data-testid="dev-state-' + s[0] + '">' + s[1] + '</button>';
-  }).join('');
+  }).join(''));
   toggle.addEventListener('click', function () {
     var open = toggle.getAttribute('aria-expanded') === 'true';
     toggle.setAttribute('aria-expanded', String(!open));
@@ -5107,14 +5946,14 @@ DEMO.define("progress", function (document, window, location, fetch) {
     var lift = liftById(S.liftId);
     var pts = ptsIn(lift, rangeDays());
     var w = holder.clientWidth || 329;
-    holder.innerHTML = chartSVG(lift, pts, rangeDays(), w);
+    LKPatch(holder, chartSVG(lift, pts, rangeDays(), w));
   }
 
   function render() {
     screen.setAttribute('data-state', S.view);
-    body.innerHTML = (VIEWS[S.view] || VIEWS.populated)();
+    LKPatch(body, (VIEWS[S.view] || VIEWS.populated)());
     drawChart();
-    overlay.innerHTML = S.sheet ? sheetHTML() : '';
+    LKPatch(overlay, S.sheet ? sheetHTML() : '');
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.state === S.view));
     });
@@ -5192,9 +6031,9 @@ DEMO.define("progress", function (document, window, location, fetch) {
   ];
   var menu = document.getElementById('dev-menu');
   var toggle = document.getElementById('dev-toggle');
-  menu.innerHTML = STATES.map(function (s) {
+  LKPatch(menu, STATES.map(function (s) {
     return '<button class="dev__item" data-state="' + s[0] + '" aria-pressed="false" data-testid="dev-state-' + s[0] + '">' + s[1] + '</button>';
-  }).join('');
+  }).join(''));
   toggle.addEventListener('click', function () {
     var open = toggle.getAttribute('aria-expanded') === 'true';
     toggle.setAttribute('aria-expanded', String(!open));
@@ -5896,8 +6735,14 @@ DEMO.define("coach", function (document, window, location, fetch) {
             '<span class="opt__main"><span class="opt__title">' + p[1] + '</span>' +
             '<span class="opt__sub">' + p[2] + '</span></span></button>';
         }).join('') +
-        '<div class="card__foot"><button class="btn btn--tertiary btn--sm" data-act="perms-off" data-testid="setup-perms-off">' +
-          '<span class="btn__label">Turn all off</span></button></div>' +
+        '<div class="card__foot hstack hstack--2">' +
+          '<button class="btn btn--tertiary btn--sm" data-act="perms-on" data-testid="setup-perms-on"' +
+            (permCount() === PERMS.length ? ' disabled' : '') + '>' +
+            '<span class="btn__label">Turn all on</span></button>' +
+          '<button class="btn btn--tertiary btn--sm" data-act="perms-off" data-testid="setup-perms-off"' +
+            (permCount() === 0 ? ' disabled' : '') + '>' +
+            '<span class="btn__label">Turn all off</span></button>' +
+        '</div>' +
       '</div></section>';
 
     var lead = empty
@@ -6080,14 +6925,14 @@ DEMO.define("coach", function (document, window, location, fetch) {
        the plan card while the card is waiting to be saved. */
     var accent = (S.view === 'chat' && S.chat.offer && !S.chat.offerSaved) ? 'card' : 'action';
 
-    phone.innerHTML = '' +
+    LKPatch(phone, '' +
       '<div class="screen" data-state="' + currentState() + '" data-view="' + S.view + '" data-accent="' + accent + '" data-testid="view-' + S.view + '">' +
         header() +
         '<main class="body" tabindex="-1" data-testid="' + S.view + '-scroll">' +
           '<div id="panel-' + S.view + '" role="tabpanel" aria-labelledby="tab-' + S.view + '">' + body + '</div>' +
         '</main>' +
         '<footer>' + foot + tabbar() + '</footer>' + overlays() +
-      '</div>';
+      '</div>');
 
     if (S.view === 'chat' && S.chat.status !== 'empty') {
       var scroll = phone.querySelector('.body');
@@ -6277,6 +7122,12 @@ DEMO.define("coach", function (document, window, location, fetch) {
       S.setup.dirty = true;
       if (S.setup.status === 'empty' && permCount()) S.setup.status = 'ready';
       render();
+    },
+    'perms-on': function () {
+      PERMS.forEach(function (p) { S.setup.perms[p[0]] = true; });
+      S.setup.dirty = true;
+      render();
+      toast('All sources on. The coach reads your training, body and goals when you message it.');
     },
     'perms-off': function () {
       PERMS.forEach(function (p) { S.setup.perms[p[0]] = false; });
@@ -6482,9 +7333,9 @@ DEMO.define("coach", function (document, window, location, fetch) {
 
   var menu = document.getElementById('dev-menu');
   var toggle = document.getElementById('dev-toggle');
-  menu.innerHTML = PRESETS.map(function (p, i) {
+  LKPatch(menu, PRESETS.map(function (p, i) {
     return '<button class="dev__item" data-preset="' + i + '" aria-pressed="false" data-testid="dev-preset-' + i + '">' + p[0] + '</button>';
-  }).join('');
+  }).join(''));
   function renderDev() {
     toggle.setAttribute('aria-expanded', String(S.dev));
     menu.hidden = !S.dev;
@@ -7191,11 +8042,11 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     var btn = document.getElementById('devToggle');
     btn.setAttribute('aria-expanded', S.dev ? 'true' : 'false');
     panel.hidden = !S.dev;
-    if (!S.dev) { panel.innerHTML = ''; return; }
-    panel.innerHTML = '<div class="t-label">Screens and states</div><div class="stack stack--2 mt-2">' +
+    if (!S.dev) { LKPatch(panel, ''); return; }
+    LKPatch(panel, '<div class="t-label">Screens and states</div><div class="stack stack--2 mt-2">' +
       PRESETS.map(function (p, i) {
         return '<button class="btn btn--secondary btn--sm" data-testid="dev-preset-' + i + '" data-dev="' + i + '">' + esc(p[0]) + '</button>';
-      }).join('') + '</div>';
+      }).join('') + '</div>');
   }
 
   /* ---------------------------------------------------------------
@@ -7206,7 +8057,7 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     var active = document.activeElement;
     var key = active && active.getAttribute ? active.getAttribute('data-testid') : null;
     var caret = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
-    app.innerHTML = (S.screen === 'manual' ? manualScreen() : aiScreen()) + overlays();
+    LKPatch(app, (S.screen === 'manual' ? manualScreen() : aiScreen()) + overlays());
     if (key) {
       var next = app.querySelector('[data-testid="' + key + '"]');
       if (next) {
@@ -8248,10 +9099,10 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
   }
 
   function render(opts) {
-    hdr.innerHTML = renderHdr();
-    filters.innerHTML = renderFilters();
-    body.innerHTML = renderBody();
-    layer.innerHTML = renderLayer();
+    LKPatch(hdr, renderHdr());
+    LKPatch(filters, renderFilters());
+    LKPatch(body, renderBody());
+    LKPatch(layer, renderLayer());
     clear.hidden = !S.q;
     input.disabled = S.status !== 'ready';
     input.placeholder = S.status !== 'ready' ? 'Search'
@@ -8465,9 +9316,9 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
   }
   var menu = document.getElementById('dev-menu');
   var toggle = document.getElementById('dev-toggle');
-  menu.innerHTML = PRESETS.map(function (p, i) {
+  LKPatch(menu, PRESETS.map(function (p, i) {
     return '<button class="dev__item" type="button" data-preset="' + i + '" aria-pressed="false" data-testid="dev-preset-' + i + '">' + p[0] + '</button>';
-  }).join('');
+  }).join(''));
   toggle.addEventListener('click', function () {
     var open = toggle.getAttribute('aria-expanded') === 'true';
     toggle.setAttribute('aria-expanded', String(!open));
@@ -8600,16 +9451,15 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
      --------------------------------------------------------------- */
   function banner(host, kind, title, body, actionLabel, actionTestid) {
     var el = $(host);
-    if (!kind) { el.innerHTML = ''; return; }
+    if (!kind) { LKPatch(el, ''); return; }
     var icon = kind === 'error' ? ICO.alert : kind === 'warn' ? ICO.alert : kind === 'success' ? ICO.check : ICO.info;
     var action = actionLabel
       ? '<button class="btn btn--tertiary btn--sm" data-testid="' + actionTestid + '">' + actionLabel + '</button>'
       : '';
-    el.innerHTML =
-      '<div class="banner banner--' + kind + ' mt-2" role="' + (kind === 'error' ? 'alert' : 'status') + '" data-testid="' + host.slice(1) + '-message">' +
+    LKPatch(el, '<div class="banner banner--' + kind + ' mt-2" role="' + (kind === 'error' ? 'alert' : 'status') + '" data-testid="' + host.slice(1) + '-message">' +
         icon +
         '<span class="grow"><strong>' + title + '</strong>' + body + '</span>' +
-      '</div>' + (action ? '<div class="mt-2">' + action + '</div>' : '');
+      '</div>' + (action ? '<div class="mt-2">' + action + '</div>' : ''));
   }
 
   /* ---------------------------------------------------------------
@@ -8621,11 +9471,11 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
     if (message) {
       input.setAttribute('aria-invalid', 'true');
       err.hidden = false;
-      err.innerHTML = ICO.alert + '<span>' + message + '</span>';
+      LKPatch(err, ICO.alert + '<span>' + message + '</span>');
     } else {
       input.removeAttribute('aria-invalid');
       err.hidden = true;
-      err.innerHTML = '';
+      LKPatch(err, '');
     }
   }
 
@@ -8927,7 +9777,7 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
     html += '<p class="t-meta mt-4">Every step can be skipped, and every answer can be changed later in Settings.' +
             (answered ? ' ' + answered + ' of ' + n + ' answered.' : '') + '</p>';
 
-    $('#setup-step').innerHTML = html;
+    LKPatch($('#setup-step'), html);
 
     var last = i === n - 1;
     var cont = $('[data-testid="setup-continue"]');
@@ -8972,43 +9822,38 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
     var v = S.variant === 'default' ? 'populated' : S.variant;
 
     if (v === 'loading') {
-      body.innerHTML =
-        '<div aria-live="polite">' +
+      LKPatch(body, '<div aria-live="polite">' +
           '<div class="skel skel--line" style="width:40%"></div>' +
           '<div class="skel skel--title mt-3" style="width:65%"></div>' +
           '<div class="skel skel--line mt-3" style="width:85%"></div>' +
           '<div class="skel skel--block mt-4" style="width:100%"></div>' +
           '<div class="skel skel--block mt-2" style="width:100%"></div>' +
           '<p class="t-detail mt-4">Building your first week.</p>' +
-        '</div>';
-      foot.innerHTML = '<button class="btn btn--secondary btn--block" data-testid="overview-start" disabled><span class="btn__label">Start first session</span></button>';
+        '</div>');
+      LKPatch(foot, '<button class="btn btn--secondary btn--block" data-testid="overview-start" disabled><span class="btn__label">Start first session</span></button>');
       return;
     }
 
     if (v === 'error') {
-      body.innerHTML =
-        '<div class="banner banner--error mt-2" role="alert">' + ICO.alert +
+      LKPatch(body, '<div class="banner banner--error mt-2" role="alert">' + ICO.alert +
           '<span class="grow"><strong>Could not build your week</strong>Your answers are saved. This is on our side, and retrying usually works.</span>' +
         '</div>' +
         '<div class="empty mt-4">' +
           '<p class="empty__body">Nothing has been lost. You can retry, or start a session on your own and the plan will catch up.</p>' +
-        '</div>';
-      foot.innerHTML =
-        '<button class="btn btn--primary btn--block" data-testid="overview-retry"><span class="btn__label">Try again</span></button>' +
-        '<button class="btn btn--tertiary btn--block" data-testid="overview-freestyle">Start an empty session</button>';
+        '</div>');
+      LKPatch(foot, '<button class="btn btn--primary btn--block" data-testid="overview-retry"><span class="btn__label">Try again</span></button>' +
+        '<button class="btn btn--tertiary btn--block" data-testid="overview-freestyle">Start an empty session</button>');
       return;
     }
 
     if (v === 'empty') {
-      body.innerHTML =
-        '<div class="empty mt-5">' +
+      LKPatch(body, '<div class="empty mt-5">' +
           '<span class="empty__ico">' + ICO.info + '</span>' +
           '<h2 class="empty__title">No plan yet</h2>' +
           '<p class="empty__body">Setup was skipped, so there is nothing to train from. Five questions is enough to build the first week.</p>' +
-        '</div>';
-      foot.innerHTML =
-        '<button class="btn btn--primary btn--block" data-testid="overview-finish-setup"><span class="btn__label">Finish setup</span></button>' +
-        '<button class="btn btn--tertiary btn--block" data-testid="overview-freestyle">Start an empty session</button>';
+        '</div>');
+      LKPatch(foot, '<button class="btn btn--primary btn--block" data-testid="overview-finish-setup"><span class="btn__label">Finish setup</span></button>' +
+        '<button class="btn btn--tertiary btn--block" data-testid="overview-freestyle">Start an empty session</button>');
       return;
     }
 
@@ -9019,8 +9864,7 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
     var who = a.name ? a.name : 'you';
     var sessionName = SPLIT[days] === 'Upper / lower' ? 'Upper A' : SPLIT[days] === 'Push / pull / legs' ? 'Push A' : 'Full body A';
 
-    body.innerHTML =
-      '<p class="t-label">Week 1 · Day 1</p>' +
+    LKPatch(body, '<p class="t-label">Week 1 · Day 1</p>' +
       '<h2 class="t-title mt-1">' + sessionName + '</h2>' +
       '<p class="t-detail mt-2">5 exercises, about 50 minutes. Built for ' + (a.name ? escapeHtml(a.name) : who) + ' from the five answers below.</p>' +
 
@@ -9039,11 +9883,10 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
         '</div>' +
       '</div>' +
 
-      '<p class="t-meta mt-4">Any answer can be changed in Settings without losing history.</p>';
+      '<p class="t-meta mt-4">Any answer can be changed in Settings without losing history.</p>');
 
-    foot.innerHTML =
-      '<button class="btn btn--primary btn--block" data-testid="overview-start"><span class="btn__label">Start ' + sessionName + '</span></button>' +
-      '<button class="btn btn--tertiary btn--block" data-testid="overview-week">See the full week</button>';
+    LKPatch(foot, '<button class="btn btn--primary btn--block" data-testid="overview-start"><span class="btn__label">Start ' + sessionName + '</span></button>' +
+      '<button class="btn btn--tertiary btn--block" data-testid="overview-week">See the full week</button>');
   }
 
   function row(label, value) {
@@ -9187,7 +10030,7 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
         });
         if (g.na) html += '<p class="t-meta dev-na">' + g.na + '</p>';
       });
-      list.innerHTML = html;
+      LKPatch(list, html);
       list.dataset.built = '1';
       $$('.dev-item', list).forEach(function (b) {
         b.addEventListener('click', function () {
@@ -9287,7 +10130,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
     unit: 'kg',
     dist: 'km',
     weekStart: 'mon',
-    theme: 'dark',
+    theme: (window.LKTheme ? window.LKTheme.get() : 'dark'),
     restTimer: true,
     restSec: 90,
     partials: false,
@@ -9381,7 +10224,8 @@ DEMO.define("settings", function (document, window, location, fetch) {
         title: 'Appearance',
         options: [
           { v: 'dark', title: 'Dark', sub: 'Built for a gym floor and a phone at arm’s length' },
-          { v: 'light', title: 'Light', sub: 'Higher brightness, for outdoors' }
+          { v: 'light', title: 'Light', sub: 'Higher brightness, for outdoors' },
+          { v: 'system', title: 'Match device', sub: 'Follows your phone’s appearance setting' }
         ]
       },
       restSec: {
@@ -9581,7 +10425,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
         navRow('unit', 'Weight unit', S.unit === 'kg' ? 'Kilograms (kg)' : 'Pounds (lb)', 'row-weight-unit') +
         navRow('dist', 'Distance', S.dist === 'km' ? 'Kilometres (km)' : 'Miles (mi)', 'row-distance-unit') +
         navRow('weekStart', 'Week starts on', S.weekStart === 'mon' ? 'Monday' : 'Sunday', 'row-week-start') +
-        navRow('theme', 'Appearance', S.theme === 'dark' ? 'Dark' : 'Light', 'row-appearance') +
+        navRow('theme', 'Appearance', window.LKTheme.label(S.theme), 'row-appearance') +
       '</div>');
   }
 
@@ -9798,8 +10642,10 @@ DEMO.define("settings", function (document, window, location, fetch) {
 
   function render() {
     screen.setAttribute('data-state', S.view);
-    document.documentElement.setAttribute('data-theme', S.theme);
-    body.innerHTML = screenHTML();
+    /* One writer. theme.js owns the root attribute and the lk_theme key,
+       so the choice made here is the choice every other screen reads. */
+    if (window.LKTheme) window.LKTheme.set(S.theme);
+    LKPatch(body, screenHTML());
 
     var ov = '';
     if (S.sheet === 'profile') ov = profileSheet();
@@ -9807,7 +10653,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
     else if (S.sheet) ov = optionSheet(S.sheet);
     else if (S.dialog) ov = dialogHTML(S.dialog);
     if (S.toast) ov += toastHTML();
-    overlay.innerHTML = ov;
+    LKPatch(overlay, ov);
 
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.state === S.view));
@@ -10010,10 +10856,10 @@ DEMO.define("settings", function (document, window, location, fetch) {
   ];
   var menu = document.getElementById('dev-menu');
   var toggle = document.getElementById('dev-toggle');
-  menu.innerHTML = STATES.map(function (s) {
+  LKPatch(menu, STATES.map(function (s) {
     return '<button class="dev__item" data-state="' + s[0] + '" aria-pressed="false" data-testid="dev-state-' + s[0] + '">' +
              s[1] + '</button>';
-  }).join('');
+  }).join(''));
   toggle.addEventListener('click', function () {
     var open = toggle.getAttribute('aria-expanded') === 'true';
     toggle.setAttribute('aria-expanded', String(!open));
@@ -10548,14 +11394,14 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     var top = keepScroll ? body.scrollTop : 0;
     screen.setAttribute('data-state', S.state);
     screen.setAttribute('data-accent', S.sheet === 'plates' ? 'sheet' : 'deck');
-    hdr.innerHTML = headerHTML();
-    notice.innerHTML = noticeHTML();
-    body.innerHTML = S.state === 'empty' ? emptyHTML()
-      : S.state === 'loading' ? loadingHTML() : listHTML();
+    LKPatch(hdr, headerHTML());
+    LKPatch(notice, noticeHTML());
+    LKPatch(body, S.state === 'empty' ? emptyHTML()
+      : S.state === 'loading' ? loadingHTML() : listHTML());
     body.scrollTop = top;
-    deck.innerHTML = deckHTML();
-    overlay.innerHTML = overlayHTML();
-    toastSlot.innerHTML = toastHTML();
+    LKPatch(deck, deckHTML());
+    LKPatch(overlay, overlayHTML());
+    LKPatch(toastSlot, toastHTML());
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.state === S.state));
     });
@@ -10748,10 +11594,10 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     render();
   }
 
-  menu.innerHTML = STATES.map(function (s) {
+  LKPatch(menu, STATES.map(function (s) {
     return '<button class="dev__item" type="button" data-state="' + s[0] + '" aria-pressed="false" ' +
       'data-testid="dev-state-' + s[0] + '">' + s[1] + '</button>';
-  }).join('');
+  }).join(''));
   toggle.addEventListener('click', function () {
     var open = toggle.getAttribute('aria-expanded') === 'true';
     toggle.setAttribute('aria-expanded', String(!open));
@@ -11421,10 +12267,10 @@ DEMO.define("review", function (document, window, location, fetch) {
     screen.setAttribute('data-state', S.view);
     hdrDate.textContent = d.date;
     hdrTitle.textContent = d.title;
-    body.innerHTML = out.body;
-    barSlot.innerHTML = out.bar;
-    overlaySlot.innerHTML = out.overlay || '';
-    toastSlot.innerHTML = toastHTML();
+    LKPatch(body, out.body);
+    LKPatch(barSlot, out.bar);
+    LKPatch(overlaySlot, out.overlay || '');
+    LKPatch(toastSlot, toastHTML());
     body.scrollTop = keepScroll ? top : 0;
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.state === S.view));
@@ -11548,10 +12394,10 @@ DEMO.define("review", function (document, window, location, fetch) {
   });
 
   /* ---- dev toggle -------------------------------------------------- */
-  menu.innerHTML = STATES.map(function (s) {
+  LKPatch(menu, STATES.map(function (s) {
     return '<button class="dev__item" data-state="' + s[0] + '" aria-pressed="false" ' +
            'data-testid="dev-state-' + s[0] + '">' + s[1] + '</button>';
-  }).join('');
+  }).join(''));
   toggle.addEventListener('click', function () {
     var open = toggle.getAttribute('aria-expanded') === 'true';
     toggle.setAttribute('aria-expanded', String(!open));
