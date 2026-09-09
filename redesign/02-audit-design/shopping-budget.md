@@ -59,21 +59,21 @@ List's 40 (matching `tests/baseline/scans/shopping-budget.json`) is driven by: *
 | 2 | Type scale | FAIL | 9 sizes; 13px has 3 line-heights. |
 | 3 | 8px grid | FAIL | 93.5%, under 95%, undocumented. |
 | 4 | Control states | PASS | 5/5 changed at 100ms; `button:disabled{opacity:0.4}` present. |
-| 5 | Meaningful motion | FAIL | Zero decorative rows, but an inserted list row does not animate (only the header `pillIn` re-runs). |
+| 5 | Meaningful motion | FAIL | Zero decorative rows, but an inserted row does not animate (only the header `pillIn` re-runs). |
 | 6 | Empty and error copy | FAIL | List empty: 4-word title + a 20-word line offering three routes, no action control. Error: store-search failure renders nothing (`-error.png`). |
-| 7 | Numbers | FAIL | 0/30 styles use tabular-nums; $19.70 / $120.00 / 16% proportional. |
-| 8 | One icon set | FAIL | 34 emoji across four sub-tabs, mixed with ✓ ✕ ★ ☆ glyphs and 16px SVGs. |
-| 9 | Scroll and targets | FAIL | 91/136 under 44. no overflow, scrollWidth 393 = clientWidth. |
-| 10 | Native dark | FAIL | FAB shadow `rgba(249,115,22,.25/.22)`, 91% saturation; ON button `rgb(239,239,239)`, black text. |
-| 11 | Copy | FAIL | "🏋️ FITNESS PICKS — tap to add", a 5-word section label with an emoji. Zero exclamation marks. |
+| 7 | Numbers | FAIL | 0/30 styles use tabular-nums; $19.70 / $120.00 proportional. |
+| 8 | One icon set | FAIL | 34 emoji, mixed with ✓ ✕ ★ ☆ glyphs and 16px SVGs. |
+| 9 | Scroll and targets | FAIL | 91/136 under 44; scrollWidth 393 = clientWidth. |
+| 10 | Native dark | FAIL | FAB shadow `rgba(249,115,22,.25/.22)`, 91% saturation; ON button `rgb(239,239,239)` on black. |
+| 11 | Copy | FAIL | "🏋️ FITNESS PICKS — tap to add", a 5-word label with an emoji. Zero exclamation marks. |
 
 ## 6. Consistency deltas vs `design-system-current.md`
 
 - **Radii**: 11 distinct on one page (4, 6, 7, 8, 10, 12, 14, 16, 20, 999, 50%). The r20 pill and the r999 pill do the same job side by side.
 - **Tab pattern**: a fourth pattern, r12 pills in a r20 track at 82x30, atop the app's three.
 - **Card style**: List uses `--color-card` r16 with the CSSARR shadow; Budget uses r16 outer, r6/r7 inner tiles, a green gradient meter.
-- **Icon size**: 16px SVGs, 20px emoji, 14px text glyphs.
-- **Accent use**: `#F97316` carries list state, tab state, store identity and section headers at once. `STORE_PALETTE` (10 retailer-brand hexes, L42025) is the page's only non-token colour source and is dead in the populated state: it colours stores added in-session only, so the seeded store hits `s.color === undefined` and renders an unstyled browser button. Ten hex literals, zero pixels.
+- **Icons**: 16px SVGs, 20px emoji, 14px text glyphs.
+- **Accent use**: `#F97316` carries list state, tab state, store identity and section headers at once. `STORE_PALETTE` (10 retailer-brand hexes, L42025) is the page's only non-token colour source and is dead in the populated state: it colours stores added in-session only, so the seeded store hits `s.color === undefined` and renders an unstyled browser button — ten hex literals, zero pixels.
 
 ## 7. Keep, fix, cut
 
@@ -83,4 +83,4 @@ List's 40 (matching `tests/baseline/scans/shopping-budget.json`) is driven by: *
 
 ## 8. After reading the function audit
 
-No score changes. The function audit calls the empty states "one instruction, one action"; against checklist 6 the List empty block is 24 words over two lines, offers three routes and holds no action control, so item 6 stays FAIL — a copy-length disagreement, not a state-presence one. Its "Export does nothing visible" is the functional twin of callout 5.
+No score changes. The function audit calls the empty states "one instruction, one action"; against checklist 6 the List empty block runs 24 words over two lines, offers three routes and holds no action control, so item 6 stays FAIL — a copy-length disagreement, not a state-presence one.
