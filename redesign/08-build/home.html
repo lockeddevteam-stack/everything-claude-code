@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — Home</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+</head>
+<body>
+<!--
+  HOME — what survives, and why.
+
+  The audits measured a 1,688px screen whose only real action started at
+  y659 of a 781px fold, behind 534px of read-only material. This screen
+  answers one question — train today, or not, and if so, what — and the
+  answer plus its action sit in the first card.
+
+  KEPT (4 blocks, was 10):
+  1. Header "Today" + the date. One line of orientation. The date is the
+     only thing the old 125px greeting block carried that a lifter uses.
+  2. Answer card. The session name, its shape (exercises, duration), and
+     the accent-filled primary. This is the screen. Rest day swaps the
+     answer and the action; it must not look like a training day.
+  3. Last session row. One tap back into the thing most likely to be
+     wrong or unfinished, and the only place a relative date belongs.
+     Replaces Recent Workouts (408px, 5 rows) with its first row.
+  4. Week meter. "Am I on track" in one line and one control, replacing
+     the 179px stat grid that returned zero interactive elements.
+
+  CUT: greeting block, 2x2 stat grid (179px, 0 controls, no units, PR
+  count disagreed with storage), quick actions (5 of 8 pointed at Fuel),
+  feed cards (source of the "999 days" sentinel), VIEW PROGRESS (a button
+  standing in for a tab), Weekly Recap (50px for a repeat sheet),
+  calendar (338px, no tappable cells, Progress owns it), cycle row,
+  ThrowbackCard (dead), the voice FAB (second accent fill, and it
+  intercepted pointer events over the last block).
+
+  ACCENT: exactly one accent fill per state, always on the primary
+  action. Nothing else on the screen is filled with --accent.
+-->
+
+<div class="stage">
+  <div class="phone">
+    <div class="screen" id="screen" data-testid="screen-home">
+
+      <header class="hdr">
+        <div class="hdr__title stack stack--1">
+          <span class="t-meta num" id="hdr-date">WED, SEP 9</span>
+          <h1 class="t-title">Today</h1>
+        </div>
+      </header>
+
+      <main class="body" id="body" data-testid="home-scroll" tabindex="-1"></main>
+
+      <nav class="tabbar" aria-label="Sections">
+        <button class="tabbar__item" aria-current="page" data-testid="tab-home">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4v-5H9v5H5a1 1 0 0 1-1-1z"/></svg>
+          Home
+        </button>
+        <button class="tabbar__item" data-testid="tab-train">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/></svg>
+          Train
+        </button>
+        <button class="tabbar__item" data-testid="tab-progress">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19h16M7 16v-4M12 16V7M17 16v-6"/></svg>
+          Progress
+        </button>
+        <button class="tabbar__item" data-testid="tab-coach">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 15a3 3 0 0 1-3 3H9l-4 3V7a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3z"/></svg>
+          Coach
+        </button>
+        <button class="tabbar__item" data-testid="tab-profile">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
+          Profile
+        </button>
+      </nav>
+
+    </div>
+  </div>
+</div>
+
+<div class="dev">
+  <button class="dev__toggle" id="dev-toggle" aria-expanded="false" aria-controls="dev-menu" data-testid="dev-toggle">State</button>
+  <div class="dev__menu" id="dev-menu" hidden data-testid="dev-menu"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---- icons ------------------------------------------------------ */
+  var svg = function (d, extra) {
+    return '<svg class="ico' + (extra || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+  };
+  var ICO = {
+    play: svg('<path d="M8 5.5v13l11-6.5z"/>'),
+    moon: svg('<path d="M20 14.5A8 8 0 0 1 9.5 4 8.2 8.2 0 1 0 20 14.5z"/>'),
+    chev: svg('<path d="m9 5 7 7-7 7"/>'),
+    alert: svg('<path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/>'),
+    plan: svg('<path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/>', ' ico--lg'),
+    lift: svg('<path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/>')
+  };
+
+  /* ---- formatting ------------------------------------------------- */
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function n(v) { return '<span class="num">' + v + '</span>'; }
+  function kg(v) { return n(v.toLocaleString('en-US')) + ' kg'; }
+  /* Relative inside a week, absolute after it. Never a sentinel. */
+  function when(daysAgo, dateISO) {
+    if (daysAgo === 0) return 'today';
+    if (daysAgo === 1) return 'yesterday';
+    if (daysAgo < 7) return n(daysAgo) + ' days ago';
+    var d = dateISO.split('-');
+    return MONTHS[Number(d[1]) - 1] + ' ' + n(String(Number(d[2])));
+  }
+
+  /* ---- seed (fixtures/seed-data.json, guest profile in kg) -------- */
+  var DATA = {
+    training: {
+      date: 'WED, SEP 9',
+      next: { name: 'Push', split: 'PPL', exercises: 5, minutes: 50 },
+      last: { name: 'PPL - Legs', daysAgo: 2, dateISO: '2026-09-07', sets: 16, volumeKg: 14363, minutes: 52 },
+      week: { done: 2, planned: 3 }
+    },
+    rest: {
+      date: 'WED, SEP 9',
+      next: { name: 'Pull', split: 'PPL', dayLabel: 'tomorrow' },
+      last: { name: 'PPL - Push', daysAgo: 1, dateISO: '2026-09-08', sets: 16, volumeKg: 4266, minutes: 55 },
+      week: { done: 3, planned: 3 }
+    }
+  };
+
+  /* ---- blocks ----------------------------------------------------- */
+  function lastRow(last) {
+    return '' +
+      '<div class="section">' +
+        '<div class="section__head"><h2 class="t-label">Last session</h2></div>' +
+        '<div class="card card--flush">' +
+          '<button class="row" data-testid="row-last-session">' +
+            '<span class="ico-well">' + ICO.lift + '</span>' +
+            '<span class="row__main stack">' +
+              '<span class="row__title">' + last.name + '</span>' +
+              '<span class="row__sub">' + when(last.daysAgo, last.dateISO) + ' &middot; ' +
+                n(last.sets) + ' sets &middot; ' + kg(last.volumeKg) + '</span>' +
+            '</span>' +
+            '<span class="row__chev">' + ICO.chev + '</span>' +
+          '</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function weekCard(week) {
+    var pct = Math.round((week.done / week.planned) * 100);
+    return '' +
+      '<div class="section">' +
+        '<div class="section__head"><h2 class="t-label">This week</h2></div>' +
+        '<div class="card card--flush">' +
+          '<button class="row" data-testid="card-week">' +
+            '<span class="row__main stack stack--2">' +
+              '<span class="row__title">' + n(week.done) + ' of ' + n(week.planned) + ' sessions</span>' +
+              '<span class="meter meter--quiet"><span class="meter__fill" style="width: ' + pct + '%"></span></span>' +
+            '</span>' +
+            '<span class="row__value">' + n(pct) + '%</span>' +
+            '<span class="row__chev">' + ICO.chev + '</span>' +
+          '</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* ---- states ----------------------------------------------------- */
+  var VIEWS = {};
+
+  VIEWS.training = function () {
+    var d = DATA.training, s = d.next;
+    return '' +
+      '<div class="card card--raised mt-3" data-testid="card-answer" data-answer="train">' +
+        '<div class="t-label">Today&rsquo;s session</div>' +
+        '<div class="t-title mt-2">' + s.name + '</div>' +
+        '<div class="t-detail mt-2">' + s.split + ' &middot; ' + n(s.exercises) + ' exercises &middot; about ' + n(s.minutes) + ' min</div>' +
+        '<button class="btn btn--primary btn--block mt-4" data-testid="primary-action">' +
+          ICO.play + '<span class="btn__label">Start ' + s.name + '</span>' +
+        '</button>' +
+        '<button class="btn btn--secondary btn--block mt-2" data-testid="action-choose-session">' +
+          '<span class="btn__label">Choose another session</span>' +
+        '</button>' +
+      '</div>' +
+      lastRow(d.last) + weekCard(d.week);
+  };
+
+  VIEWS.rest = function () {
+    var d = DATA.rest, s = d.next;
+    return '' +
+      '<div class="card mt-3" data-testid="card-answer" data-answer="rest">' +
+        '<div class="hstack hstack--3">' +
+          '<span class="ico-well">' + ICO.moon + '</span>' +
+          '<div class="grow stack stack--1">' +
+            '<div class="t-label">Today</div>' +
+            '<div class="t-section">Rest day</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="t-detail mt-3">' + n(d.week.done) + ' of ' + n(d.week.planned) +
+          ' sessions done. Next is ' + s.name + ', ' + s.dayLabel + '.</div>' +
+        '<button class="btn btn--primary btn--block mt-4" data-testid="primary-action">' +
+          ICO.play + '<span class="btn__label">Start ' + s.name + ' early</span>' +
+        '</button>' +
+      '</div>' +
+      lastRow(d.last) + weekCard(d.week);
+  };
+
+  VIEWS.empty = function () {
+    return '' +
+      '<div class="empty mt-5" data-testid="card-answer" data-answer="empty">' +
+        '<span class="empty__ico">' + ICO.plan + '</span>' +
+        '<h2 class="empty__title">No sessions yet</h2>' +
+        '<p class="empty__body">Build a split and LOCKED puts one session on this screen each training day.</p>' +
+        '<button class="btn btn--primary" data-testid="primary-action">' +
+          '<span class="btn__label">Build a split</span>' +
+        '</button>' +
+      '</div>';
+  };
+
+  VIEWS.loading = function () {
+    return '' +
+      '<div class="card card--raised mt-3" role="status" aria-busy="true" aria-label="Loading today" data-testid="card-answer" data-answer="loading">' +
+        '<div class="skel" style="height: var(--sp-3); width: 40%"></div>' +
+        '<div class="skel mt-3" style="height: var(--sp-5); width: 60%"></div>' +
+        '<div class="skel mt-3" style="height: var(--sp-4); width: 80%"></div>' +
+        '<div class="skel mt-4" style="height: var(--tap)"></div>' +
+      '</div>' +
+      '<div class="card mt-3">' +
+        '<div class="skel" style="height: var(--sp-4); width: 55%"></div>' +
+        '<div class="skel mt-3" style="height: var(--sp-3); width: 75%"></div>' +
+      '</div>';
+  };
+
+  VIEWS.error = function () {
+    return '' +
+      '<div class="card card--raised mt-3" data-testid="card-answer" data-answer="error">' +
+        '<div class="banner banner--error">' +
+          ICO.alert +
+          '<span><strong>Today did not load</strong>Your last sync failed, so the session for today is unknown.</span>' +
+        '</div>' +
+        '<button class="btn btn--primary btn--block mt-4" data-testid="primary-action">' +
+          '<span class="btn__label">Try again</span>' +
+        '</button>' +
+        '<button class="btn btn--secondary btn--block mt-2" data-testid="action-choose-session">' +
+          '<span class="btn__label">Choose a session</span>' +
+        '</button>' +
+      '</div>';
+  };
+
+  /* ---- render ----------------------------------------------------- */
+  var STATES = [
+    ['training', 'Training day'],
+    ['rest', 'Rest day'],
+    ['empty', 'Empty'],
+    ['loading', 'Loading'],
+    ['error', 'Error']
+  ];
+  var body = document.getElementById('body');
+  var hdrDate = document.getElementById('hdr-date');
+  var current = 'training';
+
+  function render(state) {
+    current = VIEWS[state] ? state : 'training';
+    document.getElementById('screen').setAttribute('data-state', current);
+    hdrDate.textContent = (DATA[current] || DATA.training).date;
+    body.innerHTML = VIEWS[current]();
+    body.scrollTop = 0;
+    Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.state === current));
+    });
+  }
+
+  /* ---- dev toggle -------------------------------------------------- */
+  var menu = document.getElementById('dev-menu');
+  var toggle = document.getElementById('dev-toggle');
+  menu.innerHTML = STATES.map(function (s) {
+    return '<button class="dev__item" data-state="' + s[0] + '" aria-pressed="false" data-testid="dev-state-' + s[0] + '">' + s[1] + '</button>';
+  }).join('');
+  toggle.addEventListener('click', function () {
+    var open = toggle.getAttribute('aria-expanded') === 'true';
+    toggle.setAttribute('aria-expanded', String(!open));
+    menu.hidden = open;
+  });
+  menu.addEventListener('click', function (e) {
+    var b = e.target.closest('.dev__item');
+    if (b) render(b.dataset.state);
+  });
+
+  render(new URLSearchParams(location.search).get('state') || 'training');
+})();
+</script>
+</body>
+</html>

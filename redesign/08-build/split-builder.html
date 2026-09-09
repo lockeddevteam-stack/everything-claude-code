@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — Split builder</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<style>
+  /* Demo chrome only. Layout, no new values: every colour, size, radius and
+     duration below is a token from tokens.css. */
+  .stage {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--sp-5);
+    background: var(--surface-sunken);
+  }
+  .phone {
+    position: relative;
+    width: 393px;
+    height: 852px;
+    background: var(--bg);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-overlay);
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .app { height: 100%; }
+  /* Fluid fallback: on a real phone the frame becomes the window. */
+  @media (max-width: 460px), (max-height: 900px) {
+    .stage { padding: 0; align-items: stretch; }
+    .phone { width: 100%; height: 100vh; height: 100dvh; border-radius: 0; box-shadow: none; }
+  }
+  .devwrap { position: absolute; top: var(--sp-2); right: var(--sp-2); z-index: 20; }
+  .devbtn {
+    display: flex; align-items: center; justify-content: center;
+    width: var(--tap); height: var(--tap);
+    border-radius: var(--r-full);
+    background: var(--surface-raised);
+    color: var(--text-secondary);
+    box-shadow: var(--shadow-raised);
+  }
+  .devbtn[aria-expanded="true"] { color: var(--accent-text); }
+  .devpanel {
+    position: absolute; top: calc(var(--tap) + var(--sp-2)); right: 0;
+    width: 232px;
+    max-height: 640px;
+    overflow-y: auto;
+    padding: var(--sp-3);
+    background: var(--surface-raised);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-overlay);
+  }
+  .devpanel .btn { width: 100%; justify-content: flex-start; }
+  .daycard__head { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2); }
+  .daycard__foot { padding: var(--sp-2); }
+  .movebar { display: flex; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-2) var(--sp-2); }
+  .movebar .btn { flex: 1; }
+  .chipwrap { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+  .optrow { display: flex; align-items: flex-start; gap: var(--sp-3); width: 100%; text-align: left; padding: var(--sp-3); border-radius: var(--r-md); background: var(--surface); color: var(--text); min-height: var(--tap); }
+  .optrow + .optrow { margin-top: var(--sp-2); }
+  .optrow:active { background: var(--surface-raised); }
+  .optrow[aria-checked="true"] { background: var(--accent-quiet); }
+  .optrow__mark { width: 20px; height: 20px; flex: none; margin-top: 2px; color: var(--accent-text); }
+  .sheet__foot { padding-top: var(--sp-3); }
+  .dialog__acts { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-4); }
+  .skelline { height: var(--sp-4); }
+  .optrow .row__title, .optrow .row__sub { display: block; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="phone">
+    <div class="app" id="app"></div>
+    <div class="devwrap">
+      <button class="devbtn" id="devToggle" data-testid="dev-toggle" aria-expanded="false" aria-label="Developer screen switcher">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3M13 6l-2 12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="devpanel" id="devPanel" data-testid="dev-panel" hidden></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------------------------------------------------------------
+     Icons. One set, one stroke weight, one optical size.
+     --------------------------------------------------------------- */
+  var P = {
+    back: '<path d="M15 5l-7 7 7 7"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    trash: '<path d="M4 7h16M9 7V4h6v3M10 11v6M14 11v6M6 7l1 13h10l1-13"/>',
+    grip: '<path d="M6 9h12M6 15h12"/>',
+    up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+    down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
+    check: '<path d="M20 6L9 17l-5-5"/>',
+    circle: '<circle cx="12" cy="12" r="8"/>',
+    chev: '<path d="M9 6l6 6-6 6"/>',
+    close: '<path d="M6 6l12 12M18 6L6 18"/>',
+    spark: '<path d="M12 3l1.9 4.9L19 10l-5.1 2.1L12 17l-1.9-4.9L5 10l5.1-2.1z"/>',
+    layers: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
+    alert: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/>',
+    search: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/>',
+    swap: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>'
+  };
+  function ico(name, cls) {
+    return '<svg class="ico' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + P[name] + '</svg>';
+  }
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  var uid = 0;
+  function nid(p) { uid += 1; return p + uid; }
+
+  /* ---------------------------------------------------------------
+     Data
+     --------------------------------------------------------------- */
+  var LIBRARY = [
+    { name: 'Barbell Bench Press', muscle: 'Chest' },
+    { name: 'Incline Dumbbell Press', muscle: 'Chest' },
+    { name: 'Standing Overhead Press', muscle: 'Shoulders' },
+    { name: 'Cable Lateral Raise', muscle: 'Shoulders' },
+    { name: 'Weighted Pull-Up', muscle: 'Back' },
+    { name: 'Chest-Supported Row', muscle: 'Back' },
+    { name: 'Face Pull', muscle: 'Rear delts' },
+    { name: 'Incline Dumbbell Curl', muscle: 'Biceps' },
+    { name: 'Rope Pushdown', muscle: 'Triceps' },
+    { name: 'Back Squat', muscle: 'Quads' },
+    { name: 'Romanian Deadlift', muscle: 'Hamstrings' },
+    { name: 'Leg Press', muscle: 'Quads' },
+    { name: 'Lying Leg Curl', muscle: 'Hamstrings' },
+    { name: 'Standing Calf Raise', muscle: 'Calves' }
+  ];
+
+  function ex(name, muscle) { return { id: nid('x'), name: name, muscle: muscle }; }
+
+  function seedSplit() {
+    return {
+      name: 'PPL v2',
+      days: [
+        { id: nid('d'), name: 'Push', exercises: [ex('Barbell Bench Press', 'Chest'), ex('Standing Overhead Press', 'Shoulders'), ex('Cable Lateral Raise', 'Shoulders'), ex('Rope Pushdown', 'Triceps')] },
+        { id: nid('d'), name: 'Pull', exercises: [ex('Weighted Pull-Up', 'Back'), ex('Chest-Supported Row', 'Back'), ex('Face Pull', 'Rear delts'), ex('Incline Dumbbell Curl', 'Biceps')] },
+        { id: nid('d'), name: 'Legs', exercises: [ex('Back Squat', 'Quads'), ex('Romanian Deadlift', 'Hamstrings'), ex('Leg Press', 'Quads'), ex('Standing Calf Raise', 'Calves')] }
+      ]
+    };
+  }
+
+  function slot(role, pick, pickWhy, alts) {
+    return { id: nid('s'), role: role, pick: pick, pickWhy: pickWhy, alts: alts, choice: 'auto' };
+  }
+  function alt(name, tag, why) { return { id: nid('a'), name: name, tag: tag, why: why }; }
+
+  function seedPlan() {
+    return {
+      title: 'Push, pull, legs — 3 days',
+      note: '3 days a week, barbell and cables, shoulders need volume',
+      days: [
+        { id: nid('p'), name: 'Push', slots: [
+          slot('Horizontal press', 'Barbell Bench Press', 'Heaviest press you can load', [
+            alt('Dumbbell Bench Press', 'Equipment', 'Dumbbells only'),
+            alt('Incline Barbell Press', 'Emphasis', 'More upper chest'),
+            alt('Machine Chest Press', 'Difficulty', 'Safe to push alone')]),
+          slot('Vertical press', 'Standing Overhead Press', 'Builds the shoulder volume you asked for', [
+            alt('Seated Dumbbell Press', 'Equipment', 'Dumbbells only'),
+            alt('Landmine Press', 'Difficulty', 'Kinder on the shoulder'),
+            alt('Machine Shoulder Press', 'Emphasis', 'Front delts, less core')]),
+          slot('Side delts', 'Cable Lateral Raise', 'Steady tension through the range', [
+            alt('Dumbbell Lateral Raise', 'Equipment', 'No cable needed'),
+            alt('Machine Lateral Raise', 'Difficulty', 'Holds form when tired'),
+            alt('Cable Y-Raise', 'Emphasis', 'Side delts and traps')]),
+          slot('Triceps', 'Overhead Cable Extension', 'Long head, stretched', [
+            alt('Skull Crusher', 'Equipment', 'Barbell and bench'),
+            alt('Rope Pushdown', 'Difficulty', 'Easiest to load and stop'),
+            alt('Dip', 'Emphasis', 'Chest and triceps together')])
+        ]},
+        { id: nid('p'), name: 'Pull', slots: [
+          slot('Vertical pull', 'Weighted Pull-Up', 'Strongest back builder you have room for', [
+            alt('Lat Pulldown', 'Difficulty', 'Scales below bodyweight'),
+            alt('Neutral-Grip Pulldown', 'Emphasis', 'Less elbow strain'),
+            alt('Assisted Pull-Up', 'Equipment', 'Assist machine')]),
+          slot('Horizontal pull', 'Chest-Supported Row', 'No lower-back cost', [
+            alt('Barbell Row', 'Emphasis', 'More lower back'),
+            alt('Seated Cable Row', 'Equipment', 'Cable stack'),
+            alt('Single-Arm Dumbbell Row', 'Difficulty', 'One side at a time')]),
+          slot('Rear delts', 'Face Pull', 'Balances the pressing volume', [
+            alt('Reverse Pec Deck', 'Equipment', 'Machine'),
+            alt('Bent-Over Reverse Fly', 'Equipment', 'Dumbbells only'),
+            alt('Cable Rear Delt Row', 'Emphasis', 'Rear delts and traps')]),
+          slot('Biceps', 'Incline Dumbbell Curl', 'Stretched position', [
+            alt('Barbell Curl', 'Difficulty', 'Heaviest loading'),
+            alt('Cable Curl', 'Emphasis', 'Tension at the top'),
+            alt('Hammer Curl', 'Emphasis', 'Brachialis and forearm')])
+        ]},
+        { id: nid('p'), name: 'Legs', slots: [
+          slot('Squat', 'Back Squat', 'Main leg lift', [
+            alt('Front Squat', 'Emphasis', 'More quad, less back'),
+            alt('Hack Squat', 'Difficulty', 'No bar to balance'),
+            alt('Goblet Squat', 'Equipment', 'One dumbbell')]),
+          slot('Hinge', 'Romanian Deadlift', 'Hamstrings under stretch', [
+            alt('Conventional Deadlift', 'Emphasis', 'Whole posterior chain'),
+            alt('Hip Thrust', 'Emphasis', 'Glutes'),
+            alt('Back Extension', 'Difficulty', 'Low spinal load')]),
+          slot('Quad accessory', 'Leg Press', 'Volume without the squat fatigue', [
+            alt('Bulgarian Split Squat', 'Equipment', 'Dumbbells only'),
+            alt('Leg Extension', 'Emphasis', 'Quads alone'),
+            alt('Walking Lunge', 'Difficulty', 'Balance under load')]),
+          slot('Calves', 'Standing Calf Raise', 'Straight-leg calf work', [
+            alt('Seated Calf Raise', 'Emphasis', 'Soleus'),
+            alt('Leg Press Calf Raise', 'Equipment', 'Leg press'),
+            alt('Single-Leg Calf Raise', 'Difficulty', 'Bodyweight only')])
+        ]}
+      ]
+    };
+  }
+
+  /* ---------------------------------------------------------------
+     State
+     --------------------------------------------------------------- */
+  var S = {
+    screen: 'manual',
+    manual: { status: 'ready', name: '', days: [], dirty: false, savedAt: null, error: null },
+    ai: { status: 'idle', note: '', plan: null, error: null, step: 0 },
+    lifted: null,          /* testid of the lifted item's grip */
+    dragging: null,
+    modal: null,           /* {type:'leave'|'pick'|'swap', ...} */
+    toast: null,
+    dev: false
+  };
+  var timers = [];
+  function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+  function later(fn, ms) { timers.push(setTimeout(fn, ms)); }
+
+  function canSave() { return S.manual.name.trim().length > 0 && S.manual.days.length > 0; }
+  function exCount() {
+    return S.manual.days.reduce(function (n, d) { return n + d.exercises.length; }, 0);
+  }
+  function swapCount() {
+    if (!S.ai.plan) return 0;
+    var n = 0;
+    S.ai.plan.days.forEach(function (d) { d.slots.forEach(function (s) { if (s.choice !== 'auto') n += 1; }); });
+    return n;
+  }
+  function slotCount() {
+    if (!S.ai.plan) return 0;
+    return S.ai.plan.days.reduce(function (n, d) { return n + d.slots.length; }, 0);
+  }
+  function currentName(s) {
+    if (s.choice === 'auto' || s.choice === 'pick') return s.pick;
+    var a = s.alts.filter(function (x) { return x.id === s.choice; })[0];
+    return a ? a.name : s.pick;
+  }
+
+  /* ---------------------------------------------------------------
+     Manual builder
+     --------------------------------------------------------------- */
+  function manualHeader() {
+    var m = S.manual;
+    var sub = m.days.length
+      ? m.days.length + (m.days.length === 1 ? ' day · ' : ' days · ') + exCount() + ' exercises'
+      : 'No days yet';
+    return '<header class="hdr">' +
+      '<button class="hdr__back" data-testid="manual-back" data-action="manual-back" aria-label="Back to Train">' + ico('back') + '</button>' +
+      '<div class="hdr__title">' +
+        '<div class="t-section">' + (m.name ? 'Edit split' : 'New split') + '</div>' +
+        '<div class="hstack hstack--2">' +
+          (m.dirty ? '<span class="dot" aria-hidden="true"></span>' : '') +
+          '<span class="t-meta" data-testid="manual-subtitle">' + (m.dirty ? 'Unsaved changes' : esc(sub)) + '</span>' +
+        '</div>' +
+      '</div>' +
+    '</header>';
+  }
+
+  function gripBtn(testid, label, lifted) {
+    return '<button class="grip" data-testid="' + testid + '" data-grip="1" aria-pressed="' + (lifted ? 'true' : 'false') +
+      '" aria-label="' + esc(label) + '">' + ico('grip') + '</button>';
+  }
+
+  function moveBar(kind, id, dayId, first, last) {
+    var d = ' data-id="' + id + '"' + (dayId ? ' data-day="' + dayId + '"' : '');
+    return '<div class="movebar">' +
+      '<button class="btn btn--secondary btn--sm" data-testid="move-up-' + id + '" data-action="move-' + kind + '" data-dir="-1"' + d +
+        (first ? ' disabled aria-disabled="true"' : '') + '>' + ico('up') + '<span class="btn__label">Up</span></button>' +
+      '<button class="btn btn--secondary btn--sm" data-testid="move-down-' + id + '" data-action="move-' + kind + '" data-dir="1"' + d +
+        (last ? ' disabled aria-disabled="true"' : '') + '>' + ico('down') + '<span class="btn__label">Down</span></button>' +
+      '<button class="btn btn--tertiary btn--sm" data-testid="move-done-' + id + '" data-action="lift-clear">Done</button>' +
+    '</div>';
+  }
+
+  function exerciseRow(x, day, i, n) {
+    var gripId = 'ex-grip-' + x.id;
+    var lifted = S.lifted === gripId;
+    return '<div class="row sortable__item' + (lifted ? ' sortable__item--lifted' : '') +
+        (S.dragging === gripId ? ' sortable__item--dragging' : '') + '" data-sortable="1" data-id="' + x.id + '" data-day="' + day.id + '">' +
+      gripBtn(gripId, 'Reorder ' + x.name + ', position ' + (i + 1) + ' of ' + n, lifted) +
+      '<div class="row__main">' +
+        '<div class="row__title">' + esc(x.name) + '</div>' +
+        '<div class="row__sub">' + esc(x.muscle) + '</div>' +
+      '</div>' +
+      '<button class="iconbtn iconbtn--danger" data-testid="ex-remove-' + x.id + '" data-action="ex-remove" data-id="' + x.id +
+        '" data-day="' + day.id + '" aria-label="Remove ' + esc(x.name) + ' from ' + esc(day.name) + '">' + ico('trash') + '</button>' +
+    '</div>' + (lifted ? moveBar('ex', x.id, day.id, i === 0, i === n - 1) : '');
+  }
+
+  function dayCard(day, i, n) {
+    var gripId = 'day-grip-' + day.id;
+    var lifted = S.lifted === gripId;
+    var rows = day.exercises.length
+      ? '<div data-sortlist="ex:' + day.id + '">' + day.exercises.map(function (x, j) {
+          return exerciseRow(x, day, j, day.exercises.length);
+        }).join('') + '</div>'
+      : '<div class="row"><div class="row__main"><div class="t-detail">No exercises yet. Add the first lift of the day.</div></div></div>';
+
+    return '<div class="card card--flush sortable__item' + (lifted ? ' sortable__item--lifted' : '') +
+        (S.dragging === gripId ? ' sortable__item--dragging' : '') + '" data-sortable="1" data-id="' + day.id + '">' +
+      '<div class="daycard__head">' +
+        gripBtn(gripId, 'Reorder ' + day.name + ', day ' + (i + 1) + ' of ' + n, lifted) +
+        '<input class="input grow" type="text" value="' + esc(day.name) + '" data-testid="day-name-' + day.id +
+          '" data-action="day-name" data-id="' + day.id + '" aria-label="Name of day ' + (i + 1) + '">' +
+        '<button class="iconbtn iconbtn--danger" data-testid="day-remove-' + day.id + '" data-action="day-remove" data-id="' + day.id +
+          '" aria-label="Remove ' + esc(day.name) + '">' + ico('trash') + '</button>' +
+      '</div>' +
+      (lifted ? moveBar('day', day.id, null, i === 0, i === n - 1) : '') +
+      rows +
+      '<div class="daycard__foot">' +
+        '<button class="btn btn--secondary btn--block" data-testid="add-exercise-' + day.id + '" data-action="add-exercise" data-id="' + day.id + '">' +
+          ico('plus') + '<span class="btn__label">Add exercise to ' + esc(day.name) + '</span></button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function manualBody() {
+    var m = S.manual;
+    if (m.status === 'loading') {
+      return '<div class="body" data-testid="manual-loading">' +
+        '<div class="section" aria-busy="true" aria-live="polite">' +
+          '<p class="t-detail" data-testid="manual-loading-text">Opening PPL v2 from this phone.</p>' +
+          '<div class="skel skelline mt-4" style="width:60%"></div>' +
+          '<div class="card mt-4"><div class="skel skelline" style="width:40%"></div>' +
+          '<div class="skel skelline mt-3" style="width:80%"></div><div class="skel skelline mt-3" style="width:70%"></div></div>' +
+          '<div class="card"><div class="skel skelline" style="width:35%"></div>' +
+          '<div class="skel skelline mt-3" style="width:75%"></div><div class="skel skelline mt-3" style="width:65%"></div></div>' +
+        '</div></div>';
+    }
+
+    var head = '<div class="section">' +
+      '<label class="field">' +
+        '<span class="field__label t-label">Split name</span>' +
+        '<input class="input" type="text" value="' + esc(m.name) + '" placeholder="Push pull legs" ' +
+          'data-testid="split-name" data-action="split-name" aria-label="Split name">' +
+      '</label>' +
+    '</div>';
+
+    var err = m.error
+      ? '<div class="section"><div class="banner banner--error" role="alert" data-testid="manual-error">' + ico('alert') +
+        '<div><strong>Save failed</strong>' + esc(m.error) + '</div></div></div>'
+      : '';
+
+    if (!m.days.length) {
+      return '<div class="body" data-testid="manual-empty">' + err + head +
+        '<div class="empty section">' +
+          '<span class="empty__ico">' + ico('layers', 'ico--lg') + '</span>' +
+          '<h2 class="empty__title">No days yet</h2>' +
+          '<p class="empty__body">A split is a list of training days. Add a day, then add the lifts you do on it.</p>' +
+          '<button class="btn btn--secondary" data-testid="add-day-empty" data-action="add-day">' + ico('plus') +
+            '<span class="btn__label">Add a day</span></button>' +
+          '<button class="btn btn--tertiary" data-testid="go-ai" data-action="go-ai">' + ico('spark') +
+            '<span class="btn__label">Let LOCKED draft it</span></button>' +
+        '</div>' +
+      '</div>';
+    }
+
+    var days = '<div class="section">' +
+      '<div class="section__head"><h2 class="t-section">Days</h2>' +
+      '<span class="t-meta" data-num>' + m.days.length + ' · ' + exCount() + ' exercises</span></div>' +
+      '<p class="t-detail" data-testid="reorder-hint">Drag a handle to reorder, or tap it to move with buttons.</p>' +
+      '<div class="mt-3" data-sortlist="days">' +
+        m.days.map(function (d, i) { return dayCard(d, i, m.days.length); }).join('') +
+      '</div>' +
+      '<button class="btn btn--secondary btn--block mt-3" data-testid="add-day" data-action="add-day">' + ico('plus') +
+        '<span class="btn__label">Add a day</span></button>' +
+    '</div>';
+
+    return '<div class="body" data-testid="manual-populated">' + err + head + days + '</div>';
+  }
+
+  function manualBar() {
+    var m = S.manual;
+    var status = m.error ? 'Draft kept on this phone'
+      : m.dirty ? 'Unsaved changes'
+      : m.savedAt ? 'Saved ' + m.savedAt
+      : canSave() ? 'Nothing changed yet' : 'Name it and add a day to save';
+    var label = m.error ? 'Try saving again' : 'Save split';
+    var busy = m.status === 'saving';
+    var primaryClass = S.modal ? 'btn btn--secondary' : 'btn btn--primary';
+    return '<div class="actionbar">' +
+      '<div class="actionbar__status" data-testid="manual-status">' + esc(status) + '</div>' +
+      '<button class="' + primaryClass + '" data-testid="save-split" data-action="save" ' +
+        (busy ? 'aria-busy="true" ' : '') +
+        (!canSave() || busy ? 'disabled aria-disabled="true" ' : '') + '>' +
+        (busy ? '<span class="spinner"></span>' : '') +
+        '<span class="btn__label">' + label + '</span></button>' +
+    '</div>';
+  }
+
+  function manualScreen() {
+    return '<section class="screen" data-testid="screen-manual" data-state="' + S.manual.status + '">' +
+      manualHeader() + manualBody() + manualBar() + '</section>';
+  }
+
+  /* ---------------------------------------------------------------
+     AI builder
+     --------------------------------------------------------------- */
+  var STEPS = [
+    'Reading your description',
+    'Choosing the training days',
+    'Picking a lift for each slot',
+    'Finding three alternatives per lift'
+  ];
+
+  function aiHeader() {
+    var sub = S.ai.status === 'ready'
+      ? slotCount() + ' exercises · ' + swapCount() + ' swapped'
+      : 'One description, one draft';
+    return '<header class="hdr">' +
+      '<button class="hdr__back" data-testid="ai-back" data-action="ai-back" aria-label="Back to the split builder">' + ico('back') + '</button>' +
+      '<div class="hdr__title">' +
+        '<div class="t-section">Draft a split</div>' +
+        '<div class="t-meta" data-testid="ai-subtitle" data-num>' + esc(sub) + '</div>' +
+      '</div>' +
+    '</header>';
+  }
+
+  function aiIdleBody() {
+    var examples = ['3 days, barbell only', 'Upper lower, 4 days', 'Shoulders need volume', 'No deadlifts, bad back'];
+    return '<div class="body" data-testid="ai-empty">' +
+      '<div class="section">' +
+        '<label class="field">' +
+          '<span class="field__label t-label">What do you want to train</span>' +
+          '<textarea class="input" rows="4" data-testid="ai-note" data-action="ai-note" ' +
+            'placeholder="Three days a week, barbell and cables, shoulders need volume." ' +
+            'aria-label="Describe the split you want">' + esc(S.ai.note) + '</textarea>' +
+          '<span class="field__help">Days per week, equipment, anything to avoid. One or two lines is enough.</span>' +
+        '</label>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section__head"><h2 class="t-section">Add a detail</h2></div>' +
+        '<div class="chipwrap">' + examples.map(function (t, i) {
+          return '<button class="chip" data-testid="ai-example-' + i + '" data-action="ai-example" data-text="' + esc(t) + '">' +
+            ico('plus') + esc(t) + '</button>';
+        }).join('') + '</div>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="banner banner--info">' + ico('spark') +
+        '<div><strong>Every lift comes with three alternatives</strong>Accept the draft as it stands, or swap any single lift. Nothing is required.</div></div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function aiLoadingBody() {
+    return '<div class="body" data-testid="ai-loading">' +
+      '<div class="section" aria-live="polite">' +
+        '<h2 class="t-section">Building your split</h2>' +
+        '<p class="t-detail mt-2" data-testid="ai-loading-note">From: “' + esc(S.ai.note) + '”</p>' +
+        '<div class="card mt-4"><div class="steps">' + STEPS.map(function (t, i) {
+          var state = i < S.ai.step ? 'done' : (i === S.ai.step ? 'active' : 'todo');
+          return '<div class="step" data-state="' + state + '" data-testid="ai-step-' + i + '">' +
+            '<span class="step__mark">' + (state === 'done' ? ico('check') : state === 'active' ? '<span class="spinner"></span>' : ico('circle')) + '</span>' +
+            '<span>' + esc(t) + '</span></div>';
+        }).join('') + '</div></div>' +
+        '<p class="t-detail mt-3">Usually 6 to 10 seconds. Nothing is saved until you accept it.</p>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function aiErrorBody() {
+    return '<div class="body" data-testid="ai-error">' +
+      '<div class="section">' +
+        '<div class="banner banner--error" role="alert">' + ico('alert') +
+        '<div><strong>The coach service did not answer</strong>' + esc(S.ai.error) + '</div></div>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section__head"><h2 class="t-section">Your description is kept</h2></div>' +
+        '<div class="card"><p class="t-body">' + esc(S.ai.note || 'Three days a week, barbell and cables, shoulders need volume.') + '</p></div>' +
+        '<button class="btn btn--secondary btn--block mt-3" data-testid="ai-edit-note" data-action="ai-edit-note">Edit the description</button>' +
+        '<button class="btn btn--secondary btn--block mt-3" data-testid="ai-fallback-manual" data-action="ai-back">Build it by hand instead</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function slotRow(s, day) {
+    var swapped = s.choice !== 'auto';
+    var sub = swapped
+      ? 'Swapped · ' + (s.choice === 'pick' ? 'kept as LOCKED picked it' : altOf(s).tag.toLowerCase() + ': ' + altOf(s).why)
+      : 'LOCKED picked it · 3 alternatives';
+    return '<button class="row" data-testid="slot-' + s.id + '" data-action="open-swap" data-id="' + s.id + '" data-day="' + day.id + '">' +
+      '<div class="row__main">' +
+        '<div class="row__title">' + esc(currentName(s)) + '</div>' +
+        '<div class="row__sub">' + esc(s.role) + ' · ' + esc(sub) + '</div>' +
+      '</div>' +
+      (swapped ? '<span class="chip chip--on">Swapped</span>' : '<span class="t-meta">Swap</span>') +
+      '<span class="row__chev">' + ico('chev') + '</span>' +
+    '</button>';
+  }
+  function altOf(s) {
+    return s.alts.filter(function (a) { return a.id === s.choice; })[0] || { tag: 'Pick', why: s.pickWhy };
+  }
+
+  function aiReadyBody() {
+    var plan = S.ai.plan;
+    return '<div class="body" data-testid="ai-populated">' +
+      '<div class="section">' +
+        '<div class="banner banner--info">' + ico('check') +
+        '<div><strong>Every slot is already filled</strong>Accept it as it is, or open any lift to pick one of three alternatives.</div></div>' +
+      '</div>' +
+      plan.days.map(function (d) {
+        return '<div class="section">' +
+          '<div class="section__head"><h2 class="t-section">' + esc(d.name) + '</h2>' +
+          '<span class="t-meta" data-num>' + d.slots.length + ' exercises</span></div>' +
+          '<div class="card card--flush">' + d.slots.map(function (s) { return slotRow(s, d); }).join('') + '</div>' +
+        '</div>';
+      }).join('') +
+      '<div class="section"><button class="btn btn--tertiary btn--block" data-testid="ai-regenerate" data-action="ai-regenerate">' +
+        ico('swap') + '<span class="btn__label">Draft a different split</span></button></div>' +
+    '</div>';
+  }
+
+  function aiBar() {
+    var st = S.ai.status;
+    var primaryClass = S.modal ? 'btn btn--secondary' : 'btn btn--primary';
+    if (st === 'idle') {
+      return '<div class="actionbar">' +
+        '<div class="actionbar__status" data-testid="ai-status">' + (S.ai.note.trim() ? 'Ready to draft' : 'Describe it first') + '</div>' +
+        '<button class="' + primaryClass + '" data-testid="ai-generate" data-action="ai-generate"' +
+          (S.ai.note.trim() ? '' : ' disabled aria-disabled="true"') + '><span class="btn__label">Draft split</span></button>' +
+      '</div>';
+    }
+    if (st === 'loading') {
+      return '<div class="actionbar">' +
+        '<button class="btn btn--tertiary" data-testid="ai-cancel" data-action="ai-cancel"><span class="btn__label">Cancel</span></button>' +
+        '<div class="actionbar__status" data-testid="ai-status">Step ' + (S.ai.step + 1) + ' of ' + STEPS.length + '</div>' +
+        '<button class="' + primaryClass + '" data-testid="ai-generate" aria-busy="true" disabled aria-disabled="true">' +
+          '<span class="spinner"></span><span class="btn__label">Building</span></button>' +
+      '</div>';
+    }
+    if (st === 'error') {
+      return '<div class="actionbar">' +
+        '<div class="actionbar__status" data-testid="ai-status">Nothing was sent to your splits</div>' +
+        '<button class="' + primaryClass + '" data-testid="ai-retry" data-action="ai-generate"><span class="btn__label">Try again</span></button>' +
+      '</div>';
+    }
+    return '<div class="actionbar">' +
+      '<div class="actionbar__status" data-testid="ai-status" data-num>' + slotCount() + ' exercises · ' + swapCount() + ' swapped</div>' +
+      '<button class="' + primaryClass + '" data-testid="ai-accept" data-action="ai-accept"><span class="btn__label">Use this split</span></button>' +
+    '</div>';
+  }
+
+  function aiScreen() {
+    var st = S.ai.status;
+    var body = st === 'loading' ? aiLoadingBody() : st === 'error' ? aiErrorBody() : st === 'ready' ? aiReadyBody() : aiIdleBody();
+    return '<section class="screen" data-testid="screen-ai" data-state="' + st + '">' + aiHeader() + body + aiBar() + '</section>';
+  }
+
+  /* ---------------------------------------------------------------
+     Overlays
+     --------------------------------------------------------------- */
+  function swapSheet(m) {
+    var day = null, s = null;
+    S.ai.plan.days.forEach(function (d) {
+      d.slots.forEach(function (x) { if (x.id === m.id) { s = x; day = d; } });
+    });
+    if (!s) return '';
+    var idx = day.slots.indexOf(s) + 1;
+    function opt(id, title, sub, tag) {
+      var on = s.choice === id;
+      return '<button class="optrow" role="radio" aria-checked="' + on + '" data-testid="opt-' + id + '" data-action="choose" data-id="' + s.id + '" data-opt="' + id + '">' +
+        '<span class="optrow__mark">' + (on ? ico('check') : ico('circle')) + '</span>' +
+        '<span class="grow"><span class="row__title">' + esc(title) + '</span>' +
+        '<span class="row__sub">' + esc(sub) + '</span></span>' +
+        (tag ? '<span class="chip">' + esc(tag) + '</span>' : '') +
+      '</button>';
+    }
+    return '<div class="scrim" data-testid="scrim" data-action="close-modal"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-label="Alternatives for ' + esc(s.role) + '" data-testid="swap-sheet">' +
+        '<div class="sheet__grab"></div>' +
+        '<div class="sheet__head">' +
+          '<div><div class="t-section">' + esc(s.role) + '</div>' +
+          '<div class="t-meta">' + esc(day.name) + ' · slot ' + idx + ' of ' + day.slots.length + '</div></div>' +
+          '<button class="iconbtn" data-testid="swap-close" data-action="close-modal" aria-label="Close alternatives">' + ico('close') + '</button>' +
+        '</div>' +
+        '<div class="sheet__body" role="radiogroup" aria-label="Choose the lift for this slot">' +
+          opt('auto', 'Let LOCKED choose', 'Now: ' + s.pick + '. Changes if your equipment or history changes.', 'Default') +
+          opt('pick', s.pick, s.pickWhy, 'Picked') +
+          s.alts.map(function (a) { return opt(a.id, a.name, a.why, a.tag); }).join('') +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--secondary btn--block" data-testid="swap-done" data-action="close-modal"><span class="btn__label">Done</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function pickSheet(m) {
+    var q = (m.q || '').toLowerCase();
+    var list = LIBRARY.filter(function (x) {
+      return !q || x.name.toLowerCase().indexOf(q) > -1 || x.muscle.toLowerCase().indexOf(q) > -1;
+    });
+    var day = S.manual.days.filter(function (d) { return d.id === m.id; })[0];
+    return '<div class="scrim" data-testid="scrim" data-action="close-modal"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-label="Add an exercise" data-testid="pick-sheet">' +
+        '<div class="sheet__grab"></div>' +
+        '<div class="sheet__head">' +
+          '<div><div class="t-section">Add to ' + esc(day ? day.name : '') + '</div>' +
+          '<div class="t-meta">' + list.length + ' exercises</div></div>' +
+          '<button class="iconbtn" data-testid="pick-close" data-action="close-modal" aria-label="Close exercise list">' + ico('close') + '</button>' +
+        '</div>' +
+        '<div class="search"><span class="search__ico">' + ico('search') + '</span>' +
+          '<input class="input" type="search" value="' + esc(m.q || '') + '" placeholder="Search exercises" data-testid="pick-search" data-action="pick-search" aria-label="Search exercises"></div>' +
+        '<div class="sheet__body mt-3">' +
+          (list.length ? '<div class="card card--flush">' + list.map(function (x, i) {
+            return '<button class="row" data-testid="pick-' + i + '" data-action="pick-add" data-name="' + esc(x.name) + '" data-muscle="' + esc(x.muscle) + '" data-id="' + m.id + '">' +
+              '<div class="row__main"><div class="row__title">' + esc(x.name) + '</div><div class="row__sub">' + esc(x.muscle) + '</div></div>' +
+              '<span class="row__chev">' + ico('plus') + '</span></button>';
+          }).join('') + '</div>'
+          : '<div class="empty"><span class="empty__ico">' + ico('search', 'ico--lg') + '</span>' +
+            '<h2 class="empty__title">No match</h2><p class="empty__body">Nothing in the library matches that. Clear the search to see all 14 exercises.</p></div>') +
+        '</div>' +
+      '</div>';
+  }
+
+  function leaveDialog() {
+    return '<div class="scrim" data-testid="scrim"></div>' +
+      '<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="leaveTitle" data-testid="leave-dialog">' +
+        '<h2 class="t-section" id="leaveTitle">Save this split first?</h2>' +
+        '<p class="t-detail mt-2" data-testid="leave-body">' + esc(dirtySentence()) + '</p>' +
+        '<div class="dialog__acts">' +
+          '<button class="btn btn--danger btn--block" data-testid="leave-discard" data-action="leave-discard"><span class="btn__label">Discard changes</span></button>' +
+          '<button class="btn btn--secondary btn--block" data-testid="leave-cancel" data-action="close-modal"><span class="btn__label">Keep editing</span></button>' +
+          '<button class="btn btn--primary btn--block" data-testid="leave-save" data-action="leave-save"><span class="btn__label">Save and leave</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+  function dirtySentence() {
+    var n = S.manual.days.length, e = exCount();
+    return 'This split has ' + n + (n === 1 ? ' day' : ' days') + ' and ' + e + ' exercises that are not saved.';
+  }
+
+  function toastEl() {
+    if (!S.toast) return '';
+    return '<div class="toast" role="status" data-testid="toast">' +
+      '<div class="toast__body">' + esc(S.toast.text) + '</div>' +
+      (S.toast.action ? '<button class="toast__action" data-testid="toast-action" data-action="toast-action">' + esc(S.toast.action) + '</button>' : '') +
+    '</div>';
+  }
+
+  function overlays() {
+    var m = S.modal;
+    var html = toastEl();
+    if (!m) return html;
+    if (m.type === 'leave') return html + leaveDialog();
+    if (m.type === 'pick') return html + pickSheet(m);
+    if (m.type === 'swap') return html + swapSheet(m);
+    return html;
+  }
+
+  /* ---------------------------------------------------------------
+     Dev switcher
+     --------------------------------------------------------------- */
+  var PRESETS = [
+    ['Manual · empty', function () { reset(); }],
+    ['Manual · loading', function () { reset(); S.manual.status = 'loading'; }],
+    ['Manual · populated', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.savedAt = '2 minutes ago'; }],
+    ['Manual · unsaved', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; }],
+    ['Manual · leave prompt', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; S.modal = { type: 'leave' }; }],
+    ['Manual · save error', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; S.manual.error = 'No connection to the LOCKED server. The draft is on this phone and will go up when you are back online.'; }],
+    ['AI · description', function () { reset(); S.screen = 'ai'; }],
+    ['AI · generating', function () { reset(); S.screen = 'ai'; S.ai.status = 'loading'; S.ai.note = 'Three days a week, barbell and cables, shoulders need volume.'; S.ai.step = 1; }],
+    ['AI · failed', function () { reset(); S.screen = 'ai'; S.ai.status = 'error'; S.ai.note = 'Three days a week, barbell and cables, shoulders need volume.'; S.ai.error = 'The request timed out after 20 seconds. Nothing was charged and nothing was saved.'; }],
+    ['AI · proposal', function () { reset(); S.screen = 'ai'; S.ai.status = 'ready'; S.ai.note = 'Three days a week, barbell and cables, shoulders need volume.'; S.ai.plan = seedPlan(); }]
+  ];
+
+  function reset() {
+    clearTimers();
+    S.screen = 'manual';
+    S.manual = { status: 'ready', name: '', days: [], dirty: false, savedAt: null, error: null };
+    S.ai = { status: 'idle', note: '', plan: null, error: null, step: 0 };
+    S.lifted = null; S.dragging = null; S.modal = null; S.toast = null;
+  }
+
+  function renderDev() {
+    var panel = document.getElementById('devPanel');
+    var btn = document.getElementById('devToggle');
+    btn.setAttribute('aria-expanded', S.dev ? 'true' : 'false');
+    panel.hidden = !S.dev;
+    if (!S.dev) { panel.innerHTML = ''; return; }
+    panel.innerHTML = '<div class="t-label">Screens and states</div><div class="stack stack--2 mt-2">' +
+      PRESETS.map(function (p, i) {
+        return '<button class="btn btn--secondary btn--sm" data-testid="dev-preset-' + i + '" data-dev="' + i + '">' + esc(p[0]) + '</button>';
+      }).join('') + '</div>';
+  }
+
+  /* ---------------------------------------------------------------
+     Render
+     --------------------------------------------------------------- */
+  var app = document.getElementById('app');
+  function render() {
+    var active = document.activeElement;
+    var key = active && active.getAttribute ? active.getAttribute('data-testid') : null;
+    var caret = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
+    app.innerHTML = (S.screen === 'manual' ? manualScreen() : aiScreen()) + overlays();
+    if (key) {
+      var next = app.querySelector('[data-testid="' + key + '"]');
+      if (next) {
+        next.focus({ preventScroll: true });
+        if (caret !== null && typeof next.setSelectionRange === 'function') {
+          try { next.setSelectionRange(caret, caret); } catch (e) {}
+        }
+      }
+    }
+    renderDev();
+  }
+
+  function toast(text, action, fn) {
+    S.toast = { text: text, action: action, fn: fn };
+    clearTimeout(S.toastTimer);
+    S.toastTimer = setTimeout(function () { S.toast = null; render(); }, 6000);
+  }
+
+  /* ---------------------------------------------------------------
+     Behaviour
+     --------------------------------------------------------------- */
+  function findDay(id) { return S.manual.days.filter(function (d) { return d.id === id; })[0]; }
+  function markDirty() { S.manual.dirty = true; S.manual.savedAt = null; }
+  function move(arr, from, to) {
+    if (to < 0 || to >= arr.length) return false;
+    arr.splice(to, 0, arr.splice(from, 1)[0]);
+    return true;
+  }
+
+  function doSave() {
+    S.manual.status = 'saving';
+    render();
+    later(function () {
+      S.manual.status = 'ready';
+      S.manual.dirty = false;
+      S.manual.error = null;
+      S.manual.savedAt = 'just now';
+      toast('Split saved.');
+      render();
+    }, 600);
+  }
+
+  function runGeneration() {
+    S.ai.status = 'loading';
+    S.ai.step = 0;
+    S.ai.error = null;
+    render();
+    var i = 0;
+    function tick() {
+      i += 1;
+      if (S.ai.status !== 'loading') return;
+      if (i < STEPS.length) { S.ai.step = i; render(); later(tick, 900); return; }
+      S.ai.status = 'ready';
+      S.ai.plan = seedPlan();
+      render();
+    }
+    later(tick, 900);
+  }
+
+  function acceptPlan() {
+    var plan = S.ai.plan;
+    S.manual.name = plan.title;
+    S.manual.days = plan.days.map(function (d) {
+      return { id: nid('d'), name: d.name, exercises: d.slots.map(function (s) { return ex(currentName(s), s.role); }) };
+    });
+    S.manual.dirty = true;
+    S.manual.savedAt = null;
+    S.screen = 'manual';
+    S.ai.status = 'idle';
+    toast('Draft added. Save it or change anything first.');
+    render();
+  }
+
+  var ACTIONS = {
+    'manual-back': function () {
+      if (S.manual.dirty) { S.modal = { type: 'leave' }; render(); return; }
+      toast('Back to Train. Nothing was lost.');
+      render();
+    },
+    'close-modal': function () { S.modal = null; render(); },
+    'leave-discard': function () {
+      S.modal = null; S.manual.dirty = false;
+      toast('Changes discarded.', 'Undo', function () { S.manual.dirty = true; });
+      render();
+    },
+    'leave-save': function () { S.modal = null; doSave(); },
+    'save': function () { doSave(); },
+    'add-day': function () {
+      var n = S.manual.days.length + 1;
+      S.manual.days.push({ id: nid('d'), name: 'Day ' + n, exercises: [] });
+      markDirty(); render();
+    },
+    'day-remove': function (el) {
+      var id = el.getAttribute('data-id');
+      var i = S.manual.days.map(function (d) { return d.id; }).indexOf(id);
+      var removed = S.manual.days.splice(i, 1)[0];
+      markDirty();
+      toast('Removed ' + removed.name + '.', 'Undo', function () { S.manual.days.splice(i, 0, removed); });
+      render();
+    },
+    'ex-remove': function (el) {
+      var day = findDay(el.getAttribute('data-day'));
+      var id = el.getAttribute('data-id');
+      var i = day.exercises.map(function (x) { return x.id; }).indexOf(id);
+      var removed = day.exercises.splice(i, 1)[0];
+      markDirty();
+      toast('Removed ' + removed.name + '.', 'Undo', function () { day.exercises.splice(i, 0, removed); });
+      render();
+    },
+    'add-exercise': function (el) { S.modal = { type: 'pick', id: el.getAttribute('data-id'), q: '' }; render(); },
+    'pick-add': function (el) {
+      var day = findDay(el.getAttribute('data-id'));
+      day.exercises.push(ex(el.getAttribute('data-name'), el.getAttribute('data-muscle')));
+      markDirty();
+      toast('Added ' + el.getAttribute('data-name') + ' to ' + day.name + '.');
+      render();
+    },
+    'move-day': function (el) {
+      var id = el.getAttribute('data-id');
+      var i = S.manual.days.map(function (d) { return d.id; }).indexOf(id);
+      if (move(S.manual.days, i, i + Number(el.getAttribute('data-dir')))) markDirty();
+      render();
+    },
+    'move-ex': function (el) {
+      var day = findDay(el.getAttribute('data-day'));
+      var i = day.exercises.map(function (x) { return x.id; }).indexOf(el.getAttribute('data-id'));
+      if (move(day.exercises, i, i + Number(el.getAttribute('data-dir')))) markDirty();
+      render();
+    },
+    'lift-clear': function () { S.lifted = null; render(); },
+    'go-ai': function () { S.screen = 'ai'; render(); },
+    'ai-back': function () { S.screen = 'manual'; render(); },
+    'ai-example': function (el) {
+      var t = el.getAttribute('data-text');
+      S.ai.note = (S.ai.note.trim() ? S.ai.note.trim().replace(/\.$/, '') + '. ' : '') + t + '.';
+      render();
+    },
+    'ai-generate': function () { runGeneration(); },
+    'ai-cancel': function () {
+      S.ai.status = 'idle'; clearTimers();
+      toast('Generation cancelled.');
+      render();
+    },
+    'ai-edit-note': function () { S.ai.status = 'idle'; render(); },
+    'ai-regenerate': function () { S.ai.plan = null; runGeneration(); },
+    'ai-accept': function () { acceptPlan(); },
+    'open-swap': function (el) { S.modal = { type: 'swap', id: el.getAttribute('data-id') }; render(); },
+    'choose': function (el) {
+      var id = el.getAttribute('data-id'), opt = el.getAttribute('data-opt');
+      S.ai.plan.days.forEach(function (d) {
+        d.slots.forEach(function (s) { if (s.id === id) s.choice = opt; });
+      });
+      S.modal = null;
+      render();
+    },
+    'toast-action': function () {
+      var fn = S.toast && S.toast.fn;
+      S.toast = null;
+      if (fn) fn();
+      render();
+    }
+  };
+
+  var INPUTS = {
+    'split-name': function (el) { S.manual.name = el.value; markDirty(); patch(); },
+    'day-name': function (el) { var d = findDay(el.getAttribute('data-id')); if (d) { d.name = el.value; markDirty(); patch(); } },
+    'ai-note': function (el) { S.ai.note = el.value; patchAi(); },
+    'pick-search': function (el) { S.modal.q = el.value; render(); }
+  };
+
+  /* Light patches so typing never rebuilds the field under the caret. */
+  function patch() {
+    var sub = document.querySelector('[data-testid="manual-subtitle"]');
+    if (sub) sub.textContent = 'Unsaved changes';
+    var st = document.querySelector('[data-testid="manual-status"]');
+    if (st) st.textContent = S.manual.error ? 'Draft kept on this phone' : (canSave() ? 'Unsaved changes' : 'Name it and add a day to save');
+    var save = document.querySelector('[data-testid="save-split"]');
+    if (save) { save.disabled = !canSave(); save.setAttribute('aria-disabled', String(!canSave())); }
+  }
+  function patchAi() {
+    var st = document.querySelector('[data-testid="ai-status"]');
+    if (st) st.textContent = S.ai.note.trim() ? 'Ready to draft' : 'Describe it first';
+    var b = document.querySelector('[data-testid="ai-generate"]');
+    if (b) { b.disabled = !S.ai.note.trim(); b.setAttribute('aria-disabled', String(!S.ai.note.trim())); }
+  }
+
+  document.addEventListener('click', function (e) {
+    var dev = e.target.closest('[data-dev]');
+    if (dev) { PRESETS[Number(dev.getAttribute('data-dev'))][1](); S.dev = false; render(); return; }
+    if (e.target.closest('#devToggle')) { S.dev = !S.dev; renderDev(); return; }
+    var grip = e.target.closest('[data-grip]');
+    if (grip) {
+      if (grip.dataset.dragged === '1') { grip.dataset.dragged = ''; return; }
+      var id = grip.getAttribute('data-testid');
+      S.lifted = S.lifted === id ? null : id;
+      render();
+      return;
+    }
+    var el = e.target.closest('[data-action]');
+    if (!el || el.disabled) return;
+    var fn = ACTIONS[el.getAttribute('data-action')];
+    if (fn) { e.preventDefault(); fn(el); }
+  });
+
+  document.addEventListener('input', function (e) {
+    var el = e.target.closest('[data-action]');
+    if (!el) return;
+    var fn = INPUTS[el.getAttribute('data-action')];
+    if (fn) fn(el);
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && S.modal) { S.modal = null; render(); return; }
+    var grip = e.target.closest && e.target.closest('[data-grip]');
+    if (!grip || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    e.preventDefault();
+    var dir = e.key === 'ArrowUp' ? -1 : 1;
+    var item = grip.closest('[data-sortable]');
+    var dayId = item.getAttribute('data-day');
+    if (dayId) {
+      var day = findDay(dayId);
+      var i = day.exercises.map(function (x) { return x.id; }).indexOf(item.getAttribute('data-id'));
+      if (move(day.exercises, i, i + dir)) markDirty();
+    } else {
+      var j = S.manual.days.map(function (d) { return d.id; }).indexOf(item.getAttribute('data-id'));
+      if (move(S.manual.days, j, j + dir)) markDirty();
+    }
+    S.lifted = grip.getAttribute('data-testid');
+    render();
+  });
+
+  /* Drag to reorder. Starts on the first pixel of movement, no long press,
+     and a press that does not move is a tap that lifts the item instead. */
+  document.addEventListener('pointerdown', function (e) {
+    var grip = e.target.closest('[data-grip]');
+    if (!grip) return;
+    var item = grip.closest('[data-sortable]');
+    var list = item.parentElement;
+    var startY = e.clientY;
+    var moved = false;
+    var dayId = item.getAttribute('data-day');
+    var arr = dayId ? findDay(dayId).exercises : S.manual.days;
+    var ids = arr.map(function (o) { return o.id; });
+    var index = ids.indexOf(item.getAttribute('data-id'));
+    var rects = [].slice.call(list.querySelectorAll(':scope > [data-sortable]')).map(function (n) { return n.getBoundingClientRect(); });
+    grip.setPointerCapture(e.pointerId);
+
+    function onMove(ev) {
+      if (!moved && Math.abs(ev.clientY - startY) < 6) return;
+      if (!moved) { moved = true; S.dragging = grip.getAttribute('data-testid'); S.lifted = null; }
+      var target = index;
+      for (var k = 0; k < rects.length; k++) {
+        var c = rects[k].top + rects[k].height / 2;
+        if (k < index && ev.clientY < c) { target = k; break; }
+        if (k > index && ev.clientY > c) { target = k; }
+      }
+      if (target !== index && move(arr, index, target)) {
+        index = target;
+        markDirty();
+        render();
+        var again = document.querySelector('[data-testid="' + grip.getAttribute('data-testid') + '"]');
+        if (again) {
+          var l2 = again.closest('[data-sortable]').parentElement;
+          rects = [].slice.call(l2.querySelectorAll(':scope > [data-sortable]')).map(function (n) { return n.getBoundingClientRect(); });
+        }
+      }
+    }
+    function onUp() {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      if (moved) {
+        var id = grip.getAttribute('data-testid');
+        S.dragging = null;
+        render();
+        var g2 = document.querySelector('[data-testid="' + id + '"]');
+        if (g2) g2.dataset.dragged = '1';
+      }
+    }
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  });
+
+  /* Boot on the populated manual builder, the common case. */
+  PRESETS[2][1]();
+  render();
+})();
+</script>
+</body>
+</html>
