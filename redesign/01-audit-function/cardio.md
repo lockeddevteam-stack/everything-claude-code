@@ -20,11 +20,9 @@ Captures: `cardio-populated.png` (P), `-log.png` (L), `-log-step2.png` (S), `-hi
 | "Yours" custom group | L56500 | **dead** | `onCustomCardio` passed L57638, zero consumers (grep); no create control in L |
 | Machine/brand step | L56610 | redundant | S — its own subtitle: "it never changes the estimate" |
 | Model sub-step | L56633 | hidden | reached only via a brand; no capture in the 19-shot set |
-| Duration presets + typed minutes | L56833 | working | measured form dump |
-| Engine fields (distance, incline, watts, split…) | L56330-56382 | working | measured form dump |
-| Surface picker | L56906 | working | 14 options render for an indoor treadmill run (measured) |
-| Console-fields disclosure | L56936 | hidden | collapsed by default; no capture |
-| RPE, notes | L56765/56959 | working | measured |
+| Duration presets, engine fields (distance, incline, watts, split…) | L56330, L56833 | working | measured form dump |
+| Surface picker | L56906 | working | 14 options render for an indoor treadmill run |
+| Console fields, RPE, notes | L56765-56959 | hidden/working | console block collapsed by default; no capture |
 | Save + summary with calorie range and basis | L56425 | working | measured: "Logged · 30 min · 170 cal · Likely 105–240" |
 | Empty-duration validation | L56427 | working | measured: Save not disabled (`isDisabled:false`, opacity 1); toast fires |
 | History chips, week chart, PBs, zones, row detail | L55924-56215 | working | H |
@@ -33,14 +31,14 @@ Captures: `cardio-populated.png` (P), `-log.png` (L), `-log-step2.png` (S), `-hi
 
 ## 3. Task walkthrough
 
-No flow in `user-flows.md` touches Cardio, so there is no `flow-metrics.jsonl` row and no video. Measured with a throwaway Playwright spec on the baseline harness (populated seed, iPhone 15 Pro, counting `tap()`), deleted after the run.
+No flow in `user-flows.md` touches Cardio, so there is no `flow-metrics.jsonl` row and no video. Measured with a throwaway Playwright spec on the baseline harness (populated seed, iPhone 15 Pro, counting `tap()`), deleted after.
 
 | Task | Steps | Taps | ms |
 |---|---|---|---|
 | Repeat a favourite | Train → Cardio → row → Save session → Done | 2 to save, 4 incl. entry | 2167 incl. boot |
 | Log a new activity | + Log → tile → Skip brand → duration → Save → Done | 5 to save, 6 with Done | — |
 
-Hesitation: the brand screen (S) demands a choice it calls cosmetic, and "Skip" sits below 12 brands; "Done" lands on History, not where you started.
+Hesitation: the brand screen (S) demands a choice it calls cosmetic, with "Skip" below 12 brands; "Done" lands on History, not where you started.
 
 ## 4. State coverage
 
@@ -58,7 +56,7 @@ M=0, W=0, G=1 → band 4.
 
 **D8, history back FAIL.** `onCardio` uses `setScreen("cardio")` L57628 instead of `go()` L57534-53, so nothing is pushed. Only in-app back (L56244) works.
 
-**8 / 87 crawl.** Not 79 non-responders: `page-metrics.jsonl` records `nonResponders: []`, `blocked: []`, `truncated: false`, 8 clicks in 4438 ms — inside the 42 s budget and the cap of 60. It stopped because `els.find(e => !visited.has(e.sig))` returned nothing (helpers.ts L661-663). The 87 is the Log tab's catalogue (I enumerated 93 visible interactive nodes there: 41 tiles + 41 stars + tabs, back, search). The first click, "Back to Train", forced a reseed and re-entry onto **Favorites**; the crawl then walked Favorites → Log → History and, once on History under the "Outdoor" filter, one row remained. It never returned to Log, so 79 tiles were never re-enumerated. **Every element clicked responded.** So: a denominator artefact, over a real fact — a 41-tile wall is screen two of the primary task.
+**8 / 87 crawl.** Not 79 non-responders: `page-metrics.jsonl` records `nonResponders: []`, `blocked: []`, `truncated: false`, 8 clicks in 4438 ms — inside the 42 s budget and the cap of 60. It stopped because `els.find(e => !visited.has(e.sig))` returned nothing (helpers.ts L661-663). The 87 is the Log tab's catalogue (I enumerated 93 visible interactive nodes there: 41 tiles + 41 stars + chrome). The first click, "Back to Train", forced a reseed and re-entry onto **Favorites**; the crawl walked Favorites → Log → History and, on History under the "Outdoor" filter, one row remained. It never returned to Log, so 79 tiles were never re-enumerated. **Every element clicked responded.** A denominator artefact over a real fact: a 41-tile wall is screen two of the primary task.
 
 Also: 8/15 targets under 44px (`targets.json`), incl. "History" 118x42 shared with Train Hub; axe 1 node, the global `meta-viewport` (D9); 0 console/page errors.
 
@@ -82,12 +80,12 @@ Against `tests/fixtures/seed-data.json` → `lk_history` (4 cardio records), rea
 
 ## 8. Merge test
 
-The premise holds: one key, `lk_history`, interleaved (seed: 18 lifting + 4 cardio, `gen-seed.mjs` L136), and Train Hub's History tab already renders cardio rows with a correct cardio meta line (L6927). **Moves:** favourites become a strip above Quick Start; the existing "Cardio" button opens the log flow directly. **Deletes:** the duplicate list and filter chips (L55924-56000), the second header and back (L56236-56255), the `screen==="cardio"` route (L57631) and with it D8. **Lost unless rebuilt:** the week chart, personal bests and time-in-zone (L56031-56215) have no home in Train Hub; and `WorkoutDetail` has no cardio branch — opening a cardio row from Train Hub History today gives a title, a duplicated duration and Delete, with no pace, HR, RPE, surface or notes. Merging without that branch trades a working detail view for a broken one.
+The premise holds: one key, `lk_history`, interleaved (seed: 18 lifting + 4 cardio, `gen-seed.mjs` L136), and Train Hub's History tab already renders cardio rows with a correct cardio meta line (L6927). **Moves:** favourites become a strip above Quick Start; the "Cardio" button opens the log flow directly. **Deletes:** the duplicate list and filter chips (L55924-56000), the second header and back (L56236-56255), the `screen==="cardio"` route (L57631) and with it D8. **Lost unless rebuilt:** week chart, personal bests, time-in-zone (L56031-56215) have no home in Train Hub; and `WorkoutDetail` has no cardio branch — a cardio row opened from Train Hub History today gives a title, a duplicated duration and Delete, no pace, HR, RPE, surface or notes. Merging without that branch trades a working detail view for a broken one.
 
 ## 9. Keep, fix, cut
 
-**Keep** — one-tap favourite → save (2 measured taps, the fastest logging path in the app); the summary's calorie range and basis, the only place LOCKED admits an estimate is an estimate; the expandable history row detail, which nothing else renders.
+**Keep** — one-tap favourite → save (2 measured taps, the app's fastest logging path); the summary's calorie range and basis, the only place LOCKED admits an estimate is an estimate; the expandable history row detail, which nothing else renders.
 
-**Fix** — route through `go()` L57534 so back works (D8); fold the brand step into the form as an optional row (S says it changes nothing); give EH the action control EF has; add a cardio branch to `WorkoutDetail` before any merge; disable Save until a duration exists, or pre-fill it as the favourite path already does; 8/15 targets under 44px; "Saved to favourites" vs the "FAVORITES" tab — one spelling.
+**Fix** — route through `go()` L57534 so back works (D8); fold the brand step into the form as an optional row (S says it changes nothing); give EH the action control EF has; add a cardio branch to `WorkoutDetail` before any merge; disable Save until a duration exists, or pre-fill it as the favourite path does; 8/15 targets under 44px; "Saved to favourites" vs the "FAVORITES" tab — one spelling.
 
-**Cut** — the separate History tab: it filters the key Train Hub already renders, and the north star is one place to see what you did, not two answers to one question. `lk_cardioPrefs`/`saveCardioPrefs` (L5645-5656): unwritable, and the unit it stores is overridden by `useKg`; it does no job. The "Yours" group (L56500): `onCustomCardio` has no consumer, so it can never be non-empty — it fails its only job.
+**Cut** — the separate History tab: it filters the key Train Hub already renders, and the north star is one place to see what you did, not two answers to one question. `lk_cardioPrefs`/`saveCardioPrefs` (L5645-5656): unwritable, its unit overridden by `useKg`; it does no job. The "Yours" group (L56500): `onCustomCardio` has no consumer, so it can never be non-empty.
