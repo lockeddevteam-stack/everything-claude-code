@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — Body map (concept mockup)</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<style>
+/* ---------------------------------------------------------------
+   Body map. Concept mockup only — nothing here is production code.
+   Every value is a token except the SVG geometry itself, and the
+   anatomy palette, which lives in tokens.css as documented data.
+   --------------------------------------------------------------- */
+
+.map {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.map__svg { width: 100%; height: 100%; display: block; touch-action: manipulation; }
+.map[hidden], .rotate[hidden], .findbar[hidden] { display: none; }
+
+/* Stage four keeps the chest on screen above its exercises, so the
+   list is visibly the inside of the muscle the lifter just opened. */
+.map--strip { flex: none; height: 200px; }
+
+/* The camera. Zoom is a transform on one group so the selection
+   travels with it and the lifter sees where they came from. */
+.cam { transition: transform var(--dur-slow) var(--spring); }
+
+/* Rotation front to back: the two views cross-fade through a Y-scale,
+   which reads as a turn rather than a cut. */
+.view { transition: opacity var(--dur-slow) var(--ease), transform var(--dur-slow) var(--ease); }
+.view[data-hidden="true"] { opacity: 0; transform: scaleX(0.1); pointer-events: none; }
+
+.silhouette { fill: var(--anat-silhouette); }
+
+/* A muscle group. Fill is set per group from the anatomy palette.
+   Saturation lifts on select and falls on the rest in 150ms; nothing
+   moves, because movement would mean more than a selection. */
+.mg { cursor: pointer; }
+.mg__shape {
+  transition: fill var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease);
+}
+.mg .hit { fill: transparent; }
+.map[data-selected] .mg:not([data-on]) .mg__shape { fill: var(--anat-muted); }
+
+.mg--chest .mg__shape { fill: var(--anat-chest); }
+.mg--shoulders .mg__shape { fill: var(--anat-shoulders); }
+.mg--back .mg__shape { fill: var(--anat-back); }
+.mg--arms .mg__shape { fill: var(--anat-arms); }
+.mg--core .mg__shape { fill: var(--anat-core); }
+.mg--legs .mg__shape { fill: var(--anat-legs); }
+
+/* Sub-regions: the same hue, three steps, so parts read as a family. */
+.pec[data-part="upper"] { fill: var(--anat-chest-1); }
+.pec[data-part="mid"]   { fill: var(--anat-chest-2); }
+.pec[data-part="lower"] { fill: var(--anat-chest-3); }
+.map:not([data-zoom]) .pec { fill: var(--anat-chest); }
+.map[data-selected]:not([data-zoom]) .mg--chest:not([data-on]) .pec { fill: var(--anat-muted); }
+.map[data-part="upper"] .pec:not([data-part="upper"]) { fill: var(--anat-muted); }
+.pec { transition: fill var(--dur-slow) var(--ease), opacity var(--dur-slow) var(--ease); }
+
+/* Parts separate in sequence once the zoom settles: the single pec
+   becomes three tints, upper first, so the eye is led to them. */
+.pec[data-part="mid"] { transition-delay: 100ms; }
+.pec[data-part="lower"] { transition-delay: 200ms; }
+.map[data-zoom] .mg:not(.mg--chest) { opacity: 0; pointer-events: none; }
+
+/* Focus follows the shape, in text white. The accent is never spent
+   on the body. */
+.mg:focus-visible, .part:focus-visible { outline: none; }
+.mg:focus-visible .mg__shape,
+.part:focus-visible .pec {
+  stroke: var(--text);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Labels for the zoomed parts. Each is drawn on its own band in the
+   page ground colour: measured 11.79, 7.47 and 5.37 to 1 on the three
+   tints, so no part is named by colour alone or read below AA. They
+   appear after the zoom settles, in anatomical order. */
+.plabel {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  color: var(--bg);
+  font-size: var(--type-13);
+  line-height: var(--lh-13);
+  letter-spacing: var(--tr-13);
+  font-weight: var(--w-semibold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.map[data-zoom] .plabel { opacity: 1; transition: opacity var(--dur-slow) var(--ease) var(--dur-slow); }
+.map[data-zoom] #lab-mid { transition-delay: 400ms; }
+.map[data-zoom] #lab-lower { transition-delay: 500ms; }
+
+/* The rotate control. Two 44px targets, labelled, no icon-only guess. */
+.rotate { padding: var(--sp-3) var(--page-x) var(--sp-4); display: flex; justify-content: center; }
+.rotate .seg { width: 100%; max-width: 220px; }
+
+/* The selection card. Rises from the bottom, carries what a lifter
+   wants before committing a tap: how much is in there, and when they
+   last trained it. */
+.pick {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  padding: var(--sp-4);
+  padding-bottom: calc(var(--sp-4) + var(--safe-bottom));
+  background: var(--surface-raised);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  box-shadow: var(--shadow-overlay);
+  transform: translateY(101%);
+  transition: transform var(--dur-slow) var(--spring);
+}
+.pick[data-open="true"] { transform: translateY(0); }
+.pick__dot { width: var(--sp-3); height: var(--sp-3); border-radius: var(--r-full); flex: none; }
+.pick__dot--chest { background: var(--anat-chest); }
+
+.findbar { padding: var(--sp-2) var(--page-x) var(--sp-3); }
+.listhead { display: flex; align-items: baseline; justify-content: space-between; padding: var(--sp-4) var(--page-x) var(--sp-2); }
+.gutter { margin: 0 var(--page-x); }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+</head>
+<body>
+<!--
+  BODY MAP — visual mockup for approval. Not a build.
+
+  Four stages: the body, a group selected, the group zoomed into its
+  parts, and the parts' exercises. Front and back views.
+
+  The body is data, so it carries the anatomy palette; every other
+  surface stays monochrome and the accent orange marks the one primary
+  action on screen. Set the stage with ?stage=body|selected|zoom|list
+  and the view with &view=front|back.
+-->
+
+<div class="stage">
+  <div class="phone">
+    <div class="screen" id="screen" data-testid="screen-bodymap">
+
+      <header class="hdr" id="hdr"></header>
+
+      <div class="findbar" id="findbar">
+        <div class="search">
+          <span class="search__ico" aria-hidden="true">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" focusable="false"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
+          </span>
+          <label class="vis-hidden" for="q">Search exercises by name, muscle or equipment</label>
+          <input class="input" id="q" type="text" autocomplete="off" spellcheck="false" placeholder="Search 227 exercises">
+        </div>
+      </div>
+
+      <div class="map" id="map" data-testid="bodymap">
+        <svg class="map__svg" id="svg" viewBox="42 2 116 420" preserveAspectRatio="xMidYMid meet" role="group" aria-label="Muscle map, front view">
+          <g class="cam" id="cam">
+
+            <!-- ================= FRONT ================= -->
+            <g class="view" id="view-front">
+              <!-- inert silhouette: head, neck, torso, arms, legs -->
+              <g class="silhouette">
+                <ellipse cx="100" cy="32" rx="19" ry="24"/>
+                <rect x="90" y="50" width="20" height="18" rx="7"/>
+                <g id="f-base"></g>
+              </g>
+
+              <g id="f-groups"></g>
+            </g>
+
+            <!-- ================= BACK ================== -->
+            <g class="view" id="view-back" data-hidden="true">
+              <g class="silhouette">
+                <ellipse cx="100" cy="32" rx="19" ry="24"/>
+                <rect x="90" y="50" width="20" height="18" rx="7"/>
+                <g id="b-base"></g>
+              </g>
+              <g id="b-groups"></g>
+            </g>
+
+          </g>
+        </svg>
+
+        <div class="plabel" id="lab-upper">Upper &middot; 9</div>
+        <div class="plabel" id="lab-mid">Mid &middot; 12</div>
+        <div class="plabel" id="lab-lower">Lower &middot; 10</div>
+
+        <div class="pick" id="pick" data-open="false" role="region" aria-label="Selected muscle group"></div>
+      </div>
+
+      <div class="rotate" id="rotate">
+        <div class="seg" role="tablist" aria-label="Body view">
+          <button class="seg__item" type="button" role="tab" id="tab-front" aria-selected="true">Front</button>
+          <button class="seg__item" type="button" role="tab" id="tab-back" aria-selected="false">Back</button>
+        </div>
+      </div>
+
+      <main class="body body--flush" id="list" hidden tabindex="-1"></main>
+
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------------------------------------------------------------
+     Geometry. Every muscle is drawn once, for one side, and placed
+     twice inside a single group: the shape and its mirror. Tapping
+     either half selects the pair, because a lifter never trains one
+     pec. Centre line is x = 100.
+     --------------------------------------------------------------- */
+
+  var FRONT_BASE = [
+    /* torso */ 'M100 60 C116 61 130 66 138 76 C141 84 137 92 131 99 C124 110 118 126 116 148 C115 164 119 178 126 190 C131 198 122 210 106 210 L100 210 Z',
+    /* arm   */ 'M132 66 C146 70 154 84 154 102 C154 118 151 134 149 150 C147 162 146 176 145 188 C144 202 141 210 136 210 C131 210 128 202 128 190 C128 176 130 162 132 150 C134 134 133 100 130 76 Z',
+    /* hand  */ 'M129 206 C137 204 142 208 143 214 C144 222 141 228 136 228 C131 228 128 222 128 214 Z',
+    /* leg   */ 'M101 200 L128 196 C134 212 135 240 131 268 C128 288 124 296 122 306 C121 324 124 344 123 362 C122 380 120 396 115 397 C110 398 107 388 106 372 C105 350 105 328 104 308 C103 288 101 262 100 236 C99 218 100 208 101 200 Z',
+    /* foot  */ 'M104 394 C113 392 121 398 125 406 C127 411 124 414 117 414 L107 414 C104 414 103 409 103 402 Z'
+  ];
+
+  var BACK_BASE = FRONT_BASE;
+
+  /* Front muscles. [group, part, path] */
+  var FRONT_MG = [
+    ['shoulders', null, 'M127 64 C140 67 149 79 150 95 C150 102 146 105 142 101 C136 95 130 80 126 70 Z'],
+    ['arms', null, 'M136 104 C147 108 152 120 152 134 C152 144 148 150 143 150 C138 150 134 143 133 134 C132 120 133 111 136 104 Z'],
+    ['arms', null, 'M142 154 C150 162 154 176 153 190 C152 200 148 206 142 206 C136 206 133 200 133 190 C133 176 136 162 142 154 Z'],
+    ['core', null, 'M102 118 C108 118 112 120 113 124 L112 131 C108 129 105 129 102 129 Z'],
+    ['core', null, 'M102 133 C108 133 111 135 112 139 L111 146 C107 144 104 144 102 144 Z'],
+    ['core', null, 'M102 148 C107 148 110 150 111 154 L109 161 C106 159 104 159 102 159 Z'],
+    ['core', null, 'M102 163 C107 163 110 165 110 170 C109 176 106 180 102 182 Z'],
+    ['core', null, 'M117 128 C121 138 121 152 118 164 C116 170 114 171 113 168 C116 155 117 141 117 128 Z'],
+    ['legs', null, 'M105 214 C115 211 124 215 127 224 C129 240 127 258 122 274 C119 285 114 291 109 291 C105 291 103 283 102 270 C101 248 103 230 105 214 Z'],
+    ['legs', null, 'M107 312 C117 310 123 317 124 329 C125 345 121 361 117 369 C114 374 110 373 109 367 C107 353 106 330 107 312 Z']
+  ];
+
+  /* The pec, in three bands. One muscle at rest, three targets zoomed. */
+  var PECS = [
+    ['upper', 'M101 74 C112 74 121 77 127 83 L125 89 C117 86 109 85 101 85 Z'],
+    ['mid',   'M101 87 C110 87 118 89 125 92 L123 98 C115 95 108 94 101 94 Z'],
+    ['lower', 'M101 96 C109 96 116 98 123 101 L119 109 C113 107 107 107 101 107 Z']
+  ];
+
+  /* Back muscles. */
+  var BACK_MG = [
+    ['back', null, 'M100 58 C112 59 123 65 131 75 C121 85 110 97 100 112 Z'],
+    ['shoulders', null, 'M127 66 C142 69 152 80 153 97 C153 105 148 108 143 104 C136 99 130 84 126 72 Z'],
+    ['back', null, 'M105 98 C116 98 126 104 132 114 C133 128 126 143 116 155 C110 162 105 165 101 165 Z'],
+    ['back', null, 'M101 166 C110 166 116 170 119 177 C120 185 117 193 113 197 L101 199 Z'],
+    ['arms', null, 'M136 106 C147 110 152 122 152 136 C152 146 148 152 143 152 C138 152 134 145 133 136 C132 122 133 113 136 106 Z'],
+    ['arms', null, 'M142 156 C150 164 154 178 153 192 C152 202 148 208 142 208 C136 208 133 202 133 192 C133 178 136 164 142 156 Z'],
+    ['legs', null, 'M101 200 C112 198 121 205 124 215 C125 227 119 236 110 237 C104 238 101 235 101 229 Z'],
+    ['legs', null, 'M104 241 C115 239 124 245 126 257 C127 273 124 293 119 307 C116 315 112 319 108 319 C104 319 102 311 101 297 C100 275 102 255 104 241 Z'],
+    ['legs', null, 'M106 324 C118 322 125 330 126 344 C127 362 122 378 117 386 C113 392 109 390 108 382 C106 366 105 342 106 324 Z']
+  ];
+
+  var GROUPS = {
+    chest:     { name: 'Chest',     n: 31, last: 'Trained 3 days ago · Incline DB Press 32 kg' },
+    shoulders: { name: 'Shoulders', n: 27, last: 'Trained 5 days ago · DB Lateral Raise 12 kg' },
+    back:      { name: 'Back',      n: 42, last: 'Trained 2 days ago · Barbell Row 80 kg' },
+    arms:      { name: 'Arms',      n: 34, last: 'Trained 5 days ago · Rope Pushdown 30 kg' },
+    core:      { name: 'Core',      n: 22, last: 'Trained 8 days ago · Cable Crunch 45 kg' },
+    legs:      { name: 'Legs',      n: 39, last: 'Trained 6 days ago · Back Squat 120 kg' }
+  };
+
+  var MIRROR = 'matrix(-1 0 0 1 200 0)';
+  var NS = 'http://www.w3.org/2000/svg';
+
+  function el(tag, attrs) {
+    var n = document.createElementNS(NS, tag);
+    for (var k in attrs) if (attrs[k] != null) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+
+  /* A shape and its mirror, so both sides live in one group. */
+  function pair(d, cls, part) {
+    var f = document.createDocumentFragment();
+    [null, MIRROR].forEach(function (t) {
+      f.appendChild(el('path', { d: d, class: cls, 'data-part': part, transform: t }));
+    });
+    return f;
+  }
+
+  function base(host, paths) {
+    paths.forEach(function (d) { host.appendChild(pair(d, null)); });
+  }
+
+  /* Hit areas. The drawn biceps is 19 units wide, about 30 CSS px on
+     this frame, and the abdominal column is narrower still. Each group
+     carries an invisible rect per side, sized so the measured target is
+     at least 44 by 44: chest 50x69, shoulders 50x79, arms 47x173,
+     core 46x126, legs 47x299. */
+  function hit(g, x, y, w, h) {
+    [null, MIRROR].forEach(function (t) {
+      g.appendChild(el('rect', { class: 'hit', x: x, y: y, width: w, height: h, transform: t }));
+    });
+  }
+
+  var HITS = {
+    front: {
+      chest: [100, 70, 32, 44], shoulders: [122, 58, 32, 50], arms: [129, 100, 30, 110],
+      core: [100, 108, 29, 80], legs: [100, 200, 30, 190]
+    },
+    back: {
+      back: [100, 56, 38, 148], shoulders: [124, 60, 30, 48], arms: [129, 102, 30, 110],
+      legs: [100, 196, 30, 196]
+    }
+  };
+
+  function buildView(host, defs, hits, withPecs) {
+    var made = {};
+    function groupFor(gid) {
+      if (made[gid]) return made[gid];
+      var g = el('g', {
+        class: 'mg mg--' + gid, tabindex: '0', role: 'button',
+        'data-g': gid, 'data-testid': 'mg-' + gid,
+        'aria-label': GROUPS[gid].name + ', ' + GROUPS[gid].n + ' exercises'
+      });
+      host.appendChild(g);
+      made[gid] = g;
+      return g;
+    }
+    if (withPecs) {
+      var c = groupFor('chest');
+      PECS.forEach(function (p) {
+        var pg = el('g', { class: 'part', 'data-part': p[0], tabindex: '-1', role: 'button',
+          'aria-label': p[0] + ' chest' });
+        pg.appendChild(pair(p[1], 'pec', p[0]));
+        c.appendChild(pg);
+      });
+    }
+    defs.forEach(function (m) {
+      groupFor(m[0]).appendChild(pair(m[2], 'mg__shape'));
+    });
+    Object.keys(hits).forEach(function (gid) {
+      var h = hits[gid];
+      hit(groupFor(gid), h[0], h[1], h[2], h[3]);
+    });
+  }
+
+  base(document.getElementById('f-base'), FRONT_BASE);
+  base(document.getElementById('b-base'), BACK_BASE);
+  buildView(document.getElementById('f-groups'), FRONT_MG, HITS.front, true);
+  buildView(document.getElementById('b-groups'), BACK_MG, HITS.back, false);
+
+  /* ---------------------------------------------------------------
+     State
+     --------------------------------------------------------------- */
+  var S = { stage: 'body', view: 'front', gid: null, part: null };
+
+  var map = document.getElementById('map'),
+      cam = document.getElementById('cam'),
+      pick = document.getElementById('pick'),
+      hdr = document.getElementById('hdr'),
+      list = document.getElementById('list'),
+      rotate = document.getElementById('rotate'),
+      findbar = document.getElementById('findbar');
+
+  var EX = {
+    upper: [
+      ['Incline Barbell Press', 'Barbell', '70 kg'],
+      ['Incline DB Press', 'Dumbbell', '32 kg'],
+      ['Incline Cable Fly', 'Cable', '15 kg'],
+      ['Low-to-High Cable Fly', 'Cable', '12.5 kg'],
+      ['Incline Machine Press', 'Machine', '55 kg'],
+      ['Incline Push Up', 'Bodyweight', ''],
+      ['Reverse Grip Bench Press', 'Barbell', '55 kg'],
+      ['Incline Smith Press', 'Machine', '60 kg'],
+      ['Landmine Press', 'Barbell', '30 kg']
+    ]
+  };
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]; }); }
+
+  function chev() {
+    return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+  }
+  function backIco() {
+    return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>';
+  }
+
+  function renderHeader() {
+    var title = 'Body map', sub = 'Tap a muscle group', back = null;
+    if (S.stage === 'selected') { sub = GROUPS[S.gid].name + ' selected'; }
+    if (S.stage === 'zoom') { title = 'Chest'; sub = 'Tap a region'; back = 'Body'; }
+    if (S.stage === 'list') { title = 'Upper Chest'; sub = '9 exercises'; back = 'Chest'; }
+    hdr.innerHTML =
+      (back ? '<button class="hdr__back" type="button" data-action="back" aria-label="Back to ' + esc(back) + '">' + backIco() + '</button>' : '') +
+      '<div class="hdr__title"><h1 class="t-section">' + esc(title) + '</h1>' +
+      '<p class="t-meta">' + esc(sub) + '</p></div>';
+  }
+
+  function renderPick() {
+    if (!S.gid) { pick.innerHTML = ''; return; }
+    var g = GROUPS[S.gid];
+    pick.innerHTML =
+      '<div class="hstack hstack--2"><span class="pick__dot pick__dot--chest"></span>' +
+        '<h2 class="t-section grow">' + esc(g.name) + '</h2>' +
+        '<span class="t-meta" data-num>' + g.n + ' exercises</span></div>' +
+      '<p class="t-detail mt-2">' + esc(g.last) + '</p>' +
+      '<button class="btn btn--primary btn--block mt-3" type="button" data-action="open">' +
+        '<span class="btn__label">Open ' + esc(g.name) + '</span></button>';
+  }
+
+  function renderList() {
+    list.innerHTML =
+      '<div class="listhead"><h2 class="t-label">Upper chest</h2><span class="t-meta" data-num>9</span></div>' +
+      '<div class="card card--flush gutter">' + EX.upper.map(function (x) {
+        return '<button class="row" type="button">' +
+          '<span class="row__main stack"><span class="row__title">' + esc(x[0]) + '</span>' +
+          '<span class="row__sub truncate">Chest &middot; Upper &middot; ' + esc(x[1]) + '</span></span>' +
+          (x[2] ? '<span class="row__value">' + esc(x[2]) + '</span>' : '') +
+          '<span class="row__chev">' + chev() + '</span></button>';
+      }).join('') + '</div>';
+  }
+
+  /* Zoom camera: chest sits at (100, 85) and fills the frame at 3.4x. */
+  function camera() {
+    if (S.stage === 'zoom') {
+      return 'translate(100 232) scale(2.6) translate(-100 -88)';
+    }
+    return 'translate(0 0) scale(1)';
+  }
+
+  /* Each part label is placed from the band it names, so the label can
+     never drift off its region when the geometry changes. */
+  function placeLabels() {
+    var box = map.getBoundingClientRect();
+    ['upper', 'mid', 'lower'].forEach(function (part) {
+      var band = document.querySelector('#view-front .pec[data-part="' + part + '"]');
+      var lab = document.getElementById('lab-' + part);
+      if (!band || !lab) return;
+      var r = band.getBoundingClientRect();
+      lab.style.top = (r.top + r.height / 2 - box.top) + 'px';
+      lab.style.left = (r.left + r.width / 2 - box.left) + 'px';
+    });
+  }
+  window.addEventListener('resize', placeLabels);
+
+  function render() {
+    renderHeader();
+    map.toggleAttribute('data-zoom', S.stage === 'zoom');
+    if (S.gid) map.setAttribute('data-selected', S.gid); else map.removeAttribute('data-selected');
+    Array.prototype.forEach.call(document.querySelectorAll('.mg'), function (g) {
+      if (g.getAttribute('data-g') === S.gid) g.setAttribute('data-on', ''); else g.removeAttribute('data-on');
+    });
+    cam.setAttribute('transform', camera());
+    document.getElementById('view-front').setAttribute('data-hidden', S.view === 'front' ? 'false' : 'true');
+    document.getElementById('view-back').setAttribute('data-hidden', S.view === 'back' ? 'false' : 'true');
+    document.getElementById('tab-front').setAttribute('aria-selected', S.view === 'front');
+    document.getElementById('tab-back').setAttribute('aria-selected', S.view === 'back');
+
+    pick.setAttribute('data-open', S.stage === 'selected' ? 'true' : 'false');
+    renderPick();
+
+    rotate.hidden = S.stage !== 'body';
+    list.hidden = S.stage !== 'list';
+    map.classList.toggle('map--strip', S.stage === 'list');
+    if (S.stage === 'list') map.setAttribute('data-part', 'upper'); else map.removeAttribute('data-part');
+    document.getElementById('svg').setAttribute('viewBox', S.stage === 'list' ? '58 56 84 62' : '42 2 116 420');
+    if (S.stage === 'list') renderList();
+    requestAnimationFrame(placeLabels);
+  }
+
+  /* ---------------------------------------------------------------
+     Behaviour
+     --------------------------------------------------------------- */
+  function select(gid) { S.gid = gid; S.stage = 'selected'; render(); }
+
+  document.addEventListener('click', function (e) {
+    var mg = e.target.closest ? e.target.closest('.mg') : null;
+    var act = e.target.closest ? e.target.closest('[data-action]') : null;
+    if (act) {
+      var a = act.getAttribute('data-action');
+      if (a === 'open') { S.stage = 'zoom'; render(); return; }
+      if (a === 'back') {
+        S.stage = S.stage === 'list' ? 'zoom' : 'selected';
+        render(); return;
+      }
+    }
+    if (e.target.closest('.part') && S.stage === 'zoom') { S.stage = 'list'; render(); return; }
+    if (mg) { select(mg.getAttribute('data-g')); return; }
+    if (e.target.id === 'tab-front') { S.view = 'front'; S.gid = null; S.stage = 'body'; render(); }
+    if (e.target.id === 'tab-back') { S.view = 'back'; S.gid = null; S.stage = 'body'; render(); }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var mg = e.target.closest && e.target.closest('.mg');
+    if (mg) { e.preventDefault(); select(mg.getAttribute('data-g')); }
+  });
+
+  /* Stage and view are addressable so each can be captured. */
+  var p = new URLSearchParams(location.search);
+  S.view = p.get('view') === 'back' ? 'back' : 'front';
+  var st = p.get('stage');
+  if (st === 'selected' || st === 'zoom' || st === 'list') { S.stage = st; S.gid = 'chest'; }
+  render();
+  window.__ready = true;
+})();
+</script>
+</body>
+</html>
