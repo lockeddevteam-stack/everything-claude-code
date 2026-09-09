@@ -8,25 +8,25 @@
 |---|---|---|
 | "Let the coach interview you" launcher | CoachSetupPane L49510 | working (`coach-setup-populated.png`) |
 | 6 questions, tappable options | CoachInterview L49743, L49827 | working (`-interview.png` "1 of 6"; `-interview-answered.png` "2 of 6") |
-| Typed free answer + Next | L49845-L49866 | working |
+| Typed answer + Next | L49845 | working |
 | POST → instructions draft | L49772 | working (preview reached, walkthrough) |
 | Preview → **Save** → `lk_coachInstructions` | L49892 → L50036 | working, uncaptured (no preview shot in the 16-row index) |
 | Preview → **Edit first** | L49885 → L52192 | broken: sets `instrDraft` only, unpersisted; leaving Coach discards 10 taps of work |
 | Escape closes interview | unwired (`useEscape` L50017 covers only `shoppingApproval`) | broken: dialog count 1 after Escape (measured) |
 | Resume / back inside interview | absent | broken: reopen after 2 answers returns to "1 of 6" (measured) |
-| Instructions textarea, counter, Save | L49523-L49551 | working (`-populated.png` 57/2000) |
-| 5 quick-add chips | L49555-L49566 | working |
-| 7 coaching styles | L49572-L49590 | working (`-scrolled-2.png`, Direct selected) |
-| Memory switch | L49600-L49612 | working (`-scrolled-3.png`) |
+| Instructions textarea, counter, Save | L49523 | working (`-populated.png` 57/2000) |
+| 5 quick-add chips | L49555 | working |
+| 7 coaching styles | L49572 | working (`-scrolled-2.png`, Direct selected) |
+| Memory switch | L49600 | working (`-scrolled-3.png`) |
 | Memory list, forget ×, Add, Clear all (two-tap) | L49640, L49666, L49690 | working (`-add-memory.png`) |
-| 9 data-visibility toggles | L49703-L49735 | working (18 switch clicks responded, baseline) |
+| 9 data-visibility toggles | L49703 | working (18 switch clicks responded, baseline) |
 | Interview Q4 "How do you want me to talk to you?" | L49746 | redundant: COACHING STYLE below asks the same |
 | Interview Q3 injuries | L49745 | redundant: MEMORY holds the same facts, editable |
 | Interview Q1 goal | L49744 | redundant: Settings `goal` (L32771) already feeds the coach (L49045) |
 | "Rename your coach" pencil | header, 10×12 px | hidden: D12 lists it among 179 sub-44px targets |
 | `can("instructions"): false` | L368 | dead: never called |
 
-**Answer trace.** No answer is stored. The six `{q,a}` pairs live in component state, go out once as the POST body (L49772-L49777) and die with the modal; only the model's prose reaches `lk_coachInstructions`. Every other control writes a key the coach reads: `coachInstructions`, `coachMemory`+`coachMemoryOn` and `coachStyle().tone` enter the system prompt at `coachBuildContext` L49021-L49033; `coachDataPrefs` gates each context tier (L49009) and the receipt (L49387). The surface is honest; the interview is the lossy part.
+**Answer trace.** No answer is stored. The six `{q,a}` pairs live in component state, go out once as the POST body (L49772) and die with the modal; only the model's prose reaches `lk_coachInstructions`. Every other control writes a key the coach reads: `coachInstructions`, `coachMemory`+`coachMemoryOn` and `coachStyle().tone` enter the system prompt at `coachBuildContext` L49021-L49033; `coachDataPrefs` gates each context tier (L49009) and the receipt (L49387). The surface is honest; the interview is the lossy part.
 
 **Surface ownership.** Settings holds none of this: page-map 2.17 lists no coach instruction, memory, style or data-pref control, so Coach Setup owns all four. The only split is check-in frequency (`checkinPerDay`, Settings L32861) and profile `goal`/body stats (L32771), which the coach reads directly.
 
@@ -47,7 +47,7 @@ Hesitation: (1) Setup is the fourth tab and named for the pane, not the job; (2)
 | Error | `coach-setup-error.png` | present — "The coach is down… your answers are kept." + Retry | correct for the induced abort; names cause and action |
 | Populated | `coach-setup-populated.png`, `-scrolled-2/3/4.png` | present | correct |
 
-Index defect: the error and loading "interview after first answer" rows both name `coach-setup-populated-interview-answered.png`, so 16 rows resolve to 15 files; the preview phase is uncaptured.
+Index defect: the error and loading "interview after first answer" rows both name `-interview-answered.png`, so 16 rows resolve to 15 files; preview is uncaptured.
 
 ## Baseline failures
 
@@ -77,8 +77,8 @@ None. Populated **passed**, empty **passed**, error **N/A** (SUMMARY: the interv
 
 **Fix**
 - Persist answers per question and `instrDraft`, so close or "Edit first" resumes instead of restarting — measured loss at "1 of 6".
-- Add Back and Escape to the interview; Escape currently does nothing (measured).
-- Make "Edit first" save the draft before it drops the user into the textarea.
+- Add Back and Escape to the interview; Escape does nothing today (measured).
+- Make "Edit first" save before dropping the user into the textarea.
 - Capture the preview phase; give loading a cancel.
 - Enlarge the 10×12 rename pencil to 44 px (D12).
 
