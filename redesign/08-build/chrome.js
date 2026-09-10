@@ -346,8 +346,35 @@
     root.__lk_ovfocus = true;
   }
 
+  /* ---------------------------------------------------------------
+     The tab bar, standalone
+
+     Opened from a file on disk, every tab in the build was an enabled button
+     that did nothing: five of them on thirteen screens, and the one thing a
+     person tries first. In the assembled demo the router owns these clicks,
+     so this only runs when there is no shadow root above us -- which is
+     exactly the case where the tab has nowhere else to go.
+
+     The tab id IS the file name, which is why this can be four lines rather
+     than a table that has to be kept in step with the manifest.
+     --------------------------------------------------------------- */
+  function initTabLinks(root) {
+    if (root.host) return;                     /* the demo routes its own */
+    var bar = root.querySelector('.tabbar');
+    if (!bar || bar.__lk_links) return;
+    bar.__lk_links = true;
+    bar.addEventListener('click', function (e) {
+      var item = e.target.closest ? e.target.closest('.tabbar__item') : null;
+      if (!item || item.getAttribute('aria-current') === 'page') return;
+      var id = (item.getAttribute('data-testid') || '').replace(/^tab-/, '');
+      if (!id) return;
+      global.location.href = id + '.html';
+    });
+  }
+
   function init(root) {
     root = root || doc;
+    initTabLinks(root);
     initLargeTitle(root);
     initTabBar(root);
     initScrollEdge(root);
