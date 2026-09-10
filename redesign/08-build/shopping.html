@@ -185,18 +185,22 @@
 
   var BUDGET = {
     weeklyTarget: 120,
-    weekSpent: 86.4,
-    monthSpent: 341.18,
     history: [
-      { id: 'h1', store: 'Costco',  when: 'Sat, Sep 5',  total: 52.4,  source: 'receipt',
+      { id: 'h1', store: 'Costco',  when: 'Sat, Sep 5',  daysAgo: 2,  total: 52.4,  source: 'receipt',
         items: [{ n: 'Chicken breast', q: 2, p: 18.4 }, { n: 'Eggs', q: 1, p: 6.2 },
                 { n: 'Greek yogurt', q: 2, p: 9.8 }, { n: 'Brown rice', q: 1, p: 8.0 },
                 { n: 'Almonds', q: 1, p: 10.0 }] },
-      { id: 'h2', store: 'Walmart', when: 'Thu, Sep 3',  total: 21.0,  source: 'manual',
+      { id: 'h2', store: 'Walmart', when: 'Thu, Sep 3',  daysAgo: 4,  total: 21.0,  source: 'manual',
         items: [{ n: 'Ground beef', q: 1, p: 8.5 }, { n: 'Broccoli', q: 2, p: 4.5 },
                 { n: 'Sweet potato', q: 3, p: 8.0 }] },
-      { id: 'h3', store: 'Target',  when: 'Tue, Sep 1',  total: 13.0,  source: 'list',
-        items: [{ n: 'Oats', q: 2, p: 7.0 }, { n: 'Olive oil', q: 1, p: 6.0 }] }
+      { id: 'h3', store: 'Target',  when: 'Tue, Sep 1',  daysAgo: 6,  total: 13.0,  source: 'list',
+        items: [{ n: 'Oats', q: 2, p: 7.0 }, { n: 'Olive oil', q: 1, p: 6.0 }] },
+      { id: 'h4', store: 'Costco',  when: 'Sat, Aug 23', daysAgo: 15, total: 61.2, source: 'receipt',
+        items: [{ n: 'Chicken breast', q: 3, p: 27.6 }, { n: 'Salmon', q: 2, p: 21.0 },
+                { n: 'Cottage cheese', q: 2, p: 12.6 }] },
+      { id: 'h5', store: 'Walmart', when: 'Wed, Aug 12', daysAgo: 26, total: 34.8, source: 'manual',
+        items: [{ n: 'Ground beef', q: 2, p: 17.0 }, { n: 'Brown rice', q: 2, p: 9.8 },
+                { n: 'Avocado', q: 4, p: 8.0 }] }
     ],
     compare: [
       { store: 'Costco',  product: 'Chicken breast, 6 lb pack', price: 3.29, note: 'per lb, bulk only' },
@@ -286,10 +290,20 @@
   function stapleN()  { return PANTRY.filter(function (i) { return i.staple; }).length; }
   function emptyN()   { return PANTRY.filter(function (i) { return i.empty; }); }
   function onStores() { return MYSTORES.filter(function (s) { return s.on; }); }
-  function overBudget() { return BUDGET.weeklyTarget > 0 && BUDGET.weekSpent > BUDGET.weeklyTarget; }
+  /* Read from the history rather than stored beside it: a deleted receipt
+     used to leave the week's total exactly where it was, which is the sort
+     of disagreement that makes somebody stop trusting the figure. */
+  function weekSpent()  { return sumSince(7); }
+  function monthSpent() { return sumSince(31); }
+  function sumSince(days) {
+    return BUDGET.history.reduce(function (a, h) {
+      return h.daysAgo <= days ? a + h.total : a;
+    }, 0);
+  }
+  function overBudget() { return BUDGET.weeklyTarget > 0 && weekSpent() > BUDGET.weeklyTarget; }
   function budgetPct()  {
     if (!BUDGET.weeklyTarget) return 0;
-    return Math.min(100, BUDGET.weekSpent / BUDGET.weeklyTarget * 100);
+    return Math.min(100, weekSpent() / BUDGET.weeklyTarget * 100);
   }
 
   /* ---------------------------------------------------------------
@@ -314,8 +328,8 @@
     if (S.panel === 'stores') return onStores().length + ' of ' + MYSTORES.length + ' on';
     if (!BUDGET.weeklyTarget) return 'No target';
     return overBudget()
-      ? usd0(BUDGET.weekSpent - BUDGET.weeklyTarget) + ' over'
-      : usd0(BUDGET.weeklyTarget - BUDGET.weekSpent) + ' left';
+      ? usd0(weekSpent() - BUDGET.weeklyTarget) + ' over'
+      : usd0(BUDGET.weeklyTarget - weekSpent()) + ' left';
   }
 
   /* ---------------------------------------------------------------
@@ -504,24 +518,25 @@
       '<div class="section__head"><h2 class="t-label">Weekly budget</h2>' +
         '<button class="hdr__action" type="button" data-action="edit-target" data-testid="edit-target">Edit</button></div>' +
       '<div class="hstack hstack--2" style="align-items: baseline">' +
-        '<p class="money' + (over ? ' money--over' : '') + '" data-testid="week-spent">' + usd(BUDGET.weekSpent) + '</p>' +
+        '<p class="money' + (over ? ' money--over' : '') + '" data-testid="week-spent">' + usd(weekSpent()) + '</p>' +
         '<p class="hero__unit grow">' + (BUDGET.weeklyTarget ? 'of ' + usd(BUDGET.weeklyTarget) : 'No target set') + '</p>' +
       '</div>' +
       (BUDGET.weeklyTarget
-        ? '<div class="meter mt-3' + mClass + '" role="img" aria-label="' + usd(BUDGET.weekSpent) +
+        ? '<div class="meter mt-3' + mClass + '" role="img" aria-label="' + usd(weekSpent()) +
             ' of ' + usd(BUDGET.weeklyTarget) + ' spent this week"><span class="meter__fill" style="width:' + pct + '%"></span></div>' +
           '<div class="hstack hstack--3 mt-2">' +
             '<p class="t-detail grow' + (over ? '" style="color: var(--error)' : '') + '">' +
-              (over ? usd(BUDGET.weekSpent - BUDGET.weeklyTarget) + ' over budget'
-                    : usd(BUDGET.weeklyTarget - BUDGET.weekSpent) + ' remaining') + '</p>' +
+              (over ? usd(weekSpent() - BUDGET.weeklyTarget) + ' over budget'
+                    : usd(BUDGET.weeklyTarget - weekSpent()) + ' remaining') + '</p>' +
             '<p class="t-detail num">' + Math.round(pct) + '%</p>' +
           '</div>'
         : '') +
       '<div class="tiles mt-4">' +
         '<div class="tile"><span class="t-label">This month</span>' +
-          '<span class="tile__value" data-testid="month-spent">' + usd(BUDGET.monthSpent) + '</span></div>' +
+          '<span class="tile__value" data-testid="month-spent">' + usd(monthSpent()) + '</span></div>' +
         '<div class="tile"><span class="t-label">Purchases</span>' +
-          '<span class="tile__value" data-testid="week-count">' + BUDGET.history.length + '</span></div>' +
+          '<span class="tile__value" data-testid="week-count">' +
+            BUDGET.history.filter(function (h) { return h.daysAgo <= 7; }).length + '</span></div>' +
       '</div>' +
     '</div>';
   }
@@ -653,9 +668,13 @@
   var FILTERS = [['week', 'Week'], ['month', 'Month'], ['all', 'All'], ['receipts', 'Receipts']];
 
   function historyCard() {
+    var WINDOW = { week: 7, month: 31 };
     var rows = S.histFilter === 'receipts'
       ? BUDGET.history.filter(function (h) { return h.source === 'receipt'; })
-      : BUDGET.history;
+      : BUDGET.history.filter(function (h) {
+          var d = WINDOW[S.histFilter];
+          return !d || h.daysAgo <= d;
+        });
     var SRC = { receipt: 'Receipt', list: 'List', manual: 'Manual' };
     return '<div class="card mt-3" data-testid="history-card">' +
       '<h2 class="t-label">History</h2>' +
@@ -1003,20 +1022,34 @@
           '</div>' +
         '</div>';
     }
-    if (S.sheet === 'merge') {
+    if (S.sheet === 'merge' && S.merge) {
+      var m = S.merge, ex = m.existing;
+      var same = ex.unit === m.unit;
+      var total = ex.qty + m.qty;
+      var u = function (q, unit) { return q + (unit === 'qty' ? '' : ' ' + unit); };
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
         '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="mg-title" data-testid="sheet-merge">' +
-          '<div class="sheet__head"><h2 class="t-headline grow" id="mg-title">Chicken breast is already on the list</h2></div>' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="mg-title">' +
+            esc(ex.name) + ' is already on the list</h2></div>' +
           '<div class="sheet__body">' +
-            '<p class="t-body-17">It is down as <strong class="num">2 lb</strong>. Adding <strong class="num">1 lb</strong> ' +
-              'would make it <strong class="num">3 lb</strong>.</p>' +
+            (same
+              ? '<p class="t-body-17">It is down as <strong class="num">' + u(ex.qty, ex.unit) +
+                  '</strong>. Adding <strong class="num">' + u(m.qty, m.unit) +
+                  '</strong> would make it <strong class="num">' + u(total, ex.unit) + '</strong>.</p>'
+              : '<p class="t-body-17">It is down as <strong class="num">' + u(ex.qty, ex.unit) +
+                  '</strong>, and you have asked for <strong class="num">' + u(m.qty, m.unit) +
+                  '</strong>. Those are different units, so they cannot be added up without ' +
+                  'guessing what you meant.</p>') +
             '<p class="t-detail mt-2">Two rows is the right answer when they are two different things, ' +
               'like fresh and frozen. Otherwise one row is easier to read in a shop.</p>' +
           '</div>' +
           '<div class="sheet__foot">' +
-            '<button class="btn btn--primary btn--block" type="button" data-action="close" data-testid="merge-do">' +
-              '<span class="btn__label">Make it 3 lb</span></button>' +
-            '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="close" data-testid="merge-sep">' +
+            (same
+              ? '<button class="btn btn--primary btn--block" type="button" data-action="merge-do" data-testid="merge-do">' +
+                  '<span class="btn__label">Make it ' + u(total, ex.unit) + '</span></button>'
+              : '') +
+            '<button class="btn btn--secondary btn--block' + (same ? ' mt-2' : '') +
+              '" type="button" data-action="merge-sep" data-testid="merge-sep">' +
               '<span class="btn__label">Keep them separate</span></button>' +
             '<button class="btn btn--tertiary btn--block mt-2" type="button" data-action="close" data-testid="merge-cancel">' +
               '<span class="btn__label">Cancel</span></button>' +
@@ -1034,7 +1067,8 @@
               ? 'All ' + n + ' items go, including the ' + left() + ' you have not picked up yet. Your pantry and your history are untouched.'
               : n + ' picked-up items go. The ' + left() + ' still to get stay where they are.') +
           '</p>' +
-          '<button class="btn btn--danger btn--block mt-4" type="button" data-action="close" data-testid="confirm-' + S.sheet + '">' +
+          '<button class="btn btn--danger btn--block mt-4" type="button" data-action="' +
+            (all ? 'do-clear-all' : 'do-clear-done') + '" data-testid="confirm-' + S.sheet + '">' +
             '<span class="btn__label">' + (all ? 'Empty the list' : 'Clear ' + n + ' items') + '</span></button>' +
           '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="close" data-testid="cancel-' + S.sheet + '">' +
             '<span class="btn__label">Keep them</span></button>' +
@@ -1127,8 +1161,11 @@
       var unit = document.getElementById('add-unit').value;
       /* An item already on the list is a decision, not an error, so it asks
          rather than silently adding a duplicate row. */
-      if (LIST.some(function (i) { return i.name.toLowerCase() === name.toLowerCase(); })) {
-        S.sheet = 'merge'; return;
+      var ex = LIST.filter(function (i) { return i.name.toLowerCase() === name.toLowerCase(); })[0];
+      if (ex) {
+        S.merge = { existing: ex, name: name, qty: qty, unit: unit };
+        S.sheet = 'merge';
+        return;
       }
       LIST.push({ id: 'n' + Date.now(), name: name.charAt(0).toUpperCase() + name.slice(1),
                   qty: qty, unit: unit, cat: categorise(name), done: false });
@@ -1161,7 +1198,62 @@
     'clear-done': function () { S.sheet = 'clear-done'; },
     'clear-all':  function () { S.sheet = 'clear-all'; },
     'shop-at':    function () { S.sheet = 'shop-at'; },
-    export:       function () { S.sheet = null; },
+
+    /* The dialogs' confirm buttons. They were data-action="close": the dialog
+       shut, which looks exactly like it worked, and the list was untouched. */
+    'do-clear-done': function () {
+      var gone = LIST.filter(function (i) { return i.done; });
+      for (var i = LIST.length - 1; i >= 0; i--) if (LIST[i].done) LIST.splice(i, 1);
+      S.sheet = null;
+      offerUndo(gone.length + ' picked-up item' + (gone.length === 1 ? '' : 's') + ' cleared.',
+        function () { Array.prototype.push.apply(LIST, gone); });
+    },
+    'do-clear-all': function () {
+      var gone = LIST.slice();
+      LIST.length = 0;
+      S.sheet = null;
+      offerUndo('List emptied. ' + gone.length + ' items.',
+        function () { Array.prototype.push.apply(LIST, gone); });
+    },
+
+    'merge-do': function () {
+      var m = S.merge;
+      S.sheet = null; S.merge = null;
+      if (!m) return;
+      m.existing.qty += m.qty;
+      S.query = '';
+    },
+    'merge-sep': function () {
+      var m = S.merge;
+      S.sheet = null; S.merge = null;
+      if (!m) return;
+      LIST.push({ id: 'n' + Date.now(), name: m.name.charAt(0).toUpperCase() + m.name.slice(1),
+                  qty: m.qty, unit: m.unit, cat: categorise(m.name), done: false });
+      S.query = '';
+    },
+
+    /* Export writes a plain-text list to the clipboard, which is the whole
+       feature: a shopping list you can paste into a message. It said nothing
+       and did nothing before. */
+    export: function () {
+      var by = {};
+      LIST.forEach(function (i) { (by[i.cat] = by[i.cat] || []).push(i); });
+      var text = 'SHOPPING LIST\n' + CATS.filter(function (c) { return by[c.id]; }).map(function (c) {
+        return c.label.toUpperCase() + '\n' + by[c.id].map(function (i) {
+          return '  ' + (i.done ? '[x] ' : '[ ] ') + i.qty + (i.unit === 'qty' ? '' : ' ' + i.unit) + ' ' + i.name;
+        }).join('\n');
+      }).join('\n\n');
+      var done = function () { S.toast = 'List copied. ' + LIST.length + ' items, ready to paste.'; render(); };
+      var fail = function () { S.toast = 'Could not reach the clipboard. Nothing was lost.'; render(); };
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done, fail);
+        } else { fail(); }
+      } catch (e) { fail(); }
+      if (undoTimer) clearTimeout(undoTimer);
+      undo = null;
+      undoTimer = setTimeout(function () { S.toast = null; render(); }, 5000);
+    },
     'store-open': function () {},
 
     'edit-target': function () { S.editTarget = !S.editTarget; },
@@ -1171,12 +1263,43 @@
       BUDGET.weeklyTarget = v; S.editTarget = false;
     },
     'add-purchase': function () { S.addOpen = !S.addOpen; },
-    'save-purchase': function () { S.addOpen = false; },
+    /* Writes. It closed the form and wrote nothing, so the history and the
+       week's total both stayed exactly where they were. */
+    'save-purchase': function () {
+      var name = document.getElementById('p-name').value.trim();
+      var price = parseFloat(document.getElementById('p-price').value);
+      var qty = parseInt(document.getElementById('p-qty').value, 10) || 1;
+      var sel = document.getElementById('p-store');
+      var store = sel.value === 'other' ? 'Other'
+        : (MYSTORES.filter(function (x) { return x.id === sel.value; })[0] || {}).name || 'Unknown store';
+      if (!name || isNaN(price) || price < 0) { S.purchaseError = true; return; }
+      BUDGET.history.unshift({ id: 'p' + Date.now(), store: store, when: 'Today', daysAgo: 0,
+        total: price * qty, source: 'manual', items: [{ n: name, q: qty, p: price * qty }] });
+      S.addOpen = false; S.purchaseError = false;
+    },
     'scan-cam': function () { S.receipt = 'ok'; },
     'scan-lib': function () { S.receipt = 'none'; },
     'scan-cancel': function () { S.receipt = null; },
-    'receipt-save': function () { S.receipt = null; },
-    compare: function () {}, 'find-swaps': function () {},
+    'receipt-save': function () {
+      var sel = document.getElementById('r-store');
+      var store = (MYSTORES.filter(function (x) { return x.id === sel.value; })[0] || {}).name || 'Unknown store';
+      BUDGET.history.unshift({ id: 'r' + Date.now(), store: store, when: 'Today', daysAgo: 0,
+        total: RECEIPT.total, source: 'receipt',
+        items: RECEIPT.items.map(function (i) { return { n: i.n, q: i.q, p: i.p }; }) });
+      /* A receipt says what is now in the house, so the pantry hears it too. */
+      RECEIPT.items.forEach(function (i) {
+        var have = PANTRY.filter(function (x) { return x.name.toLowerCase() === i.n.toLowerCase(); })[0];
+        if (have) { have.qty = i.q; have.empty = false; have.store = store; }
+        else PANTRY.push({ id: 'p' + Date.now() + i.n, name: i.n, qty: i.q, cat: categorise(i.n),
+                           store: store, staple: false, every: 7, empty: false });
+      });
+      S.receipt = null;
+    },
+    /* Both read the fixture rather than the network — there is no network in
+       this build — but they say so and they render, instead of being a
+       button that swallows a tap. */
+    compare: function () { S.compared = document.getElementById('cmp').value.trim() || 'chicken breast'; },
+    'find-swaps': function () { S.swapsShown = true; },
     'del-hist': function (el) {
       var k = BUDGET.history.map(function (h) { return h.id; }).indexOf(el.dataset.id);
       if (k < 0) return;

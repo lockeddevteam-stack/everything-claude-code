@@ -26,7 +26,8 @@ Scope: `08-build/` driven from `file://` with Playwright 1.56.1 (Chromium at
 | `agent-feat-shopping.mjs` | drives every shopping control by testid, one fresh load per control |
 | `agent-feat-shop2.mjs` | counts rows before/after the destructive and write actions, so "the sheet closed" is not mistaken for "the thing happened" |
 | `agent-feat-states.mjs` | renders each state via `?state=` and again via the dev menu, diffing testid sets for leakage |
-| `agent-feat-split*.mjs`, `agent-feat-fuel.mjs`, `agent-feat-progress.mjs`, `agent-feat-profile2.mjs`, `agent-feat-keys.mjs` | per-screen confirmation of anything the sweep flagged |
+| `agent-feat-presets.mjs` / `agent-feat-presets2.mjs` | the same sweep for the screens whose dev menu uses `data-preset` (coach, exercise-library) or has no `?state=` support (workout-log) |
+| `agent-feat-split*.mjs`, `agent-feat-exlib*.mjs`, `agent-feat-wl*.mjs`, `agent-feat-fuel.mjs`, `agent-feat-progress.mjs`, `agent-feat-profile2.mjs`, `agent-feat-keys.mjs`, `agent-feat-shop3.mjs`, `agent-feat-final.mjs` | per-screen confirmation of anything the sweep flagged, including popup and `navigator.share` / clipboard interception |
 
 Everything below was confirmed by a second, targeted run. Findings the first
 sweep produced by index drift are not listed — they were false.
@@ -89,8 +90,11 @@ Driven to exhaustion with no dead action found:
   are inputs.
 - `split-builder.html` — 11 presets, all `ai-*` plus `pick-add` and `choose`
   driven and observable.
-- `workout-log.html` — every declared action except `addex-q` has a matching
-  `case` in the switch at `:841`, and `note` is the input handler at `:1004`.
+- `workout-log.html` — 9 dev states, 25 of 38 actions driven and observable in
+  one pass and the rest reached by the depth-2 sweep
+  (`agent-feat-presets2.mjs`), which found no dead click action. Every declared
+  action except `addex-q` has a matching `case` in the switch at `:841`, and
+  `note` is the input handler at `:1004`. `rir` is a set of `<input>` radios.
   Only `addex-q` is dead (above).
 - `train.html`, `settings.html`, `review.html`, `onboarding.html` — nothing dead.
 

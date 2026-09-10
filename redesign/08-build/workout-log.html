@@ -736,15 +736,35 @@
           '<button class="iconbtn" type="button" data-act="close" data-testid="addex-close" aria-label="Close add exercise">' + ICO.close + '</button></div>' +
         '<div class="search"><span class="search__ico">' + ICO.search + '</span>' +
           '<label class="vis-hidden" for="addex-q">Search all exercises</label>' +
-          '<input class="input" id="addex-q" data-act="addex-q" data-testid="addex-search" placeholder="Search all exercises"></div>' +
-        '<div class="sheet__body mt-3"><div class="card card--flush">' +
-          LIBRARY.map(function (x, i) {
-            return '<button class="row" type="button" data-act="addex-pick" data-i="' + i + '" data-testid="addex-pick-' + x.id + '">' +
-              '<span class="row__main"><span class="row__title">' + esc(x.name) + '</span><span class="row__sub">' + esc(x.muscle) + '</span></span>' +
-              '<span class="row__chev">' + ICO.plus + '</span></button>';
-          }).join('') +
-        '</div></div>' +
+          '<input class="input" id="addex-q" data-act="addex-q" data-testid="addex-search" ' +
+            'value="' + esc(S.addexQ || '') + '" autocomplete="off" placeholder="Search all exercises"></div>' +
+        '<div class="sheet__body mt-3">' + addExList() +
+        '</div>' +
       '</div>';
+  }
+
+  /* The list the search actually filters. It was rendered straight from
+     LIBRARY with the field wired to nothing: typing anything left all six
+     rows exactly where they were, which is worse than having no field. */
+  function addExList() {
+    var q = (S.addexQ || '').trim().toLowerCase();
+    var rows = q
+      ? LIBRARY.filter(function (x) {
+          return x.name.toLowerCase().indexOf(q) > -1 || x.muscle.toLowerCase().indexOf(q) > -1;
+        })
+      : LIBRARY;
+    if (!rows.length) {
+      return '<div class="empty" data-testid="addex-empty">' +
+        '<p class="empty__title">Nothing matches &ldquo;' + esc(S.addexQ.trim()) + '&rdquo;</p>' +
+        '<p class="empty__body">Search by the lift or by the muscle it works. ' +
+          'The full library has more than this session offers.</p></div>';
+    }
+    return '<div class="card card--flush">' + rows.map(function (x) {
+      var i = LIBRARY.indexOf(x);
+      return '<button class="row" type="button" data-act="addex-pick" data-i="' + i + '" data-testid="addex-pick-' + x.id + '">' +
+        '<span class="row__main"><span class="row__title">' + esc(x.name) + '</span><span class="row__sub">' + esc(x.muscle) + '</span></span>' +
+        '<span class="row__chev">' + ICO.plus + '</span></button>';
+    }).join('') + '</div>';
   }
 
   function discardHTML() {
@@ -1002,7 +1022,9 @@
   });
   document.addEventListener('input', function (ev) {
     var t = ev.target.closest('[data-act="note"]');
-    if (t) { S.exercises[S.overlayEx].note = t.value; }
+    if (t) { S.exercises[S.overlayEx].note = t.value; return; }
+    var q = ev.target.closest('[data-act="addex-q"]');
+    if (q) { S.addexQ = q.value; paint(); }
   });
   document.addEventListener('keydown', function (ev) {
     if (ev.key !== 'Escape') return;

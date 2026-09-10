@@ -1,9 +1,16 @@
-/* Every control does something.
+/* Every control does something, and a confirm button does the thing.
 
    A button wired to nothing renders, presses, springs back and lies. This
    presses one element for every distinct data-action / data-act on every
    screen, in every state that screen declares, and reports the ones after
    which nothing at all changed: no DOM, no scroll, no focus, no hash.
+
+   The DOM diff alone is not enough for one class of control, and it is the
+   class that matters most: a confirm button inside a dialog that is wired to
+   "close" DOES change the DOM — the dialog goes — so it passes while the
+   list it was meant to empty sits there untouched. So anything named like a
+   confirmation is additionally checked against the content BEHIND the
+   overlay, which is the thing it claimed it would change.
 
    Cross-screen navigation is the honest exception and is listed rather than
    failed: on a standalone screen "open settings" has nowhere to go, and the
@@ -94,6 +101,10 @@ for (const file of screens) {
         focus: document.activeElement?.getAttribute('data-testid') || '',
         scroll: [...document.querySelectorAll('*')].filter(e => e.scrollTop > 0).length
       }));
+      const bodyBefore = await p.evaluate(() => {
+        const b = document.getElementById('body') || document.querySelector('.body');
+        return b ? b.textContent.replace(/\s+/g, ' ').trim() : '';
+      });
       /* Found and clicked in the same evaluate. Marking the element first and
          clicking it later looks tidier and does not work: these screens
          re-render between the two, the marked node is replaced, and every
@@ -128,9 +139,23 @@ for (const file of screens) {
         focus: document.activeElement?.getAttribute('data-testid') || '',
         scroll: [...document.querySelectorAll('*')].filter(e => e.scrollTop > 0).length
       }));
-      const changed = before.dom !== after.dom || before.hash !== after.hash ||
-                      before.aria !== after.aria ||
-                      before.focus !== after.focus || before.scroll !== after.scroll;
+      let changed = before.dom !== after.dom || before.hash !== after.hash ||
+                    before.aria !== after.aria ||
+                    before.focus !== after.focus || before.scroll !== after.scroll;
+
+      /* A confirmation has to change the screen under it, not just dismiss
+         itself. Compare the scroller's content across the press, ignoring
+         the overlay entirely. */
+      if (changed && /^(do-|confirm|merge-do|merge-sep|save-|receipt-save|discard-confirm)/.test(a)) {
+        const bodyAfter = await p.evaluate(() => {
+          const b = document.getElementById('body') || document.querySelector('.body');
+          return b ? b.textContent.replace(/\s+/g, ' ').trim() : '';
+        });
+        if (bodyBefore === bodyAfter) {
+          dead.push(`${file}  ${a}  (dismissed itself and changed nothing behind it)`);
+          continue;
+        }
+      }
       if (!changed) (NAV.has(a) ? navOnly : dead).push(`${file}  ${a}`);
       /* Back to a known state: the click may have opened something. */
       await p.keyboard.press('Escape').catch(() => {});
