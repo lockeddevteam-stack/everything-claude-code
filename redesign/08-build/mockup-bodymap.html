@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="components.css">
 <script src="theme.js"></script>
 <script src="app.js"></script>
+<script src="vendor/body-art.js"></script>
 <style>
 /* ---------------------------------------------------------------
    Body map. Concept mockup only — nothing here is production code.
@@ -56,21 +57,29 @@
 
 /* The inert body: head, neck, limbs and trunk that carry no muscle,
    plus the shorts. No hue, no meaning. */
-.sil { fill: var(--anat-silhouette); stroke: var(--anat-silhouette); stroke-width: 3; stroke-linejoin: round; }
-.shorts { fill: var(--anat-shorts); stroke: var(--anat-silhouette); stroke-width: 1.6; }
+.sil { fill: var(--anat-silhouette); stroke: var(--anat-silhouette); stroke-width: 5; stroke-linejoin: round; stroke-linecap: round; }
+.inert { fill: var(--anat-silhouette); stroke: color-mix(in srgb, var(--anat-silhouette) 55%, #000); stroke-width: 1.1; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 
-/* A muscle group. Every muscle is drawn twice: a dark ground in the
-   group's shade step, then the same path in the group's hue offset
-   two units up and left and clipped back to the ground. What is left
-   of the ground is a rim on the lower right — one consistent light
-   direction — and, where two muscles touch, the two rims meet and
-   read as the seam between them. */
+/* A muscle group: every belly the anatomy gives it, filled in the group's
+   hue, with the seam between two bellies drawn in that hue taken most of
+   the way to black. The seam is what separates the eight abdominal
+   segments and the three heads of the quadriceps, so the definition on the
+   figure is anatomy rather than decoration.
+
+   Over each group sits one soft top-down wash, clipped to the group, so a
+   mass is lighter where it faces the light and darker where it turns away.
+   The wash carries no meaning and never takes a tap. */
 .mg { cursor: pointer; }
-.mg__lit, .mg__gnd, .fib { transition: fill var(--dur-fast) var(--ease), stroke var(--dur-fast) var(--ease); }
-.mg .hit { fill: transparent; }
-.mg__gnd { stroke-width: 1.4; stroke-linejoin: round; }
-.mg__hi { opacity: 0.32; transition: fill var(--dur-fast) var(--ease); }
-.fib { fill: none; stroke-width: 1; vector-effect: non-scaling-stroke; stroke-linecap: round; opacity: 0.55; }
+.mg__gnd { transition: fill var(--dur-fast) var(--ease), stroke var(--dur-fast) var(--ease); }
+/* The reach paths sit outside the groups, so this is not scoped to .mg.
+   Invisible, and hit across the whole shape rather than on the stroke alone:
+   a stroke-only target would be a ring around a muscle whose middle a
+   neighbour's reach could still claim. */
+.hit { fill: none; stroke: transparent; stroke-linejoin: round; stroke-linecap: round;
+  vector-effect: non-scaling-stroke; pointer-events: all; }
+.hit--exact { stroke-width: 0; }
+.mg__gnd { stroke-width: 1.1; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.mg__wash { pointer-events: none; }
 </style>
 <style id="hues">
 /* One block per group, generated from the anatomy palette: the hue
@@ -80,36 +89,47 @@
 <style>
 /* Deselected: the group falls to the neutral muted grey, so the
    selected group is the only colour on the body. */
-.map[data-selected] .mg:not([data-on]) .mg__lit { fill: var(--anat-muted); }
-.map[data-selected] .mg:not([data-on]) .mg__gnd { fill: color-mix(in srgb, var(--anat-muted) 45%, #000); }
-.map[data-selected] .mg:not([data-on]) .fib { stroke: color-mix(in srgb, var(--anat-muted) 45%, #000); }
-.map[data-selected] .mg:not([data-on]) .mg__gnd { stroke: color-mix(in srgb, var(--anat-muted) 28%, #000); }
-.map[data-selected] .mg:not([data-on]) .mg__hi { fill: color-mix(in srgb, var(--anat-muted) 72%, #fff); }
+.map[data-selected] .mg:not([data-on]) .mg__gnd {
+  fill: var(--anat-muted);
+  stroke: color-mix(in srgb, var(--anat-muted) 22%, #000);
+}
 
-/* Sub-regions: the same hue, three steps, so parts read as a family.
-   The three bands together are the pec fan, so the muscle never
-   changes shape when it opens. */
-.map:not([data-zoom]):not([data-part]) .pec { display: none; }
-.map[data-zoom] .whole, .map[data-part] .whole { display: none; }
-.pec[data-part="upper"] .mg__lit { fill: var(--anat-chest-1); }
-.pec[data-part="mid"] .mg__lit   { fill: var(--anat-chest-2); }
-.pec[data-part="lower"] .mg__lit { fill: var(--anat-chest-3); }
-.map:not([data-zoom]):not([data-part]) .pec .mg__lit { fill: var(--anat-chest); }
-.map[data-selected]:not([data-zoom]) .mg--chest:not([data-on]) .pec .mg__lit { fill: var(--anat-muted); }
-.map[data-part="upper"] .pec:not([data-part="upper"]) .mg__lit { fill: var(--anat-muted); }
-.map[data-part="upper"] .pec:not([data-part="upper"]) .mg__gnd { fill: color-mix(in srgb, var(--anat-muted) 45%, #000); }
-.map[data-part="upper"] .pec:not([data-part="upper"]) .fib { stroke: color-mix(in srgb, var(--anat-muted) 45%, #000); }
-.map[data-part="upper"] .pec:not([data-part="upper"]) .mg__hi { fill: color-mix(in srgb, var(--anat-muted) 72%, #fff); }
-.pec .mg__lit { transition: fill var(--dur-slow) var(--ease); }
-.pec[data-part="mid"] .mg__lit { transition-delay: 100ms; }
-.pec[data-part="lower"] .mg__lit { transition-delay: 200ms; }
-.map[data-zoom] .mg:not(.mg--chest) { opacity: 0; pointer-events: none; }
+/* The opened group's regions. Each is a tint of the parent hue, so the three
+   read as one family and the relationship to the group they came from stays
+   visible. They fade up in order after the camera settles, so the eye is led
+   to them rather than surprised by them. */
+.zones { pointer-events: none; }
+.map[data-zoom] .zones { pointer-events: auto; }
+.zone { cursor: pointer; opacity: 0; }
+.map[data-zoom] .zone { opacity: 1; transition: opacity var(--dur-slow) var(--ease); }
+.map[data-zoom] .zone { transition-delay: calc(var(--zone-step, 0) * 90ms + 120ms); }
+.zone__fill { stroke: color-mix(in srgb, var(--zone-hue, var(--anat-chest)) 22%, #000);
+  stroke-width: 1.1; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+/* Four steps of the one hue, lightest at the top, so the regions read in
+   anatomical order and as one family. The hue is set on the layer from the
+   group that opened, so there is still exactly one palette entry per group. */
+.zone:nth-of-type(1) .zone__fill { fill: color-mix(in srgb, var(--zone-hue) 55%, #fff); }
+.zone:nth-of-type(2) .zone__fill { fill: color-mix(in srgb, var(--zone-hue) 80%, #fff); }
+.zone:nth-of-type(3) .zone__fill { fill: var(--zone-hue); }
+.zone:nth-of-type(4) .zone__fill { fill: color-mix(in srgb, var(--zone-hue) 78%, #000); }
+.zone:focus, .zone:focus-visible { outline: none; }
+.zone:focus-visible .zone__fill { stroke: var(--text); stroke-width: 2.5; }
+/* Under an open group the body itself steps back, so the regions are the only
+   thing with colour on the screen. */
+.map[data-zoom] .mg .mg__gnd { fill: var(--anat-muted);
+  stroke: color-mix(in srgb, var(--anat-muted) 22%, #000); }
+@media (prefers-reduced-motion: reduce) {
+  .map[data-zoom] .zone { transition: none; transition-delay: 0s; }
+}
 .map[data-zoom] #f-base, .map[data-zoom] #b-base,
 .map[data-zoom] #f-wear, .map[data-zoom] #b-wear { opacity: 0.72; }
 
 /* Focus follows the shape, in text white. The accent is never spent
    on the body. */
-.mg:focus-visible, .part:focus-visible { outline: none; }
+/* The browser's own ring is a rectangle around the group's box, which for a
+   paired muscle is a box across the whole chest. It is suppressed on focus of
+   any kind, and the ring below follows the muscle outline instead. */
+.mg:focus, .part:focus, .mg:focus-visible, .part:focus-visible { outline: none; }
 .mg:focus-visible .mg__gnd,
 .part:focus-visible .mg__gnd {
   stroke: var(--text);
@@ -214,6 +234,9 @@
               <g id="b-groups"></g>
               <g id="b-wear"></g>
             </g>
+            <!-- The opened group's regions, above the body and inside the
+                 camera so they zoom with it. Empty until a group opens. -->
+            <g class="zones" id="zones"></g>
           </g>
 
           <!-- Labels live outside the camera so zooming the body never
@@ -227,7 +250,7 @@
       </div>
 
       <div class="rotate" id="rotate">
-        <div class="seg" role="tablist" aria-label="Body view">
+        <div class="seg seg--tall" role="tablist" aria-label="Body view">
           <button class="seg__item" type="button" role="tab" id="tab-front" aria-selected="true">Front</button>
           <button class="seg__item" type="button" role="tab" id="tab-back" aria-selected="false">Back</button>
         </div>
@@ -272,181 +295,45 @@
      pair. A lifter never trains one pec.
      --------------------------------------------------------------- */
 
-  /* THE ARMATURE. Reference only; nothing here is rendered. */
-  var A = {
-    crown: [100, 12], chin: [100, 62], c7: [100, 72],
-    acromion: [154, 86], sternumBottom: [100, 136],
-    iliacCrest: [128, 194], trochanter: [140, 214],
-    shoulder: [150, 100], elbow: [157, 174], wrist: [166, 244],
-    hip: [118, 216], knee: [118, 306], ankle: [118, 386], sole: 408
-  };
+  /* THE FIT.
 
-  /* Rounds a ring of points into a closed belly: a Catmull-Rom spline
-     through the points, emitted as cubics. Authored order is clockwise
-     around the right-hand muscle. */
-  function blob(p) {
-    var n = p.length, d = 'M' + p[0][0] + ' ' + p[0][1];
-    for (var i = 0; i < n; i++) {
-      var p0 = p[(i - 1 + n) % n], p1 = p[i], p2 = p[(i + 1) % n], p3 = p[(i + 2) % n];
-      d += ' C' + n2(p1[0] + (p2[0] - p0[0]) / 6) + ' ' + n2(p1[1] + (p2[1] - p0[1]) / 6) +
-           ' ' + n2(p2[0] - (p3[0] - p1[0]) / 6) + ' ' + n2(p2[1] - (p3[1] - p1[1]) / 6) +
-           ' ' + p2[0] + ' ' + p2[1];
-    }
-    return d + ' Z';
-  }
+     The art is authored in the package's own 724 by 1448 space. Rather than
+     rewrite every coordinate, each view is fitted into the frame the rest of
+     this screen already speaks: the figure lands between y 12 and y 411 on a
+     centre line of x 100, which is where the labels, the leader lines and the
+     zoom camera already expect a body to be.
+
+     The numbers below are the measured bounding box of the rendered art, not
+     an estimate: front and back are both 622 wide by about 1244 tall. */
   function n2(v) { return Math.round(v * 10) / 10; }
 
-  /* THE INERT BODY. Carries no muscle and no hue: the parts of the
-     silhouette that are bone, joint or skin rather than a belly. */
-  var INERT = {
-    head:   [[100, 12], [114, 16], [120, 30], [119, 44], [114, 56], [106, 64], [100, 66]],
-    neck:   [[100, 54], [116, 56], [119, 74], [117, 86], [100, 88]],
-    elbow:  [[148, 168], [166, 168], [168, 182], [154, 186], [146, 178]],
-    pelvis: [[100, 196], [124, 194], [138, 204], [144, 218], [142, 228], [128, 232], [116, 228], [104, 232], [100, 234]],
-    knee:   [[108, 300], [130, 300], [133, 310], [128, 318], [110, 318], [105, 310]],
-    hand:   [[159, 246], [171, 246], [178, 252], [181, 264], [179, 278], [173, 289], [165, 290], [159, 284], [156, 272], [152, 262], [155, 254]],
-    foot:   [[109, 384], [125, 384], [131, 392], [142, 400], [148, 407], [144, 411], [112, 411], [104, 405], [103, 393]]
-  };
+  var ART = window.LKBodyArt;
+  var FIGURE = { front: [53, 96, 622, 1244], back: [773, 97, 622, 1245] };
+  var TOP = 12, BOTTOM = 411, MID = 100;
 
-  /* One garment, both views: the front is covered, the back carries
-     only the waistband, because a hem across the glutes would hide the
-     muscle the group is named for. */
-  var SHORTS = blob([[100, 198], [124, 196], [138, 204], [144, 218], [142, 228], [128, 230], [116, 226], [104, 230], [100, 232]]);
-  var WAIST  = blob([[100, 194], [126, 192], [140, 202], [144, 214], [140, 218], [126, 208], [112, 204], [100, 204]]);
+  function fitOf(view) {
+    var b = FIGURE[view];
+    var s = (BOTTOM - TOP) / b[3];
+    return { s: s, tx: MID - (b[0] + b[2] / 2) * s, ty: TOP - b[1] * s };
+  }
+  var FIT = { front: fitOf('front'), back: fitOf('back') };
+  function fitAttr(view) {
+    var f = FIT[view];
+    return 'translate(' + n2(f.tx) + ' ' + n2(f.ty) + ') scale(' + (Math.round(f.s * 1e5) / 1e5) + ')';
+  }
+  /* A measured box, in the frame's coordinates rather than the art's. */
+  function boxIn(view, b) {
+    var f = FIT[view];
+    return { x: b[0] * f.s + f.tx, y: b[1] * f.s + f.ty, w: b[2] * f.s, h: b[3] * f.s };
+  }
 
-  /* ---------------- FRONT ----------------
-     At body level every group is ONE mass. Inside it, only fibre
-     striations in the true fibre direction (`ax` lays fibres along an
-     axis, `fan` converges them on an insertion) and, where anatomy
-     draws a line the eye expects -- the abdominal segments, the split
-     between the heads of the quadriceps -- a `lines` list. Subdivision
-     belongs to the zoom, and only to the five groups the database
-     divides.
+  var MEASURED = {"front": {"chest": [255, 317, 218, 118], "abs": [256, 417, 217, 299], "biceps": [182, 406, 365, 87], "back": [284, 280, 160, 32], "shoulders": [195, 303, 339, 94], "adduc": [274, 647, 180, 251], "quads": [241, 667, 246, 281], "calves": [251, 973, 226, 259], "forearms": [126, 498, 477, 188]}, "back": {"back": [956, 297, 255, 342], "shoulders": [914, 311, 339, 87], "triceps": [899, 382, 370, 153], "forearms": [839, 518, 490, 170], "glutes": [976, 619, 214, 159], "adduc": [1039, 784, 88, 79], "hams": [962, 741, 243, 266], "calves": [970, 972, 227, 318]}};
+  /* The thinnest single belly in each group, measured: what a finger is
+     actually aiming at when it goes for that group. */
+  var THIN = {"front": {"chest": 103, "abs": 15, "biceps": 41, "back": 31, "shoulders": 84, "adduc": 19, "quads": 19, "calves": 30, "forearms": 57}, "back": {"back": 35, "shoulders": 67, "triceps": 22, "forearms": 17, "glutes": 50, "adduc": 33, "hams": 20, "calves": 18}};
 
-     Order is draw order: the lats go down first because they sit
-     behind everything, the deltoid over the chest because it does. */
-
-  var FRONT = [
-    /* Latissimus, seen from the front: the flare behind the arm that
-       pushes the arm out from the body. Drawn first, under all. */
-    { g: 'back', p: [[132, 110], [146, 116], [156, 132], [154, 152], [146, 172], [136, 188], [126, 196], [121, 184], [124, 158], [128, 134]],
-      fan: [150, 118, [[126, 194], [132, 176], [138, 160], [141, 144]]] },
-
-    /* Upper trapezius: rising steeply from the acromion to the neck,
-       so the neck-shoulder line is a mountain, not a slope. */
-    { g: 'back', p: [[104, 54], [114, 56], [128, 66], [144, 78], [156, 86], [152, 94], [138, 90], [122, 86], [110, 82], [103, 70]],
-      fan: [156, 90, [[106, 56], [108, 64], [108, 72], [110, 80]]] },
-
-    /* Pectoralis major: a thick, wide, slightly squared plate from the
-       sternum to the deltoid, fibres converging on the armpit. */
-    { g: 'chest', cls: 'whole',
-      p: [[100, 86], [114, 84], [130, 86], [142, 94], [147, 108], [146, 122], [138, 133], [118, 139], [100, 139]],
-      fan: [148, 108, [[100, 87], [112, 85], [126, 86], [100, 96], [100, 106], [100, 116], [100, 126], [100, 136], [114, 137]]] },
-
-    /* The three regions of the pec, for the zoom only, cut on radial
-       lines converging on the insertion: clavicular head above, the
-       sternal head across, the costal head below. */
-    { g: 'chest', part: 'upper', cls: 'pec',
-      p: [[100, 86], [114, 84], [130, 86], [142, 94], [147, 104], [126, 100], [112, 96], [100, 96]],
-      fan: [148, 106, [[100, 87], [112, 85], [126, 86], [100, 92], [100, 96]]] },
-    { g: 'chest', part: 'mid', cls: 'pec',
-      p: [[100, 96], [114, 97], [128, 101], [147, 106], [146, 121], [124, 120], [112, 116], [100, 114]],
-      fan: [148, 108, [[100, 99], [100, 104], [100, 109], [100, 114]]] },
-    { g: 'chest', part: 'lower', cls: 'pec',
-      p: [[100, 114], [114, 116], [126, 120], [145, 122], [138, 133], [118, 139], [100, 139]],
-      fan: [146, 118, [[100, 118], [100, 124], [100, 130], [100, 136], [114, 137]]] },
-
-    /* Abdominal wall: rectus down the centre, six segments and the
-       lower pair, with the oblique framing it at the flank. The waist
-       here is the narrowest point of the trunk. */
-    { g: 'abs', p: [[100, 136], [116, 138], [126, 146], [128, 166], [126, 190], [120, 206], [108, 214], [100, 216]],
-      lines: ['M126 150 L114 160', 'M127 166 L114 176', 'M126 182 L114 192', 'M123 198 L113 206',
-              'M100 150 Q107 152 113 150', 'M100 164 Q107 166 113 164', 'M100 178 Q107 180 113 178', 'M100 192 Q106 194 112 192',
-              'M113 140 Q116 176 111 210'] },
-
-    /* Deltoid: a large round cap over the joint, the widest point of
-       the figure, three heads suggested by the fan of the fibres. */
-    { g: 'shoulders', p: [[132, 86], [146, 80], [160, 84], [170, 96], [174, 112], [170, 128], [160, 140], [149, 138], [140, 124], [132, 108]],
-      fan: [156, 142, [[136, 86], [146, 81], [156, 83], [166, 92], [172, 104], [173, 116]]],
-      lines: ['M148 82 Q145 108 150 136', 'M166 92 Q169 114 164 134'] },
-
-    /* Triceps, lateral head, seen from the front on the outside of the
-       upper arm. */
-    { g: 'triceps', p: [[160, 124], [169, 130], [172, 146], [170, 162], [165, 176], [160, 176], [158, 160], [157, 142]],
-      ax: [164, 128, 164, 176, 3, 8] },
-
-    /* Biceps: peaked, the peak high on the upper arm, the belly on the
-       inside of the arm tapering into the elbow. */
-    { g: 'biceps', p: [[142, 120], [152, 118], [159, 128], [163, 142], [162, 158], [159, 172], [152, 180], [145, 174], [139, 156], [136, 140]],
-      ax: [147, 122, 154, 178, 5, 16] },
-
-    /* Forearm: thick at the elbow, the brachioradialis on the outside,
-       a hard taper to a narrow wrist. */
-    { g: 'forearms', p: [[144, 176], [157, 170], [169, 178], [176, 194], [177, 214], [174, 236], [166, 248], [158, 246], [152, 222], [146, 198]],
-      ax: [154, 178, 166, 246, 6, 20] },
-
-    /* Quadriceps: a hard outward sweep at the outer thigh, the
-       teardrop of the vastus medialis above the knee, and the split
-       between the heads drawn as a line. */
-    { g: 'quads', p: [[104, 214], [122, 210], [138, 216], [146, 236], [145, 262], [140, 284], [130, 300], [118, 306], [108, 302], [102, 290], [103, 270], [104, 250], [103, 232]],
-      ax: [130, 214, 126, 302, 5, 24],
-      lines: ['M124 212 Q126 256 120 300', 'M110 272 Q104 290 110 302'] },
-
-    /* Inner thigh: the adductor wedge along the inside, over the
-       quadriceps it sits beside. */
-    { g: 'adduc', p: [[102, 222], [116, 220], [120, 236], [116, 252], [108, 262], [102, 256], [100, 240]],
-      ax: [110, 222, 106, 260, 3, 10] },
-
-    /* Calves from the front: a diamond, high and full, with a hard
-       inward taper to the ankle. */
-    { g: 'calves', p: [[110, 314], [126, 314], [136, 328], [138, 344], [134, 362], [126, 380], [117, 388], [108, 382], [102, 360], [101, 340], [104, 324]],
-      ax: [120, 316, 118, 388, 5, 22],
-      lines: ['M118 320 Q116 350 116 384'] }
-  ];
-
-  /* ---------------- BACK ---------------- */
-
-  var BACK = [
-    /* Back: one mass -- the trapezius diamond over the shoulders, the
-       latissimus flaring under the arm and sweeping in to the waist,
-       the erectors at the base. The fan runs to the humeral insertion,
-       which is what gives the V. */
-    { g: 'back', p: [[100, 56], [112, 58], [128, 70], [146, 82], [156, 90], [150, 102], [142, 112], [152, 126], [158, 142], [152, 164], [142, 182], [132, 196], [118, 204], [100, 206]],
-      fan: [150, 116, [[100, 140], [100, 160], [100, 180], [100, 200], [116, 202], [128, 196], [138, 184]]],
-      lines: ['M152 94 Q124 104 100 130', 'M106 60 Q108 96 100 130', 'M112 144 Q114 176 108 204'] },
-
-    /* Deltoid, rear. */
-    { g: 'shoulders', p: [[132, 86], [146, 80], [160, 84], [170, 96], [174, 112], [170, 128], [160, 140], [149, 138], [140, 124], [132, 108]],
-      fan: [156, 142, [[136, 86], [146, 81], [156, 83], [166, 92], [172, 104], [173, 116]]],
-      lines: ['M148 82 Q145 108 150 136', 'M166 92 Q169 114 164 134'] },
-
-    /* Triceps: a horseshoe on the back of the arm, the long head
-       inside, the lateral head outside, the tendon between them
-       above the elbow. */
-    { g: 'triceps', p: [[141, 118], [155, 114], [165, 122], [170, 140], [169, 160], [165, 176], [156, 182], [146, 176], [140, 156], [138, 136]],
-      ax: [150, 122, 158, 180, 3, 8],
-      lines: ['M148 126 Q146 158 156 178', 'M165 128 Q168 158 158 178'] },
-
-    /* Forearm extensors. */
-    { g: 'forearms', p: [[144, 176], [157, 170], [169, 178], [176, 194], [177, 214], [174, 236], [166, 248], [158, 246], [152, 222], [146, 198]],
-      ax: [154, 178, 166, 246, 6, 20] },
-
-    /* Gluteus maximus: a full round mass, wider than it is tall. */
-    { g: 'glutes', p: [[100, 198], [118, 196], [134, 202], [142, 216], [142, 236], [134, 250], [118, 256], [104, 252], [100, 240]],
-      fan: [140, 244, [[100, 202], [100, 214], [100, 226], [100, 238], [104, 250]]] },
-
-    /* Hamstrings: thick from the fold to the knee, the biceps femoris
-       standing out on the outer thigh. */
-    { g: 'hams', p: [[104, 252], [120, 256], [136, 250], [144, 264], [142, 286], [134, 304], [120, 310], [108, 306], [103, 286], [102, 264]],
-      ax: [118, 256, 118, 308, 5, 20],
-      lines: ['M128 256 Q136 282 128 306'] },
-
-    /* Calves: the two heads of the gastrocnemius, a diamond high and
-       full, tapering hard into the Achilles. */
-    { g: 'calves', p: [[110, 312], [126, 312], [137, 326], [139, 342], [135, 360], [127, 380], [117, 388], [108, 382], [102, 360], [101, 338], [104, 322]],
-      ax: [120, 314, 118, 388, 5, 22],
-      lines: ['M120 318 Q118 350 118 372'] }
-  ];
+  /* Where a group divides into real muscles, each one measured too. */
+  var PART_BOX = {"front": {"back": {"Traps": [284, 280, 160, 32]}}, "back": {"back": {"Traps": [1003, 297, 162, 176], "Lats": [956, 323, 255, 263], "Lower Back": [984, 487, 199, 152]}}};
 
   /* ---------------------------------------------------------------
      The twelve groups, straight from the exercise database, with the
@@ -515,71 +402,51 @@
     }
   };
 
-  /* Hit areas. The drawn biceps is 19 units across, about 31 CSS px on
-     this frame, so every group carries invisible rectangles -- sized
-     and ordered so each group keeps at least one 44 by 44 target once
-     the overlaps are resolved. Later entries win. */
-  var HITS = {
-    front: [
-      ['back',      104,  54, 30, 32],
-      ['chest',     100,  86, 46, 54],
-      ['abs',       100, 138, 28, 62],
-      ['shoulders', 134,  82, 38, 48],
-      ['triceps',   158, 122, 27, 56],
-      ['biceps',    132, 114, 27, 64],
-      ['forearms',  146, 178, 32, 68],
-      ['quads',     118, 240, 28, 62],
-      ['adduc',     100, 216, 27, 52],
-      ['calves',    102, 318, 34, 68]
-    ],
-    back: [
-      ['back',      100,  56, 44, 150],
-      ['shoulders', 134,  82, 38, 48],
-      ['triceps',   138, 116, 32, 64],
-      ['forearms',  146, 178, 32, 68],
-      ['glutes',    100, 196, 42, 58],
-      ['hams',      102, 254, 40, 54],
-      ['calves',    102, 316, 36, 72]
-    ]
-  };
+  /* HIT AREAS
 
-  var MIRROR = 'matrix(-1 0 0 1 200 0)';
+     A rectangle over a group's extent cannot work here, because a paired
+     muscle's extent spans both arms: the triceps box is 370 units wide and
+     swallows the whole chest between them. So the muscle itself is the
+     target. A tap on the pectoral selects Chest because that is what was
+     tapped, which is also the only rule a person would guess.
+
+     What a shape cannot give is size. Several bellies are drawn narrower
+     than a finger -- the trapezius above the collarbone is 10 CSS px tall
+     on this frame, against the 44 the rest of the app holds itself to -- so
+     each muscle also carries a copy of itself in a transparent stroke wide
+     enough to bring it up to 44. A stroke grows a shape along its own
+     outline rather than into a box around it, so a thin muscle gains reach
+     without covering the muscle beside it.
+
+     The strokes live in one layer above the paint, laid down largest first,
+     so where two grown outlines overlap the smaller muscle -- the harder
+     target, and the one a finger near it was aiming at -- wins. */
+  var MIN_HIT = 44;
+  function unitPx() {
+    var frame = document.querySelector('.map');
+    /* The frame is 240 viewBox units across and renders at the screen width,
+       so a viewBox unit is worth rather more than a CSS pixel. */
+    return frame && frame.clientWidth ? frame.clientWidth / 240 : 1.625;
+  }
+  /* How much stroke a group needs, in CSS pixels, to bring its thinnest
+     belly up to 44. The group's own bounding box is no use here, because a
+     paired muscle's box spans both arms and reports a width no finger will
+     ever meet; THIN holds the measured thinnest single belly instead.
+
+     A stroke lies half outside the shape, so clearing a shortfall of d takes
+     a stroke of d. It is capped at 44, past which a margin says more about the empty space
+     around a muscle than about the muscle. The exact-shape layer above keeps
+     a margin from ever taking a tap that landed on another muscle. */
+  function reachOf(view, gid) {
+    var t = THIN[view] && THIN[view][gid];
+    if (!t) return 0;
+    var thin = t * unitPx() * FIT[view].s;
+    return Math.max(0, Math.min(MIN_HIT - thin, 44));
+  }
+
   var NS = 'http://www.w3.org/2000/svg';
   var defs = document.getElementById('defs');
   var uid = 0;
-
-  /* Fibre lines from a spec rather than by hand, so the direction is
-     what is authored and every muscle in the figure is striated the
-     same way. `ax` lays n fibres along an axis, spread w across it,
-     each bowed slightly outward; `fan` runs a fibre from each point
-     on a border to the point the muscle converges on. Both overshoot
-     and are clipped to the muscle. */
-  function fibres(m) {
-    var out = [];
-    if (m.ax) {
-      var x1 = m.ax[0], y1 = m.ax[1], x2 = m.ax[2], y2 = m.ax[3], n = m.ax[4], w = m.ax[5];
-      var dx = x2 - x1, dy = y2 - y1, L = Math.sqrt(dx * dx + dy * dy) || 1;
-      var px = -dy / L, py = dx / L;
-      for (var i = 0; i < n; i++) {
-        var t = (n === 1 ? 0 : i / (n - 1) - 0.5), o = t * w;
-        var ax = x1 + px * o, ay = y1 + py * o, bx = x2 + px * o, by = y2 + py * o;
-        var cx = (ax + bx) / 2 + px * o * 0.4, cy = (ay + by) / 2 + py * o * 0.4;
-        out.push('M' + n2(ax) + ' ' + n2(ay) + ' Q' + n2(cx) + ' ' + n2(cy) +
-                 ' ' + n2(bx) + ' ' + n2(by));
-      }
-    }
-    if (m.fan) {
-      var fx = m.fan[0], fy = m.fan[1];
-      m.fan[2].forEach(function (p) {
-        var mx = (p[0] + fx) / 2, my = (p[1] + fy) / 2;
-        var vx = fx - p[0], vy = fy - p[1], l = Math.sqrt(vx * vx + vy * vy) || 1;
-        out.push('M' + n2(p[0]) + ' ' + n2(p[1]) + ' Q' + n2(mx - vy / l * 3) + ' ' +
-                 n2(my + vx / l * 3) + ' ' + n2(fx) + ' ' + n2(fy));
-      });
-    }
-    if (m.lines) out = out.concat(m.lines);
-    return out;
-  }
 
   function el(tag, attrs) {
     var n = document.createElementNS(NS, tag);
@@ -592,69 +459,71 @@
   (function hues() {
     var css = ORDER.map(function (gid) {
       var v = 'var(--anat-' + gid + ')';
-      return '.mg--' + gid + ' .mg__lit { fill: ' + v + '; }\n' +
-             '.mg--' + gid + ' .mg__gnd { fill: color-mix(in srgb, ' + v + ' 45%, #000); }\n' +
-             '.mg--' + gid + ' .mg__gnd { stroke: color-mix(in srgb, ' + v + ' 28%, #000); }\n' +
-             '.mg--' + gid + ' .mg__hi { fill: color-mix(in srgb, ' + v + ' 72%, #fff); }\n' +
-             '.mg--' + gid + ' .fib { stroke: color-mix(in srgb, ' + v + ' 45%, #000); }\n' +
+      /* The belly carries the hue itself. The seam between two bellies is
+         the same hue taken most of the way to black, so a muscle border
+         reads as shadow between two masses rather than as an ink outline. */
+      return '.mg--' + gid + ' .mg__gnd { fill: ' + v + '; ' +
+             'stroke: color-mix(in srgb, ' + v + ' 22%, #000); }\n' +
              '.lab--' + gid + ' { color: ' + v + '; }\n' +
              '.pick__dot--' + gid + ' { background: ' + v + '; }';
     }).join('\n');
     document.getElementById('hues').textContent = css;
   })();
 
-  /* One muscle, drawn twice: the shape and its mirror. Inside each
-     side, the dark ground, then the hue offset toward the light and
-     clipped back to the ground, then the fibre lines. The offset is
-     flipped on the mirrored side so both halves are lit from the same
-     direction on screen. */
-  function pathOf(m) { return m.d || (m.d = blob(m.p)); }
-  function bbox(m) {
-    var xs = m.p.map(function (q) { return q[0]; }), ys = m.p.map(function (q) { return q[1]; });
-    var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs), y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
-    return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, w: x1 - x0, h: y1 - y0 };
+  /* DRAWING
+
+     The art already carries both sides of the body, so nothing is mirrored
+     here and nothing is generated: each path is drawn where the anatomy put
+     it. A group is one <g> holding every path the twelve-group mapping gave
+     it, which is what makes a tap anywhere on either pectoral select Chest.
+
+     Depth comes from the shapes rather than from shading tricks. Adjacent
+     bellies share a hairline in a darker tone of the same hue, so the eight
+     abdominal segments, the two heads of the calf and the three of the
+     quadriceps read as separate muscles without a single extra line being
+     invented. Over that sits one soft top-down gradient per group, so a mass
+     is lighter where it faces the light and darker where it turns away. */
+
+  function shadeDefs() {
+    var g = el('linearGradient', { id: 'mg-shade', x1: '0', y1: '0', x2: '0', y2: '1' });
+    g.appendChild(el('stop', { offset: '0', 'stop-color': '#fff', 'stop-opacity': '0.20' }));
+    g.appendChild(el('stop', { offset: '0.5', 'stop-color': '#fff', 'stop-opacity': '0.02' }));
+    g.appendChild(el('stop', { offset: '1', 'stop-color': '#000', 'stop-opacity': '0.14' }));
+    defs.appendChild(g);
   }
-  function muscle(host, m, cls, part) {
-    var d = pathOf(m), bb = bbox(m);
-    var clip = 'm' + (++uid);
-    var cp = el('clipPath', { id: clip });
-    cp.appendChild(el('path', { d: d }));
-    defs.appendChild(cp);
-    /* The rim grows with the belly: a bigger muscle turns further from
-       the light. The highlight is the belly shrunk about its centre and
-       nudged toward the light, so the mass reads as a dome. */
-    var size = Math.min(bb.w, bb.h);
-    var off = Math.max(1.6, Math.min(3.6, size * 0.11)), offY = off * 0.8;
-    var hs = 0.58, hx = -size * 0.08, hy = -size * 0.1;
-    [[null, -1], [MIRROR, 1]].forEach(function (s) {
-      var side = el('g', { transform: s[0] });
-      side.appendChild(el('path', { d: d, class: 'mg__gnd' }));
-      var inner = el('g', { 'clip-path': 'url(#' + clip + ')' });
-      inner.appendChild(el('path', { d: d, class: 'mg__lit',
-        transform: 'translate(' + n2(s[1] * off) + ' ' + n2(-offY) + ')' }));
-      inner.appendChild(el('path', { d: d, class: 'mg__hi',
-        transform: 'translate(' + n2(bb.cx + s[1] * hx) + ' ' + n2(bb.cy + hy) + ') scale(' + hs + ') translate(' + n2(-bb.cx) + ' ' + n2(-bb.cy) + ')' }));
-      fibres(m).forEach(function (fd) { inner.appendChild(el('path', { d: fd, class: 'fib' })); });
-      side.appendChild(inner);
-      var wrap = el('g', { class: cls });
-      wrap.appendChild(side);
-      if (part) wrap.setAttribute('data-part', part);
-      host.appendChild(wrap);
-    });
+  shadeDefs();
+
+  function drawPaths(host, paths, cls) {
+    paths.forEach(function (d) { host.appendChild(el('path', { d: d, class: cls })); });
   }
 
-  function plain(host, paths, cls) {
-    paths.forEach(function (d) {
-      [null, MIRROR].forEach(function (t) {
-        host.appendChild(el('path', { d: d, class: cls, transform: t }));
-      });
-    });
-  }
+  function buildView(view, baseId, groupsId) {
+    var art = ART[view], fit = fitAttr(view);
 
-  function buildView(host, list, hits) {
+    /* The inert body first: head, neck, hands, feet, knees, ankles and the
+       shin. It carries no hue and never takes a tap, and it is the reason the
+       figure reads as a person rather than a chart. */
+    var base = el('g', { transform: fit });
+    /* The silhouette is not drawn as an outline: it is the union of the inert
+       body and every muscle, laid down once in the ground tone under a fat
+       round stroke. A gap between two masses therefore reads as body rather
+       than as the screen behind it, and the outer contour is made entirely of
+       muscle bellies, which is what gives the figure its shape. */
+    var union = art.inert.slice();
+    ORDER.forEach(function (gid) {
+      if (art.groups[gid]) union = union.concat(art.groups[gid]);
+    });
+    drawPaths(base, union, 'sil');
+    drawPaths(base, art.inert, 'inert');
+    document.getElementById(baseId).appendChild(base);
+
+    var host = document.getElementById(groupsId);
     var made = {};
     function groupFor(gid) {
       if (made[gid]) return made[gid];
+      /* The group itself sits in the frame's coordinates, so its hit
+         rectangles are written in the same numbers the labels and the zoom
+         camera use. Only the art inside it is fitted. */
       var g = el('g', {
         class: 'mg mg--' + gid, tabindex: '0', role: 'button',
         'data-g': gid, 'data-testid': 'mg-' + gid,
@@ -664,35 +533,64 @@
       made[gid] = g;
       return g;
     }
-    list.forEach(function (m) {
-      var g = groupFor(m.g);
-      if (m.part) {
-        var pg = el('g', { class: 'part', 'data-part': m.part, tabindex: '-1', role: 'button',
-          'aria-label': m.part + ' chest' });
-        muscle(pg, m, m.cls || '', m.part);
-        g.appendChild(pg);
-      } else {
-        muscle(g, m, m.cls || '', null);
-      }
+
+    ORDER.forEach(function (gid) {
+      var paths = art.groups[gid];
+      if (!paths || !paths.length) return;
+      var g = groupFor(gid);
+      var inner = el('g', { transform: fit });
+      drawPaths(inner, paths, 'mg__gnd');
+
+      /* One gradient wash over the whole group, clipped to it, so the light
+         falls across the mass rather than across each segment of it. */
+      var clip = 'mgc-' + view + '-' + gid;
+      var cp = el('clipPath', { id: clip, clipPathUnits: 'userSpaceOnUse' });
+      drawPaths(cp, paths, '');
+      defs.appendChild(cp);
+      var b = MEASURED[view][gid];
+      var wash = el('g', { 'clip-path': 'url(#' + clip + ')', class: 'mg__wash' });
+      wash.appendChild(el('rect', { x: b[0], y: b[1], width: b[2], height: b[3],
+        fill: 'url(#mg-shade)' }));
+      inner.appendChild(wash);
+      g.appendChild(inner);
     });
-    hits.forEach(function (h) {
-      [null, MIRROR].forEach(function (t) {
-        groupFor(h[0]).appendChild(el('rect', { class: 'hit', x: h[1], y: h[2],
-          width: h[3], height: h[4], transform: t }));
+
+    /* The reach layer, above the paint. Largest reach first, so the thinnest
+       muscle -- which needs the most help -- ends up on top. */
+    var reach = ORDER.filter(function (gid) { return art.groups[gid] && reachOf(view, gid) > 0; })
+      .sort(function (x, y) { return reachOf(view, y) - reachOf(view, x); });
+    /* The reach paths sit in one layer of their own after every group, rather
+       than inside the groups, because a layer inside a group would still be
+       painted under the next group along. They carry the group id themselves,
+       and the tap handler reads that id rather than the group element. */
+    var reachLayer = el('g', { class: 'reach', transform: fit, 'aria-hidden': 'true' });
+    reach.forEach(function (gid) {
+      art.groups[gid].forEach(function (d) {
+        reachLayer.appendChild(el('path', { d: d, class: 'hit', 'data-g': gid,
+          'stroke-width': Math.round(reachOf(view, gid) * 10) / 10 }));
       });
     });
+    host.appendChild(reachLayer);
+
+    /* Above the grown margins, every muscle's exact shape. The rule this
+       settles is that a muscle's own outline always beats a neighbour's
+       margin: the abdominal wall is thin enough to need 30px of reach, which
+       would otherwise spill over the adductor beside it and take taps meant
+       for the muscle a finger was on. Within this layer the paint order
+       stands, so where the deltoid genuinely covers the pectoral, tapping
+       the overlap selects the deltoid, as the picture says it should. */
+    var exactLayer = el('g', { class: 'exact', transform: fit, 'aria-hidden': 'true' });
+    ORDER.forEach(function (gid) {
+      if (!art.groups[gid]) return;
+      art.groups[gid].forEach(function (d) {
+        exactLayer.appendChild(el('path', { d: d, class: 'hit hit--exact', 'data-g': gid }));
+      });
+    });
+    host.appendChild(exactLayer);
   }
 
-  /* The silhouette: the union of the inert body and every mass in
-     both views, painted in the ground colour. No outline exists. */
-  var SIL = Object.keys(INERT).map(function (k) { return blob(INERT[k]); })
-    .concat(FRONT.concat(BACK).filter(function (m) { return !m.part; }).map(pathOf));
-  plain(document.getElementById('f-base'), SIL, 'sil');
-  plain(document.getElementById('b-base'), SIL, 'sil');
-  buildView(document.getElementById('f-groups'), FRONT, HITS.front);
-  buildView(document.getElementById('b-groups'), BACK, HITS.back);
-  plain(document.getElementById('f-wear'), [SHORTS], 'shorts');
-  plain(document.getElementById('b-wear'), [WAIST], 'shorts');
+  buildView('front', 'f-base', 'f-groups');
+  buildView('back', 'b-base', 'b-groups');
 
   /* Labels: disc, pictogram, name, and a hairline leader to a dot on
      the muscle. Left-hand labels read disc-then-name toward the body;
@@ -743,7 +641,7 @@
   /* ---------------------------------------------------------------
      State
      --------------------------------------------------------------- */
-  var S = { stage: 'body', view: 'front', gid: null };
+  var S = { stage: 'body', view: 'front', gid: null, part: null };
 
   var map = document.getElementById('map'),
       svg = document.getElementById('svg'),
@@ -752,7 +650,8 @@
       hdr = document.getElementById('hdr'),
       list = document.getElementById('list'),
       rotate = document.getElementById('rotate'),
-      zlabs = document.getElementById('zlabs');
+      zlabs = document.getElementById('zlabs'),
+      zones = document.getElementById('zones');
 
   var EX = [
     ['Incline Barbell Press', 'Barbell', '70 kg'],
@@ -802,52 +701,173 @@
   }
 
   function renderList() {
-    LKPatch(list, '<div class="listhead"><h2 class="t-label">Upper chest</h2><span class="t-meta" data-num>10</span></div>' +
+    var region = S.part || (GROUPS[S.gid] && GROUPS[S.gid].name) || '';
+    LKPatch(list, '<div class="listhead"><h2 class="t-label">' + esc(region) +
+      '</h2><span class="t-meta" data-num>10</span></div>' +
       '<div class="card card--flush gutter">' + EX.map(function (x) {
         return '<button class="row" type="button">' +
           '<span class="row__main stack"><span class="row__title">' + esc(x[0]) + '</span>' +
-          '<span class="row__sub truncate">Chest &middot; Upper &middot; ' + esc(x[1]) + '</span></span>' +
+          '<span class="row__sub truncate">' + esc(GROUPS[S.gid].name) +
+          (S.part ? ' &middot; ' + esc(S.part) : '') + ' &middot; ' + esc(x[1]) + '</span></span>' +
           (x[2] ? '<span class="row__value">' + esc(x[2]) + '</span>' : '') +
           '<span class="row__chev">' + chev() + '</span></button>';
       }).join('') + '</div>');
   }
 
-  /* Zoom camera: the pec pair centres on (100, 112) and fills the
-     frame, leaving the right gutter for the part labels. */
+  /* ZOOM
+
+     Only two of the twelve groups divide honestly on this figure.
+
+     Back divides into three real muscles the art draws separately: the
+     trapezius, the latissimus and the erectors of the lower back. Tapping one
+     highlights that muscle, because that muscle is there.
+
+     Chest divides into upper, mid and lower, which are the clavicular,
+     sternal and costal heads of one continuous sheet. There is no border
+     between them to draw, so the three regions are the pec itself clipped
+     into three horizontal bands. That is what the heads are.
+
+     The other ten do not. Front, side and rear deltoid are three faces of one
+     mass and two of them are on the other side of the body; the heads of the
+     triceps and biceps are stacked, not banded; and the Abs group's own
+     sub-regions -- Weighted and Bodyweight -- are a way of choosing an
+     exercise, not a part of anybody. Drawing regions on those would be
+     inventing anatomy, so those groups go from selection straight to their
+     exercises and the sub-regions appear where they belong, as a filter over
+     the list. */
+  function partsOf(gid, view) {
+    var real = ART[view].parts && ART[view].parts[gid];
+    if (real) return { kind: 'muscles', names: Object.keys(real), paths: real };
+    if (gid === 'chest') return { kind: 'bands', names: ['Upper', 'Mid', 'Lower'] };
+    return null;
+  }
+
+  /* The camera frames the group's own measured extent with a margin, and
+     leaves the right-hand gutter clear for the region labels. */
+  var ZGUTTER = 64, ZPAD = 10;
+  var ZCAM = { x: 80, y: 209, k: 1.8, ox: 100, oy: 112 };
+
+  function fitCamera() {
+    var b = MEASURED[S.view] && MEASURED[S.view][S.gid];
+    if (!b) return;
+    var r = boxIn(S.view, b);
+    /* The frame is the screen viewBox less the label gutter. */
+    var fw = 240 - ZGUTTER, fh = 402;
+    var k = Math.min(fw / (r.w + ZPAD * 2), fh / (r.h + ZPAD * 2), 3.2);
+    ZCAM.k = Math.round(k * 100) / 100;
+    ZCAM.ox = r.x + r.w / 2;
+    ZCAM.oy = r.y + r.h / 2;
+    ZCAM.x = -16 + fw / 2;
+    ZCAM.y = 8 + fh / 2;
+  }
+
   function camera() {
     return S.stage === 'zoom'
-      ? 'translate(' + ZCAM.x + ' ' + ZCAM.y + ') scale(' + ZCAM.k + ') translate(-' + ZCAM.ox + ' -' + ZCAM.oy + ')'
+      ? 'translate(' + n2(ZCAM.x) + ' ' + n2(ZCAM.y) + ') scale(' + ZCAM.k +
+        ') translate(' + n2(-ZCAM.ox) + ' ' + n2(-ZCAM.oy) + ')'
       : 'translate(0 0) scale(1)';
   }
 
-  /* The zoomed camera and the three part labels are one piece of
-     geometry: the camera is fixed, so the point each leader lands on
-     is the band's own outer edge put through the same transform. That
-     keeps the three labels in a true column instead of wherever a
-     measured bounding box happens to fall. */
-  var ZCAM = { x: 80, y: 209, k: 1.8, ox: 100, oy: 112 };
-  var ZPART = [['Upper', 10, 140, 92], ['Mid', 10, 145, 110], ['Lower', 10, 130, 131]];
   var ZCOL = 176;
+
+  /* The zoomed regions are built into the map when a group opens, and the
+     labels are placed from where those regions actually landed rather than
+     from a table, so a region and its label can never drift apart. */
+  var zoneBoxes = [];
+
+  function buildZones() {
+    zones.textContent = '';
+    zoneBoxes = [];
+    if (S.stage !== 'zoom' || !S.gid) return;
+    var P = partsOf(S.gid, S.view);
+    if (!P) return;
+    zones.style.setProperty('--zone-hue', 'var(--anat-' + S.gid + ')');
+    var fit = fitAttr(S.view);
+    var paths = ART[S.view].groups[S.gid] || [];
+    var box = MEASURED[S.view][S.gid];
+
+    P.names.forEach(function (name, i) {
+      var g = el('g', { class: 'zone', 'data-part': name, tabindex: '0', role: 'button',
+        'data-testid': 'zone-' + name.toLowerCase().replace(/ /g, '-'),
+        'aria-label': name + ', ' + GROUPS[S.gid].name });
+      var inner = el('g', { transform: fit });
+
+      if (P.kind === 'muscles') {
+        P.paths[name].forEach(function (d) {
+          inner.appendChild(el('path', { d: d, class: 'zone__fill' }));
+        });
+      } else {
+        /* A band of the sheet: the muscle drawn again and clipped to a
+           horizontal slice of its own extent. The bands together are exactly
+           the muscle, so it never changes shape when it opens. */
+        var clip = 'zb-' + i;
+        var cp = el('clipPath', { id: clip, clipPathUnits: 'userSpaceOnUse' });
+        cp.appendChild(el('rect', { x: box[0] - 4, y: box[1] + box[3] * i / P.names.length,
+          width: box[2] + 8, height: box[3] / P.names.length }));
+        defs.appendChild(cp);
+        var band = el('g', { 'clip-path': 'url(#' + clip + ')' });
+        paths.forEach(function (d) { band.appendChild(el('path', { d: d, class: 'zone__fill' })); });
+        inner.appendChild(band);
+      }
+      g.appendChild(inner);
+      g.style.setProperty('--zone-step', String(i));
+      zones.appendChild(g);
+      /* The region's own extent in art units. A clipped band's box is the
+         clip, not the shape's, and getBoundingClientRect on a group would
+         report the unclipped shape, so the box is carried rather than
+         re-measured. */
+      var pb = P.kind === 'muscles'
+        ? PART_BOX[S.view][S.gid][name]
+        : [box[0], box[1] + box[3] * i / P.names.length, box[2], box[3] / P.names.length];
+      zoneBoxes.push([name, boxIn(S.view, pb)]);
+    });
+  }
 
   function placeZoomLabels() {
     zlabs.textContent = '';
-    if (S.stage !== 'zoom') return;
-    ZPART.forEach(function (P) {
-      var ax = ZCAM.x + (P[2] - ZCAM.ox) * ZCAM.k;
-      var ay = ZCAM.y + (P[3] - ZCAM.oy) * ZCAM.k;
+    if (S.stage !== 'zoom' || !zoneBoxes.length) return;
+    zoneBoxes.forEach(function (Z) {
+      /* The region's right edge and vertical centre, put through the same
+         camera the body is under, so the leader lands on the region. */
+      var r = Z[1];
+      var ax = ZCAM.x + (r.x + r.w - ZCAM.ox) * ZCAM.k;
+      var ay = ZCAM.y + (r.y + r.h / 2 - ZCAM.oy) * ZCAM.k;
+      ax = Math.min(ax, ZCOL - 14);
       var g = el('g', { class: 'lab', style: 'opacity:1' });
       g.appendChild(el('path', { class: 'lab__line',
         d: 'M' + n2(ax) + ' ' + n2(ay) + ' L' + n2(ZCOL - 6) + ' ' + n2(ay) }));
       g.appendChild(el('circle', { class: 'lab__dot', cx: n2(ax), cy: n2(ay), r: 2.5 }));
       var t = el('text', { class: 'zlab__t', x: ZCOL, y: n2(ay), 'text-anchor': 'start' });
-      t.textContent = P[0];
+      t.textContent = Z[0];
       var n = el('tspan', { class: 'zlab__n', dx: 6 });
-      n.textContent = P[1];
+      n.textContent = Math.round(GROUPS[S.gid].n / zoneBoxes.length);
       t.appendChild(n);
       g.appendChild(t);
       zlabs.appendChild(g);
     });
     sizeType();
+
+    /* The column sits wherever the longest name still fits. 'Lower Back' is
+       eleven characters and runs off a 240-unit frame from a fixed column, so
+       the column moves to the text rather than the text being shortened. */
+    var right = 222, over = 0;
+    Array.prototype.forEach.call(zlabs.querySelectorAll('.zlab__t'), function (t) {
+      /* getBBox rather than getComputedTextLength: the count is a tspan with
+         its own offset, and only the box accounts for it. */
+      var w = t.getBBox ? t.getBBox().width : 0;
+      over = Math.max(over, ZCOL + w - right);
+    });
+    if (over > 0) {
+      Array.prototype.forEach.call(zlabs.children, function (g) {
+        var t = g.querySelector('.zlab__t');
+        var line = g.querySelector('.lab__line');
+        if (t) t.setAttribute('x', n2(ZCOL - over));
+        if (line) {
+          var d = line.getAttribute('d').split(' L');
+          line.setAttribute('d', d[0] + ' L' + n2(ZCOL - over - 6) + ' ' + d[1].split(' ')[1]);
+        }
+      });
+    }
   }
 
   /* Type is set at the 11px step of the scale as measured on screen:
@@ -889,6 +909,8 @@
     map.classList.toggle('map--strip', S.stage === 'list');
     if (S.stage === 'list') map.setAttribute('data-part', 'upper'); else map.removeAttribute('data-part');
     svg.setAttribute('viewBox', S.stage === 'list' ? '36 78 128 65' : '-16 8 240 402');
+    if (S.stage === 'zoom') fitCamera();
+    buildZones();
     if (S.stage === 'list') renderList();
     requestAnimationFrame(function () { sizeType(); placeZoomLabels(); });
   }
@@ -896,17 +918,26 @@
   /* ---------------------------------------------------------------
      Behaviour
      --------------------------------------------------------------- */
-  function select(gid) { S.gid = gid; S.stage = 'selected'; render(); }
+  function select(gid) { S.gid = gid; S.part = null; S.stage = 'selected'; render(); }
 
   document.addEventListener('click', function (e) {
-    var mg = e.target.closest ? e.target.closest('.mg') : null;
+    /* '[data-g]' rather than '.mg': the reach paths carry the group id but
+       sit outside the groups, so that a thin muscle can be grown without
+       being painted over by the group drawn after it. */
+    var mg = e.target.closest ? e.target.closest('[data-g]') : null;
     var act = e.target.closest ? e.target.closest('[data-action]') : null;
     if (act) {
       var a = act.getAttribute('data-action');
-      if (a === 'open') { S.stage = GROUPS[S.gid].subs ? 'zoom' : 'list'; render(); return; }
-      if (a === 'back') { S.stage = S.stage === 'list' && GROUPS[S.gid].subs ? 'zoom' : 'selected'; render(); return; }
+      /* A group opens into its regions only where those regions are real.
+         Everywhere else Open goes straight to the exercises. */
+      if (a === 'open') { S.stage = partsOf(S.gid, S.view) ? 'zoom' : 'list'; render(); return; }
+      if (a === 'back') {
+        S.stage = (S.stage === 'list' && partsOf(S.gid, S.view)) ? 'zoom' : 'selected';
+        render(); return;
+      }
     }
-    if (e.target.closest('.part') && S.stage === 'zoom') { S.stage = 'list'; render(); return; }
+    var zone = e.target.closest && e.target.closest('.zone');
+    if (zone && S.stage === 'zoom') { S.part = zone.getAttribute('data-part'); S.stage = 'list'; render(); return; }
     if (mg) { select(mg.getAttribute('data-g')); return; }
     if (e.target.id === 'tab-front') { S.view = 'front'; S.gid = null; S.stage = 'body'; render(); }
     if (e.target.id === 'tab-back') { S.view = 'back'; S.gid = null; S.stage = 'body'; render(); }
