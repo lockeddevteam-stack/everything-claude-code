@@ -23,7 +23,7 @@
  *   - tokens.css and components.css are inlined once and adopted by every root.
  */
 
-import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -1023,3 +1023,14 @@ const html = build();
 writeFileSync(out, html);
 const kb = (Buffer.byteLength(html) / 1024).toFixed(1);
 console.log(`wrote ${out} (${kb} KB)`);
+
+/* The same file again, as the whole contents of demo/ at the repo root.
+   That directory is what the hosted build serves, and it holds nothing else
+   on purpose: a static host publishes every file under its root, so pointing
+   it at the repo would put the audits, the fixtures and the working notes on
+   a public URL beside the demo. Written here rather than copied by hand so a
+   rebuilt demo cannot ship a stale one. */
+const web = join(HERE, '..', '..', 'demo', 'index.html');
+mkdirSync(dirname(web), { recursive: true });
+writeFileSync(web, html);
+console.log(`wrote ${web} (${kb} KB)`);
