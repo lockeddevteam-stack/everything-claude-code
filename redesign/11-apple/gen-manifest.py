@@ -32,7 +32,13 @@ w("A vanished action, a dropped testid, a storage key that stops being written -
 w("any one of those blocks the wave that caused it.")
 w("")
 
-files = sorted(glob.glob('*.html'))
+# The screens, and the shared modules that define controls of their own.
+# session.js draws the running-workout shelf for thirteen screens; bodymap.js
+# draws the muscle regions. Both were invisible here while the manifest read
+# only *.html, which meant a control could be deleted out of a shared file and
+# every screen lose it with the freeze check silent -- the same shape of bug
+# the shelf itself was. A module with no controls in it simply scores zeros.
+files = sorted(glob.glob('*.html')) + sorted(glob.glob('*.js'))
 
 w("## Actions per screen")
 w("")
@@ -64,7 +70,7 @@ for f in files:
 w("")
 
 allkeys = set()
-for f in files + ['theme.js', 'app.js', 'bodymap.js']:
+for f in files:
     s = open(f).read()
     allkeys |= set(re.findall(r'localStorage\.(?:get|set|remove)Item\(\s*["\']([A-Za-z0-9_]+)', s))
 w("## Storage keys — %d" % len(allkeys))
@@ -89,7 +95,7 @@ for f in files:
     row = [s.count('\n'),
            len(re.findall(r'addEventListener\(', s)),
            len(set(re.findall(r'data-act(?:ion)?="([^"]+)"', s))),
-           len(re.findall(r'<button|createElement\("button"', s)),
+           len(re.findall(r'<button|createElement\("button"|role:\s*[\'"]button[\'"]|role="button"', s)),
            len(re.findall(r'<input|<textarea|<select', s)),
            len(set(re.findall(r'data-testid="([^"]+)"', s)))]
     for i, v in enumerate(row):

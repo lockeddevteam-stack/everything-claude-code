@@ -46,21 +46,15 @@ media-retry             open                    retry                   save-cus
 try                     undo
 ```
 
-**fuel.html** — 22
+**fuel.html** — 21
 
 ```
 ' + c[0] +
           '  cam                     cam-log                 cam-oil                 close
 log-often               meal                    meal-delete             meal-portion            meals
-mic                     mic-log                 resume                  retry                   scan
-scan-log                supp                    targets                 targets-save            undo
-water-add               water-sub
-```
-
-**home.html** — 1
-
-```
-resume
+mic                     mic-log                 retry                   scan                    scan-log
+supp                    targets                 targets-save            undo                    water-add
+water-sub
 ```
 
 **profile.html** — 4
@@ -140,27 +134,38 @@ rest-add                rest-set                rest-skip               rest-tog
 toast-action            tool                    tools
 ```
 
+**session.js** — 1
+
+```
+resume
+```
+
 ## Test ids per screen
 
 The selectors every test and every audit script addresses.
 
 | Screen | testids |
 |---|---|
-| `coach.html` | 98 |
-| `cycle.html` | 42 |
-| `exercise-library.html` | 50 |
-| `fuel.html` | 69 |
-| `home.html` | 21 |
+| `coach.html` | 99 |
+| `cycle.html` | 43 |
+| `exercise-library.html` | 51 |
+| `fuel.html` | 68 |
+| `home.html` | 20 |
 | `onboarding.html` | 65 |
-| `profile.html` | 22 |
-| `progress.html` | 61 |
-| `review.html` | 46 |
-| `settings.html` | 30 |
-| `shopping.html` | 116 |
-| `split-builder.html` | 68 |
-| `train.html` | 51 |
-| `workout-detail.html` | 30 |
+| `profile.html` | 23 |
+| `progress.html` | 62 |
+| `review.html` | 47 |
+| `settings.html` | 31 |
+| `shopping.html` | 117 |
+| `split-builder.html` | 69 |
+| `train.html` | 52 |
+| `workout-detail.html` | 31 |
 | `workout-log.html` | 94 |
+| `app.js` | 1 |
+| `bodymap.js` | 0 |
+| `chrome.js` | 1 |
+| `session.js` | 1 |
+| `theme.js` | 0 |
 
 ## Storage keys — 5
 
@@ -176,19 +181,24 @@ five columns after them are.
 
 | Screen | Lines | Listeners | Actions | Buttons | Inputs | testids |
 |---|---|---|---|---|---|---|
-| `coach.html` | 1542 | 5 | 46 | 53 | 3 | 98 |
-| `cycle.html` | 643 | 4 | 16 | 19 | 6 | 42 |
-| `exercise-library.html` | 1189 | 6 | 22 | 31 | 4 | 50 |
-| `fuel.html` | 1003 | 5 | 22 | 39 | 3 | 69 |
-| `home.html` | 496 | 3 | 1 | 18 | 0 | 21 |
+| `coach.html` | 1565 | 6 | 46 | 53 | 3 | 99 |
+| `cycle.html` | 662 | 5 | 16 | 19 | 6 | 43 |
+| `exercise-library.html` | 1629 | 7 | 22 | 31 | 4 | 51 |
+| `fuel.html` | 1022 | 5 | 21 | 38 | 3 | 68 |
+| `home.html` | 515 | 3 | 0 | 17 | 0 | 20 |
 | `onboarding.html` | 1152 | 10 | 0 | 31 | 5 | 65 |
-| `profile.html` | 382 | 3 | 4 | 12 | 0 | 22 |
-| `progress.html` | 1037 | 5 | 15 | 26 | 6 | 61 |
-| `review.html` | 996 | 4 | 0 | 23 | 0 | 46 |
-| `settings.html` | 1030 | 4 | 15 | 23 | 4 | 30 |
-| `shopping.html` | 1567 | 5 | 44 | 60 | 16 | 116 |
-| `split-builder.html` | 1156 | 11 | 28 | 36 | 4 | 68 |
-| `train.html` | 969 | 5 | 18 | 28 | 2 | 51 |
-| `workout-detail.html` | 517 | 3 | 9 | 12 | 1 | 30 |
-| `workout-log.html` | 1202 | 6 | 38 | 50 | 5 | 94 |
-| **total** | **14881** | **79** | **278** | **461** | **59** | **863** |
+| `profile.html` | 402 | 4 | 4 | 12 | 0 | 23 |
+| `progress.html` | 1057 | 6 | 15 | 26 | 6 | 62 |
+| `review.html` | 1015 | 5 | 0 | 23 | 0 | 47 |
+| `settings.html` | 1049 | 5 | 15 | 23 | 4 | 31 |
+| `shopping.html` | 1587 | 6 | 44 | 60 | 16 | 117 |
+| `split-builder.html` | 1179 | 12 | 28 | 36 | 4 | 69 |
+| `train.html` | 989 | 6 | 18 | 28 | 2 | 52 |
+| `workout-detail.html` | 536 | 4 | 9 | 12 | 1 | 31 |
+| `workout-log.html` | 1249 | 6 | 38 | 50 | 5 | 94 |
+| `app.js` | 708 | 0 | 0 | 0 | 1 | 1 |
+| `bodymap.js` | 443 | 4 | 0 | 1 | 0 | 0 |
+| `chrome.js` | 585 | 10 | 0 | 1 | 0 | 1 |
+| `session.js` | 211 | 2 | 1 | 1 | 0 | 1 |
+| `theme.js` | 67 | 1 | 0 | 0 | 0 | 0 |
+| **total** | **17622** | **107** | **277** | **462** | **60** | **875** |
