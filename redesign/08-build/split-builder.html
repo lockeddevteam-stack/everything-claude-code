@@ -672,7 +672,11 @@
   }
 
   function leaveDialog() {
-    return '<div class="scrim" data-testid="scrim"></div>' +
+    /* The scrim closes, like every other scrim in this file. It was the one
+       without a data-action, and nothing said why. Tapping outside a
+       confirmation is the "no" answer, and "Keep editing" is already the
+       safe default beside it. */
+    return '<div class="scrim" data-testid="scrim" data-action="close-modal"></div>' +
       '<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="leaveTitle" data-testid="leave-dialog">' +
         '<h2 class="t-section" id="leaveTitle">Save this split first?</h2>' +
         '<p class="t-detail mt-2" data-testid="leave-body">' + esc(dirtySentence()) + '</p>' +
@@ -748,10 +752,17 @@
      Render
      --------------------------------------------------------------- */
   var app = document.getElementById('app');
+  var renderedModal = false;
+
   function render() {
     var active = document.activeElement;
     var key = active && active.getAttribute ? active.getAttribute('data-testid') : null;
     var caret = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
+    /* What was RENDERED last time, not what state says now: the caller sets
+       S.modal and then calls render, so reading the state here always says
+       the modal was already open and focus never moved into it. */
+    var hadModal = renderedModal;
+    renderedModal = !!S.modal;
     LKPatch(app, (S.screen === 'manual' ? manualScreen() : aiScreen()) + overlays());
     if (key) {
       var next = app.querySelector('[data-testid="' + key + '"]');
@@ -762,8 +773,32 @@
         }
       }
     }
+    /* A modal that opens takes focus, and it goes to the way OUT — never to
+       the destructive button. The leave dialog took focus nowhere at all: a
+       role="dialog" aria-modal="true" was on screen while activeElement was
+       still <body>, so the next Tab restarted at the top of the document
+       behind the dialog. */
+    if (S.modal && !hadModal) {
+      var safe = app.querySelector('[data-action="close-modal"].btn') ||
+                 app.querySelector('.dialog button, .sheet button');
+      if (safe) safe.focus({ preventScroll: true });
+    }
     renderDev();
   }
+
+  /* Tab stays inside the modal. Without this the ring walks out of a
+     dialog that is covering the screen and lands on controls nobody can see. */
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Tab' || !S.modal) return;
+    var box = app.querySelector('.dialog, .sheet');
+    if (!box) return;
+    var f = box.querySelectorAll('button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    if (!f.length) return;
+    var first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    else if (!box.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+  });
 
   function toast(text, action, fn) {
     S.toast = { text: text, action: action, fn: fn };

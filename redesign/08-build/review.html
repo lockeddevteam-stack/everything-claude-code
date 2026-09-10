@@ -677,7 +677,11 @@
   function saveBar(opts) {
     if (S.saved) {
       return '<div class="actionbar" role="contentinfo" aria-label="Session actions" data-testid="actionbar">' +
-               '<span class="actionbar__status" role="status" data-testid="save-status">' +
+               /* tabindex -1 so focus can be MOVED here without the status
+                  joining the tab order. Saving disables the button that was
+                  pressed, and focus has to land somewhere that says what
+                  happened rather than on <body>. */
+               '<span class="actionbar__status" role="status" tabindex="-1" data-testid="save-status">' +
                  'Saved to history</span>' +
                '<button class="btn btn--secondary" disabled data-testid="action-save">' +
                  '<span class="btn__label">Saved</span></button>' +
@@ -842,6 +846,16 @@
      appeared, discard did not and its toast was written into an
      already-painted slot, sat there invisible, and was cleared four seconds
      later. A function that shows a message shows it. */
+  /* Focus goes to a named control after the render that replaces the one
+     that was pressed. Deferred a frame: the caller paints after this. */
+  function refocus(testid) {
+    if (!testid) return;
+    requestAnimationFrame(function () {
+      var el = document.querySelector('[data-testid="' + testid + '"]');
+      if (el) el.focus({ preventScroll: true });
+    });
+  }
+
   function toast(msg) {
     S.toast = msg;
     LKPatch(toastSlot, toastHTML());
@@ -874,9 +888,15 @@
         S.saved = true;
         paint(true);
         toast('Session saved' + (S.feel ? ', marked ' + S.feel : '') + '.');
+        /* Saving disables the button it was pressed with, which blurs it and
+           drops focus to <body> — so the next Tab restarts at the top of the
+           document. It goes to the status the save just produced, which is
+           also the thing somebody would want read to them. */
+        refocus('save-status');
         return;
       case 'action-discard':
         S.discardArmed = true;
+        S.focusAfter = 'action-discard-cancel';
         paint(true);
         /* The armed confirmation is the last thing in the scroller and the
            action bar sits under it, so on a full session both its buttons
@@ -884,6 +904,7 @@
            a dead end in both directions. */
         var armed = body.querySelector('[data-testid="section-discard"]');
         if (armed && armed.scrollIntoView) armed.scrollIntoView({ block: 'end', behavior: 'smooth' });
+        refocus('action-discard-cancel');
         return;
       case 'action-discard-cancel':
         S.discardArmed = false; paint(true); return;

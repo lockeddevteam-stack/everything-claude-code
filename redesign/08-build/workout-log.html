@@ -827,7 +827,16 @@
      rebuilt: the caret, the scroll and the running animations survive. */
   function put(el, html) { LKPatch(el, html); }
 
+  /* What was rendered last time, so an overlay that has just appeared can be
+     told from one that was already there. Reading the state instead always
+     says it was already open, because the caller sets it and then paints. */
+  var renderedOverlay = false;
+
   function paint() {
+    var hadOverlay = renderedOverlay;
+    var opener = document.activeElement && document.activeElement.dataset
+      ? document.activeElement.dataset.testid : null;
+
     screen.setAttribute('data-state', S.state);
     put(hdr, headerHTML());
     put(restSlot, restHTML());
@@ -835,8 +844,40 @@
     put(tabs, tabsHTML());
     put(overlay, overlayHTML());
     put(toastSlot, toastHTML());
+
+    var nowOverlay = !!(S.overlay || S.pad);
+    renderedOverlay = nowOverlay;
+
+    /* Opening takes focus to the way OUT, never to the destructive control.
+       Closing puts it back on whatever opened the thing, so the next Tab
+       carries on from where the person was rather than at the top of the
+       document. */
+    if (nowOverlay && !hadOverlay) {
+      if (opener) lastOpener = opener;
+      var safe = overlay.querySelector('button[data-act="close"], button[data-act="pad-cancel"]') ||
+                 overlay.querySelector('.sheet button, .dialog button');
+      if (safe) safe.focus({ preventScroll: true });
+    } else if (!nowOverlay && hadOverlay) {
+      refocus(lastOpener);
+      lastOpener = null;
+    }
   }
+
+  var lastOpener = null;
   function say(msg) { live.textContent = msg; }
+
+  /* Focus goes back to the control that opened the thing being closed. A
+     sheet that closes onto <body> restarts the next Tab at the top of the
+     document, and for anybody on a keyboard or VoiceOver that is the whole
+     screen to walk again. Deferred a frame because the caller closes the
+     overlay by re-rendering after this returns. */
+  function refocus(testid) {
+    if (!testid) return;
+    requestAnimationFrame(function () {
+      var el = document.querySelector('[data-testid="' + testid + '"]');
+      if (el && !el.disabled) el.focus({ preventScroll: true });
+    });
+  }
 
   /* =============================================================
      Behaviour
@@ -864,6 +905,11 @@
     var i = Number(t.getAttribute('data-set'));
     S.tapCount++;
 
+    /* Remember what was pressed, so whatever it opens can hand focus back to
+       it. Only a control outside the overlay counts: a button inside a sheet
+       is not what the sheet was opened from. */
+    if (!t.closest('#overlay') && t.dataset.testid) lastOpener = t.dataset.testid;
+
     switch (act) {
       /* ---- editing any set, not only the current one ---- */
       case 'edit':
@@ -880,11 +926,16 @@
       case 'pad-step': padStep(parseFloat(t.getAttribute('data-step'))); break;
       case 'pad-done': {
         var f = S.pad.field, ex = S.pad.ex, ix = S.pad.set;
+        lastOpener = 'cell-' + ex + '-' + ix + '-' + f;
         padCommit();
         say('Set ' + (ix + 1) + ' ' + f + ' saved');
         break;
       }
-      case 'pad-cancel': S.pad = null; break;
+      case 'pad-cancel': {
+        lastOpener = S.pad ? 'cell-' + S.pad.ex + '-' + S.pad.set + '-' + S.pad.field : lastOpener;
+        S.pad = null;
+        break;
+      }
 
       case 'rir':
         break;

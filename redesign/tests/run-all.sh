@@ -31,6 +31,7 @@ while read -r f; do
 done < /tmp/screens.txt
 run "body map — targets and selection"             node tap-test.mjs
 run "accent — one fill per screen"                  node accent-audit.mjs
+run "focus — never falls to the body"              node focus-audit.mjs
 run "skeletons — nothing shifts on load"            node skeleton-fit.mjs
 run "dynamic type — default ladder and AX5"         node dynamic-type.mjs
 run "actions — every control does something"       node action-coverage.mjs

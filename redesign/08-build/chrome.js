@@ -272,6 +272,80 @@
     });
   }
 
+  /* ---------------------------------------------------------------
+     Overlay focus
+
+     A modal that opens without taking focus leaves the tab ring behind it,
+     on controls nobody can see. A modal that closes onto <body> restarts the
+     next Tab at the top of the document. Both are invisible to everybody who
+     does not use a keyboard or VoiceOver, which is why they survived four
+     review rounds on five screens.
+
+     This is chrome, not screen behaviour: every sheet and dialog in the build
+     wants the same thing, and a screen that has already done something more
+     specific -- the workout log returns focus to the exact cell that opened
+     its keypad -- is left alone, because this only acts when focus is still
+     outside the overlay.
+     --------------------------------------------------------------- */
+  function initOverlayFocus(root) {
+    if (root.__lk_ovfocus || typeof MutationObserver !== 'function') return;
+
+    var opener = null;
+    var host = root.host ? root : (root.body || root);
+
+    /* What was pressed, remembered at press time. Reading the active element
+       when the overlay appears reads the overlay's own button. */
+    /* Both, because a screen can open its own overlay with el.click(), which
+       fires no pointer event. Capture phase, so this runs before the screen's
+       handler puts the overlay up. */
+    ['pointerdown', 'click'].forEach(function (ev) {
+    (root.addEventListener ? root : doc).addEventListener(ev, function (e) {
+      var el = e.target && e.target.closest ? e.target.closest('button, [role="button"], a[href]') : null;
+      /* The testid, not the node. These screens re-render through LKPatch and
+         the element the finger landed on may be a different object by the
+         time the overlay closes, so holding a reference gives back something
+         that is no longer in the document. */
+      if (el && !el.closest('.sheet, .dialog, .scrim')) opener = el.getAttribute('data-testid') || opener;
+    }, true);
+    });
+
+    function safeIn(box) {
+      var buttons = box.querySelectorAll('button:not([disabled])');
+      for (var i = 0; i < buttons.length; i++) {
+        var b = buttons[i];
+        /* Never the destructive one, and never a scrim dressed as a button. */
+        if (/btn--danger/.test(b.className)) continue;
+        return b;
+      }
+      return buttons[0] || null;
+    }
+
+    var was = false;
+    var obs = new MutationObserver(function () {
+      var box = root.querySelector('.dialog') || root.querySelector('.sheet');
+      var now = !!box;
+      if (now === was) return;
+      was = now;
+      if (now) {
+        var a = (root.activeElement || doc.activeElement);
+        if (a && box.contains(a)) return;          /* the screen did it itself */
+        var t = safeIn(box);
+        if (t) t.focus({ preventScroll: true });
+      } else if (opener) {
+        /* A frame later: the screen usually re-renders as it closes, and
+           focusing a node that is about to be morphed loses it again. */
+        var id = opener;
+        requestAnimationFrame(function () {
+          var back = root.querySelector('[data-testid="' + id + '"]');
+          if (back && !back.disabled) back.focus({ preventScroll: true });
+        });
+      }
+    });
+    try { obs.observe(host, { childList: true, subtree: true }); }
+    catch (e) { return; }
+    root.__lk_ovfocus = true;
+  }
+
   function init(root) {
     root = root || doc;
     initLargeTitle(root);
@@ -279,6 +353,7 @@
     initScrollEdge(root);
     initSheets(root);
     watchSheets(root);
+    initOverlayFocus(root);
   }
 
   /* Sheets are rendered when they open, so the ones that exist at init are
