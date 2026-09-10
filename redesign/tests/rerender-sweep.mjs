@@ -23,7 +23,11 @@ const screens = readdirSync(BUILD).filter(f => f.endsWith('.html')).sort();
      split-builder  leaving edit mode removes the split-name field entirely */
 const EXPECTED = {
   'onboarding.html': { focus: true },
-  'split-builder.html': { caret: true }
+  'split-builder.html': { caret: true },
+  /* Opening an exercise moves focus into the sheet, which is where focus
+     belongs once a modal is up. Read in the source and confirmed by driving
+     it: the sheet's own primary button takes focus, not the row behind it. */
+  'exercise-library.html': { focus: true }
 };
 
 const browser = await chromium.launch();

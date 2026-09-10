@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — Profile</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<script src="theme.js"></script>
+<script src="app.js"></script>
+<script src="chrome.js"></script>
+</head>
+<body>
+<!--
+  PROFILE — the fifth tab.
+
+  It is a record, not a dashboard. Everything here was earned by doing
+  something, and nothing on it is a target: the screens that ask you to do
+  more are Home, Train and Coach. This one only says what happened.
+
+  WHY THE BADGES ARE OFF BY DEFAULT
+  Streaks and badges are a setting, off unless somebody turned them on. A
+  badge is motivating for one kind of person and a source of guilt for
+  another, and the app is used by both. When the setting is off the section
+  is not there at all, rather than being there and empty.
+
+  WHY LOCKED BADGES SHOW A COUNT AND NOT A LOCK
+  "3 more to go" is something you can act on. A padlock is decoration that
+  says you have not done enough.
+
+  SETTINGS IS A PUSH, NOT A PANEL
+  Settings already exists as its own screen and is reached from here. The
+  fifth tab holds identity and record; the settings screen holds every
+  control. Two jobs, two screens.
+
+  STATES
+  populated, badges (the gaming layer on), guest, new, loading, error.
+-->
+
+<div class="stage">
+  <div class="phone">
+    <div class="screen" id="screen" data-testid="screen-profile" data-state="populated">
+
+      <header class="hdr hdr--large" data-large-title="#body" data-scroll-edge="#body" id="hdr"></header>
+
+      <main class="body" id="body" data-testid="profile-scroll" tabindex="-1"></main>
+
+      <div id="overlay"></div>
+
+      <nav class="tabbar" aria-label="Sections" data-minimize="#body">
+        <button class="tabbar__item" type="button" data-testid="tab-home">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4v-5H9v5H5a1 1 0 0 1-1-1z"/></svg>
+          Home
+        </button>
+        <button class="tabbar__item" type="button" data-testid="tab-train">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/></svg>
+          Train
+        </button>
+        <button class="tabbar__item" type="button" data-testid="tab-fuel">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7 3v8a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V3"/><path d="M9 13v8"/><path d="M17 3c-1.5 1.8-2 3.6-2 5.5 0 1.6.7 2.5 2 2.5s2-.9 2-2.5c0-1.9-.5-3.7-2-5.5Z"/><path d="M17 11v10"/></svg>
+          Fuel
+        </button>
+        <button class="tabbar__item" type="button" data-testid="tab-coach">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 15a3 3 0 0 1-3 3H9l-4 3V7a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3z"/></svg>
+          Coach
+        </button>
+        <button class="tabbar__item" type="button" aria-current="page" data-testid="tab-profile">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>
+          Profile
+        </button>
+      </nav>
+
+    </div>
+  </div>
+</div>
+
+<div class="dev">
+  <button class="dev__toggle" id="dev-toggle" aria-expanded="false" aria-controls="dev-menu" data-testid="dev-toggle">State</button>
+  <div class="dev__menu" id="dev-menu" hidden data-testid="dev-menu"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var screen = document.getElementById('screen');
+  var hdr    = document.getElementById('hdr');
+  var body   = document.getElementById('body');
+  var overlay = document.getElementById('overlay');
+  var menu   = document.getElementById('dev-menu');
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c];
+    });
+  }
+  function n(v) { return Number(v).toLocaleString('en-GB'); }
+
+  var ICO = {
+    chev: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg>',
+    cog:  '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3.4"/><path d="M19.1 14.3a1.5 1.5 0 0 0 .3 1.7l.1.1a1.8 1.8 0 1 1-2.6 2.6l-.1-.1a1.5 1.5 0 0 0-1.7-.3 1.5 1.5 0 0 0-.9 1.4v.2a1.8 1.8 0 1 1-3.6 0V20a1.5 1.5 0 0 0-1-1.4 1.5 1.5 0 0 0-1.7.3l-.1.1a1.8 1.8 0 1 1-2.6-2.6l.1-.1a1.5 1.5 0 0 0 .3-1.7 1.5 1.5 0 0 0-1.4-.9H4a1.8 1.8 0 1 1 0-3.6h.2a1.5 1.5 0 0 0 1.4-1 1.5 1.5 0 0 0-.3-1.7l-.1-.1a1.8 1.8 0 1 1 2.6-2.6l.1.1a1.5 1.5 0 0 0 1.7.3H10a1.5 1.5 0 0 0 .9-1.4V4a1.8 1.8 0 1 1 3.6 0v.2a1.5 1.5 0 0 0 .9 1.4 1.5 1.5 0 0 0 1.7-.3l.1-.1a1.8 1.8 0 1 1 2.6 2.6l-.1.1a1.5 1.5 0 0 0-.3 1.7v.1a1.5 1.5 0 0 0 1.4.9h.2a1.8 1.8 0 1 1 0 3.6H20a1.5 1.5 0 0 0-1.4.9z"/></svg>',
+    alert:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/></svg>'
+  };
+
+  /* The record. Every figure is the sum of something that was logged, which
+     is why none of them can be edited from this screen. */
+  var ME = {
+    name: 'Cesco',
+    handle: 'cesco',
+    workouts: 84,
+    prs: 19,
+    sets: 1642,
+    volumeKg: 412800,
+    useKg: true,
+    records: [
+      { lift: 'Barbell bench press', group: 'Chest',     kg: 102.5 },
+      { lift: 'Back squat',          group: 'Quads',     kg: 145 },
+      { lift: 'Conventional deadlift', group: 'Back',    kg: 180 },
+      { lift: 'Overhead press',      group: 'Shoulders', kg: 65 },
+      { lift: 'Barbell row',         group: 'Back',      kg: 92.5 },
+      { lift: 'Weighted pull-up',    group: 'Lats',      kg: 32.5 }
+    ]
+  };
+
+  /* A badge is earned by a count crossing a line. The line is written next
+     to the badge so nothing about it is a mystery. */
+  var BADGES = [
+    { id: 'first',  face: '1',   name: 'First rep',   need: 1,    of: 'workouts', got: 'Logged your first session' },
+    { id: 'w5',     face: '5',   name: '5 sessions',  need: 5,    of: 'workouts', got: 'The habit is starting' },
+    { id: 'w10',    face: '10',  name: '10 sessions', need: 10,   of: 'workouts', got: 'The habit has formed' },
+    { id: 'w25',    face: '25',  name: '25 sessions', need: 25,   of: 'workouts', got: 'Six months of showing up' },
+    { id: 'w100',   face: '100', name: '100 sessions',need: 100,  of: 'workouts', got: 'Two years of showing up' },
+    { id: 'pr1',    face: 'PR',  name: 'First record',need: 1,    of: 'prs',      got: 'Logged your first record' },
+    { id: 'pr5',    face: 'P5',  name: '5 records',   need: 5,    of: 'prs',      got: 'Measurably stronger' },
+    { id: 'pr25',   face: 'P25', name: '25 records',  need: 25,   of: 'prs',      got: 'Stronger everywhere' },
+    { id: 's100',   face: 'S',   name: '100 sets',    need: 100,  of: 'sets',     got: 'That is a lot of reps' },
+    { id: 's2000',  face: 'S2k', name: '2,000 sets',  need: 2000, of: 'sets',     got: 'That is a lot of reps' }
+  ];
+
+  var S = { state: 'populated' };
+
+  function headerHTML() {
+    return '' +
+      '<div class="hdr__title stack stack--1">' +
+        '<span class="t-meta">@' + esc(ME.handle) + '</span>' +
+        '<h1 class="hdr__title-large" data-title-large>' + esc(ME.name) + '</h1>' +
+      '</div>' +
+      '<span class="hdr__title-small" data-title-small aria-hidden="true">' + esc(ME.name) + '</span>';
+  }
+
+  /* ---------------------------------------------------------------
+     Identity. The one row that leaves this screen, plus the account
+     state, which is the only thing here that can need attention.
+     --------------------------------------------------------------- */
+  function identity() {
+    var guest = S.state === 'guest';
+    return '<div class="card card--flush" data-testid="identity">' +
+      '<div class="row row--static">' +
+        '<span class="avatar" aria-hidden="true">' + esc(ME.name.charAt(0).toUpperCase()) + '</span>' +
+        '<span class="row__main stack">' +
+          '<span class="row__title">' + (guest ? 'On this phone only' : 'Backed up') + '</span>' +
+          '<span class="row__sub">' + (guest
+            ? 'Nothing leaves this device'
+            : 'Last synced 12 minutes ago') + '</span>' +
+        '</span>' +
+      '</div>' +
+      '<button class="row" type="button" data-action="settings" data-testid="open-settings">' +
+        '<span class="ico-well" aria-hidden="true">' + ICO.cog + '</span>' +
+        '<span class="row__main"><span class="row__title">Settings</span></span>' +
+        '<span class="row__chev">' + ICO.chev + '</span>' +
+      '</button>' +
+    '</div>';
+  }
+
+  function guestBanner() {
+    if (S.state !== 'guest') return '';
+    return '<div class="card card--sunken mt-4" data-testid="guest-banner">' +
+      '<h2 class="t-label">On this phone only</h2>' +
+      '<p class="t-detail mt-2">Everything you have logged is here and works offline. It is not backed up, ' +
+        'so a lost phone is a lost record. An account copies it and changes nothing else.</p>' +
+      '<button class="btn btn--primary btn--block mt-3" type="button" data-action="signup" data-testid="signup">' +
+        '<span class="btn__label">Create an account</span></button>' +
+    '</div>';
+  }
+
+  /* ---------------------------------------------------------------
+     The record
+     --------------------------------------------------------------- */
+  function stat(label, value, unit) {
+    var zero = value === 0 || value === '0';
+    return '<div class="stat" data-testid="stat-' + label.toLowerCase().replace(/\W+/g, '-') + '">' +
+      '<span class="stat__value"' + (zero ? ' style="color: var(--text-tertiary)"' : '') + '>' + value +
+        (unit ? '<span class="stat__unit"> ' + unit + '</span>' : '') + '</span>' +
+      '<span class="stat__label">' + label + '</span>' +
+    '</div>';
+  }
+
+  function totals() {
+    var vol = Math.round(ME.volumeKg / 1000);
+    return '<div class="card mt-4" data-testid="totals">' +
+      '<div class="tiles">' +
+        stat('Sessions', n(ME.workouts), '') +
+        stat('Records',  n(ME.prs), '') +
+      '</div>' +
+      '<div class="tiles mt-4">' +
+        stat('Sets',   n(ME.sets), '') +
+        stat('Volume', n(vol) + 'k', ME.useKg ? 'kg' : 'lb') +
+      '</div>' +
+    '</div>';
+  }
+
+  function records() {
+    if (!ME.records.length) return '';
+    /* Six, because a record you have to scroll to is a record you do not
+       remember setting. The rest are in the exercise's own history. */
+    return '<div class="section">' +
+      '<div class="section__head">' +
+        '<h2 class="t-label">Personal records</h2>' +
+        '<span class="t-meta num">' + ME.prs + ' in all</span>' +
+      '</div>' +
+      '<div class="card card--flush">' + ME.records.slice(0, 6).map(function (r, i) {
+        return '<div class="row row--static" data-testid="pr-' + i + '">' +
+          '<span class="row__main stack">' +
+            '<span class="row__title">' + esc(r.lift) + '</span>' +
+            '<span class="row__sub">' + esc(r.group) + '</span>' +
+          '</span>' +
+          '<span class="row__value num">' + r.kg +
+            '<small class="t-caption-2 quiet"> ' + (ME.useKg ? 'kg' : 'lb') + '</small></span>' +
+        '</div>';
+      }).join('') + '</div>' +
+    '</div>';
+  }
+
+  function badges() {
+    if (S.state !== 'badges') return '';
+    var have = { workouts: ME.workouts, prs: ME.prs, sets: ME.sets };
+    var earned = BADGES.filter(function (b) { return have[b.of] >= b.need; });
+    var locked = BADGES.filter(function (b) { return have[b.of] < b.need; });
+
+    if (!earned.length && !locked.length) return '';
+    return '<div class="section">' +
+      '<div class="section__head"><h2 class="t-label">Badges</h2>' +
+        '<span class="t-meta num">' + earned.length + ' of ' + BADGES.length + '</span></div>' +
+      (earned.length
+        ? '<div class="card card--flush">' + earned.map(function (b) {
+            return '<div class="row row--static" data-testid="badge-' + b.id + '">' +
+              '<span class="badge-face" aria-hidden="true">' + b.face + '</span>' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + esc(b.name) + '</span>' +
+                '<span class="row__sub">' + esc(b.got) + '</span>' +
+              '</span>' +
+            '</div>';
+          }).join('') + '</div>'
+        : '<p class="t-detail">Log a session and the first one is yours.</p>') +
+      (locked.length
+        ? '<div class="card card--flush mt-3">' + locked.map(function (b) {
+            /* A count, not a padlock: "16 more sessions" is something to do
+               this month, a padlock is a thing that has been withheld. */
+            var togo = b.need - have[b.of];
+            return '<div class="row row--static row--quiet" data-testid="badge-' + b.id + '">' +
+              '<span class="badge-face badge-face--locked" aria-hidden="true">' + b.face + '</span>' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + esc(b.name) + '</span>' +
+                '<span class="row__sub">' + n(togo) + ' more ' +
+                  (b.of === 'workouts' ? 'sessions' : b.of === 'prs' ? 'records' : 'sets') + '</span>' +
+              '</span>' +
+            '</div>';
+          }).join('') + '</div>'
+        : '') +
+    '</div>';
+  }
+
+  /* ---------------------------------------------------------------
+     Views
+     --------------------------------------------------------------- */
+  var VIEWS = {};
+
+  VIEWS.populated = function () {
+    return identity() + guestBanner() + totals() + badges() + records();
+  };
+  VIEWS.badges = VIEWS.populated;
+  VIEWS.guest  = VIEWS.populated;
+
+  VIEWS['new'] = function () {
+    var save = { w: ME.workouts, p: ME.prs, s: ME.sets, v: ME.volumeKg, r: ME.records };
+    ME.workouts = 0; ME.prs = 0; ME.sets = 0; ME.volumeKg = 0; ME.records = [];
+    var out = identity() + totals() +
+      '<div class="empty mt-5" data-testid="state-new">' +
+        '<p class="empty__title">Nothing to show yet</p>' +
+        '<p class="empty__body">This page fills itself in as you train. Finish one session and the ' +
+          'four figures above stop being zeroes.</p>' +
+        '<button class="btn btn--primary mt-2" type="button" data-action="start" data-testid="start-first">' +
+          '<span class="btn__label">Start a session</span></button>' +
+      '</div>';
+    ME.workouts = save.w; ME.prs = save.p; ME.sets = save.s; ME.volumeKg = save.v; ME.records = save.r;
+    return out;
+  };
+
+  VIEWS.loading = function () {
+    return '<div role="status" aria-busy="true" aria-label="Loading your profile">' +
+      '<div class="skel" style="height: 120px"></div>' +
+      '<div class="skel mt-4" style="height: 148px"></div>' +
+      '<div class="skel mt-4" style="height: var(--sp-4); width: 42%"></div>' +
+      '<div class="skel mt-3" style="height: 200px"></div>' +
+    '</div>';
+  };
+
+  VIEWS.error = function () {
+    return '<div class="mt-4" data-testid="state-error">' +
+      '<div class="banner banner--error">' + ICO.alert +
+        '<span><strong>Your totals did not load</strong>Every session you logged is on this phone and is ' +
+        'not lost. The totals are counted on the server and it did not answer.</span></div>' +
+      '<button class="btn btn--primary btn--block mt-4" type="button" data-action="retry" data-testid="retry">' +
+        '<span class="btn__label">Try again</span></button>' +
+      '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="settings" data-testid="open-settings">' +
+        '<span class="btn__label">Open settings</span></button>' +
+    '</div>';
+  };
+
+  function render() {
+    screen.setAttribute('data-state', S.state);
+    LKPatch(hdr, headerHTML());
+    LKPatch(body, (VIEWS[S.state] || VIEWS.populated)());
+    LKPatch(overlay, '');
+    Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.state === S.state));
+    });
+    if (window.LKChrome) LKChrome.init(document);
+  }
+
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!el) return;
+    if (el.getAttribute('data-action') === 'retry') {
+      S.state = 'loading'; render();
+      setTimeout(function () { S.state = 'populated'; render(); }, 700);
+    }
+  });
+
+  var STATES = [
+    ['populated', 'Populated'], ['badges', 'Badges on'], ['guest', 'Guest'],
+    ['new', 'New account'], ['loading', 'Loading'], ['error', 'Error']
+  ];
+  LKPatch(menu, STATES.map(function (s) {
+    return '<button class="dev__item" data-state="' + s[0] + '" aria-pressed="false" data-testid="dev-state-' + s[0] + '">' + s[1] + '</button>';
+  }).join(''));
+  document.getElementById('dev-toggle').addEventListener('click', function () {
+    var open = menu.hidden;
+    menu.hidden = !open;
+    this.setAttribute('aria-expanded', String(open));
+  });
+  menu.addEventListener('click', function (e) {
+    var b = e.target.closest('.dev__item');
+    if (!b) return;
+    S.state = b.dataset.state; render();
+  });
+
+  var q = new URLSearchParams(location.search);
+  if (q.get('state') && VIEWS[q.get('state')]) S.state = q.get('state');
+  render();
+  requestAnimationFrame(function () { window.__ready = true; });
+})();
+</script>
+</body>
+</html>

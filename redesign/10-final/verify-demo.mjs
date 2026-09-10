@@ -48,7 +48,7 @@ const goto = async (id) => {
 };
 
 // ---------- tabs ----------
-const tabs = [['home', 'home'], ['train', 'train'], ['fuel', 'fuel'], ['coach', 'coach'], ['profile', 'profile-placeholder']];
+const tabs = [['home', 'home'], ['train', 'train'], ['fuel', 'fuel'], ['coach', 'coach'], ['profile', 'profile']];
 for (const [tab, screen] of tabs) {
   await page.evaluate((t) => {
     const cur = [...document.querySelectorAll('.demo-screen')].find((d) => !d.hidden);
@@ -71,6 +71,14 @@ const fuelText = await page.evaluate(() => {
   const r = document.querySelector('#demo-screen-fuel').shadowRoot;
   return r.querySelector('[data-testid="hero-value"]').textContent.trim();
 });
+// Every tab is a built screen now: the profile tab must show the record it
+// is for, not a stand-in.
+const profText = await page.evaluate(() => {
+  const r = document.querySelector('#demo-screen-profile').shadowRoot;
+  return r.querySelector('[data-testid="stat-sessions"]').textContent.trim();
+});
+ok('profile renders its own totals', /^\d/.test(profText), profText);
+
 ok('fuel renders its own hero', /^[\d,]+$/.test(fuelText), fuelText);
 
 // ---------- pushes and back ----------

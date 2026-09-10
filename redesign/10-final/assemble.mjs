@@ -56,7 +56,7 @@ const MANIFEST = {
     { id: 'train', label: 'Train', screen: 'train' },
     { id: 'fuel', label: 'Fuel', screen: 'fuel' },
     { id: 'coach', label: 'Coach', screen: 'coach' },
-    { id: 'profile', label: 'Profile', screen: null }
+    { id: 'profile', label: 'Profile', screen: 'profile' }
   ],
 
   /* Screens that are pushed from somewhere rather than being a tab.
@@ -67,8 +67,9 @@ const MANIFEST = {
     'split-builder': { parent: 'train', backSelector: '[data-action="manual-back"]' },
     'exercise-library': { parent: 'train' },
     onboarding: { parent: 'home', standalone: true },
-    settings: { parent: 'home', backSelector: '[data-testid="back"]' },
+    settings: { parent: 'profile', backSelector: '[data-testid="back"]' },
     'workout-log': { parent: 'train' },
+    shopping: { parent: 'fuel', backSelector: '[data-testid="back"]' },
     review: { parent: 'train', backSelector: '[data-testid="action-back"]' }
   },
 
@@ -87,7 +88,9 @@ const MANIFEST = {
     { from: 'coach', selector: '[data-act="plan-start"]', to: 'train', mode: 'tab' },
     { from: 'home', selector: '[data-testid="open-account"]', to: 'settings', mode: 'push' },
     { from: 'train', selector: '[data-action="start-today"]', to: 'workout-log', mode: 'push' },
-    { from: 'workout-log', selector: '[data-action="finish"]', to: 'review', mode: 'push' }
+    { from: 'workout-log', selector: '[data-action="finish"]', to: 'review', mode: 'push' },
+    { from: 'fuel', selector: '[data-testid="chip-more"]', to: 'shopping', mode: 'push' },
+    { from: 'profile', selector: '[data-testid="open-settings"]', to: 'settings', mode: 'push' }
   ],
 
   /* Where a screen keeps its own state switcher. Harvested for the demo-level
@@ -97,22 +100,8 @@ const MANIFEST = {
     '[data-testid="dev-list"] button, .dev__item, .devpanel button, .dev-list button',
   devToggleSelector: '[data-testid="dev-toggle"], [data-testid="dev-open"]',
 
-  placeholders: {
-    profile: {
-      title: 'Profile',
-      kicker: 'Being built',
-      heading: 'Profile is next in the Apple pass.',
-      body:
-        'The fifth tab holds the account, the settings that are not Coach or ' +
-        'Fuel, and the data controls. Settings already exists as a pushed ' +
-        'screen and moves under here rather than being rebuilt.',
-      truth:
-        'It is a placeholder rather than an empty shell so the tab bar can be ' +
-        'the real five-tab bar now: Home, Train, Fuel, Coach, Profile, with ' +
-        'Progress reached from Home the way the app reaches it.',
-      source: '11-apple/wave-0-recon.md section 7'
-    }
-  }
+  /* Every tab has a screen now, so there is nothing to stand in for. */
+  placeholders: {}
 };
 
 /* =================================================================

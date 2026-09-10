@@ -51,6 +51,16 @@
      --------------------------------------------------------------- */
   var TRAVEL = 52;
 
+  /* init() runs after every render on the screens that re-render their own
+     chrome. LKPatch morphs rather than replaces, so the same element comes
+     back each time and would collect another scroll listener on every pass.
+     Each initialiser marks what it has wired. */
+  function once(el, key) {
+    if (el['__lk_' + key]) return false;
+    el['__lk_' + key] = true;
+    return true;
+  }
+
   function initLargeTitle(root) {
     var bars = root.querySelectorAll('[data-large-title]');
     Array.prototype.forEach.call(bars, function (bar) {
@@ -59,6 +69,7 @@
       var big = bar.querySelector('[data-title-large]');
       var small = bar.querySelector('[data-title-small]');
       if (!big) return;
+      if (!once(bar, 'title')) return;
 
       /* The bar's height is interpolated, not switched. The shipped version
          put the whole 30px height change on a class that flipped at t > 0.98,
@@ -102,6 +113,7 @@
     if (!bar) return;
     var scroller = root.querySelector(bar.getAttribute('data-minimize'));
     if (!scroller) return;
+    if (!once(bar, 'minimize')) return;
     var last = 0, min = false;
     onScrollFrame(scroller, function (y) {
       var down = y > last;
@@ -134,6 +146,7 @@
     Array.prototype.forEach.call(els, function (el) {
       var scroller = root.querySelector(el.getAttribute('data-scroll-edge'));
       if (!scroller) return;
+      if (!once(el, 'edge')) return;
       onScrollFrame(scroller, function (y) {
         el.setAttribute('data-edge', y > 2 ? 'true' : 'false');
       });
