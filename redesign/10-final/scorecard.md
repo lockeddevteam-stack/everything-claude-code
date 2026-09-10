@@ -154,3 +154,93 @@ a group's regions; that zoom is not yet wired into the library.
 **Three screens have a zero page gutter.** Exercise library, body map and
 onboarding use `body--flush` for full-bleed lists. That is deliberate, and it is
 the one measured difference `cleanup-audit.mjs` reports between screens.
+
+---
+
+# The Apple wave, scored
+
+Three review rounds, four reviewers, every finding answered. The scores below
+are the design manager's, scored against `11-apple/apple-design-spec.md` with
+the same rubric and method each time so the three are comparable.
+
+## The design manager's three reviews
+
+| | Review 1 | Review 2 | Review 3 |
+|---|---|---|---|
+| Hard items, §12.1–11 | 11 / 22 | 13 / 22 | **18 / 22** |
+| Subjective, §12.12 / §6.3 / §8.7 / §8.8 | 4 / 8 | 6 / 8 | **7 / 8** |
+| **Total** | **15 / 30** | **19 / 30** | **25 / 30** |
+
+Five of the six points in the last round moved on the hard side, and four of
+those were items where review 2 found the claim and the measurement
+disagreeing. Those disagreements are gone: the reviewer re-measured all three
+and confirmed them.
+
+Items that reached 2/2 in round three: continuous and concentric corners, one
+accent tint per surface, springs, sheet detents and the grabber, SF Symbols
+on one optical size, glass confined to the chrome, the primary element
+identifiable in two seconds, iOS 27 material treatment, and empty/loading/
+error states written as instructions.
+
+## What each review found, and what happened to it
+
+| Round | Reviewer | Findings | Outcome |
+|---|---|---|---|
+| 1 | design manager | 13 items, DO NOT SHIP | answered in `11-apple/spec-compliance.md`, four refusals argued |
+| 1 | bug and UX sweep | 19 findings | all fixed |
+| 2 | design manager | 2 blockers, 12 priorities | both blockers cleared; 10 of 12 done, 3 refusals argued in `spec-compliance-2.md` |
+| 2 | bug and UX sweep | 19 findings | all fixed; verified fixed by the round-3 sweep |
+| 2 | code review | 14 findings | all fixed |
+| 3 | design manager | 1 blocker, 25/30 | blocker cleared |
+| 3 | bug and UX sweep | 19 findings | all fixed |
+| 3 | feature audit | 3 screens dropped, 2 dead crossings, 3 false labels | all rebuilt or fixed |
+
+## The suite, on fifteen screens
+
+Every figure below is from `sh redesign/tests/run-all.sh`.
+
+| Suite | Result |
+|---|---|
+| freeze — nothing lost | 15 screens, no function removed |
+| foundation — springs, type, glass | all checks passed |
+| chrome — collapse, minimize, edge, detents | all checks passed |
+| squircles | 168 smoothed, 0 capsules wrongly smoothed |
+| press — every control moves | 57 / 57 kinds |
+| re-render — focus, caret, scroll | 30 / 30 (15 screens x 2 themes) |
+| screens x states x themes x axe x targets | 15 / 15 all passed |
+| body map — targets and selection | all passed |
+| accent — one fill per surface | every screen, every state |
+| focus — never falls to the body | clean |
+| skeletons — nothing shifts on load | clean |
+| dynamic type — default ladder and AX5 | all checks passed |
+| actions — every control does something | 0 dead controls |
+| crossings — every selector names a control | all passed |
+| demo — assembled | 104 / 104 |
+
+## Three tests that could not fail, and now can
+
+Worth recording, because each hid real defects behind a green run.
+
+**`dynamic-type.mjs`** asserted `documentElement.scrollWidth > clientWidth`
+under `overflow-x: hidden` — a condition that cannot occur. It reported green
+on thirteen screens whose primary button read "Fini". It now measures each
+text node's own box, and separately asserts every control is inside the
+viewport, because a button pushed off the side keeps its text intact.
+
+**`accent-audit.mjs`** returned early on any non-HTML node, so SVG was never
+counted, and it measured the resting screen only. Progress drew its chart in
+the accent and the numeric pad carried six tinted objects; both reported
+clean. It now walks every declared state and counts SVG fill and stroke.
+
+**`nav-selectors.mjs`** did not exist. Two crossings named controls that do
+not exist — `[data-action="finish"]` where the button is `data-act="finish"` —
+which left Review, a finished 996-line screen, reachable by no tap at all.
+The test reads the nav table out of `assemble.mjs` and checks every selector
+against the screen it names.
+
+## What is not done
+
+Recorded in `11-apple/spec-compliance-3.md` rather than left for a fourth
+review: recipes, saveable coach cards beyond the plan and the split, the
+per-exercise equipment override, superset and left/right rendering in the set
+grid, and SF Symbols weight-matching to adjacent text size.
