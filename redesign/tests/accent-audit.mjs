@@ -6,7 +6,12 @@
    that CARRIES the accent as a fill or as ink, and prints them.
 
    A fill is what competes. Ink on a link or a value is quieter, so the two
-   are counted separately and the budget is on fills.
+   are counted separately and the budget is on fills: at most ONE per screen,
+   in every state that screen declares.
+
+   Measured when this was written: the workout log had three accent fills and
+   forty-three accent inks, and Fuel had four fills. The accent then marked
+   nothing, which is the failure the rule exists to prevent.
 */
 import { chromium } from 'playwright';
 import { readFileSync } from 'fs';
@@ -18,6 +23,7 @@ const screens = process.argv.slice(2).length
   ? process.argv.slice(2)
   : readFileSync('/tmp/screens.txt', 'utf8').trim().split('\n');
 const br = await chromium.launch();
+let fails = 0;
 
 for (const file of screens) {
   const p = await br.newPage({ viewport: { width: 393, height: 852 } });
@@ -46,8 +52,12 @@ for (const file of screens) {
     });
     return { fills, inks };
   });
-  console.log(`${file.padEnd(24)} fills ${String(r.fills.length).padStart(2)}   ink ${String(r.inks.length).padStart(2)}`);
+  const over = r.fills.length > 1;
+  if (over) fails++;
+  console.log(`${over ? 'FAIL ' : 'PASS '}${file.padEnd(24)} fills ${String(r.fills.length).padStart(2)}   ink ${String(r.inks.length).padStart(2)}`);
   if (r.fills.length) console.log('    fills: ' + r.fills.join(', '));
   await p.close();
 }
 await br.close();
+console.log(fails ? `\n${fails} screens carry more than one accent fill` : '\nevery screen carries at most one accent fill');
+process.exit(fails ? 1 : 0);
