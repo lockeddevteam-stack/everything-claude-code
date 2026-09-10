@@ -203,7 +203,7 @@
         .filter(function (n) { return n > 0 && n <= 1; }).sort(function (a, b) { return a - b; });
       if (detents.length < 2) return;
 
-      var grip = sheet.querySelector('.sheet__grab, .sheet__grip');
+      var grip = sheet.querySelector('.sheet__grab');
       if (grip) grip.setAttribute('data-grabber', 'true');
 
       var handle = sheet.querySelector('[data-sheet-drag]') || grip || sheet;

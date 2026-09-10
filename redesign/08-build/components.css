@@ -722,14 +722,15 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
   gap: var(--sp-2);
 }
 .dev__toggle {
-  opacity: 0.55;
+  /* Mostly off the edge at rest, and fully opaque. Fading it instead put its
+     label at 2.89:1 — scaffolding is allowed to be discreet and is not
+     allowed to be unreadable. */
   transform: translateX(calc(var(--sp-5) * -1));
-  transition: transform var(--dur-slow) var(--spring-snappy),
-              opacity var(--dur-fast) var(--ease);
+  transition: transform var(--dur-slow) var(--spring-snappy);
 }
 .dev:hover .dev__toggle,
 .dev:focus-within .dev__toggle,
-.dev__toggle[aria-expanded="true"] { opacity: 1; transform: none; }
+.dev__toggle[aria-expanded="true"] { transform: none; }
 .dev__toggle {
   display: flex; align-items: center; justify-content: center;
   min-width: var(--tap); min-height: var(--tap);
@@ -1375,6 +1376,10 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
    long session name can never push the volume onto a second line. */
 .sess { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
 .sess__main { flex: 1; min-width: 0; }
+/* One line, truncated. A session name that wraps leaves a single word on
+   line two and takes the two controls beside it out of alignment with the
+   timer below; a name long enough to wrap is long enough to abbreviate. */
+.sess__main > h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sess__meta { flex: 1 0 100%; order: 3; display: flex; align-items: baseline; gap: var(--sp-3); }
 .sess__meta > * { white-space: nowrap; }
 .sess__time { color: var(--accent-text); font-variant-numeric: tabular-nums; }
@@ -1682,120 +1687,22 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
 /* ===============================================================
    LIQUID GLASS
 
-   One class, for the chrome layer only. Applying it to a content card is the
-   mistake this comment exists to prevent: glass works because the thing
-   behind it is solid and vivid, so a screen of glass on glass is a screen of
-   grey boxes.
+   There is no .glass class. There was one, and a .glass--clear and a
+   .glass-group, forty lines of them with two media queries, and not one
+   element in the build ever carried any of them: the three surfaces that
+   are glass -- the tab bar, the bottom search bar and the accessory shelf --
+   each apply the --glass-* tokens directly, where the shape and the shadow
+   they need live anyway.
 
-   Glass cannot sample glass. Two overlapping glass surfaces must share one
-   container with one background rather than stacking, which is what
-   .glass-group is for.
-   =============================================================== */
+   The rule the class existed to state still holds and is why glass appears
+   on those three and nowhere else: glass works because the thing behind it
+   is solid and vivid, so a screen of glass on glass is a screen of grey
+   boxes. And glass cannot sample glass, so two glass surfaces that overlap
+   must be one surface -- which is why the shelf and the search bar sit
+   ABOVE the tab bar rather than behind it.
 
-.glass {
-  background: var(--glass-tint);
-  backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
-  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
-  border: 1px solid var(--glass-edge);
-  box-shadow: inset 0 1px 0 var(--glass-specular), var(--glass-shadow);
-}
-
-/* Permanently transparent, no adaptation. Only over rich media, and only with
-   its own dimming behind the content that sits on it. */
-.glass--clear { background: var(--glass-tint-clear); }
-
-/* One background for a cluster of glass controls, so they read as one pane
-   rather than as panes stacked on panes. Children opt out of their own. */
-.glass-group { position: relative; }
-.glass-group > .glass {
-  background: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  box-shadow: none;
-  border: 0;
-}
-
-/* Reduce Transparency swaps the material for a solid ground. Not optional:
-   this is the setting Liquid Glass shipped broken against. */
-@media (prefers-reduced-transparency: reduce) {
-  .glass, .glass--clear, .tabbar {
-    background: var(--surface-raised);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-}
-
-/* Increase Contrast wants the edge to carry its weight rather than the blur. */
-@media (prefers-contrast: more) {
-  .glass { border-color: var(--border); background: var(--surface-raised); }
-}
-
-
-/* ===============================================================
-   PRESS
-
-   An iOS control responds on touch-down, not on click. The gap between a
-   finger landing and a colour changing is the difference between a control
-   and a link, and it is about 80ms of nothing that everybody can feel.
-
-   :active fires on pointer-down in every current engine, so the colour
-   changes below already do the right thing. What they do not do is move. A
-   real press takes the control down slightly and springs it back, and the
-   spring is what makes it feel like an object rather than a state.
-
-   Scale, not translate: the control must not appear to move on the screen,
-   only to be pushed into it. 0.96 is Apple's own figure for a glass press.
-   =============================================================== */
-
-.btn, .chip, .row, .opt, .tabbar__item, .seg__item, .iconbtn,
-.hdr__back, .hdr__action, .pad__key,
-.pick, .storechip, .tick, .fuel-log__half, .shelf, .item__main,
-.switch, .exc__main, .toast__action {
-  /* The spring runs on the way back up, so the release is what wobbles.
-     Going down is immediate, because a press that eases in feels late. */
-  transition: transform var(--dur-slow) var(--spring-bouncy),
-              background-color var(--dur-fast) var(--ease),
-              opacity var(--dur-fast) var(--ease);
-}
-
-.btn:active, .chip:active, .opt:active, .seg__item:active,
-.iconbtn:active, .hdr__back:active, .hdr__action:active, .pad__key:active,
-.pick:active, .storechip:active, .tick:active, .fuel-log__half:active,
-.switch:active, .toast__action:active {
-  transform: scale(0.96);
-  transition-duration: 0s;
-}
-
-/* A full-width row scales less: 0.96 on something 361px wide is a visible
-   jump at the edges, where the same figure on a 44px button is a nudge. */
-.row:active, .shelf:active, .item__main:active, .exc__main:active { transform: scale(0.99); transition-duration: 0s; }
-/* A pick that is already on the list is not a control and does not press. */
-.pick[aria-disabled="true"]:active { transform: none; }
-
-/* A control that is doing nothing does not react. */
-.btn:disabled:active, .chip:disabled:active, .opt:disabled:active,
-.iconbtn:disabled:active { transform: none; }
-
-@media (prefers-reduced-motion: reduce) {
-  .btn, .chip, .row, .opt, .tabbar__item, .seg__item, .iconbtn,
-  .hdr__back, .hdr__action, .pad__key,
-  .pick, .storechip, .tick, .fuel-log__half, .shelf, .item__main,
-  .switch, .exc__main, .toast__action {
-    transition: background-color var(--dur-fast) var(--ease);
-  }
-  .btn:active, .chip:active, .row:active, .opt:active, .seg__item:active,
-  .iconbtn:active, .hdr__back:active, .hdr__action:active, .pad__key:active,
-  .pick:active, .storechip:active, .tick:active, .fuel-log__half:active,
-  .shelf:active, .item__main:active, .switch:active, .exc__main:active,
-  .toast__action:active { transform: none; }
-}
-
-/* ===============================================================
-   CHROME BEHAVIOURS
-
-   The CSS half of chrome.js. Everything here is driven by an attribute that
-   script sets, so a screen with the script disabled still renders a correct
-   static bar rather than a broken one.
+   tests/apple-foundation.mjs counts the elements with a live backdrop-filter
+   and fails if one is outside the chrome layer.
    =============================================================== */
 
 /* --- Large title ---------------------------------------------------------
@@ -1856,13 +1763,13 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
    A grabber is a promise that the sheet moves, so it appears only on a sheet
    with more than one detent. chrome.js sets the attribute after it confirms
    the detent list. */
-.sheet__grab[data-grabber="true"], .sheet__grip[data-grabber="true"] {
+.sheet__grab[data-grabber="true"] {
   cursor: grab;
   touch-action: none;
   padding: var(--sp-2) 0;
   margin-top: calc(var(--sp-2) * -1);
 }
-.sheet__grab[data-grabber="true"]:active, .sheet__grip[data-grabber="true"]:active { cursor: grabbing; }
+.sheet__grab[data-grabber="true"]:active { cursor: grabbing; }
 .sheet[data-detents] { will-change: height; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2089,27 +1996,6 @@ button.shelf:active { background: var(--fill-press); }
   will-change: transform;
 }
 
-/* ===============================================================
-   Bottom search
-
-   On a phone the search field belongs where the thumb is. It is its own
-   bar under the content and above the tab bar, so the list keeps the full
-   height of the screen and the field never scrolls away mid-search.
-
-   Above the phone breakpoint the field goes back to the top of the
-   content, where a pointer expects it.
-   =============================================================== */
-.searchbar {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-2) var(--page-x);
-  background: var(--glass-tint);
-  backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
-  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
-  box-shadow: inset 0 1px 0 var(--glass-specular);
-}
-.searchbar .search { flex: 1; min-width: 0; }
 /* Ordering, rather than moving the element, so the field is one element with
    one id and one listener at both widths. The screen is a flex column, so the
    bar sits last on a phone and second on anything wider.
@@ -2144,8 +2030,11 @@ button.shelf:active { background: var(--fill-press); }
   .shelf__live { animation: none; }
   .shelf[data-minimize] { transition: opacity var(--dur-fast) var(--ease); }
 }
+/* Reduce Transparency swaps the material for a solid ground. Not optional:
+   this is the setting Liquid Glass shipped broken against. Every surface that
+   carries --glass-tint is listed here, and there are exactly three. */
 @media (prefers-reduced-transparency: reduce) {
-  .shelf, .searchbar, .findbar--bottom {
+  .tabbar, .shelf, .findbar--bottom {
     background: var(--surface-raised);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;

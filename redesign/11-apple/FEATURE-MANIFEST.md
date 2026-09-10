@@ -5,7 +5,13 @@ diff rather than a claim. Regenerate with `python3 11-apple/gen-manifest.py`.
 
 **Rule: nothing here may disappear.** The Apple pass is a skin and motion pass.
 A vanished action, a dropped testid, a storage key that stops being written -
-any one of those blocks the wave that caused it.
+any one of those blocks the wave that caused it. Growth is not a violation and
+is reported rather than failed; a column going down, or a screen vanishing, is.
+
+`mockup-bodymap.html` was in an earlier baseline and is not a screen: it is a
+harness for driving the body map on its own, and it now lives in
+`09-review/lab/` where the assembler and this generator cannot mistake it for
+one. It carried nothing that ships.
 
 ## Actions per screen
 
@@ -36,24 +42,19 @@ media-retry             open                    retry                   save-cus
 try                     undo
 ```
 
-**fuel.html** — 8
+**fuel.html** — 11
 
 ```
 ' + c[0] +
           '  cam                     close                   meal                    meals
-mic                     resume                  retry
+mic                     resume                  retry                   supp                    water-add
+water-sub
 ```
 
 **home.html** — 1
 
 ```
 resume
-```
-
-**mockup-bodymap.html** — 2
-
-```
-back                    open
 ```
 
 **profile.html** — 4
@@ -77,17 +78,19 @@ confirm                 create-account          pick                    save-bod
 sheet                   sign-in                 sync                    toggle
 ```
 
-**shopping.html** — 39
+**shopping.html** — 43
 
 ```
-add-custom              add-item                add-meal                add-purchase            add-store
-back                    clear-all               clear-done              close                   compare
-del-hist                edit-target             export                  find-swaps              hist
-open-item               pan-add                 pan-empty               pan-filter              pan-interval
-pan-interval-save       pan-remove              pan-staple              pan-to-list             panel
-pick                    receipt-save            remove                  retry                   save-purchase
-save-target             scan-cam                scan-cancel             scan-lib                shop-at
-store-remove            store-toggle            suggest                 tick
+' +
+            (all ? 'do-clear-all' : 'do-clear-done') + '  add-custom              add-item                add-meal                add-purchase
+add-store               back                    clear-all               clear-done              close
+compare                 del-hist                edit-target             export                  find-swaps
+hist                    merge-do                merge-sep               open-item               pan-add
+pan-empty               pan-filter              pan-interval-save       pan-open                pan-remove
+pan-staple              pan-to-list             panel                   pick                    receipt-save
+remove                  retry                   save-purchase           save-target             scan-cam
+scan-cancel             scan-lib                shop-at                 store-remove            store-toggle
+suggest                 tick                    undo
 ```
 
 **split-builder.html** — 28
@@ -131,18 +134,17 @@ The selectors every test and every audit script addresses.
 |---|---|
 | `coach.html` | 90 |
 | `exercise-library.html` | 50 |
-| `fuel.html` | 38 |
+| `fuel.html` | 57 |
 | `home.html` | 20 |
-| `mockup-bodymap.html` | 2 |
 | `onboarding.html` | 65 |
 | `profile.html` | 22 |
-| `progress.html` | 37 |
+| `progress.html` | 51 |
 | `review.html` | 45 |
 | `settings.html` | 30 |
-| `shopping.html` | 108 |
+| `shopping.html` | 115 |
 | `split-builder.html` | 68 |
 | `train.html` | 46 |
-| `workout-log.html` | 91 |
+| `workout-log.html` | 93 |
 
 ## Storage keys — 1
 
@@ -157,18 +159,17 @@ five columns after them are.
 
 | Screen | Lines | Listeners | Actions | Buttons | Inputs | testids |
 |---|---|---|---|---|---|---|
-| `coach.html` | 1386 | 5 | 44 | 51 | 3 | 90 |
-| `exercise-library.html` | 1172 | 6 | 22 | 31 | 4 | 50 |
-| `fuel.html` | 480 | 4 | 8 | 22 | 0 | 38 |
+| `coach.html` | 1401 | 5 | 44 | 51 | 3 | 90 |
+| `exercise-library.html` | 1180 | 6 | 22 | 31 | 4 | 50 |
+| `fuel.html` | 662 | 4 | 11 | 34 | 0 | 57 |
 | `home.html` | 445 | 2 | 1 | 17 | 0 | 20 |
-| `mockup-bodymap.html` | 676 | 3 | 2 | 5 | 1 | 2 |
-| `onboarding.html` | 1117 | 10 | 0 | 31 | 5 | 65 |
+| `onboarding.html` | 1133 | 10 | 0 | 31 | 5 | 65 |
 | `profile.html` | 365 | 3 | 4 | 12 | 0 | 22 |
-| `progress.html` | 739 | 5 | 10 | 18 | 0 | 37 |
-| `review.html` | 962 | 4 | 0 | 23 | 0 | 45 |
-| `settings.html` | 962 | 4 | 14 | 23 | 4 | 30 |
-| `shopping.html` | 1231 | 5 | 39 | 58 | 16 | 108 |
-| `split-builder.html` | 1108 | 10 | 28 | 36 | 4 | 68 |
+| `progress.html` | 874 | 5 | 10 | 24 | 3 | 51 |
+| `review.html` | 975 | 4 | 0 | 23 | 0 | 45 |
+| `settings.html` | 976 | 4 | 14 | 23 | 4 | 30 |
+| `shopping.html` | 1481 | 5 | 43 | 60 | 16 | 115 |
+| `split-builder.html` | 1121 | 10 | 28 | 36 | 4 | 68 |
 | `train.html` | 879 | 5 | 16 | 26 | 1 | 46 |
-| `workout-log.html` | 1065 | 6 | 38 | 49 | 5 | 91 |
-| **total** | **12587** | **72** | **226** | **402** | **43** | **712** |
+| `workout-log.html` | 1093 | 6 | 38 | 50 | 5 | 93 |
+| **total** | **12585** | **69** | **231** | **418** | **45** | **752** |
