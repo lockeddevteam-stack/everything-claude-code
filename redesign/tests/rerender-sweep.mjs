@@ -85,6 +85,12 @@ for (const theme of ['dark', 'light']) {
     let btn = null, clicked = false, ctrl = null;
     for (let i = 1; i < total; i++) {
       const c = candidates.nth(i);
+      /* Identity, not position. The check below used to re-read the same
+         nth() locator, which after a re-render matches whatever moved into
+         that slot -- so a control that had removed itself looked present.
+         The testid is what survives a patch and names one control. */
+      let id = null;
+      try { id = await c.getAttribute('data-testid', { timeout: 1000 }); } catch (e) {}
       try { await c.click({ timeout: 3000 }); } catch (e) { continue; }
       await page.waitForTimeout(300);
       const overlay = await page.evaluate(() =>
@@ -95,7 +101,14 @@ for (const theme of ['dark', 'light']) {
          in, so the second click hit "Edit note" and the sweep reported that
          focus and the caret had moved -- which they had, correctly. */
       let gone = false;
-      try { gone = !(await c.count()) || !(await c.isVisible()); } catch (e) { gone = true; }
+      if (id) {
+        gone = !(await page.evaluate((k) => {
+          const el = document.querySelector('[data-testid="' + k + '"]');
+          return !!(el && !el.disabled && el.offsetParent !== null);
+        }, id));
+      } else {
+        try { gone = !(await c.count()) || !(await c.isVisible()); } catch (e) { gone = true; }
+      }
       if (!overlay && !gone) {
         /* The handle is taken NOW, not re-resolved later. The click
            re-renders, LKPatch replaces nodes, and the nth() that matched a
