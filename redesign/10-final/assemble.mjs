@@ -54,7 +54,7 @@ const MANIFEST = {
   tabs: [
     { id: 'home', label: 'Home', screen: 'home' },
     { id: 'train', label: 'Train', screen: 'train' },
-    { id: 'fuel', label: 'Fuel', screen: null },
+    { id: 'fuel', label: 'Fuel', screen: 'fuel' },
     { id: 'coach', label: 'Coach', screen: 'coach' },
     { id: 'profile', label: 'Profile', screen: null }
   ],
@@ -98,22 +98,6 @@ const MANIFEST = {
   devToggleSelector: '[data-testid="dev-toggle"], [data-testid="dev-open"]',
 
   placeholders: {
-    fuel: {
-      title: 'Fuel',
-    kicker: 'Separate track',
-    heading: 'Fuel is being designed separately.',
-    body:
-      'It is not missing and it is not broken — Fuel is the one surface of LOCKED ' +
-      'that is being redesigned on its own track, against its own data brief, so it ' +
-      'is deliberately not rebuilt in this demo.',
-    truth:
-      'That brief settles the hard part first: one resolver behind every input — ' +
-      'voice, photo, barcode or search — scores candidates from a canonical food ' +
-      'table, USDA and Open Food Facts, dedupes them by nutrient signature, and ' +
-      'returns a single best match with a confidence score instead of a list of ' +
-      'near-identical rows.',
-    source: '07-briefs/fuel-data-layer.md'
-    },
     profile: {
       title: 'Profile',
       kicker: 'Being built',

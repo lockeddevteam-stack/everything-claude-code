@@ -270,7 +270,10 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
 }
 .seg__item {
   flex: 1;
-  min-height: 40px;
+  /* 44px, like everything else that is tapped. The shipped base was 40 and
+     one screen patched around it with a .seg--tall modifier, which meant the
+     rule was "44 where somebody remembered". */
+  min-height: var(--tap);
   border-radius: var(--r-sm);
   corner-shape: var(--corner-smooth);
   font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13);
@@ -471,7 +474,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
 .hstack--2 { gap: var(--sp-2); } .hstack--3 { gap: var(--sp-3); } .hstack--4 { gap: var(--sp-4); }
 .grow { flex: 1; min-width: 0; }
 .spread { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
-.mt-2 { margin-top: var(--sp-2); } .mt-3 { margin-top: var(--sp-3); }
+.mt-1 { margin-top: var(--sp-1); } .mt-2 { margin-top: var(--sp-2); } .mt-3 { margin-top: var(--sp-3); }
 .mt-4 { margin-top: var(--sp-4); } .mt-5 { margin-top: var(--sp-5); }
 .center { text-align: center; }
 .muted { color: var(--text-secondary); }
@@ -740,6 +743,10 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   background: var(--text);
   animation: markIn var(--dur-slow) var(--spring-bouncy) both;
 }
+/* A completed session. It is the base mark's own fill, written out rather
+   than left implicit: a modifier that styles nothing is a modifier nobody
+   can tell is working. */
+.week__mark--done { background: var(--text); }
 .week__mark--planned { background: none; box-shadow: inset 0 0 0 1px var(--border); }
 .week__mark--today { background: none; box-shadow: inset 0 0 0 2px var(--accent-text); }
 /* A rest day is a 4px bar. The mark's 8px radius clamps to half its height,
@@ -789,7 +796,6 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
    The segmented control is the app's only one; --seg-tall raises its
    items to a full 44px target, which the base 40px does not meet. */
 .viewbar { padding: 0 var(--page-x) var(--sp-2); background: var(--bg); }
-.seg--tall .seg__item { min-height: var(--tap); }
 
 /* Conversation. ONE component, two speakers, two states.
    The old screen made user turns bubbles and replies transparent
@@ -1853,3 +1859,207 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
    knowing it is on a sheet. Light needs no shift: its fill is already darker
    than the white a sheet rises to. */
 .sheet, .dialog, .popover { --fill: var(--fill-raised); --fill-press: var(--fill-raised-press); }
+
+/* ===============================================================
+   Bottom accessory shelf
+
+   A strip that sits between the content and the tab bar and stays there
+   across tabs. It exists for one thing at a time: a session that is
+   running while the lifter is somewhere else in the app. A live workout
+   belongs here rather than in a floating pill, because a floating pill
+   covers content and this does not.
+
+   It is glass on the same plane as the tab bar, so the two group and
+   neither samples the other.
+   =============================================================== */
+.shelf {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: var(--tap);
+  padding: var(--sp-2) var(--page-x);
+  width: 100%;
+  text-align: left;
+  color: var(--text);
+  background: var(--glass-tint);
+  backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
+  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
+  box-shadow: inset 0 1px 0 var(--glass-specular), 0 -8px 16px -14px rgb(0 0 0 / 0.5);
+  animation: shelfIn var(--dur-slow) var(--spring-snappy) both;
+}
+@keyframes shelfIn { from { transform: translateY(100%); } }
+/* A pulsing dot is the only motion, and it is the only thing on the strip
+   that says "still running" without a word. */
+.shelf__live {
+  flex: none;
+  width: var(--sp-2); height: var(--sp-2);
+  border-radius: var(--r-full);
+  background: var(--accent-text);
+  animation: shelfPulse 2s var(--ease) infinite;
+}
+@keyframes shelfPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.shelf__main { flex: 1; min-width: 0; }
+.shelf__title { display: block; font-size: var(--type-15); line-height: var(--lh-15); letter-spacing: var(--tr-15); font-weight: var(--w-semibold); }
+.shelf__sub { display: block; font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.shelf__action { flex: none; }
+button.shelf:active { background: var(--fill-press); }
+/* The shelf leaves with the tab bar, because they are one piece of bottom
+   chrome and a strip left hanging over nothing reads as a bug. */
+.shelf[data-minimized="true"] {
+  transform: translate3d(0, calc(100% + var(--nav-h) + var(--safe-bottom)), 0);
+  opacity: 0;
+  pointer-events: none;
+}
+.shelf[data-minimize] {
+  transition: transform var(--dur-slow) var(--spring-snappy),
+              opacity var(--dur-fast) var(--ease);
+  will-change: transform;
+}
+
+/* ===============================================================
+   Bottom search
+
+   On a phone the search field belongs where the thumb is. It is its own
+   bar under the content and above the tab bar, so the list keeps the full
+   height of the screen and the field never scrolls away mid-search.
+
+   Above the phone breakpoint the field goes back to the top of the
+   content, where a pointer expects it.
+   =============================================================== */
+.searchbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--page-x);
+  background: var(--glass-tint);
+  backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
+  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
+  box-shadow: inset 0 1px 0 var(--glass-specular);
+}
+.searchbar .search { flex: 1; min-width: 0; }
+/* Ordering, rather than moving the element, so the field is one element with
+   one id and one listener at both widths. The screen is a flex column, so the
+   bar sits last on a phone and second on anything wider.
+
+   The keyboard covering the tab bar is the case this is designed around: the
+   field stays visible because it is above the bar, not inside it. */
+.findbar--bottom {
+  order: 2;
+  background: var(--glass-tint);
+  backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
+  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
+  box-shadow: inset 0 1px 0 var(--glass-specular);
+  padding-bottom: var(--sp-2);
+}
+.screen > .tabbar { order: 3; }
+@media (min-width: 600px) {
+  .screen:has(> .findbar--bottom) > * { order: 1; }
+  .screen:has(> .findbar--bottom) > .hdr,
+  .screen:has(> .findbar--bottom) > .findbar--bottom { order: 0; }
+  .screen:has(> .findbar--bottom) > .tabbar { order: 2; }
+  .findbar--bottom {
+    background: var(--bg);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
+    padding-bottom: var(--sp-3);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shelf { animation: none; }
+  .shelf__live { animation: none; }
+  .shelf[data-minimize] { transition: opacity var(--dur-fast) var(--ease); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .shelf, .searchbar, .findbar--bottom {
+    background: var(--surface-raised);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* ===============================================================
+   Added for Shop and Budget. Tokens only, no new values.
+   =============================================================== */
+
+/* A bar under the header that belongs to the screen rather than to the
+   content: the segment stays put while the panel under it scrolls, because
+   a control that scrolls away is a control you scroll back for. */
+.subbar { padding: 0 var(--page-x) var(--sp-3); background: var(--bg); }
+/* The count of what is left to get, read from the header rather than from a
+   badge on the tab: the number belongs to this screen. */
+.hdr__count { flex: none; }
+
+/* A pick. Not a chip: a chip filters, this one adds, and the two must not
+   look alike. Once its item is on the list it stops being a control. */
+.pick {
+  display: inline-flex; align-items: center; gap: var(--sp-2);
+  min-height: var(--tap);
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-full);
+  background: var(--fill);
+  color: var(--text);
+  font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13);
+  font-weight: var(--w-medium);
+}
+.pick:active { background: var(--fill-press); }
+.pick__qty { color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.pick[aria-disabled="true"] { background: var(--success-quiet); color: var(--success); cursor: default; }
+.pick[aria-disabled="true"] .pick__qty { color: inherit; opacity: 0.7; }
+
+/* The tick. A box rather than a native checkbox: a shopping list is worked
+   with a thumb while holding something else, and 44px is the whole point. */
+.tick {
+  flex: none;
+  width: var(--tap); height: var(--tap);
+  margin-left: calc(var(--sp-2) * -1);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-tertiary);
+}
+.tick__box {
+  width: 22px; height: 22px;
+  border-radius: var(--r-sm);
+  corner-shape: var(--corner-smooth);
+  box-shadow: inset 0 0 0 2px currentColor;
+  display: flex; align-items: center; justify-content: center;
+}
+.tick[aria-pressed="true"] { color: var(--success); }
+.tick[aria-pressed="true"] .tick__box { background: var(--success); box-shadow: none; color: var(--text-on-solid); }
+.tick:active { background: var(--fill-press); border-radius: var(--r-full); }
+/* A picked-up item is done, not deleted: it stays legible so you can see you
+   already have it. */
+.item--done .item__name { color: var(--text-tertiary); text-decoration: line-through; }
+
+.item { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--page-x); background: var(--surface); }
+.item + .item { box-shadow: inset 0 1px 0 var(--hairline); }
+.item__main { flex: 1; min-width: 0; }
+.item__name { display: block; font-size: var(--type-15); line-height: var(--lh-15); letter-spacing: var(--tr-15); font-variant-numeric: tabular-nums; }
+/* Where to buy it. One row, wrapping, quiet: these are shortcuts, not the
+   point of the row. */
+.item__stores { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-1); }
+.storechip {
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  min-height: var(--sp-6);
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-full);
+  background: var(--fill);
+  color: var(--text-secondary);
+  font-size: var(--type-11); line-height: var(--lh-11); letter-spacing: var(--tr-11);
+  font-weight: var(--w-medium);
+}
+.storechip:active { background: var(--fill-press); }
+.storechip__dot { width: var(--sp-2); height: var(--sp-2); border-radius: var(--r-full); background: currentColor; flex: none; }
+
+/* Money. The one figure on the Budget panel that carries the whole answer. */
+.money { font-size: var(--type-large-title); line-height: var(--lh-large-title); letter-spacing: var(--tr-large-title); font-weight: var(--w-bold); font-variant-numeric: tabular-nums; }
+.money--over { color: var(--error); }
+/* Two facts that are not the answer, side by side under it. */
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+.tile { padding: var(--sp-3); border-radius: var(--r-md); corner-shape: var(--corner-smooth); background: var(--surface-sunken); }
+.tile__value { display: block; margin-top: var(--sp-1); font-size: var(--type-17); line-height: var(--lh-17); letter-spacing: var(--tr-17); font-weight: var(--w-semibold); font-variant-numeric: tabular-nums; }
+
+/* The budget meter carries a judgement the macro meters do not: under, close,
+   over. Three states, and the colour is the only thing that changes. */
+.meter--warn .meter__fill { background: var(--warning); }
+.meter--over .meter__fill { background: var(--error); }

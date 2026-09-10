@@ -77,6 +77,11 @@
 
       <main class="body" id="body" data-testid="home-scroll" tabindex="-1"></main>
 
+      <!-- The accessory shelf. Empty unless a session is running, and it sits
+           between the content and the tab bar rather than over the content,
+           so nothing it says costs the screen a row. -->
+      <div id="shelf-slot"></div>
+
       <nav class="tabbar" aria-label="Sections" data-minimize="#body">
         <button class="tabbar__item" aria-current="page" data-testid="tab-home">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4v-5H9v5H5a1 1 0 0 1-1-1z"/></svg>
@@ -277,6 +282,8 @@
 
   /* Rest day. Sunken card, sentence first, settles into place. The
      session is still one tap away, but nothing here asks for it. */
+  VIEWS.live = function () { return VIEWS.training(); };
+
   VIEWS.rest = function () {
     var d = DATA.rest, s = d.next;
     return '' +
@@ -377,6 +384,7 @@
   /* ---- render ----------------------------------------------------- */
   var STATES = [
     ['training', 'Training day'],
+    ['live', 'Session running'],
     ['rest', 'Rest day'],
     ['empty', 'Empty'],
     ['loading', 'Loading'],
@@ -386,11 +394,28 @@
   var hdrDate = document.getElementById('hdr-date');
   var current = 'training';
 
+  /* The shelf is what a running session looks like from anywhere else in the
+     app: it names the session, counts what is done, and gets back in one tap.
+     A floating pill would do the same job while covering a row of content. */
+  function shelfHTML() {
+    if (current !== 'live') return '';
+    return '<button class="shelf" type="button" data-minimize data-action="resume" ' +
+        'data-testid="shelf-resume" aria-label="Return to Push A, 4 of 7 exercises done, 38 minutes elapsed">' +
+      '<span class="shelf__live" aria-hidden="true"></span>' +
+      '<span class="shelf__main">' +
+        '<span class="shelf__title">Push A</span>' +
+        '<span class="shelf__sub">4 of 7 &middot; 38:12</span>' +
+      '</span>' +
+      '<span class="shelf__action t-body-em" aria-hidden="true">Resume</span>' +
+    '</button>';
+  }
+
   function render(state) {
     current = VIEWS[state] ? state : 'training';
     document.getElementById('screen').setAttribute('data-state', current);
     hdrDate.textContent = (DATA[current] || DATA.training).date;
     LKPatch(body, VIEWS[current]());
+    LKPatch(document.getElementById('shelf-slot'), shelfHTML());
     body.scrollTop = 0;
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.state === current));

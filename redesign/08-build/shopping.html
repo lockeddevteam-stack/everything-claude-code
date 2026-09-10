@@ -1,0 +1,1224 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — Shop and Budget</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<script src="theme.js"></script>
+<script src="app.js"></script>
+<script src="chrome.js"></script>
+</head>
+<body>
+<!--
+  SHOP AND BUDGET — pushed from Fuel.
+
+  Four panels behind one segmented control, exactly as the live app has them:
+  List, Pantry, My Stores, Budget. The segment is the navigation; the dev
+  states are data conditions on top of it, so every panel can be seen full,
+  empty, loading and failing.
+
+  WHY THE LIST IS GROUPED AND NOT SORTED
+  A shopping list is read while walking a shop, so it is ordered the way a
+  shop is: meat, dairy, produce, pantry, snacks, other. Alphabetical would be
+  easier to build and would send you back across the shop six times.
+
+  WHAT CHANGED FROM THE LIVE APP, AND WHAT DID NOT
+  Every action survives. What changed is the chrome around them: the emoji
+  section headers are plain labels, the two-tap destructive confirms are a
+  dialog that says what will be erased, and the merge prompt is a sheet
+  rather than a full-screen scrim. No feature was dropped to do it.
+
+  BUDGET IS MONEY, SO EVERY FIGURE IS TABULAR
+  Currency that reflows while it updates is unreadable, and this screen
+  updates while you type into it.
+
+  STATES
+  populated, empty, loading, error.
+-->
+
+<div class="stage">
+  <div class="phone">
+    <div class="screen" id="screen" data-testid="screen-shopping" data-state="populated">
+
+      <header class="hdr" data-scroll-edge="#body" id="hdr">
+        <button class="hdr__back" type="button" data-action="back" data-testid="back" aria-label="Back to Fuel">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"/></svg>
+        </button>
+        <div class="hdr__title">
+          <h1 class="t-title">Shop</h1>
+        </div>
+        <span class="hdr__count t-meta num" id="hdr-count" data-testid="hdr-count" hidden></span>
+      </header>
+
+      <nav class="subbar" id="subbar" aria-label="Shop section"></nav>
+
+      <main class="body body--flush" id="body" data-testid="shop-scroll" tabindex="-1"></main>
+
+      <div id="overlay"></div>
+
+      <nav class="tabbar" aria-label="Sections" data-minimize="#body">
+        <button class="tabbar__item" type="button" data-testid="tab-home">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4v-5H9v5H5a1 1 0 0 1-1-1z"/></svg>
+          Home
+        </button>
+        <button class="tabbar__item" type="button" data-testid="tab-train">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/></svg>
+          Train
+        </button>
+        <button class="tabbar__item" type="button" aria-current="page" data-testid="tab-fuel">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7 3v8a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V3"/><path d="M9 13v8"/><path d="M17 3c-1.5 1.8-2 3.6-2 5.5 0 1.6.7 2.5 2 2.5s2-.9 2-2.5c0-1.9-.5-3.7-2-5.5Z"/><path d="M17 11v10"/></svg>
+          Fuel
+        </button>
+        <button class="tabbar__item" type="button" data-testid="tab-coach">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 15a3 3 0 0 1-3 3H9l-4 3V7a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3z"/></svg>
+          Coach
+        </button>
+        <button class="tabbar__item" type="button" data-testid="tab-profile">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>
+          Profile
+        </button>
+      </nav>
+    </div>
+  </div>
+</div>
+
+<div class="dev">
+  <button class="dev__toggle" id="dev-toggle" aria-expanded="false" aria-controls="dev-menu" data-testid="dev-toggle">State</button>
+  <div class="dev__menu" id="dev-menu" hidden data-testid="dev-menu"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var screen  = document.getElementById('screen');
+  var subbar  = document.getElementById('subbar');
+  var body    = document.getElementById('body');
+  var overlay = document.getElementById('overlay');
+  var menu    = document.getElementById('dev-menu');
+  var hdrCount = document.getElementById('hdr-count');
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c];
+    });
+  }
+  /* Money is formatted in one place. A screen that writes "$" + n.toFixed(2)
+     in fourteen places has fourteen chances to disagree with itself. */
+  function usd(v) { return '$' + Number(v).toFixed(2); }
+  function usd0(v) { return '$' + Math.round(Number(v)); }
+
+  var ICO = {
+    chev:  '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg>',
+    tick:  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l5 5L19 7"/></svg>',
+    cam:   '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+    lib:   '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 16l5-4 4 3 3-2 6 5"/></svg>',
+    share: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 15V4M8.5 7.5 12 4l3.5 3.5"/><path d="M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6"/></svg>',
+    cart:  '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 4h2l2.4 10.4a2 2 0 0 0 2 1.6h7.2a2 2 0 0 0 2-1.6L20 7H6"/><circle cx="10" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></svg>',
+    alert: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/></svg>',
+    plus:  '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg>'
+  };
+
+  /* ---------------------------------------------------------------
+     Fixture. Fixed, so the same screen renders the same way every run.
+     --------------------------------------------------------------- */
+
+  /* The picks the live app ships, in its order, with its quantities. */
+  var PICKS = [
+    { icon: '🍗', name: 'Chicken breast', qty: 2,  unit: 'lb' },
+    { icon: '🥚', name: 'Eggs',           qty: 12, unit: 'qty' },
+    { icon: '🥛', name: 'Greek yogurt',   qty: 16, unit: 'oz' },
+    { icon: '🐟', name: 'Salmon',         qty: 1,  unit: 'lb' },
+    { icon: '🥦', name: 'Broccoli',       qty: 2,  unit: 'qty' },
+    { icon: '🍚', name: 'Brown rice',     qty: 2,  unit: 'cup' },
+    { icon: '🍠', name: 'Sweet potato',   qty: 3,  unit: 'qty' },
+    { icon: '🥣', name: 'Oats',           qty: 2,  unit: 'cup' },
+    { icon: '🥑', name: 'Avocado',        qty: 2,  unit: 'qty' },
+    { icon: '🧀', name: 'Cottage cheese', qty: 16, unit: 'oz' },
+    { icon: '🥜', name: 'Almonds',        qty: 4,  unit: 'oz' },
+    { icon: '🥩', name: 'Ground beef',    qty: 1,  unit: 'lb' }
+  ];
+
+  /* Three meals worth prepping, each one a whole shop rather than an
+     ingredient. This is the empty state's real job: not to explain the
+     screen, but to fill it in one tap. */
+  var MEALS = [
+    { icon: '🍗', name: 'Chicken and broccoli bulk prep', items: ['Chicken breast', 'Broccoli', 'Brown rice', 'Olive oil'] },
+    { icon: '🥚', name: 'High protein breakfast spread',  items: ['Eggs', 'Avocado', 'Greek yogurt', 'Oats'] },
+    { icon: '🐟', name: 'Clean eating week',              items: ['Salmon', 'Sweet potato', 'Spinach', 'Almonds'] }
+  ];
+
+  /* Ordered the way a shop is walked, not alphabetically. */
+  var CATS = [
+    { id: 'meat',    label: 'Meat and fish' },
+    { id: 'dairy',   label: 'Dairy' },
+    { id: 'produce', label: 'Produce' },
+    { id: 'pantry',  label: 'Pantry' },
+    { id: 'snacks',  label: 'Snacks' },
+    { id: 'other',   label: 'Other' }
+  ];
+
+  var STORES = [
+    { id: 'wal', name: 'Walmart',      hue: 'var(--anat-1)' },
+    { id: 'tgt', name: 'Target',       hue: 'var(--anat-4)' },
+    { id: 'cos', name: 'Costco',       hue: 'var(--anat-7)' }
+  ];
+
+  var UNITS = ['qty', 'kg', 'g', 'lb', 'oz', 'cup', 'tbsp', 'tsp'];
+
+  var LIST = [
+    { id: 'i1', name: 'Chicken breast', qty: 2,  unit: 'lb',  cat: 'meat',    done: false },
+    { id: 'i2', name: 'Ground beef',    qty: 1,  unit: 'lb',  cat: 'meat',    done: true  },
+    { id: 'i3', name: 'Salmon',         qty: 1,  unit: 'lb',  cat: 'meat',    done: false },
+    { id: 'i4', name: 'Greek yogurt',   qty: 16, unit: 'oz',  cat: 'dairy',   done: false },
+    { id: 'i5', name: 'Cottage cheese', qty: 16, unit: 'oz',  cat: 'dairy',   done: true  },
+    { id: 'i6', name: 'Broccoli',       qty: 2,  unit: 'qty', cat: 'produce', done: false },
+    { id: 'i7', name: 'Spinach',        qty: 1,  unit: 'qty', cat: 'produce', done: false },
+    { id: 'i8', name: 'Avocado',        qty: 2,  unit: 'qty', cat: 'produce', done: false },
+    { id: 'i9', name: 'Brown rice',     qty: 2,  unit: 'cup', cat: 'pantry',  done: false },
+    { id: 'i10', name: 'Oats',          qty: 2,  unit: 'cup', cat: 'pantry',  done: true  },
+    { id: 'i11', name: 'Olive oil',     qty: 1,  unit: 'qty', cat: 'pantry',  done: false },
+    { id: 'i12', name: 'Almonds',       qty: 4,  unit: 'oz',  cat: 'snacks',  done: false }
+  ];
+
+  var BUDGET = {
+    weeklyTarget: 120,
+    weekSpent: 86.4,
+    monthSpent: 341.18,
+    history: [
+      { id: 'h1', store: 'Costco',  when: 'Sat, Sep 5',  total: 52.4,  source: 'receipt',
+        items: [{ n: 'Chicken breast', q: 2, p: 18.4 }, { n: 'Eggs', q: 1, p: 6.2 },
+                { n: 'Greek yogurt', q: 2, p: 9.8 }, { n: 'Brown rice', q: 1, p: 8.0 },
+                { n: 'Almonds', q: 1, p: 10.0 }] },
+      { id: 'h2', store: 'Walmart', when: 'Thu, Sep 3',  total: 21.0,  source: 'manual',
+        items: [{ n: 'Ground beef', q: 1, p: 8.5 }, { n: 'Broccoli', q: 2, p: 4.5 },
+                { n: 'Sweet potato', q: 3, p: 8.0 }] },
+      { id: 'h3', store: 'Target',  when: 'Tue, Sep 1',  total: 13.0,  source: 'list',
+        items: [{ n: 'Oats', q: 2, p: 7.0 }, { n: 'Olive oil', q: 1, p: 6.0 }] }
+    ],
+    compare: [
+      { store: 'Costco',  product: 'Chicken breast, 6 lb pack', price: 3.29, note: 'per lb, bulk only' },
+      { store: 'Walmart', product: 'Chicken breast, family pack', price: 3.68, note: '' },
+      { store: 'Target',  product: 'Chicken breast, 2 lb',        price: 4.49, note: '' }
+    ],
+    swaps: [
+      { from: 'Almonds',       to: 'Peanuts',            store: 'Costco',  saves: '$4.10' },
+      { from: 'Greek yogurt',  to: 'Plain yogurt, 32 oz', store: 'Walmart', saves: '$2.35' }
+    ]
+  };
+
+  /* Read once, so a receipt confirm shows the same numbers a person saw when
+     they took the photo. */
+  var RECEIPT = {
+    store: '',
+    total: 52.4,
+    items: [
+      { n: 'Chicken breast', q: 2, p: 18.4 },
+      { n: 'Eggs',           q: 1, p: 6.2 },
+      { n: 'Greek yogurt',   q: 2, p: 9.8 },
+      { n: 'Brown rice',     q: 1, p: 8.0 },
+      { n: 'Almonds',        q: 1, p: 10.0 }
+    ]
+  };
+
+  /* Pantry. What is already in the house, so the list only carries what is
+     not. A staple is an item that restocks itself: when its interval elapses
+     it rejoins the list without being asked. */
+  var PANTRY = [
+    { id: 'p1', name: 'Chicken breast', qty: 2, cat: 'meat',    store: 'Costco',  staple: true,  every: 7,  empty: false },
+    { id: 'p2', name: 'Eggs',           qty: 12, cat: 'dairy',  store: 'Walmart', staple: true,  every: 10, empty: false },
+    { id: 'p3', name: 'Greek yogurt',   qty: 1, cat: 'dairy',   store: 'Costco',  staple: false, every: 7,  empty: true  },
+    { id: 'p4', name: 'Spinach',        qty: 1, cat: 'produce', store: '',        staple: false, every: 7,  empty: false },
+    { id: 'p5', name: 'Brown rice',     qty: 3, cat: 'pantry',  store: 'Costco',  staple: true,  every: 30, empty: false },
+    { id: 'p6', name: 'Olive oil',      qty: 1, cat: 'pantry',  store: '',        staple: false, every: 7,  empty: true  },
+    { id: 'p7', name: 'Almonds',        qty: 1, cat: 'snacks',  store: 'Target',  staple: false, every: 7,  empty: false }
+  ];
+
+  /* The stores the live app offers, in its order, with its descriptions. */
+  var PRESETS = [
+    { name: 'Walmart',       host: 'walmart.com',           about: 'large general merchandise and grocery retailer' },
+    { name: 'Amazon',        host: 'amazon.com',            about: 'online marketplace with pantry and fresh delivery' },
+    { name: 'Target',        host: 'target.com',            about: 'general merchandise and grocery retailer' },
+    { name: 'Costco',        host: 'costco.com',            about: 'warehouse club, bulk items' },
+    { name: 'Whole Foods',   host: 'wholefoodsmarket.com',  about: 'premium organic and natural grocery' },
+    { name: 'Kroger',        host: 'kroger.com',            about: 'large supermarket chain' },
+    { name: 'Instacart',     host: 'instacart.com',         about: 'grocery delivery covering many local stores' },
+    { name: 'Aldi',          host: 'aldi.us',               about: 'budget discount grocery' },
+    { name: "Trader Joe's",  host: 'traderjoes.com',        about: 'specialty grocery with unique private-label products' },
+    { name: 'Safeway',       host: 'safeway.com',           about: 'large supermarket chain' }
+  ];
+  var MYSTORES = [
+    { id: 's1', name: 'Walmart', host: 'walmart.com', about: 'large general merchandise and grocery retailer', hue: 'var(--anat-1)', on: true },
+    { id: 's2', name: 'Target',  host: 'target.com',  about: 'general merchandise and grocery retailer',        hue: 'var(--anat-4)', on: true },
+    { id: 's3', name: 'Costco',  host: 'costco.com',  about: 'warehouse club, bulk items',                      hue: 'var(--anat-7)', on: false }
+  ];
+
+  var PANELS = [
+    ['list',   'List'],
+    ['pantry', 'Pantry'],
+    ['stores', 'Stores'],
+    ['budget', 'Budget']
+  ];
+
+  var S = {
+    state: 'populated',
+    panel: 'list',
+    sheet: null,
+    editTarget: false,
+    addOpen: false,
+    receipt: null,          /* null | 'ok' | 'none' | 'down' */
+    histFilter: 'week',
+    query: ''
+  };
+
+  /* ---------------------------------------------------------------
+     Derived. Computed once per render, in one place: a figure the header
+     and the summary card each work out for themselves is a figure that
+     eventually disagrees with itself.
+     --------------------------------------------------------------- */
+  function left()     { return LIST.filter(function (i) { return !i.done; }).length; }
+  function stapleN()  { return PANTRY.filter(function (i) { return i.staple; }).length; }
+  function emptyN()   { return PANTRY.filter(function (i) { return i.empty; }); }
+  function onStores() { return MYSTORES.filter(function (s) { return s.on; }); }
+  function overBudget() { return BUDGET.weeklyTarget > 0 && BUDGET.weekSpent > BUDGET.weeklyTarget; }
+  function budgetPct()  {
+    if (!BUDGET.weeklyTarget) return 0;
+    return Math.min(100, BUDGET.weekSpent / BUDGET.weeklyTarget * 100);
+  }
+
+  /* ---------------------------------------------------------------
+     Segment. Four panels, one control, and the count of what is still to
+     get travels to the header rather than sitting on the tab: a badge on a
+     segment competes with the segment's own job.
+     --------------------------------------------------------------- */
+  function subbarHTML() {
+    if (S.state === 'loading' || S.state === 'error') return '';
+    return '<div class="seg" role="tablist" aria-label="Shop section">' +
+      PANELS.map(function (p) {
+        var on = p[0] === S.panel;
+        return '<button class="seg__item" type="button" role="tab" aria-selected="' + on + '" ' +
+          'data-action="panel" data-panel="' + p[0] + '" data-testid="seg-' + p[0] + '">' + p[1] + '</button>';
+      }).join('') + '</div>';
+  }
+
+  function headerCount() {
+    if (S.state !== 'populated') return '';
+    if (S.panel === 'list')   return left() + ' to get';
+    if (S.panel === 'pantry') return PANTRY.length + ' in stock';
+    if (S.panel === 'stores') return onStores().length + ' of ' + MYSTORES.length + ' on';
+    if (!BUDGET.weeklyTarget) return 'No target';
+    return overBudget()
+      ? usd0(BUDGET.weekSpent - BUDGET.weeklyTarget) + ' over'
+      : usd0(BUDGET.weeklyTarget - BUDGET.weekSpent) + ' left';
+  }
+
+  /* ---------------------------------------------------------------
+     Panel: List
+     --------------------------------------------------------------- */
+
+  function picksHTML() {
+    var have = {};
+    LIST.forEach(function (i) { have[i.name.toLowerCase()] = true; });
+    var left = PICKS.filter(function (p) { return !have[p.name.toLowerCase()]; });
+    /* A pick already on the list is neither a control nor news: the list
+       below says it better. The shipped app greys them out, which turns a
+       twelve-item shortcut into a twelve-item wall above the answer. */
+    if (!left.length) return '';
+    return '<div class="section">' +
+      '<div class="section__head"><h2 class="t-label">Fitness picks</h2>' +
+        '<span class="t-meta">Tap to add</span></div>' +
+      '<div class="chiprow" data-testid="picks">' +
+        left.map(function (p) {
+          return '<button class="pick" type="button" data-action="pick" data-name="' + esc(p.name) +
+            '" data-testid="pick-' + p.name.toLowerCase().replace(/\W+/g, '-') + '">' +
+            p.icon + '<span>' + esc(p.name) + '</span>' +
+            '<span class="pick__qty">' + p.qty + (p.unit === 'qty' ? '' : ' ' + p.unit) + '</span>' +
+          '</button>';
+        }).join('') +
+      '</div></div>';
+  }
+
+  function listSummary() {
+    var n = left();
+    return '<div class="card" data-testid="list-summary">' +
+      '<div class="hstack hstack--3">' +
+        '<div class="stack stack--1 grow">' +
+          '<p class="t-hero num" data-testid="left-count">' + n +
+            '<span class="hero__unit"> of ' + LIST.length + '</span></p>' +
+          '<p class="t-label">Items to get</p>' +
+        '</div>' +
+      '</div>' +
+      '<div class="hstack hstack--3 mt-4">' +
+        (onStores().length
+          ? '<button class="btn btn--secondary grow" type="button" data-action="shop-at" data-testid="shop-at">' +
+              ICO.cart + '<span class="btn__label">Shop at</span></button>'
+          : '') +
+        '<button class="btn btn--secondary grow" type="button" data-action="export" data-testid="export">' +
+          ICO.share + '<span class="btn__label">Export</span></button>' +
+      '</div>' +
+      '<div class="hstack hstack--3 mt-2">' +
+        '<button class="btn btn--secondary grow" type="button" data-action="clear-done" data-testid="clear-done">' +
+          '<span class="btn__label">Clear done</span></button>' +
+        '<button class="btn btn--danger grow" type="button" data-action="clear-all" data-testid="clear-all">' +
+          '<span class="btn__label">Clear all</span></button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function addItemCard() {
+    var q = S.query.trim();
+    /* Two characters, because one character matches most of the table and a
+       list of everything is not a suggestion. */
+    var sugg = q.length >= 2 ? PICKS.filter(function (p) {
+      return p.name.toLowerCase().indexOf(q.toLowerCase()) === 0;
+    }).concat(PICKS.filter(function (p) {
+      var l = p.name.toLowerCase();
+      return l.indexOf(q.toLowerCase()) > 0;
+    })).slice(0, 3) : [];
+
+    return '<div class="card mt-4" data-testid="add-card">' +
+      '<h2 class="t-label">Add item</h2>' +
+      '<label class="vis-hidden" for="add-name">Item name</label>' +
+      '<input class="input mt-2" id="add-name" type="text" autocomplete="off" spellcheck="false" ' +
+        'enterkeyhint="done" placeholder="e.g. Chicken breast" value="' + esc(S.query) + '" data-testid="add-name">' +
+      (sugg.length
+        ? '<div class="card card--sunken card--flush mt-2" role="listbox" aria-label="Suggestions" data-testid="suggestions">' +
+            sugg.map(function (p) {
+              return '<button class="row" type="button" role="option" aria-selected="false" ' +
+                'data-action="suggest" data-name="' + esc(p.name) + '" data-testid="suggest-' +
+                p.name.toLowerCase().replace(/\W+/g, '-') + '">' +
+                '<span class="row__main"><span class="row__title">' + esc(p.name) + '</span></span>' +
+                '<span class="badge">' + p.qty + ' ' + p.unit + '</span></button>';
+            }).join('') +
+          '</div>'
+        : '') +
+      '<div class="hstack hstack--3 mt-3">' +
+        '<div class="field" style="width: 88px">' +
+          '<label class="t-label field__label" for="add-qty">Qty</label>' +
+          '<input class="input num" id="add-qty" type="number" min="1" step="1" inputmode="numeric" value="1" data-testid="add-qty">' +
+        '</div>' +
+        '<div class="field grow">' +
+          '<label class="t-label field__label" for="add-unit">Unit</label>' +
+          '<select class="input" id="add-unit" data-testid="add-unit">' +
+            UNITS.map(function (u) { return '<option value="' + u + '">' + u + '</option>'; }).join('') +
+          '</select>' +
+        '</div>' +
+      '</div>' +
+      '<button class="btn btn--primary btn--block mt-3" type="button" data-action="add-item" ' +
+        'data-testid="add-item"' + (q ? '' : ' disabled') + '>' +
+        '<span class="btn__label">Add to list</span></button>' +
+    '</div>';
+  }
+
+  /* The row does one thing: tick it off. Everything else about the item —
+     where to buy it, what it costs, removing it — is behind the row, because
+     ticking happens in a shop with one hand and the rest happens at home.
+     A strip of store shortcuts under every row would triple the height of
+     the list for a job nobody does while walking it. */
+  function itemRow(it) {
+    return '<div class="item' + (it.done ? ' item--done' : '') + '" data-testid="item-' + it.id + '">' +
+      '<button class="tick" type="button" aria-pressed="' + it.done + '" data-action="tick" data-id="' + it.id +
+        '" aria-label="' + (it.done ? 'Mark as not picked up' : 'Mark as picked up') + ', ' + esc(it.name) + '">' +
+        '<span class="tick__box">' + (it.done ? ICO.tick : '') + '</span></button>' +
+      '<button class="item__main" type="button" data-action="open-item" data-id="' + it.id +
+        '" data-testid="open-' + it.id + '" style="text-align: left; min-height: var(--tap)">' +
+        '<span class="item__name">' + it.qty + (it.unit === 'qty' ? '' : ' ' + it.unit) + ' ' + esc(it.name) + '</span>' +
+      '</button>' +
+      '<span class="row__chev" aria-hidden="true">' + ICO.chev + '</span>' +
+    '</div>';
+  }
+
+  function listGroups() {
+    return CATS.map(function (c) {
+      var rows = LIST.filter(function (i) { return i.cat === c.id; });
+      if (!rows.length) return '';
+      return '<div class="section">' +
+        '<div class="section__head" style="padding: 0 var(--page-x)">' +
+          '<h2 class="t-label">' + c.label + '</h2>' +
+          '<span class="t-meta num">' + rows.length + '</span></div>' +
+        rows.map(itemRow).join('') +
+      '</div>';
+    }).join('');
+  }
+
+  function listEmpty() {
+    return '<div class="empty mt-4" data-testid="list-empty">' +
+        '<p class="empty__title">Your list is empty</p>' +
+        '<p class="empty__body">Tap a pick above to add it, use the form below, or ask Coach to build the list from your week.</p>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section__head" style="padding: 0 var(--page-x)">' +
+          '<h2 class="t-label">Meals worth prepping</h2></div>' +
+        MEALS.map(function (m, i) {
+          return '<div class="card mt-3" style="margin-left: var(--page-x); margin-right: var(--page-x)" data-testid="meal-' + i + '">' +
+            '<div class="hstack hstack--3">' +
+              '<span class="fuel-thumb" aria-hidden="true">' + m.icon + '</span>' +
+              '<span class="t-section grow">' + esc(m.name) + '</span>' +
+              '<button class="btn btn--secondary" type="button" data-action="add-meal" data-i="' + i +
+                '" data-testid="add-meal-' + i + '"><span class="btn__label">Add all</span></button>' +
+            '</div>' +
+            '<div class="chiprow mt-3">' + m.items.map(function (x) {
+              return '<span class="badge">' + esc(x) + '</span>';
+            }).join('') + '</div>' +
+          '</div>';
+        }).join('') +
+      '</div>';
+  }
+
+  function panelList() {
+    var gut = function (h) { return h ? '<div style="padding: 0 var(--page-x)">' + h + '</div>' : ''; };
+    /* Answer first, then the list, then the tools that change it. A screen
+       that opens on its own input fields is asking a question before it has
+       said anything. */
+    if (!LIST.length) return listEmpty() + gut(picksHTML() + addItemCard());
+    return gut(listSummary()) + listGroups() + gut(picksHTML() + addItemCard());
+  }
+
+  /* ---------------------------------------------------------------
+     Panel: Budget
+     --------------------------------------------------------------- */
+
+  function budgetCard() {
+    if (S.editTarget) {
+      return '<div class="card" data-testid="budget-card">' +
+        '<div class="section__head"><h2 class="t-label">Weekly budget</h2>' +
+          '<button class="hdr__action" type="button" data-action="edit-target" data-testid="cancel-target">Cancel</button></div>' +
+        '<label class="t-label field__label mt-2" for="target">Weekly target</label>' +
+        '<input class="input num" id="target" type="number" min="0" step="0.01" inputmode="decimal" ' +
+          'value="' + BUDGET.weeklyTarget.toFixed(2) + '" data-testid="target-input">' +
+        '<p class="field__help">Zero or more. Set it to zero to stop comparing against a target without losing the history.</p>' +
+        '<button class="btn btn--primary btn--block mt-3" type="button" data-action="save-target" data-testid="save-target">' +
+          '<span class="btn__label">Save target</span></button>' +
+      '</div>';
+    }
+
+    var pct = budgetPct(), over = overBudget();
+    var mClass = over ? ' meter--over' : (pct >= 75 ? ' meter--warn' : '');
+    return '<div class="card" data-testid="budget-card">' +
+      '<div class="section__head"><h2 class="t-label">Weekly budget</h2>' +
+        '<button class="hdr__action" type="button" data-action="edit-target" data-testid="edit-target">Edit</button></div>' +
+      '<div class="hstack hstack--2" style="align-items: baseline">' +
+        '<p class="money' + (over ? ' money--over' : '') + '" data-testid="week-spent">' + usd(BUDGET.weekSpent) + '</p>' +
+        '<p class="hero__unit grow">' + (BUDGET.weeklyTarget ? 'of ' + usd(BUDGET.weeklyTarget) : 'No target set') + '</p>' +
+      '</div>' +
+      (BUDGET.weeklyTarget
+        ? '<div class="meter mt-3' + mClass + '" role="img" aria-label="' + usd(BUDGET.weekSpent) +
+            ' of ' + usd(BUDGET.weeklyTarget) + ' spent this week"><span class="meter__fill" style="width:' + pct + '%"></span></div>' +
+          '<div class="hstack hstack--3 mt-2">' +
+            '<p class="t-detail grow' + (over ? '" style="color: var(--error)' : '') + '">' +
+              (over ? usd(BUDGET.weekSpent - BUDGET.weeklyTarget) + ' over budget'
+                    : usd(BUDGET.weeklyTarget - BUDGET.weekSpent) + ' remaining') + '</p>' +
+            '<p class="t-detail num">' + Math.round(pct) + '%</p>' +
+          '</div>'
+        : '') +
+      '<div class="tiles mt-4">' +
+        '<div class="tile"><span class="t-label">This month</span>' +
+          '<span class="tile__value" data-testid="month-spent">' + usd(BUDGET.monthSpent) + '</span></div>' +
+        '<div class="tile"><span class="t-label">Purchases</span>' +
+          '<span class="tile__value" data-testid="week-count">' + BUDGET.history.length + '</span></div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function actionsCard() {
+    return '<div class="card mt-3">' +
+      '<button class="btn btn--secondary btn--block" type="button" data-action="add-purchase" ' +
+        'aria-expanded="' + S.addOpen + '" data-testid="add-purchase">' + ICO.plus +
+        '<span class="btn__label">Log a purchase</span></button>' +
+      '<h2 class="t-label mt-4">Scan a receipt</h2>' +
+      '<p class="t-detail">The whole shop in one photo, itemised. What it reads goes to the pantry as well as to the history.</p>' +
+      '<div class="hstack hstack--3 mt-3">' +
+        '<button class="btn btn--secondary grow" type="button" data-action="scan-cam" data-testid="scan-cam">' +
+          ICO.cam + '<span class="btn__label">Camera</span></button>' +
+        '<button class="btn btn--secondary grow" type="button" data-action="scan-lib" data-testid="scan-lib">' +
+          ICO.lib + '<span class="btn__label">Library</span></button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function logPurchaseCard() {
+    if (!S.addOpen) return '';
+    return '<div class="card mt-3" data-testid="log-card">' +
+      '<h2 class="t-label">Log purchase</h2>' +
+      '<label class="t-label field__label mt-2" for="p-name">Item</label>' +
+      '<input class="input" id="p-name" type="text" placeholder="e.g. Chicken breast" data-testid="p-name">' +
+      '<div class="hstack hstack--3 mt-3">' +
+        '<div class="field grow"><label class="t-label field__label" for="p-price">Price</label>' +
+          '<input class="input num" id="p-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" data-testid="p-price"></div>' +
+        '<div class="field" style="width: 88px"><label class="t-label field__label" for="p-qty">Qty</label>' +
+          '<input class="input num" id="p-qty" type="number" min="1" step="1" inputmode="numeric" value="1" data-testid="p-qty"></div>' +
+      '</div>' +
+      '<label class="t-label field__label mt-3" for="p-store">Store</label>' +
+      '<select class="input" id="p-store" data-testid="p-store">' +
+        '<option value="">Select a store</option>' +
+        MYSTORES.map(function (s) { return '<option value="' + s.id + '">' + esc(s.name) + '</option>'; }).join('') +
+        '<option value="other">Other</option>' +
+      '</select>' +
+      '<button class="btn btn--primary btn--block mt-3" type="button" data-action="save-purchase" data-testid="save-purchase">' +
+        '<span class="btn__label">Add to history</span></button>' +
+    '</div>';
+  }
+
+  /* A receipt that could not be read says which of the three things went
+     wrong, because "try again" is only useful advice for one of them. */
+  var SCAN_FAIL = {
+    none: 'No items were found on that photo. A flatter, brighter shot of the whole receipt usually reads.',
+    down: 'The receipt reader is not answering. Nothing was lost, and logging by hand still works.'
+  };
+
+  function receiptCard() {
+    if (!S.receipt) return '';
+    if (S.receipt !== 'ok') {
+      return '<div class="card card--unverified mt-3" data-testid="receipt-card">' +
+        '<div class="banner banner--error">' + ICO.alert + '<span>' + SCAN_FAIL[S.receipt] + '</span></div>' +
+        '<div class="hstack hstack--3 mt-3">' +
+          '<button class="btn btn--secondary grow" type="button" data-action="scan-cancel" data-testid="receipt-cancel">' +
+            '<span class="btn__label">Cancel</span></button>' +
+          '<button class="btn btn--secondary grow" type="button" data-action="scan-cam" data-testid="receipt-retry">' +
+            '<span class="btn__label">Try another photo</span></button>' +
+        '</div>' +
+      '</div>';
+    }
+    return '<div class="card mt-3" style="box-shadow: inset 0 0 0 2px var(--accent-text)" data-testid="receipt-card">' +
+      '<h2 class="t-label">Confirm receipt</h2>' +
+      '<label class="t-label field__label mt-2" for="r-store">Store</label>' +
+      '<select class="input" id="r-store" data-testid="r-store">' +
+        '<option value="">Unknown store</option>' +
+        MYSTORES.map(function (s) { return '<option value="' + s.id + '">' + esc(s.name) + '</option>'; }).join('') +
+      '</select>' +
+      '<div class="mt-3">' + RECEIPT.items.map(function (it) {
+        return '<div class="hstack hstack--3" style="min-height: var(--sp-6)">' +
+          '<span class="t-body grow num">' + it.q + '&times; ' + esc(it.n) + '</span>' +
+          '<span class="t-body-em num">' + usd(it.p) + '</span></div>';
+      }).join('') + '</div>' +
+      '<div class="hstack hstack--3 mt-3" style="box-shadow: inset 0 1px 0 var(--hairline); padding-top: var(--sp-3)">' +
+        '<span class="t-section grow">Total</span>' +
+        '<span class="t-section num" data-testid="receipt-total">' + usd(RECEIPT.total) + '</span></div>' +
+      '<div class="hstack hstack--3 mt-4">' +
+        '<button class="btn btn--secondary grow" type="button" data-action="scan-cancel" data-testid="receipt-cancel">' +
+          '<span class="btn__label">Cancel</span></button>' +
+        '<button class="btn btn--primary grow" type="button" data-action="receipt-save" data-testid="receipt-save">' +
+          '<span class="btn__label">Confirm and save</span></button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function compareCard() {
+    if (onStores().length < 2) return '';
+    return '<div class="card mt-3" data-testid="compare-card">' +
+      '<h2 class="t-label">Price comparison</h2>' +
+      '<div class="hstack hstack--3 mt-2">' +
+        '<div class="field grow"><label class="vis-hidden" for="cmp">Item to compare</label>' +
+          '<input class="input" id="cmp" type="text" enterkeyhint="search" placeholder="e.g. chicken breast" data-testid="cmp-input"></div>' +
+        '<button class="btn btn--secondary" type="button" data-action="compare" data-testid="compare">' +
+          '<span class="btn__label">Compare</span></button>' +
+      '</div>' +
+      '<div class="mt-3">' + BUDGET.compare.map(function (r, i) {
+        return '<div class="row" style="padding-left: 0; padding-right: 0; background: none">' +
+          '<span class="row__main stack">' +
+            '<span class="row__title">' + esc(r.store) +
+              (i === 0 ? ' <span class="badge badge--success">Best</span>' : '') + '</span>' +
+            '<span class="row__sub">' + esc(r.product) + (r.note ? ' &middot; ' + esc(r.note) : '') + '</span>' +
+          '</span>' +
+          '<span class="row__value num"' + (i === 0 ? ' style="color: var(--success)"' : '') + '>' + usd(r.price) + '</span>' +
+        '</div>';
+      }).join('') + '</div>' +
+    '</div>';
+  }
+
+  function swapsCard() {
+    return '<div class="card mt-3" data-testid="swaps-card">' +
+      '<div class="section__head"><h2 class="t-label">Cheaper swaps</h2>' +
+        '<button class="hdr__action" type="button" data-action="find-swaps" data-testid="find-swaps">Find swaps</button></div>' +
+      (BUDGET.swaps.length
+        ? BUDGET.swaps.map(function (s) {
+            return '<div class="row" style="padding-left: 0; padding-right: 0; background: none">' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + esc(s.to) + '</span>' +
+                '<span class="row__sub">instead of ' + esc(s.from) + ' &middot; at ' + esc(s.store) + '</span>' +
+              '</span>' +
+              '<span class="row__value num" style="color: var(--success)">save ' + esc(s.saves) + '</span>' +
+            '</div>';
+          }).join('')
+        : '<p class="t-detail mt-2">Nothing cheaper found for this week. You are already shopping well.</p>') +
+    '</div>';
+  }
+
+  var FILTERS = [['week', 'Week'], ['month', 'Month'], ['all', 'All'], ['receipts', 'Receipts']];
+
+  function historyCard() {
+    var rows = S.histFilter === 'receipts'
+      ? BUDGET.history.filter(function (h) { return h.source === 'receipt'; })
+      : BUDGET.history;
+    var SRC = { receipt: 'Receipt', list: 'List', manual: 'Manual' };
+    return '<div class="card mt-3" data-testid="history-card">' +
+      '<h2 class="t-label">History</h2>' +
+      '<div class="seg mt-2" role="tablist" aria-label="History range">' +
+        FILTERS.map(function (f) {
+          var on = f[0] === S.histFilter;
+          return '<button class="seg__item" type="button" role="tab" aria-selected="' + on +
+            '" data-action="hist" data-f="' + f[0] + '" data-testid="hist-' + f[0] + '">' + f[1] + '</button>';
+        }).join('') +
+      '</div>' +
+      (rows.length
+        ? '<div class="mt-3">' + rows.map(function (h) {
+            /* The receipt view shows every line, because that is what it is
+               for. Every other view shows three and says how many are left. */
+            var show = S.histFilter === 'receipts' ? h.items : h.items.slice(0, 3);
+            var rest = h.items.length - show.length;
+            return '<div class="mt-3" data-testid="hist-' + h.id + '">' +
+              '<div class="hstack hstack--2">' +
+                '<span class="t-section grow">' + esc(h.store) +
+                  ' <span class="badge">' + SRC[h.source] + '</span></span>' +
+                '<span class="t-section num">' + usd(h.total) + '</span>' +
+                '<button class="iconbtn iconbtn--danger-quiet" type="button" data-action="del-hist" data-id="' + h.id +
+                  '" aria-label="Remove the ' + esc(h.store) + ' purchase on ' + esc(h.when) + '" data-testid="del-' + h.id + '">' +
+                  '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+                '</button>' +
+              '</div>' +
+              '<p class="t-meta">' + esc(h.when) + '</p>' +
+              '<div class="mt-2">' + show.map(function (i) {
+                return '<p class="t-detail num">' + i.q + '&times; ' + esc(i.n) + ' &mdash; ' + usd(i.p) + '</p>';
+              }).join('') + (rest > 0 ? '<p class="t-meta num">and ' + rest + ' more</p>' : '') + '</div>' +
+            '</div>';
+          }).join('') + '</div>'
+        : '<p class="t-detail mt-3" data-testid="hist-empty">Nothing logged in this range. Log a purchase or scan a receipt and it lands here.</p>') +
+    '</div>';
+  }
+
+  function panelBudget() {
+    return '<div style="padding: 0 var(--page-x)">' +
+      budgetCard() + actionsCard() + logPurchaseCard() + receiptCard() +
+      compareCard() + swapsCard() + historyCard() + '</div>';
+  }
+
+  /* ---------------------------------------------------------------
+     Panel: Pantry
+
+     What is already in the house. A staple is the only thing here that acts
+     on its own: when its interval elapses it rejoins the shopping list, so
+     the list carries what is missing rather than what is wanted.
+     --------------------------------------------------------------- */
+
+  function pantryRow(it) {
+    var editing = S.editInterval === it.id;
+    return '<div class="item' + (it.empty ? ' item--done' : '') + '" data-testid="pan-' + it.id + '">' +
+      '<button class="tick" type="button" aria-pressed="' + it.empty + '" data-action="pan-empty" data-id="' + it.id +
+        '" aria-label="' + (it.empty ? 'Mark ' + esc(it.name) + ' as restocked' : 'Mark ' + esc(it.name) + ' as out of stock') + '">' +
+        '<span class="tick__box">' + (it.empty ? ICO.tick : '') + '</span></button>' +
+      '<span class="item__main">' +
+        '<span class="item__name">' + esc(it.name) + '</span>' +
+        '<span class="item__stores">' +
+          '<span class="badge">' + it.qty + ' left</span>' +
+          (it.store ? '<span class="badge">' + esc(it.store) + '</span>' : '') +
+          (it.empty ? '<span class="badge badge--est">On the list</span>' : '') +
+          (it.staple && !editing
+            ? '<button class="storechip" type="button" data-action="pan-interval" data-id="' + it.id +
+              '" data-testid="every-' + it.id + '">every ' + it.every + ' days</button>'
+            : '') +
+        '</span>' +
+        (editing
+          ? '<span class="hstack hstack--2 mt-2">' +
+              '<label class="vis-hidden" for="iv-' + it.id + '">Restock interval in days</label>' +
+              '<input class="input num" id="iv-' + it.id + '" type="number" min="1" max="365" step="1" ' +
+                'inputmode="numeric" value="' + it.every + '" style="width: 96px" data-testid="iv-' + it.id + '">' +
+              '<button class="btn btn--secondary" type="button" data-action="pan-interval-save" data-id="' + it.id +
+                '" data-testid="iv-save-' + it.id + '"><span class="btn__label">Set</span></button>' +
+              (S.intervalError === it.id
+                ? '<span class="field__error">Between 1 and 365 days.</span>' : '') +
+            '</span>'
+          : '') +
+      '</span>' +
+      '<button class="iconbtn" type="button" aria-pressed="' + it.staple + '" data-action="pan-staple" data-id="' + it.id +
+        '" aria-label="' + (it.staple ? 'Stop restocking ' + esc(it.name) + ' automatically' : 'Restock ' + esc(it.name) + ' automatically') +
+        '" data-testid="staple-' + it.id + '">' +
+        '<svg class="ico" viewBox="0 0 24 24" fill="' + (it.staple ? 'currentColor' : 'none') +
+          '" stroke="currentColor" stroke-linejoin="round" aria-hidden="true"><path d="m12 4 2.4 5 5.6.7-4 3.9 1 5.4-5-2.7-5 2.7 1-5.4-4-3.9 5.6-.7z"/></svg>' +
+      '</button>' +
+      (it.empty ? '' :
+        '<button class="iconbtn" type="button" data-action="pan-to-list" data-id="' + it.id +
+          '" aria-label="Add ' + esc(it.name) + ' to the shopping list" data-testid="tolist-' + it.id + '">' +
+          ICO.cart + '</button>') +
+      '<button class="iconbtn iconbtn--danger-quiet" type="button" data-action="pan-remove" data-id="' + it.id +
+        '" aria-label="Remove ' + esc(it.name) + ' from the pantry" data-testid="pan-remove-' + it.id + '">' +
+        '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+      '</button>' +
+    '</div>';
+  }
+
+  function panelPantry() {
+    var out = emptyN();
+    var rows = S.staplesOnly ? PANTRY.filter(function (i) { return i.staple; }) : PANTRY;
+
+    var head = '<div style="padding: 0 var(--page-x)">' +
+      (out.length
+        ? '<div class="banner banner--warn" data-testid="out-banner">' + ICO.alert +
+            '<span><strong>' + out.length + ' out of stock</strong>' +
+            out.map(function (i) { return esc(i.name); }).join(', ') +
+            '. Already added to the list.</span></div>'
+        : '') +
+      '<div class="card' + (out.length ? ' mt-3' : '') + '">' +
+        '<h2 class="t-label">Add to the pantry</h2>' +
+        '<div class="hstack hstack--3 mt-2">' +
+          '<div class="field grow"><label class="vis-hidden" for="pan-name">Item name</label>' +
+            '<input class="input" id="pan-name" type="text" placeholder="e.g. Rice" data-testid="pan-name"></div>' +
+          '<div class="field" style="width: 88px"><label class="vis-hidden" for="pan-qty">Quantity</label>' +
+            '<input class="input num" id="pan-qty" type="number" min="1" step="1" inputmode="numeric" value="1" data-testid="pan-qty"></div>' +
+        '</div>' +
+        '<button class="btn btn--secondary btn--block mt-3" type="button" data-action="pan-add" data-testid="pan-add">' +
+          '<span class="btn__label">Add</span></button>' +
+      '</div>' +
+      '<div class="chiprow mt-4">' +
+        '<button class="chip" type="button" aria-pressed="' + !S.staplesOnly + '" data-action="pan-filter" data-f="all" data-testid="pan-all">' +
+          'All ' + PANTRY.length + '</button>' +
+        '<button class="chip" type="button" aria-pressed="' + !!S.staplesOnly + '" data-action="pan-filter" data-f="staples" data-testid="pan-staples">' +
+          'Restocking ' + stapleN() + '</button>' +
+      '</div>' +
+    '</div>';
+
+    if (!rows.length) {
+      return head + '<div class="empty mt-5" data-testid="pantry-empty">' +
+        '<p class="empty__title">' + (S.staplesOnly ? 'Nothing restocks itself yet' : 'The pantry is empty') + '</p>' +
+        '<p class="empty__body">' + (S.staplesOnly
+          ? 'Star any pantry item to have it rejoin your shopping list on its own schedule, so you notice it is low before you run out.'
+          : 'Scan a receipt on the Budget panel to fill this from what you actually bought, or add an item above.') +
+        '</p></div>';
+    }
+
+    return head + CATS.map(function (c) {
+      var g = rows.filter(function (i) { return i.cat === c.id; });
+      if (!g.length) return '';
+      return '<div class="section">' +
+        '<div class="section__head" style="padding: 0 var(--page-x)">' +
+          '<h2 class="t-label">' + c.label + '</h2>' +
+          '<span class="t-meta num">' + g.length + '</span></div>' +
+        g.map(pantryRow).join('') +
+      '</div>';
+    }).join('');
+  }
+
+  /* ---------------------------------------------------------------
+     Panel: Stores
+
+     A store here is a search shortcut, not an account. Nothing signs in and
+     nothing is ordered: tapping a store opens its own search for the item.
+     --------------------------------------------------------------- */
+  function panelStores() {
+    var have = {};
+    MYSTORES.forEach(function (s) { have[s.host] = true; });
+    var avail = PRESETS.filter(function (p) { return !have[p.host]; });
+
+    return '<div style="padding: 0 var(--page-x)">' +
+      (avail.length
+        ? '<div class="section" style="margin-top: 0">' +
+            '<div class="section__head"><h2 class="t-label">Quick add</h2></div>' +
+            '<div class="chiprow" data-testid="presets">' + avail.map(function (p) {
+              return '<button class="pick" type="button" data-action="add-store" data-host="' + p.host +
+                '" data-testid="preset-' + p.host.replace(/\W+/g, '-') + '">' + esc(p.name) + '</button>';
+            }).join('') + '</div>' +
+          '</div>'
+        : '') +
+      (MYSTORES.length
+        ? '<div class="section">' +
+            '<div class="section__head"><h2 class="t-label">My stores</h2>' +
+              '<span class="t-meta num">' + onStores().length + ' on</span></div>' +
+            '<div class="card card--flush">' + MYSTORES.map(function (s) {
+              return '<div class="row" data-testid="store-row-' + s.id + '">' +
+                '<span class="fuel-thumb" style="background: ' + s.hue + '; color: var(--text-on-solid)" aria-hidden="true">' +
+                  esc(s.name.charAt(0)) + '</span>' +
+                '<span class="row__main stack">' +
+                  '<span class="row__title">' + esc(s.name) + '</span>' +
+                  '<span class="row__sub">' + esc(s.about || s.host) + '</span>' +
+                '</span>' +
+                '<button class="switch" type="button" role="switch" aria-checked="' + s.on + '" ' +
+                  'data-action="store-toggle" data-id="' + s.id + '" data-testid="toggle-' + s.id +
+                  '" aria-label="Search ' + esc(s.name) + ' from your list">' +
+                  '<span class="switch__track"><span class="switch__knob"></span></span></button>' +
+                '<button class="iconbtn iconbtn--danger-quiet" type="button" data-action="store-remove" data-id="' + s.id +
+                  '" aria-label="Remove ' + esc(s.name) + '" data-testid="store-del-' + s.id + '">' +
+                  '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+                '</button>' +
+              '</div>';
+            }).join('') + '</div>' +
+          '</div>'
+        : '<div class="empty mt-5" data-testid="stores-empty">' +
+            '<p class="empty__title">No stores yet</p>' +
+            '<p class="empty__body">Add the shops you actually use. Every item on your list then gets a one-tap search at each of them.</p>' +
+          '</div>') +
+      '<div class="card mt-4" data-testid="custom-store">' +
+        '<h2 class="t-label">Add a shop that is not listed</h2>' +
+        '<label class="t-label field__label mt-2" for="cs-name">Name</label>' +
+        '<input class="input" id="cs-name" type="text" placeholder="e.g. Halal Butcher" data-testid="cs-name">' +
+        '<label class="t-label field__label mt-3" for="cs-url">Website</label>' +
+        '<input class="input" id="cs-url" type="url" inputmode="url" autocapitalize="off" spellcheck="false" ' +
+          'placeholder="store.com" data-testid="cs-url">' +
+        '<label class="t-label field__label mt-3" for="cs-about">What it is</label>' +
+        '<input class="input" id="cs-about" type="text" placeholder="Optional, e.g. local organic grocer" data-testid="cs-about">' +
+        '<p class="field__help">Optional, and only used to tell two shops apart in a list.</p>' +
+        '<button class="btn btn--secondary btn--block mt-3" type="button" data-action="add-custom" data-testid="add-custom">' +
+          '<span class="btn__label">Add shop</span></button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  /* ---------------------------------------------------------------
+     Whole-screen states
+     --------------------------------------------------------------- */
+  function viewLoading() {
+    return '<div style="padding: 0 var(--page-x)" role="status" aria-busy="true" aria-label="Loading your list">' +
+      '<div class="skel" style="height: 40px; width: 55%"></div>' +
+      '<div class="skel mt-3" style="height: 96px"></div>' +
+      '<div class="skel mt-3" style="height: 56px"></div>' +
+      '<div class="skel mt-4" style="height: var(--sp-4); width: 32%"></div>' +
+      '<div class="skel mt-3" style="height: 64px"></div>' +
+      '<div class="skel mt-2" style="height: 64px"></div>' +
+    '</div>';
+  }
+
+  function viewError() {
+    return '<div class="mt-4" style="padding: 0 var(--page-x)" data-testid="state-error">' +
+      '<div class="banner banner--error">' + ICO.alert +
+        '<span><strong>Your list did not load</strong>It is stored on this device and is not lost. ' +
+        'The prices and the store search need the server and it did not answer.</span></div>' +
+      '<button class="btn btn--primary btn--block mt-4" type="button" data-action="retry" data-testid="retry">' +
+        '<span class="btn__label">Try again</span></button>' +
+    '</div>';
+  }
+
+  var VIEWS = {
+    list: panelList, pantry: panelPantry, stores: panelStores, budget: panelBudget
+  };
+
+  function bodyHTML() {
+    if (S.state === 'loading') return viewLoading();
+    if (S.state === 'error') return viewError();
+    if (S.state === 'empty') {
+      /* Empty is a property of the data, so every panel has its own. */
+      var saveList = LIST.slice(), savePan = PANTRY.slice(), saveStores = MYSTORES.slice();
+      LIST.length = 0; PANTRY.length = 0; MYSTORES.length = 0;
+      var out = (VIEWS[S.panel] || panelList)();
+      Array.prototype.push.apply(LIST, saveList);
+      Array.prototype.push.apply(PANTRY, savePan);
+      Array.prototype.push.apply(MYSTORES, saveStores);
+      return out;
+    }
+    return (VIEWS[S.panel] || panelList)();
+  }
+
+  /* ---------------------------------------------------------------
+     Sheets and dialogs
+
+     A destructive action gets a dialog that names what goes, not a second
+     tap on the same button: the live app's two-tap pattern asks you to
+     confirm by repeating the mistake.
+     --------------------------------------------------------------- */
+  function overlayHTML() {
+    if (S.sheet === 'shop-at') {
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sa-title" ' +
+          'data-detents="0.42 0.8" data-testid="sheet-shop-at">' +
+          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="sa-title">Search which shop</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="sa-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<p class="t-detail">Opens a search for each of your first ten unchecked items, one tab at a time.</p>' +
+            '<div class="card card--flush mt-3">' + onStores().map(function (s) {
+              return '<button class="row" type="button" data-action="close" data-testid="sa-' + s.id + '">' +
+                '<span class="fuel-thumb" style="background: ' + s.hue + '; color: var(--text-on-solid)" aria-hidden="true">' +
+                  esc(s.name.charAt(0)) + '</span>' +
+                '<span class="row__main"><span class="row__title">' + esc(s.name) + '</span></span>' +
+                '<span class="row__chev">' + ICO.chev + '</span></button>';
+            }).join('') + '</div>' +
+          '</div>' +
+        '</div>';
+    }
+    if (S.sheet && S.sheet.indexOf('item:') === 0) {
+      var it = LIST.filter(function (x) { return x.id === S.sheet.slice(5); })[0];
+      if (!it) return '';
+      var stores = onStores();
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="it-title" ' +
+          'data-detents="0.5 0.85" data-testid="sheet-item">' +
+          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+          '<div class="sheet__head">' +
+            '<h2 class="t-headline grow" id="it-title">' + esc(it.name) + '</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="item-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<p class="t-detail num">' + it.qty + (it.unit === 'qty' ? '' : ' ' + it.unit) + ' &middot; ' +
+              esc((CATS.filter(function (c) { return c.id === it.cat; })[0] || CATS[5]).label) + '</p>' +
+            (stores.length
+              ? '<h3 class="t-label mt-4">Search for it</h3>' +
+                '<div class="card card--flush mt-2">' + stores.map(function (s) {
+                  return '<button class="row" type="button" data-action="close" data-testid="find-' + s.id + '">' +
+                    '<span class="storechip__dot" style="color:' + s.hue + '; width: var(--sp-3); height: var(--sp-3)" aria-hidden="true"></span>' +
+                    '<span class="row__main"><span class="row__title">' + esc(s.name) + '</span></span>' +
+                    '<span class="row__chev">' + ICO.chev + '</span></button>';
+                }).join('') + '</div>'
+              : '<p class="t-detail mt-4">Add a shop on the Stores panel and every item gets a one-tap search here.</p>') +
+          '</div>' +
+          '<div class="sheet__foot">' +
+            '<button class="btn btn--danger btn--block" type="button" data-action="remove" data-id="' + it.id +
+              '" data-testid="item-remove"><span class="btn__label">Remove from the list</span></button>' +
+          '</div>' +
+        '</div>';
+    }
+    if (S.sheet === 'merge') {
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="mg-title" data-testid="sheet-merge">' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="mg-title">Chicken breast is already on the list</h2></div>' +
+          '<div class="sheet__body">' +
+            '<p class="t-body-17">It is down as <strong class="num">2 lb</strong>. Adding <strong class="num">1 lb</strong> ' +
+              'would make it <strong class="num">3 lb</strong>.</p>' +
+            '<p class="t-detail mt-2">Two rows is the right answer when they are two different things, ' +
+              'like fresh and frozen. Otherwise one row is easier to read in a shop.</p>' +
+          '</div>' +
+          '<div class="sheet__foot">' +
+            '<button class="btn btn--primary btn--block" type="button" data-action="close" data-testid="merge-do">' +
+              '<span class="btn__label">Make it 3 lb</span></button>' +
+            '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="close" data-testid="merge-sep">' +
+              '<span class="btn__label">Keep them separate</span></button>' +
+            '<button class="btn btn--tertiary btn--block mt-2" type="button" data-action="close" data-testid="merge-cancel">' +
+              '<span class="btn__label">Cancel</span></button>' +
+          '</div>' +
+        '</div>';
+    }
+    if (S.sheet === 'clear-all' || S.sheet === 'clear-done') {
+      var all = S.sheet === 'clear-all';
+      var n = all ? LIST.length : LIST.filter(function (i) { return i.done; }).length;
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="cf-title" aria-describedby="cf-body" data-testid="dialog-' + S.sheet + '">' +
+          '<h2 class="t-section" id="cf-title">' + (all ? 'Empty the list' : 'Clear what you picked up') + '</h2>' +
+          '<p class="t-detail mt-2" id="cf-body">' +
+            (all
+              ? 'All ' + n + ' items go, including the ' + left() + ' you have not picked up yet. Your pantry and your history are untouched.'
+              : n + ' picked-up items go. The ' + left() + ' still to get stay where they are.') +
+          '</p>' +
+          '<button class="btn btn--danger btn--block mt-4" type="button" data-action="close" data-testid="confirm-' + S.sheet + '">' +
+            '<span class="btn__label">' + (all ? 'Empty the list' : 'Clear ' + n + ' items') + '</span></button>' +
+          '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="close" data-testid="cancel-' + S.sheet + '">' +
+            '<span class="btn__label">Keep them</span></button>' +
+        '</div>';
+    }
+    return '';
+  }
+
+  /* ---------------------------------------------------------------
+     Render
+     --------------------------------------------------------------- */
+  function render() {
+    screen.setAttribute('data-state', S.state);
+    screen.setAttribute('data-panel', S.panel);
+    hdrCount.textContent = headerCount();
+    LKPatch(subbar, subbarHTML());
+    LKPatch(body, bodyHTML());
+    LKPatch(overlay, overlayHTML());
+    Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.state === S.state));
+    });
+    if (window.LKChrome) LKChrome.init(document);
+  }
+
+  /* ---------------------------------------------------------------
+     Actions. Every one of them is real: the fixture is mutated and the
+     screen re-renders from it, so a tap that looks like it worked did.
+     --------------------------------------------------------------- */
+  var ACT = {
+    panel: function (el) { S.panel = el.dataset.panel; body.scrollTop = 0; },
+    hist:  function (el) { S.histFilter = el.dataset.f; },
+
+    pick: function (el) {
+      var p = PICKS.filter(function (x) { return x.name === el.dataset.name; })[0];
+      if (!p) return;
+      LIST.push({ id: 'n' + Date.now(), name: p.name, qty: p.qty, unit: p.unit,
+                  cat: categorise(p.name), done: false });
+    },
+    suggest: function (el) { S.query = el.dataset.name; },
+    'add-item': function () {
+      var name = S.query.trim();
+      if (!name) return;
+      var qty = parseInt(document.getElementById('add-qty').value, 10) || 1;
+      var unit = document.getElementById('add-unit').value;
+      /* An item already on the list is a decision, not an error, so it asks
+         rather than silently adding a duplicate row. */
+      if (LIST.some(function (i) { return i.name.toLowerCase() === name.toLowerCase(); })) {
+        S.sheet = 'merge'; return;
+      }
+      LIST.push({ id: 'n' + Date.now(), name: name.charAt(0).toUpperCase() + name.slice(1),
+                  qty: qty, unit: unit, cat: categorise(name), done: false });
+      S.query = '';
+    },
+    'add-meal': function (el) {
+      MEALS[+el.dataset.i].items.forEach(function (n) {
+        if (LIST.some(function (i) { return i.name.toLowerCase() === n.toLowerCase(); })) return;
+        var p = PICKS.filter(function (x) { return x.name.toLowerCase() === n.toLowerCase(); })[0];
+        LIST.push({ id: 'n' + Date.now() + n, name: n, qty: p ? p.qty : 1,
+                    unit: p ? p.unit : 'qty', cat: categorise(n), done: false });
+      });
+    },
+    tick: function (el) {
+      LIST.forEach(function (i) { if (i.id === el.dataset.id) i.done = !i.done; });
+    },
+    'open-item': function (el) { S.sheet = 'item:' + el.dataset.id; },
+    remove: function (el) {
+      var k = LIST.map(function (i) { return i.id; }).indexOf(el.dataset.id);
+      if (k > -1) LIST.splice(k, 1);
+      S.sheet = null;
+    },
+    'clear-done': function () { S.sheet = 'clear-done'; },
+    'clear-all':  function () { S.sheet = 'clear-all'; },
+    'shop-at':    function () { S.sheet = 'shop-at'; },
+    export:       function () { S.sheet = null; },
+    'store-open': function () {},
+
+    'edit-target': function () { S.editTarget = !S.editTarget; },
+    'save-target': function () {
+      var v = parseFloat(document.getElementById('target').value);
+      if (isNaN(v) || v < 0) return;
+      BUDGET.weeklyTarget = v; S.editTarget = false;
+    },
+    'add-purchase': function () { S.addOpen = !S.addOpen; },
+    'save-purchase': function () { S.addOpen = false; },
+    'scan-cam': function () { S.receipt = 'ok'; },
+    'scan-lib': function () { S.receipt = 'none'; },
+    'scan-cancel': function () { S.receipt = null; },
+    'receipt-save': function () { S.receipt = null; },
+    compare: function () {}, 'find-swaps': function () {},
+    'del-hist': function (el) {
+      var k = BUDGET.history.map(function (h) { return h.id; }).indexOf(el.dataset.id);
+      if (k > -1) BUDGET.history.splice(k, 1);
+    },
+
+    'pan-filter': function (el) { S.staplesOnly = el.dataset.f === 'staples'; },
+    'pan-empty': function (el) {
+      PANTRY.forEach(function (i) { if (i.id === el.dataset.id) i.empty = !i.empty; });
+    },
+    'pan-staple': function (el) {
+      PANTRY.forEach(function (i) { if (i.id === el.dataset.id) i.staple = !i.staple; });
+    },
+    'pan-interval': function (el) { S.editInterval = el.dataset.id; S.intervalError = null; },
+    'pan-interval-save': function (el) {
+      var v = parseInt(document.getElementById('iv-' + el.dataset.id).value, 10);
+      if (isNaN(v) || v < 1 || v > 365) { S.intervalError = el.dataset.id; return; }
+      PANTRY.forEach(function (i) { if (i.id === el.dataset.id) i.every = v; });
+      S.editInterval = null; S.intervalError = null;
+    },
+    'pan-to-list': function (el) {
+      var it = PANTRY.filter(function (i) { return i.id === el.dataset.id; })[0];
+      if (!it || LIST.some(function (i) { return i.name.toLowerCase() === it.name.toLowerCase(); })) return;
+      LIST.push({ id: 'n' + Date.now(), name: it.name, qty: it.qty, unit: 'qty', cat: it.cat, done: false });
+    },
+    'pan-add': function () {
+      var n = document.getElementById('pan-name').value.trim();
+      if (!n) return;
+      PANTRY.unshift({ id: 'p' + Date.now(), name: n.charAt(0).toUpperCase() + n.slice(1),
+        qty: parseInt(document.getElementById('pan-qty').value, 10) || 1,
+        cat: categorise(n), store: '', staple: false, every: 7, empty: false });
+    },
+    'pan-remove': function (el) {
+      var k = PANTRY.map(function (i) { return i.id; }).indexOf(el.dataset.id);
+      if (k > -1) PANTRY.splice(k, 1);
+    },
+
+    'store-toggle': function (el) {
+      MYSTORES.forEach(function (s) { if (s.id === el.dataset.id) s.on = !s.on; });
+    },
+    'store-remove': function (el) {
+      var k = MYSTORES.map(function (s) { return s.id; }).indexOf(el.dataset.id);
+      if (k > -1) MYSTORES.splice(k, 1);
+    },
+    'add-store': function (el) {
+      var p = PRESETS.filter(function (x) { return x.host === el.dataset.host; })[0];
+      if (!p) return;
+      MYSTORES.push({ id: 's' + Date.now(), name: p.name, host: p.host, about: p.about,
+        hue: 'var(--anat-' + ((MYSTORES.length % 12) + 1) + ')', on: true });
+    },
+    'add-custom': function () {
+      var n = document.getElementById('cs-name').value.trim();
+      var u = document.getElementById('cs-url').value.trim();
+      if (!n || !u) return;
+      MYSTORES.push({ id: 's' + Date.now(), name: n, host: u.replace(/^https?:\/\//, ''),
+        about: document.getElementById('cs-about').value.trim(),
+        hue: 'var(--anat-' + ((MYSTORES.length % 12) + 1) + ')', on: true });
+    },
+
+    close: function () { S.sheet = null; },
+    back:  function () {},
+    retry: function () {
+      S.state = 'loading'; render();
+      setTimeout(function () { S.state = 'populated'; render(); }, 700);
+    }
+  };
+
+  /* The same six buckets the live app sorts into, and the same keywords. */
+  function categorise(name) {
+    var n = name.toLowerCase();
+    var T = [
+      ['meat',    ['meat', 'chicken', 'beef', 'pork', 'lamb', 'fish', 'salmon', 'tuna', 'steak']],
+      ['dairy',   ['milk', 'yogurt', 'cheese', 'butter', 'cream']],
+      ['produce', ['vegetable', 'broccoli', 'spinach', 'lettuce', 'tomato', 'carrot', 'cucumber',
+                   'fruit', 'apple', 'banana', 'orange', 'berry', 'avocado', 'potato']],
+      ['pantry',  ['rice', 'pasta', 'bread', 'cereal', 'oat', 'flour', 'spice', 'salt',
+                   'pepper', 'sauce', 'oil']],
+      ['snacks',  ['snack', 'chip', 'candy', 'cookie', 'almond', 'nut']]
+    ];
+    for (var i = 0; i < T.length; i++) {
+      for (var j = 0; j < T[i][1].length; j++) if (n.indexOf(T[i][1][j]) > -1) return T[i][0];
+    }
+    return 'other';
+  }
+
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!el || el.getAttribute('aria-disabled') === 'true') return;
+    var fn = ACT[el.getAttribute('data-action')];
+    if (!fn) return;
+    fn(el);
+    if (el.getAttribute('data-action') !== 'retry') render();
+  });
+
+  /* Typing is state, not a side effect: the suggestions and the Add button
+     both read it, so it lives with everything else the screen knows. */
+  document.addEventListener('input', function (e) {
+    if (e.target && e.target.id === 'add-name') { S.query = e.target.value; render(); }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && S.sheet) { S.sheet = null; render(); }
+    if (e.key === 'Enter' && e.target && e.target.id === 'add-name') {
+      e.preventDefault(); ACT['add-item'](); render();
+    }
+  });
+
+  var STATES = [
+    ['populated', 'Populated'], ['empty', 'Empty'],
+    ['loading', 'Loading'], ['error', 'Error']
+  ];
+  LKPatch(menu, STATES.map(function (s) {
+    return '<button class="dev__item" data-state="' + s[0] + '" aria-pressed="false" data-testid="dev-state-' + s[0] + '">' + s[1] + '</button>';
+  }).join(''));
+  document.getElementById('dev-toggle').addEventListener('click', function () {
+    var open = menu.hidden;
+    menu.hidden = !open;
+    this.setAttribute('aria-expanded', String(open));
+  });
+  menu.addEventListener('click', function (e) {
+    var b = e.target.closest('.dev__item');
+    if (!b) return;
+    S.state = b.dataset.state; S.sheet = null; render();
+  });
+
+  var q = new URLSearchParams(location.search);
+  if (q.get('state')) S.state = q.get('state');
+  if (q.get('panel') && VIEWS[q.get('panel')]) S.panel = q.get('panel');
+  render();
+  requestAnimationFrame(function () { window.__ready = true; });
+})();
+</script>
+</body>
+</html>

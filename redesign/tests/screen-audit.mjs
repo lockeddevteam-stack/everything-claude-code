@@ -50,7 +50,10 @@ for (const file of files) {
      what the screen actually supports. */
   const probe = await br.newPage({ viewport: { width: 393, height: 852 } });
   await probe.goto(url);
-  await probe.waitForFunction(() => window.__ready === true, null, { timeout: 5000 });
+  /* Not every screen sets __ready. Wait for it where it exists and fall back
+     to a settle, rather than failing a screen for not having a flag. */
+  await probe.waitForFunction(() => window.__ready === true, null, { timeout: 2000 }).catch(() => {});
+  await probe.waitForTimeout(400);
   const states = await probe.evaluate(() =>
     [...document.querySelectorAll('.dev__item')].map(b => b.dataset.state).filter(Boolean));
   await probe.close();
@@ -66,8 +69,17 @@ for (const file of files) {
       p.on('pageerror', e => errs.push('pageerror: ' + e.message));
       await p.addInitScript(t => { try { localStorage.setItem('lk_theme', t); } catch (e) {} }, theme);
       await p.goto(url + '?state=' + state);
-      await p.waitForFunction(() => window.__ready === true, null, { timeout: 5000 });
+      await p.waitForFunction(() => window.__ready === true, null, { timeout: 2000 }).catch(() => {});
       await p.waitForTimeout(450);
+      /* A screen that does not read ?state gets driven through its own dev
+         menu instead, which is the control a person would use. */
+      await p.evaluate(s => {
+        const scr = document.getElementById('screen');
+        if (scr && scr.getAttribute('data-state') === s) return;
+        const b = document.querySelector(`.dev__item[data-state="${s}"]`);
+        if (b) b.click();
+      }, state);
+      await p.waitForTimeout(350);
 
       const m = await p.evaluate((knownList) => {
         /* A class in the markup that no stylesheet defines styles nothing.
@@ -89,8 +101,26 @@ for (const file of files) {
             if (r.width < 44 || r.height < 44)
               small.push((el.dataset.testid || el.className) + ` ${Math.round(r.width)}x${Math.round(r.height)}`);
           });
+        /* Two controls with nothing between them read as one control and are
+           hit by mistake. .hstack in this build carries no gap of its own, so
+           a pair of buttons dropped into one touch unless the author
+           remembered the modifier. */
+        let touching = [];
+        document.querySelectorAll('button, a[href], [role="button"]').forEach(el => {
+          const nx = el.nextElementSibling;
+          if (!nx || !/^(BUTTON|A)$/.test(nx.tagName)) return;
+          if (el.closest('.seg, .tabbar, .pad, .fuel-log')) return;   /* joined by design */
+          /* List rows are flush on purpose and carry a hairline between
+             them. This is about two buttons in a row sharing an edge. */
+          if (el.matches('.row, .item, .opt, .dev__item')) return;
+          const a = el.getBoundingClientRect(), b = nx.getBoundingClientRect();
+          if (!a.width || !b.width) return;
+          if (Math.abs(a.top - b.top) >= 4) return;                   /* stacked, not side by side */
+          if (b.left - a.right < 4) touching.push((el.dataset.testid || el.className) + ' | ' + (nx.dataset.testid || nx.className));
+        });
+
         return {
-          unknown: [...unknown], targets, small,
+          unknown: [...unknown], targets, small, touching,
           overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
           empty: !document.getElementById('body')?.textContent.trim()
         };
@@ -109,6 +139,7 @@ for (const file of files) {
       ok(pageErrs.length === 0, tag + ' — console clean', pageErrs.slice(0, 2).join(' | '));
       ok(m.unknown.length === 0, tag + ' — every class is defined', m.unknown.join(', '));
       ok(m.small.length === 0, tag + ' — targets >= 44px', m.small.slice(0, 3).join(', '));
+      ok(m.touching.length === 0, tag + ' — adjacent controls are separated', m.touching.slice(0, 3).join(' / '));
       ok(a.length === 0, tag + ' — axe clean', a.join(', '));
       ok(!m.overflow, tag + ' — no sideways overflow');
       if (state !== 'loading') ok(!m.empty, tag + ' — renders content');

@@ -108,9 +108,18 @@
       var delta = Math.abs(y - last);
       last = y;
       if (delta < 4) return;                 /* ignore the jitter of a settling scroll */
-      if (down && y > 64 && !min) { min = true; bar.setAttribute('data-minimized', 'true'); }
-      else if (!down && min) { min = false; bar.setAttribute('data-minimized', 'false'); }
+      if (down && y > 64 && !min) { min = true; set('true'); }
+      else if (!down && min) { min = false; set('false'); }
     });
+
+    /* The accessory shelf is the same piece of bottom chrome as the bar, so
+       it leaves and returns with it. A strip left hanging over nothing after
+       the bar slides away reads as a bug rather than as a design. */
+    function set(v) {
+      bar.setAttribute('data-minimized', v);
+      var shelf = root.querySelector('.shelf[data-minimize]');
+      if (shelf) shelf.setAttribute('data-minimized', v);
+    }
   }
 
   /* ---------------------------------------------------------------

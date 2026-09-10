@@ -48,7 +48,7 @@ const goto = async (id) => {
 };
 
 // ---------- tabs ----------
-const tabs = [['home', 'home'], ['train', 'train'], ['fuel', 'fuel-placeholder'], ['coach', 'coach'], ['profile', 'profile-placeholder']];
+const tabs = [['home', 'home'], ['train', 'train'], ['fuel', 'fuel'], ['coach', 'coach'], ['profile', 'profile-placeholder']];
 for (const [tab, screen] of tabs) {
   await page.evaluate((t) => {
     const cur = [...document.querySelectorAll('.demo-screen')].find((d) => !d.hidden);
@@ -65,12 +65,13 @@ for (const [tab, screen] of tabs) {
   ok(`tab ${tab} aria-current is exactly one`, aria.length === 1 && aria[0] === 'tab-' + tab, JSON.stringify(aria));
 }
 
-// fuel placeholder is honest, not an error
+// Fuel is built now. What the demo must show is the screen's own hero, so a
+// Fuel tab that silently fell back to a placeholder still fails here.
 const fuelText = await page.evaluate(() => {
-  const r = document.querySelector('#demo-screen-fuel-placeholder').shadowRoot;
-  return r.querySelector('[data-testid="fuel-placeholder"]').textContent.replace(/\s+/g, ' ').trim();
+  const r = document.querySelector('#demo-screen-fuel').shadowRoot;
+  return r.querySelector('[data-testid="hero-value"]').textContent.trim();
 });
-ok('fuel placeholder present', /designed separately/i.test(fuelText) && /resolver/.test(fuelText), fuelText.slice(0, 90) + '…');
+ok('fuel renders its own hero', /^[\d,]+$/.test(fuelText), fuelText);
 
 // ---------- pushes and back ----------
 const pushes = [
