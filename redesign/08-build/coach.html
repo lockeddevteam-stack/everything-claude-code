@@ -196,7 +196,7 @@
     ['training',    'Training history',  'Last 8 weeks of sets, loads and RIR.'],
     ['prs',         'Personal records',  'Your best set for each lift, with dates.'],
     ['weight',      'Body weight',       'Your logged weight and its trend.'],
-    ['checkins',    'Check-ins',         'Sleep, soreness and stress you have entered.'],
+    ['checkins',    'Check-ins',         'Energy, sleep, soreness, stress and motivation, as you entered them.'],
     ['goals',       'Goals',             'Target lifts and dates from Progress.'],
     ['plan',        'Coach plan',        'The plan on the Plan tab and its targets.'],
     ['nutrition',   'Nutrition',         'Daily calories and macros from Fuel.'],
@@ -246,6 +246,16 @@
         dirty: false
       },
       interview: { open: false, step: 0, phase: 'ask', answers: [null, null, null, null, null, null], draft: '', error: null, writeStep: 0 },
+      /* The daily check-in. Two readings seeded so the pane has a history to
+         show; the draft is what today's answers go into until it is saved. */
+      checkin: {
+        draft: {},
+        saved: false,
+        log: [
+          { when: 'Yesterday', v: { energy: 4, sleep: 4, soreness: 2, stress: 2, motivation: 4 } },
+          { when: 'Sun 6 Sep', v: { energy: 3, sleep: 3, soreness: 4, stress: 3, motivation: 3 } }
+        ]
+      },
       modal: null,
       toast: null,
       openPhase: null
@@ -298,7 +308,13 @@
   /* ---------------------------------------------------------------
      Shell
      --------------------------------------------------------------- */
-  var VIEWS = [['chat', 'Chat'], ['plan', 'Plan'], ['setup', 'Setup']];
+  /* Four panes, not three. Check-in was in the shipped app and writing
+     lk_feedback was what fed the coach's "sleep, soreness and stress you
+     have entered" -- the permission row below still lists it, the intro
+     line still claims to read it, and Settings still ships a daily reminder
+     for it. Dropping the pane left three surfaces promising something the
+     app could no longer record. */
+  var VIEWS = [['chat', 'Chat'], ['plan', 'Plan'], ['checkin', 'Check-in'], ['setup', 'Setup']];
 
   function header() {
     var action = S.view === 'chat'
@@ -310,7 +326,8 @@
        screen with a back chevron is a different thing and keeps 17px; a tab
        screen is not. */
     var eyebrow = S.view === 'chat' ? 'YOUR COACH'
-      : S.view === 'plan' ? 'THIS WEEK' : 'WHAT COACH CAN SEE';
+      : S.view === 'plan' ? 'THIS WEEK'
+      : S.view === 'checkin' ? 'HOW YOU FEEL' : 'WHAT COACH CAN SEE';
     return '' +
       '<header data-testid="coach-header">' +
       '<div class="hdr hdr--large" data-large-title=".body" data-scroll-edge=".body">' +
@@ -925,7 +942,87 @@
   function currentState() {
     if (S.view === 'chat') return S.chat.status === 'ready' && S.chat.offer ? 'plan-offer' : S.chat.status;
     if (S.view === 'plan') return S.plan.status;
+    if (S.view === 'checkin') return S.checkin.log.length ? 'populated' : 'empty';
     return S.setup.status;
+  }
+
+  /* ---------------------------------------------------------------
+     Check-in
+
+     Five readings, 1 to 5, the same five the shipped app asked for. This is
+     the only thing in the build that records how a person FEELS rather than
+     what they lifted, and it is what the coach's "sleep, soreness and stress
+     you have entered" is reading.
+
+     Nothing is scored and nothing is chased. A reading is a fact about a day,
+     and the pane says what it is for underneath rather than turning it into
+     a streak.
+     --------------------------------------------------------------- */
+  var FEEL = [
+    ['energy', 'Energy', 'Flat', 'Sharp'],
+    ['sleep', 'Sleep', 'Broken', 'Solid'],
+    ['soreness', 'Soreness', 'None', 'Heavy'],
+    ['stress', 'Stress', 'Low', 'High'],
+    ['motivation', 'Motivation', 'Low', 'High']
+  ];
+
+  function checkinBody() {
+    var d = S.checkin.draft;
+    var rows = FEEL.map(function (f) {
+      var v = d[f[0]] || 0;
+      return '<div class="card' + (f[0] === FEEL[0][0] ? '' : ' mt-3') + '" data-testid="feel-' + f[0] + '">' +
+        '<div class="spread">' +
+          '<span class="t-section">' + f[1] + '</span>' +
+          '<span class="t-meta num" data-testid="feel-' + f[0] + '-value">' +
+            (v ? v + ' of 5' : '&mdash;') + '</span>' +
+        '</div>' +
+        '<div class="seg mt-3" role="radiogroup" aria-label="' + f[1] + ', one to five">' +
+          [1, 2, 3, 4, 5].map(function (n) {
+            return '<button class="seg__item" type="button" role="radio" ' +
+              'aria-checked="' + (v === n ? 'true' : 'false') + '" ' +
+              'data-act="feel" data-key="' + f[0] + '" data-n="' + n + '" ' +
+              'data-testid="feel-' + f[0] + '-' + n + '">' + n + '</button>';
+          }).join('') +
+        '</div>' +
+        '<p class="t-caption-1 quiet mt-2">' + f[2] + ' to ' + f[3] + '.</p>' +
+      '</div>';
+    }).join('');
+
+    var past = S.checkin.log.length
+      ? '<div class="section mt-5">' +
+          '<div class="section__head"><h2 class="t-label">Recent</h2>' +
+            '<span class="t-meta num">' + S.checkin.log.length + '</span></div>' +
+          '<div class="card card--flush">' + S.checkin.log.slice(0, 5).map(function (e, i) {
+            return '<div class="row row--static" data-testid="checkin-' + i + '">' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + esc(e.when) + '</span>' +
+                '<span class="row__sub">' + FEEL.map(function (f) {
+                  return f[1] + ' ' + e.v[f[0]];
+                }).join(' &middot; ') + '</span>' +
+              '</span></div>';
+          }).join('') + '</div>' +
+        '</div>'
+      : '<div class="empty mt-5" data-testid="checkin-empty">' +
+          '<p class="empty__title">Nothing recorded yet</p>' +
+          '<p class="empty__body">A reading a day is enough. Two weeks of them is what lets ' +
+            'the coach tell a hard session from a bad week.</p>' +
+        '</div>';
+
+    return '<p class="t-detail mt-3">Five readings, one to five. It takes about fifteen seconds ' +
+      'and it is the only thing here that records how you felt rather than what you lifted.</p>' +
+      '<div class="mt-4">' + rows + '</div>' + past;
+  }
+
+  function checkinFoot() {
+    var d = S.checkin.draft;
+    var done = FEEL.filter(function (f) { return d[f[0]]; }).length;
+    return '<div class="actionbar" role="contentinfo" aria-label="Check-in actions">' +
+      '<span class="actionbar__status" role="status" data-testid="checkin-status">' +
+        (S.checkin.saved ? 'Saved for today.' : done + ' of ' + FEEL.length + ' answered') + '</span>' +
+      '<button class="btn btn--primary" type="button" data-act="checkin-save" ' +
+        (done ? '' : 'disabled ') + 'data-testid="checkin-save">' +
+        '<span class="btn__label">Save today</span></button>' +
+    '</div>';
   }
 
   function render() {
@@ -936,6 +1033,7 @@
     var body, foot = '';
     if (S.view === 'chat') { body = chatBody(); foot = composer(); }
     else if (S.view === 'plan') { body = planBody(); }
+    else if (S.view === 'checkin') { body = checkinBody(); foot = checkinFoot(); }
     else { body = setupBody(); foot = actionbar(); }
 
     /* One accent fill: normally the primary action; in chat it moves to
@@ -1019,6 +1117,30 @@
   }
 
   var ACTS = {
+    /* One reading. Tapping the same number again clears it, because a
+       mis-tap on a five-point scale is the likeliest thing to happen here
+       and there is otherwise no way back to "not answered". */
+    'feel': function (el) {
+      var k = el.getAttribute('data-key');
+      var n = Number(el.getAttribute('data-n'));
+      S.checkin.draft[k] = S.checkin.draft[k] === n ? 0 : n;
+      S.checkin.saved = false;
+      /* No explicit refocus: the node keeps its testid through the patch, so
+         LKPatch puts focus back on the number that was tapped. Calling
+         focus() again after a pointer press drew a keyboard ring around it. */
+      render();
+    },
+    'checkin-save': function () {
+      var v = {};
+      FEEL.forEach(function (f) { v[f[0]] = S.checkin.draft[f[0]] || 0; });
+      /* One reading a day. Saving again replaces today's rather than
+         stacking two entries on one date. */
+      if (S.checkin.log.length && S.checkin.log[0].when === 'Today') S.checkin.log[0].v = v;
+      else S.checkin.log.unshift({ when: 'Today', v: v });
+      S.checkin.saved = true;
+      render();
+      toast('Saved. The coach reads this with your training.');
+    },
     'view': function (el) { setView(el.dataset.view); },
     'new-chat': function () {
       S.chat = { status: 'empty', msgs: [], draft: '', offer: null, offerSaved: false };
