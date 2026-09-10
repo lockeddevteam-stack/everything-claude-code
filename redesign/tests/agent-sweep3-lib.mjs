@@ -13,17 +13,21 @@ export async function page(b,w=393,h=852){
 }
 export async function states(p){
   return p.evaluate(()=>{
-    const menu=document.getElementById('dev-menu');
-    if(!menu)return [];
-    const items=[...menu.querySelectorAll('.dev__item')];
+    const dt=document.getElementById('devToggle'); if(dt&&!document.querySelector('.dev__item'))dt.click();
+    const dop=document.querySelector('[data-testid="dev-open"]'); if(dop&&!document.querySelector('.dev-item'))dop.click();
+    const items=[...document.querySelectorAll('.dev__item,.dev-item')];
     return items.map(e=>({id:e.dataset.testid,label:e.textContent.trim()}));
   });
 }
 export async function setState(p,id){
   await p.evaluate(t=>{
+    const dt=document.getElementById('devToggle'); if(dt&&!document.querySelector('.dev__item'))dt.click();
+    const dop=document.querySelector('[data-testid="dev-open"]'); if(dop&&!document.querySelector('.dev-item'))dop.click();
     const e=document.querySelector(`[data-testid="${t}"]`); if(e)e.click();
     const m=document.getElementById('dev-menu'); if(m)m.hidden=true;
     const tg=document.getElementById('dev-toggle'); if(tg)tg.setAttribute('aria-expanded','false');
+    if(dt&&document.getElementById('devPanel'))document.getElementById('devPanel').hidden=true;
+    const dc=document.querySelector('[data-testid="dev-close"]'); if(dc)dc.click();
   },id);
   await p.waitForTimeout(300);
 }
