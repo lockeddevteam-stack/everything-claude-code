@@ -89,15 +89,30 @@
            keep forcing the collapsed geometry on it forever. */
         if (!bar.hasAttribute('data-large-title')) {
           bar.style.height = '';
+          bar.removeAttribute('data-collapsing');
           bar.removeAttribute('data-collapsed');
           expanded = 0;
           return;
         }
         var t = Math.min(1, Math.max(0, y / TRAVEL));
-        if (!expanded && t === 0) expanded = bar.offsetHeight;
+        /* The resting height is measured with the floor ON, and only then is
+           the floor lifted. components.css puts min-height: 96px on the bar
+           so it has that height before this ever runs; that floor also beat
+           the inline height written below, so the bar measured 96px collapsed
+           as well as at rest and the whole travel was zero. data-collapsing
+           takes the floor off for exactly as long as this is driving the
+           height. */
+        if (!expanded && t === 0) {
+          bar.removeAttribute('data-collapsing');
+          expanded = bar.offsetHeight;
+        }
         if (expanded) {
           var compact = parseFloat(getComputedStyle(bar).getPropertyValue('--nav-h-compact')) || 44;
-          if (compact < expanded) bar.style.height = (expanded - t * (expanded - compact)) + 'px';
+          if (compact < expanded) {
+            if (t > 0) bar.setAttribute('data-collapsing', '');
+            else bar.removeAttribute('data-collapsing');
+            bar.style.height = (expanded - t * (expanded - compact)) + 'px';
+          }
         }
         bar.setAttribute('data-collapsed', t > 0.98 ? 'true' : 'false');
         if (reduced()) {

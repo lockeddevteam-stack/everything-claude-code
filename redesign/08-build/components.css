@@ -317,6 +317,13 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
 .chip[aria-pressed="true"], .chip--on { background: var(--accent-quiet); color: var(--accent-text); }
 
 /* One segmented control for the whole app. Not four. */
+/* Scrolls sideways when the labels no longer fit, which at the default ladder
+   they always do. Four segments at 53px type put "Budget" at left 382 in a
+   393px viewport -- off screen and unreachable. A segmented control cannot
+   reflow (the whole point is that the choices sit side by side and compare),
+   so the track scrolls and every segment stays reachable.
+
+   scroll-snap so a flick still lands on a segment rather than between two. */
 .seg {
   display: flex;
   gap: 2px;
@@ -324,7 +331,12 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
   background: var(--track);
   border-radius: var(--r-md);
   corner-shape: var(--corner-smooth);
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
 }
+.seg::-webkit-scrollbar { display: none; }
+.seg__item { scroll-snap-align: center; }
 .seg__item {
   flex: 1;
   /* 44px, like everything else that is tapped. The shipped base was 40 and
@@ -691,7 +703,10 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
 .stack { display: flex; flex-direction: column; }
 .stack--1 { gap: var(--sp-1); } .stack--2 { gap: var(--sp-2); }
 .stack--3 { gap: var(--sp-3); } .stack--4 { gap: var(--sp-4); }
-.hstack { display: flex; align-items: center; }
+/* Wraps. At the default ladder nothing in this build ever needs it, and at
+   AX5 it is the difference between two things sharing a line badly and each
+   taking one. */
+.hstack { display: flex; flex-wrap: wrap; align-items: center; }
 .hstack--2 { gap: var(--sp-2); } .hstack--3 { gap: var(--sp-3); } .hstack--4 { gap: var(--sp-4); }
 .grow { flex: 1; min-width: 0; }
 .spread { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
@@ -714,14 +729,18 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
 /* Pinned action bar. The primary action never sits below the fold. */
 .actionbar {
   display: flex;
+  /* Wraps at large type, where "Save session" and its status line cannot
+     share 361px. flex: none on the button meant it kept its intrinsic width
+     and hung 11px past the bezel instead. */
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-3);
   padding: var(--sp-3) var(--page-x) calc(var(--sp-3) + var(--safe-bottom));
   background: var(--bg);
   box-shadow: inset 0 1px 0 var(--hairline);
 }
-.actionbar__status { flex: 1; min-width: 0; font-size: var(--type-13); letter-spacing: var(--tr-13); line-height: var(--lh-13); color: var(--text-secondary); }
-.actionbar .btn { flex: none; }
+.actionbar__status { flex: 1 1 0%; min-width: min(100%, 8em); font-size: var(--type-13); letter-spacing: var(--tr-13); line-height: var(--lh-13); color: var(--text-secondary); }
+.actionbar .btn { flex: 0 1 auto; min-width: 0; }
 
 /* Unsaved marker. */
 .dot {
@@ -973,6 +992,14 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
    sit in. Seven columns, never scrolls, not interactive, and the
    whole track carries one aria-label because seven letters do not
    read aloud as a week. */
+/* Seven columns in 329px, and at AX5 that is 4.7px each holding a letter
+   whose own width is 15 to 23px: the day marks overlapped into an unreadable
+   grey smear with an M and a W poking out of it, which was the ugliest thing
+   in the build at any setting. A week is a row by definition -- stacking it
+   would stop it being a week -- so the track scrolls sideways once the days
+   stop fitting, and each day keeps a floor in em so it never crushes below
+   its own label. At the default ladder the floor is 27px against the 27.8px
+   the columns already measure, so nothing moves. */
 .week {
   display: flex;
   gap: var(--sp-2);
@@ -980,8 +1007,14 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
   border-radius: var(--r-md);
   corner-shape: var(--corner-smooth);
   background: var(--surface-sunken);
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* A floor, so the track takes its own line rather than being squeezed to
+     105px beside a hero figure that has grown to fill the row. */
+  min-width: min(100%, 12em);
 }
-.week__day { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: var(--sp-2); }
+.week::-webkit-scrollbar { display: none; }
+.week__day { flex: 1 0 auto; min-width: 1.8em; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: var(--sp-2); }
 .week__cap {
   font-size: var(--type-11); line-height: var(--lh-11); letter-spacing: var(--tr-11);
   font-weight: var(--w-semibold); color: var(--text-tertiary); text-transform: uppercase;
@@ -1499,8 +1532,22 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
 /* Two rows, as shipped: the name and the session controls on one
    line, the running numbers on their own line beneath them so a
    long session name can never push the volume onto a second line. */
-.sess { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
-.sess__main { flex: 1; min-width: 0; }
+/* flex: 1 with min-width: 0, or the header cannot hold it. A flex item's
+   default min-width is auto, which resolves to its min-content width -- so
+   .sess measured 474px inside a 393px header at AX5 and simply hung over the
+   edge, taking Finish with it. Its own wrapping could never fire, because it
+   was never made to fit. */
+.sess { display: flex; flex: 1; min-width: 0; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+/* Same floor as .row__main, for the same reason. At AX5 the title column
+   shrank to nothing and the three actions beside it kept their intrinsic
+   width, so Finish -- the one control that ends a workout -- sat at
+   left 322 in a 393px viewport with 97px of it past the bezel, in every
+   state this screen declares. Once the title needs the row it takes the
+   row, and the actions wrap to their own line where they fit. */
+.sess__main { flex: 1 1 0%; min-width: min(100%, 8em); }
+/* An action that has wrapped shares the line rather than keeping a width
+   nobody budgeted for. */
+.sess > .btn { flex: 1 1 auto; min-width: 0; }
 /* One line, truncated. A session name that wraps leaves a single word on
    line two and takes the two controls beside it out of alignment with the
    timer below; a name long enough to wrap is long enough to abbreviate. */
@@ -1919,14 +1966,27 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
    baseline the whole way. */
 /* 96px at rest against the 44px collapsed bar, so the large-title band is
    52px of travel -- Apple's figure. It was 74px, which gave 30px of travel:
-   the title reached the bar before the collapse had read as a collapse. */
+   the title reached the bar before the collapse had read as a collapse.
+
+   The floor has to come off on the way down, or there is no travel at all.
+   chrome.js interpolates the bar's height with the scroll and writes it as an
+   inline style; min-height beat that inline height the whole way, so the band
+   measured 96px collapsed as well as at rest -- 0px of travel, with a 17px
+   centred title floating in 96px of bar and 52px of dead air under it. The
+   claim in the compliance document said 52 and the render said 0. */
 .hdr--large {
   position: relative;
   min-height: 96px;
   align-items: flex-end;
   padding-bottom: var(--sp-2);
 }
-.hdr--large[data-collapsed="true"] { align-items: center; }
+.hdr--large[data-collapsing] {
+  min-height: var(--nav-h-compact, 44px);
+}
+.hdr--large[data-collapsed="true"] {
+  align-items: center;
+  padding-bottom: 0;
+}
 .hdr--large .hdr__title-large {
   font-size: var(--type-large-title);
   line-height: var(--lh-large-title);

@@ -35,6 +35,7 @@ run "focus — never falls to the body"              node focus-audit.mjs
 run "skeletons — nothing shifts on load"            node skeleton-fit.mjs
 run "dynamic type — default ladder and AX5"         node dynamic-type.mjs
 run "actions — every control does something"       node action-coverage.mjs
+run "crossings — every selector names a control"   node nav-selectors.mjs
 run "demo — assembled"                             sh -c 'node ../10-final/assemble.mjs && node ../10-final/verify-demo.mjs'
 
 printf '\n%s\n' "-----------------------------------------"

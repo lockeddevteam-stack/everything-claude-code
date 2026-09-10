@@ -95,6 +95,45 @@ for (const file of screens) {
   });
   ok(clipped.length === 0, `${file} — no text is clipped at AX5`,
      clipped.length ? clipped.length + ': ' + clipped.slice(0, 4).join(' | ') : '');
+
+  /* Clipping is not the only way to lose a control. A button can be pushed
+     clean off the side of the screen with its text perfectly intact, and the
+     check above sees nothing wrong with it: the third ship review measured
+     the workout log's Finish at left 322 -> right 490 in a 393px viewport,
+     58% past the bezel in every state the screen declares, while the suite
+     reported green. A control the reader cannot reach is worse than one they
+     cannot finish reading. */
+  const offscreen = await p.evaluate(() => {
+    const bad = [];
+    const scrollableX = (el) => {
+      for (var n = el.parentElement; n; n = n.parentElement) {
+        const s = getComputedStyle(n);
+        if ((s.overflowX === 'auto' || s.overflowX === 'scroll') &&
+            n.scrollWidth > n.clientWidth + 1) return true;
+      }
+      return false;
+    };
+    document.querySelectorAll('button, a[href], input, select, [role="button"], [role="tab"]')
+      .forEach((el) => {
+        /* Scaffolding is deliberately off the canvas; see .dev__toggle and
+           onboarding's .dev-open. */
+        if (el.closest('.dev') || el.classList.contains('dev-open')) return;
+        if (el.disabled) return;
+        const s = getComputedStyle(el);
+        if (s.display === 'none' || s.visibility === 'hidden' || s.opacity === '0') return;
+        const b = el.getBoundingClientRect();
+        if (!b.width || !b.height) return;
+        /* Vertical position does not matter -- the page scrolls. Sideways it
+           does not, unless something above it scrolls sideways on purpose. */
+        if (b.right <= innerWidth + 1 && b.left >= -1) return;
+        if (scrollableX(el)) return;
+        bad.push((el.dataset.testid || el.className || el.tagName) +
+                 ' ' + Math.round(b.left) + '..' + Math.round(b.right));
+      });
+    return bad;
+  });
+  ok(offscreen.length === 0, `${file} — every control is on screen at AX5`,
+     offscreen.length ? offscreen.length + ': ' + offscreen.slice(0, 4).join(' | ') : '');
   await p.close();
 }
 await br.close();
