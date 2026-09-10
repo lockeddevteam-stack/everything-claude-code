@@ -1,0 +1,12 @@
+import { chromium } from 'playwright';
+import { pathToFileURL } from 'url';
+const br=await chromium.launch();
+const p=await br.newPage({viewport:{width:390,height:844},deviceScaleFactor:2});
+p.on('pageerror',e=>console.log('PAGEERROR',e.message));
+p.on('console',m=>{if(m.type()==='error')console.log('ERR',m.text())});
+await p.goto(pathToFileURL('/home/user/everything-claude-code/redesign/08-build/exercise-library.html').href);
+await p.waitForTimeout(600);
+await p.click('[data-testid="row-group-chest"]'); await p.waitForTimeout(500);
+await p.locator('.row').first().click(); await p.waitForTimeout(800);
+await p.screenshot({path:'/tmp/lib-sheet.png'});
+await br.close();

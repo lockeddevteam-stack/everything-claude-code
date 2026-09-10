@@ -397,45 +397,35 @@
   }
 
   /* ---------------------------------------------------------------
-     Muscle map. The sheet's illustration, drawn from the exercise's own
-     group. No request, no cache, no void.
+     Muscle map. The sheet's illustration is the same figure the body view
+     draws, not a second, simpler body: one app, one anatomy. Two small
+     copies, front and back, each lighting only the group this exercise
+     works. They are pictures rather than controls, so they carry no tab
+     stops and the whole pair is named once, by the sheet.
+
+     The placeholders are patched in with the rest of the sheet and filled
+     afterwards, because a mounted SVG is a node, not a string. Each carries
+     the group it is showing, so a re-render that changes nothing leaves the
+     figure alone and a different exercise rebuilds it.
      --------------------------------------------------------------- */
-  var FIG = {
-    front: '<circle class="bm-base" cx="24" cy="9" r="7"/>' +
-           '<rect class="bm-base" x="13" y="18" width="22" height="36" rx="6"/>' +
-           '<rect class="bm-base" x="15" y="52" width="18" height="10" rx="4"/>' +
-           '<rect class="bm-base" x="4" y="20" width="8" height="34" rx="4"/>' +
-           '<rect class="bm-base" x="36" y="20" width="8" height="34" rx="4"/>' +
-           '<rect class="bm-base" x="15" y="60" width="8" height="30" rx="4"/>' +
-           '<rect class="bm-base" x="25" y="60" width="8" height="30" rx="4"/>' +
-           '<rect class="bm-base" x="15.5" y="88" width="7" height="20" rx="3"/>' +
-           '<rect class="bm-base" x="25.5" y="88" width="7" height="20" rx="3"/>',
-    back: null /* same silhouette */
-  };
-  FIG.back = FIG.front;
-  var REGION = {
-    chest:     ['front', '<rect class="bm-on" x="15" y="21" width="18" height="13" rx="4"/>'],
-    abs:       ['front', '<rect class="bm-on" x="17" y="35" width="14" height="17" rx="4"/>'],
-    shoulders: ['front', '<ellipse class="bm-on" cx="12" cy="23" rx="5" ry="6"/><ellipse class="bm-on" cx="36" cy="23" rx="5" ry="6"/>'],
-    biceps:    ['front', '<rect class="bm-on" x="4.5" y="25" width="7" height="15" rx="3.5"/><rect class="bm-on" x="36.5" y="25" width="7" height="15" rx="3.5"/>'],
-    forearms:  ['front', '<rect class="bm-on" x="4.5" y="40" width="7" height="14" rx="3.5"/><rect class="bm-on" x="36.5" y="40" width="7" height="14" rx="3.5"/>'],
-    quads:     ['front', '<rect class="bm-on" x="15.5" y="61" width="7" height="27" rx="3.5"/><rect class="bm-on" x="25.5" y="61" width="7" height="27" rx="3.5"/>'],
-    adduc:     ['front', '<rect class="bm-on" x="21" y="61" width="6" height="22" rx="3"/>'],
-    back:      ['back',  '<rect class="bm-on" x="14" y="20" width="20" height="24" rx="5"/>'],
-    triceps:   ['back',  '<rect class="bm-on" x="4.5" y="25" width="7" height="16" rx="3.5"/><rect class="bm-on" x="36.5" y="25" width="7" height="16" rx="3.5"/>'],
-    glutes:    ['back',  '<rect class="bm-on" x="15" y="51" width="18" height="12" rx="5"/>'],
-    hams:      ['back',  '<rect class="bm-on" x="15.5" y="63" width="7" height="25" rx="3.5"/><rect class="bm-on" x="25.5" y="63" width="7" height="25" rx="3.5"/>'],
-    calves:    ['back',  '<rect class="bm-on" x="15.5" y="88" width="7" height="20" rx="3"/><rect class="bm-on" x="25.5" y="88" width="7" height="20" rx="3"/>']
-  };
-  function figure(side, gid) {
-    var r = REGION[gid] || ['front', ''];
-    return '<svg class="bodymap__fig" viewBox="0 0 48 112" aria-hidden="true" focusable="false">' +
-      FIG[side] + (r[0] === side ? r[1] : '') + '</svg>';
+  function mountSheetFigures() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-fig]'), function (slot) {
+      var gid = slot.getAttribute('data-fig-gid');
+      if (slot.getAttribute('data-fig-built') === gid) return;
+      slot.textContent = '';
+      var fig = LKBodyMap.mount(slot, {
+        groups: mapGroups(), order: GROUP_INDEX.map(function (g) { return g[0]; }),
+        interactive: false, view: slot.getAttribute('data-fig')
+      });
+      fig.select(gid);
+      slot.setAttribute('data-fig-built', gid);
+    });
   }
+
   function bodymap(it) {
-    return '<div class="bodymap">' +
-      '<div class="bodymap__unit" role="img" aria-label="Muscle map, front: ' + esc(it.group) + ' highlighted">' + figure('front', it.gid) + '<span class="t-meta">Front</span></div>' +
-      '<div class="bodymap__unit" role="img" aria-label="Muscle map, back: ' + esc(it.group) + ' highlighted">' + figure('back', it.gid) + '<span class="t-meta">Back</span></div>' +
+    return '<div class="bodymap" role="img" aria-label="Muscle map: ' + esc(it.group) + ' highlighted, front and back">' +
+      '<div class="bodymap__unit"><div class="bodymap__fig" data-fig="front" data-fig-gid="' + esc(it.gid) + '"></div><span class="t-meta">Front</span></div>' +
+      '<div class="bodymap__unit"><div class="bodymap__fig" data-fig="back" data-fig-gid="' + esc(it.gid) + '"></div><span class="t-meta">Back</span></div>' +
       '<div class="grow stack stack--2">' +
         '<span class="t-label">Works</span>' +
         '<span class="t-body-em">' + esc(it.muscle) + '</span>' +
@@ -674,11 +664,11 @@
     } else {
       inner = '<div class="media" data-testid="media-image">' +
         '<svg class="media__art" viewBox="0 0 320 180" role="img" aria-label="Demonstration: the top and bottom position of ' + esc(it.name) + '" focusable="false">' +
-          '<rect class="bm-base" x="0" y="0" width="320" height="180"/>' +
-          '<g class="bm-base"><circle cx="96" cy="60" r="14"/><rect x="70" y="78" width="52" height="54" rx="10"/>' +
+          '<rect class="demofig" x="0" y="0" width="320" height="180"/>' +
+          '<g class="demofig"><circle cx="96" cy="60" r="14"/><rect x="70" y="78" width="52" height="54" rx="10"/>' +
             '<rect x="52" y="82" width="16" height="40" rx="8"/><rect x="124" y="82" width="16" height="40" rx="8"/>' +
             '<rect x="78" y="132" width="16" height="34" rx="8"/><rect x="98" y="132" width="16" height="34" rx="8"/></g>' +
-          '<g class="bm-on"><circle cx="224" cy="60" r="14"/><rect x="198" y="78" width="52" height="54" rx="10"/>' +
+          '<g class="demofig--end"><circle cx="224" cy="60" r="14"/><rect x="198" y="78" width="52" height="54" rx="10"/>' +
             '<rect x="180" y="70" width="16" height="40" rx="8"/><rect x="252" y="70" width="16" height="40" rx="8"/>' +
             '<rect x="206" y="132" width="16" height="34" rx="8"/><rect x="226" y="132" width="16" height="34" rx="8"/></g>' +
         '</svg></div>';
@@ -896,6 +886,7 @@
     input.placeholder = S.status !== 'ready' ? 'Search'
       : (S.gid && !S.q ? 'Search ' + GNAME[S.gid] + ' and the whole library' : 'Search ' + S.items.length + ' exercises');
     syncMap();
+    mountSheetFigures();
     screen.setAttribute('data-state', stateName());
     screen.setAttribute('data-entry', S.entry);
     screen.setAttribute('data-source', S.source);

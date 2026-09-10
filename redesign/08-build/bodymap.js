@@ -15,6 +15,12 @@
        map.select('chest');        // or null to clear
        map.view, map.selected      // what it is showing now
 
+   Two options make it a picture rather than a control, which is what the
+   exercise sheet wants: `interactive: false` takes the muscles out of the tab
+   order and off the pointer, and `view: 'back'` opens on the far side. A
+   figure like that still answers `select`, so the sheet lights the one group
+   the exercise works and nothing else.
+
    The art itself is in vendor/body-art.js, with its licence and the reason
    it is there. This file is the geometry, the hit model and the paint.
 */
@@ -205,10 +211,16 @@
          written in the same numbers a label or a zoom camera uses. Only the
          art inside it is fitted. */
       var meta = GROUPS[gid] || { name: gid, n: 0 };
-      var g = api.el('g', {
+      /* A figure that is not a control carries no role, no tab stop and no
+         name: the whole picture is labelled by whatever mounted it, and
+         twelve unreachable buttons inside it would be noise to a screen
+         reader and a trap to a keyboard. */
+      var g = api.el('g', api.interactive ? {
         class: 'mg mg--' + gid, tabindex: '0', role: 'button',
         'data-g': gid, 'data-testid': 'mg-' + gid,
         'aria-label': meta.name + (meta.n ? ', ' + meta.n + ' exercises' : '')
+      } : {
+        class: 'mg mg--' + gid, 'data-g': gid, 'aria-hidden': 'true'
       });
       host.appendChild(g);
       made[gid] = g;
@@ -235,6 +247,9 @@
       inner.appendChild(wash);
       g.appendChild(inner);
     });
+
+    /* Nothing to grow when nothing can be tapped. */
+    if (!api.interactive) return;
 
     /* The reach paths sit in one layer of their own after every group, rather
        than inside the groups, because a layer inside a group would still be
@@ -285,10 +300,15 @@
     installHues(doc, ORDER);
 
     var mk = function (t, a) { return el(t, a, doc); };
-    var svg = mk('svg', {
+    var interactive = opts.interactive !== false;
+    var startView = opts.view === 'back' ? 'back' : 'front';
+    var svg = mk('svg', interactive ? {
       class: 'map__svg', viewBox: '-16 8 240 402',
       preserveAspectRatio: 'xMidYMid meet',
-      role: 'group', 'aria-label': 'Muscle map, front view'
+      role: 'group', 'aria-label': 'Muscle map, ' + startView + ' view'
+    } : {
+      class: 'map__svg map__svg--static', viewBox: '-16 8 240 402',
+      preserveAspectRatio: 'xMidYMid meet', 'aria-hidden': 'true', focusable: 'false'
     });
     var defs = mk('defs');
     var cam = mk('g', { class: 'cam' });
@@ -298,7 +318,7 @@
     var views = {};
     ['front', 'back'].forEach(function (v) {
       var wrap = mk('g', { class: 'view' });
-      if (v === 'back') wrap.setAttribute('data-hidden', 'true');
+      if (v !== startView) wrap.setAttribute('data-hidden', 'true');
       var base = mk('g'), groups = mk('g');
       wrap.appendChild(base);
       wrap.appendChild(groups);
@@ -308,8 +328,8 @@
 
     var api = {
       element: svg, svg: svg, defs: defs, cam: cam, views: views, doc: doc,
-      uid: ++nextUid, el: mk,
-      view: 'front', selected: null,
+      uid: ++nextUid, el: mk, interactive: interactive,
+      view: startView, selected: null,
       groups: GROUPS, order: ORDER,
       /* The geometry, so a screen that zooms can frame a group without
          measuring the DOM. */
@@ -327,11 +347,16 @@
       api.view = v;
       views.front.wrap.setAttribute('data-hidden', String(v !== 'front'));
       views.back.wrap.setAttribute('data-hidden', String(v !== 'back'));
-      svg.setAttribute('aria-label', 'Muscle map, ' + v + ' view');
+      if (interactive) svg.setAttribute('aria-label', 'Muscle map, ' + v + ' view');
     };
 
     api.select = function (gid) {
       api.selected = gid || null;
+      /* The flag goes on the figure, not on whatever contains it. A figure in
+         a sheet has no map frame around it, and a rule that reached for one
+         left every muscle lit. */
+      if (api.selected) svg.setAttribute('data-selected', api.selected);
+      else svg.removeAttribute('data-selected');
       Array.prototype.forEach.call(svg.querySelectorAll('.mg[data-g]'), function (g) {
         if (g.getAttribute('data-g') === api.selected) g.setAttribute('data-on', '');
         else g.removeAttribute('data-on');
@@ -348,17 +373,19 @@
       return true;
     }
 
-    /* One listener on the figure. '[data-g]' rather than '.mg', because the
-       reach paths carry the group id but sit outside the groups, so a thin
-       muscle can be grown without being painted over by the next group. */
-    svg.addEventListener('click', function (e) { choose(e.target, null); });
+    if (interactive) {
+      /* One listener on the figure. '[data-g]' rather than '.mg', because the
+         reach paths carry the group id but sit outside the groups, so a thin
+         muscle can be grown without being painted over by the next group. */
+      svg.addEventListener('click', function (e) { choose(e.target, null); });
 
-    /* Enter and Space on a focused muscle, so the map is not mouse-only.
-       Groups are already focusable, in anatomical order. */
-    svg.addEventListener('keydown', function (e) {
-      if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
-      choose(e.target, e);
-    });
+      /* Enter and Space on a focused muscle, so the map is not mouse-only.
+         Groups are already focusable, in anatomical order. */
+      svg.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+        choose(e.target, e);
+      });
+    }
 
     return api;
   }

@@ -32,6 +32,30 @@ Calibration found no genuine disagreement between scorers. All three deltas of 2
 
 Gate 0: passed.
 
-## Wave 1 and 2
+## Wave 1 and 2: complete
 
-In progress.
+Eighteen pages scored on both rubrics, two scorers per criterion. Means are in
+`10-final/scorecard.md`. Design was the weaker half everywhere: eleven of eleven
+scored pages landed between 1.8 and 2.6.
+
+## Build: complete
+
+Eleven screens built as static HTML, CSS and vanilla JavaScript that open from
+disk, assembled into `10-final/locked-demo.html`. What changed and why is in
+`10-final/changelog.md`; what it measures against the original is in
+`10-final/scorecard.md`.
+
+Measured, both themes: zero targets under 44px against 179 of 466 in the
+original, zero axe violations, zero sub-AA text, zero console errors, no
+horizontal overflow, six type sizes, five radii, two durations. Logging one set
+costs 9 taps typing new numbers or 1 accepting last session's, against 15 in the
+original. State changes no longer lose focus, caret or scroll on any screen.
+The assembled demo passes 86 of 86 checks.
+
+Not re-scored: the judgment half of the rubric. Scoring my own build on
+criteria a reader judges would be worth less than saying it has not been done.
+`10-final/scorecard.md` says what that pass would take.
+
+Not built: cardio, cycle, photos, pr-vault, profile, shopping-budget and
+workout-detail. Fuel was redesigned separately. A whole-app score cannot be
+compared against the original's eighteen-page average until those exist.

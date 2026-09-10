@@ -37,53 +37,26 @@
   }
   /* Demo chrome moved off the top-right corner: that corner is now the
      screen's own Edit control. */
-  .devwrap { position: absolute; bottom: var(--sp-2); left: var(--sp-2); z-index: 20; }
-  .devbtn {
-    display: flex; align-items: center; justify-content: center;
-    width: var(--tap); height: var(--tap);
-    border-radius: var(--r-full);
-    background: var(--surface-raised);
-    color: var(--text-secondary);
-    box-shadow: var(--shadow-raised);
-  }
-  .devbtn[aria-expanded="true"] { color: var(--accent-text); }
-  .devpanel {
-    position: absolute; bottom: calc(var(--tap) + var(--sp-2)); left: 0;
-    width: 232px;
-    max-height: 640px;
-    overflow-y: auto;
-    padding: var(--sp-3);
-    background: var(--surface-raised);
-    border-radius: var(--r-lg);
-    box-shadow: var(--shadow-overlay);
-  }
-  .devpanel .btn { width: 100%; justify-content: flex-start; }
   .daycard__head { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2); }
   .daycard__foot { padding: var(--sp-2); }
   .movebar { display: flex; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-2) var(--sp-2); }
   .movebar .btn { flex: 1; }
   .chipwrap { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
-  .optrow { display: flex; align-items: flex-start; gap: var(--sp-3); width: 100%; text-align: left; padding: var(--sp-3); border-radius: var(--r-md); background: var(--surface); color: var(--text); min-height: var(--tap); }
-  .optrow + .optrow { margin-top: var(--sp-2); }
-  .optrow:active { background: var(--surface-raised); }
-  .optrow[aria-checked="true"] { background: var(--accent-quiet); }
-  .optrow__mark { width: 20px; height: 20px; flex: none; margin-top: 2px; color: var(--text-tertiary); }
-  .optrow[aria-checked="true"] .optrow__mark { color: var(--accent-text); }
   .sheet__foot { padding-top: var(--sp-3); }
   .dialog__acts { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-4); }
   .skelline { height: var(--sp-4); }
-  .optrow .row__title, .optrow .row__sub { display: block; }
 </style>
 </head>
 <body>
 <div class="stage">
   <div class="phone">
     <div class="app" id="app"></div>
-    <div class="devwrap">
-      <button class="devbtn" id="devToggle" data-testid="dev-toggle" aria-expanded="false" aria-label="Developer screen switcher">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3M13 6l-2 12" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-      <div class="devpanel" id="devPanel" data-testid="dev-panel" hidden></div>
+    <!-- The same state inspector every other screen carries, from the
+         shared layer. This screen had its own, under its own names. -->
+    <div class="dev">
+      <button class="dev__toggle" id="devToggle" aria-expanded="false"
+              aria-controls="devPanel" data-testid="dev-toggle">State</button>
+      <div class="dev__menu" id="devPanel" hidden data-testid="dev-menu"></div>
     </div>
   </div>
 </div>
@@ -429,7 +402,7 @@
       : 'Swipe a lift left to remove it. Tap Edit to reorder, rename or delete.';
 
     var days = '<div class="section">' +
-      '<div class="section__head"><h2 class="t-section">Days</h2>' +
+      '<div class="section__head"><h2 class="t-label">Days</h2>' +
       '<span class="t-meta" data-num>' + m.days.length + ' · ' + exCount() + ' exercises</span></div>' +
       '<p class="t-detail" data-testid="reorder-hint">' + hint + '</p>' +
       '<div class="mt-3" data-sortlist="days">' +
@@ -505,7 +478,7 @@
         '</label>' +
       '</div>' +
       '<div class="section">' +
-        '<div class="section__head"><h2 class="t-section">Add a detail</h2></div>' +
+        '<div class="section__head"><h2 class="t-label">Add a detail</h2></div>' +
         '<div class="chipwrap">' + examples.map(function (t, i) {
           return '<button class="chip" data-testid="ai-example-' + i + '" data-action="ai-example" data-text="' + esc(t) + '">' +
             ico('plus') + esc(t) + '</button>';
@@ -541,7 +514,7 @@
         '<div><strong>The coach service did not answer</strong>' + esc(S.ai.error) + '</div></div>' +
       '</div>' +
       '<div class="section">' +
-        '<div class="section__head"><h2 class="t-section">Your description is kept</h2></div>' +
+        '<div class="section__head"><h2 class="t-label">Your description is kept</h2></div>' +
         '<div class="card"><p class="t-body">' + esc(S.ai.note || 'Three days a week, barbell and cables, shoulders need volume.') + '</p></div>' +
         '<button class="btn btn--secondary btn--block mt-3" data-testid="ai-edit-note" data-action="ai-edit-note">Edit the description</button>' +
         '<button class="btn btn--secondary btn--block mt-3" data-testid="ai-fallback-manual" data-action="ai-back">Build it by hand instead</button>' +
@@ -576,7 +549,7 @@
       '</div>' +
       plan.days.map(function (d) {
         return '<div class="section">' +
-          '<div class="section__head"><h2 class="t-section">' + esc(d.name) + '</h2>' +
+          '<div class="section__head"><h2 class="t-label">' + esc(d.name) + '</h2>' +
           '<span class="t-meta" data-num>' + d.slots.length + ' exercises</span></div>' +
           '<div class="card card--flush">' + d.slots.map(function (s) { return slotRow(s, d); }).join('') + '</div>' +
         '</div>';
@@ -634,10 +607,12 @@
     var idx = day.slots.indexOf(s) + 1;
     function opt(id, title, sub, tag) {
       var on = s.choice === id;
-      return '<button class="optrow" role="radio" aria-checked="' + on + '" data-testid="opt-' + id + '" data-action="choose" data-id="' + s.id + '" data-opt="' + id + '">' +
-        '<span class="optrow__mark">' + (on ? ico('check') : ico('circle')) + '</span>' +
-        '<span class="grow"><span class="row__title">' + esc(title) + '</span>' +
-        '<span class="row__sub">' + esc(sub) + '</span></span>' +
+      /* The shared one-of-N row, the same component Coach, Review and
+         Settings use. This screen had its own copy of it. */
+      return '<button class="opt" role="radio" aria-checked="' + on + '" data-testid="opt-' + id + '" data-action="choose" data-id="' + s.id + '" data-opt="' + id + '">' +
+        '<span class="opt__mark">' + ico('check') + '</span>' +
+        '<span class="opt__main"><span class="opt__title">' + esc(title) + '</span>' +
+        '<span class="opt__sub">' + esc(sub) + '</span></span>' +
         (tag ? '<span class="chip">' + esc(tag) + '</span>' : '') +
       '</button>';
     }
@@ -755,10 +730,10 @@
     btn.setAttribute('aria-expanded', S.dev ? 'true' : 'false');
     panel.hidden = !S.dev;
     if (!S.dev) { LKPatch(panel, ''); return; }
-    LKPatch(panel, '<div class="t-label">Screens and states</div><div class="stack stack--2 mt-2">' +
-      PRESETS.map(function (p, i) {
-        return '<button class="btn btn--secondary btn--sm" data-testid="dev-preset-' + i + '" data-dev="' + i + '">' + esc(p[0]) + '</button>';
-      }).join('') + '</div>');
+    LKPatch(panel, PRESETS.map(function (p, i) {
+      return '<button class="dev__item" data-testid="dev-preset-' + i + '" data-dev="' + i +
+        '" aria-pressed="false">' + esc(p[0]) + '</button>';
+    }).join(''));
   }
 
   /* ---------------------------------------------------------------
