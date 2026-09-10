@@ -56,6 +56,16 @@ async function doScreen(ctx, s) {
       const sel = `[data-testid="${tid}"]`;
       const loc = p.locator(sel).first();
       if (!(await loc.count()) || !(await loc.isVisible().catch(()=>false))) continue;
+      /* A disabled control is not blocked, it is off, and Playwright's
+         actionability check waits for enabled and then times out. Counting
+         those as CLICK-BLOCKED reported 484 blocked controls on a build
+         where every one of them was either disabled on purpose or simply
+         below the fold. Skip the first, scroll for the second: a floating
+         tab bar is chrome that content scrolls under, so a row resting
+         beneath it is reachable and only a row that cannot be reached at
+         ANY scroll position is a finding. */
+      if (await loc.isDisabled().catch(() => false)) continue;
+      await loc.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => {});
       const before = await p.evaluate(([S,sel])=>{ const r=eval(S); const e=document.querySelector(sel);
         r.aria = e?{exp:e.getAttribute('aria-expanded'),pr:e.getAttribute('aria-pressed'),sel:e.getAttribute('aria-selected'),ch:e.getAttribute('aria-checked')}:null; return r; }, [SNAP, sel]);
       errs.length = 0;
