@@ -180,28 +180,74 @@ person sees, inside the shadow-root isolation with the chrome present.
 
 ---
 
-## 7. Two things the directive assumes that are not true here
+## 7. Navigation, corrected by the owner
 
-**Fuel.** Directive §1 says to redesign Fuel if its rebuild is in the file and
-hold structural changes if it is not. In this target Fuel is a **placeholder
-screen** — it was redesigned separately at your direction and never built here.
-There is nothing to restyle. Fuel is out of scope for this pass unless you want
-the placeholder itself styled.
+The demo's tab bar is wrong. It carries Progress in a tab slot and has no
+Profile at all. The live app's model is the right one and the demo should
+match it:
 
-**Shopping and Budget** do not exist in this build either.
+| Tab | Screens under it |
+|---|---|
+| Home | home, **progress**, cycle tracker |
+| Train | train, workout log, review, **exercise library**, cardio |
+| Fuel | fuel, **shopping**, **budget** |
+| Coach | coach |
+| Profile | profile, settings |
 
-So the page squads are: Home, Train, Coach, Progress, Exercise Library, Split
-Builder, Workout Log, Review, Settings, Onboarding, and the body map. Eleven,
-not seven, and a different eleven from the directive's list.
+So: **Progress leaves the tab bar** and lives under Home, where the live app
+already puts it. **Profile takes the fifth slot.** Exercise library stays a
+pushed screen under Train, which it already is — no change.
 
----
+## 8. Fuel is in scope, and it is a build not a restyle
 
-## 8. Gate
+Corrected: Fuel is to be built here from Concept D, with Shopping and Budget
+inside the Fuel tab.
 
-Wave 0 is done. Not starting Wave 1.
+Concept D is at `locked/docs/fuel/fuel-rebuild/03-concepts/D-merged/`, twelve
+screens plus an index:
 
-What I need from you:
+```
+01b-home-hidden      01c-home-first-weeks   02-mic-listening
+03-mic-confirm       04-camera              05-food-detail
+06-meals             07-trends              08-score-or-review
+09-profile           10-supps-water         11-fallback-log
+```
 
-1. **Confirm the screen list** in §7 — particularly that Fuel stays out.
-2. **Confirm the patch protocol drop** in §1, or tell me to keep it.
-3. **Confirm the priority order** in §4, or reorder it.
+`08-score-or-review` renders the Fuel Score, which you cut at the Wave 0 gate.
+It is not built. The rest are.
+
+**Concept D contains no Shopping and no Budget screens.** Those exist only in
+the live app as `ShoppingBudgetTab`. They will be designed here from that
+behaviour rather than copied from a concept that does not cover them.
+
+### What this means for the order of work
+
+Four screens do not exist in this build at all: Fuel, Shopping, Budget,
+Profile. Building them in the current style and then restyling them would be
+doing the work twice. So they are built **after** the foundation and chrome
+land, and they are built Apple-native from the first line.
+
+Revised waves:
+
+1. **Wave 1 — Foundation.** Squircles, springs, the four missing type roles,
+   the glass system. Nothing visual ships; the app renders identically.
+2. **Wave 2 — Chrome.** The corrected five-tab bar, large-title collapse, tab
+   bar minimize, bottom accessory shelf, bottom search, sheet detents and
+   grabbers.
+3. **Wave 3a — Build the missing four**, Apple-native from the start: Fuel from
+   Concept D, then Shopping, Budget and Profile.
+4. **Wave 3b — Restyle the existing eleven** against the same foundation.
+5. **Waves 4 to 6** as the directive has them: cross-page consistency,
+   accessibility and performance, final gate.
+
+## 9. Gate
+
+Wave 0 is done. Screen list and navigation are settled by sections 7 and 8.
+
+Still open, and neither blocks Wave 1:
+
+1. **The patch protocol.** I dropped it, per section 1. It exists because
+   parallel agents corrupt one 100k-line file, which is not the shape of this
+   target. Say if you want it back.
+2. **The priority order** in section 4. Reorder it if you disagree; I am
+   starting at the top of it.
