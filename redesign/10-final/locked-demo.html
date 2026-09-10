@@ -7091,11 +7091,21 @@ window.__DEMO_CFG__ = {"tabs":[{"id":"home","label":"Home","screen":"home"},{"id
      press Back and the demo is gone. history.length cannot answer this
      either: it counts entries the demo did not create. This can. */
   var trail = [];
-  function goTab(tabId) { trail.push(location.hash); location.hash = '#/' + tabId; }
+  var lastHash = location.hash;
+  /* One place maintains the trail: the hashchange handler, which sees every
+     route change however it was made. Pushing from goTab and push() alone
+     missed a hash set from outside the router -- a deep link, or the demo's
+     own screen index -- and then the Back label named a route from further
+     back than the one history.back() would actually return to. */
+  function walked() {
+    if (trail.length && trail[trail.length - 1] === location.hash) trail.pop();
+    else if (lastHash !== location.hash) trail.push(lastHash);
+    lastHash = location.hash;
+  }
+  function goTab(tabId) { location.hash = '#/' + tabId; }
   function push(screenId) {
     var route = parseHash();
     var parent = (PUSHED[screenId] && PUSHED[screenId].parent) || route.base;
-    trail.push(location.hash);
     location.hash = '#/' + parent + '/' + screenId;
   }
   function back() {
@@ -7256,9 +7266,7 @@ window.__DEMO_CFG__ = {"tabs":[{"id":"home","label":"Home","screen":"home"},{"id
     });
 
     window.addEventListener('hashchange', function () {
-      /* The browser's own Back button walks the trail too, or Back-then-Back
-         would try to pop an entry that is already behind us. */
-      if (trail.length && trail[trail.length - 1] === location.hash) trail.pop();
+      walked();
       render();
     });
     if (!location.hash) location.replace(location.href.split('#')[0] + '#/' + TABS[0].id);

@@ -122,7 +122,9 @@
   /* The day. Numbers are the fixture's, not invented at render time, so the
      same screen renders the same way every run and a screenshot diff means
      something. */
-  var DAY = {
+  /* A function, not a literal: the dev switcher rebuilds it so one state's
+     edits do not leak into the next. */
+  function day() { return {
     date: 'Mon 7 Sep',
     target: 2980,
     eaten: 1570,
@@ -158,7 +160,8 @@
        exists. */
     trend: [2980, 3120, 2740, 2880, 3310, 2610, 2950,
             2870, 3040, 2790, 3180, 2900, 2680, 2985]
-  };
+  }; }
+  var DAY = day();
 
   /* Module scope and with macros on it, because these rows log. The list was
      a literal inside the sheet's own render function and every row closed the
@@ -446,9 +449,13 @@
             : 'A model read the photo and estimated the portion. Expect it to be within about 15% on a ' +
               'plate like this one, and further out on anything with a sauce.') + '</p>' +
           '<div class="chiprow mt-4">' +
-            '<button class="chip" type="button" data-action="meal-portion" data-i="' + i + '" data-by="-0.25" ' +
-              'data-testid="meal-edit">A quarter less</button>' +
-            '<button class="chip" type="button" data-action="meal-portion" data-i="' + i + '" data-by="0.25" ' +
+            /* Symmetric, so a mistake is one tap away from undone: a quarter
+               less then a quarter more used to leave the meal 6% smaller,
+               because 0.75 x 1.25 is 0.9375. The factors are reciprocal, so
+               the pair round-trips. */
+            '<button class="chip" type="button" data-action="meal-portion" data-i="' + i + '" data-by="0.8" ' +
+              'data-testid="meal-edit">A fifth less</button>' +
+            '<button class="chip" type="button" data-action="meal-portion" data-i="' + i + '" data-by="1.25" ' +
               'data-testid="meal-swap">A quarter more</button>' +
           '</div>' +
         '</div>' +
@@ -566,7 +573,10 @@
                 '</span>' +
                 '<span class="row__value num">' + n(r.kcal) +
                   '<small class="t-caption-2 quiet"> kcal</small></span>' +
-                '<span class="row__chev">' + ICO.chev + '</span></button>';
+                /* A plus, not a chevron. A chevron says "this opens something
+                   to look at"; this row commits the meal on the tap, which is
+                   the whole point of the sheet. */
+                '<span class="row__chev">' + ICO.plus + '</span></button>';
             }).join('') + '</div>' +
           '</div>' +
         '</div>';
@@ -751,10 +761,11 @@
 
   /* A portion, not a rewrite. Scaling every figure by the same factor is the
      honest edit: the plate was the plate, there was just more or less of it. */
-  function portion(i, by) {
+  /* `by` is the factor itself, not a delta. 0.8 and 1.25 are reciprocals, so
+     one then the other returns the meal to where it started. */
+  function portion(i, f) {
     var m = DAY.meals[i];
-    if (!m || !by) return;
-    var f = 1 + by;
+    if (!m || !f) return;
     var d = {};
     ['kcal', 'pro', 'carb', 'fat'].forEach(function (k) {
       d[k] = Math.round((m[k] || 0) * f) - (m[k] || 0);
@@ -835,6 +846,14 @@
     if (!b) return;
     S.state = b.dataset.state;
     S.sheet = null;
+    S.camOil = null;
+    S.toast = null;
+    S.undo = null;
+    /* The day is a fixture and every state reads the same one, so anything
+       logged, deleted or rescaled in one state was still there in the next --
+       switching to Empty after logging a meal showed a day that was not
+       empty. A state switch is a fresh screen, so it gets a fresh day. */
+    DAY = day();
     render();
   });
 
