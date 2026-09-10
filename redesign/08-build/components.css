@@ -181,13 +181,18 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
 .row + .row { box-shadow: inset 0 1px 0 var(--hairline); }
 /* Wraps rather than crushes. At AX5 the value and the chevron beside it
    squeezed this column to 6px and "Barbell Squat" rendered as a column of
-   half letters. The floor is in em, so it scales with the reader's setting:
-   once the title needs the whole row, it takes the whole row and everything
-   else drops to the next line. min() keeps the floor from ever exceeding the
-   row itself, and at the default ladder 8em is 120px of a 361px row, so
-   nothing that fits today changes. */
+   half letters.
+
+   `flex-basis: 0` is what keeps this off at the default ladder. With
+   `flex: 1 1 auto` the hypothetical main size is the text's max-content
+   width, and flex line-breaking uses that figure rather than the shrunk
+   one -- so Fuel's closing row wrapped onto three lines at 393px and the
+   default type size, where it had been one. The basis stays 0, which can
+   never trigger a wrap on its own; the em floor is what forces the break,
+   and it only exceeds the row once the reader's type is large enough to
+   need it. Measured: 82px at the default ladder before and after. */
 .row { flex-wrap: wrap; }
-.row__main { flex: 1 1 auto; min-width: min(100%, 8em); }
+.row__main { flex: 1 1 0%; min-width: min(100%, 8em); }
 .row__title { display: block; font-size: var(--type-15); letter-spacing: var(--tr-15); line-height: var(--lh-15); font-weight: var(--w-medium); }
 .row__sub { display: block; font-size: var(--type-13); letter-spacing: var(--tr-13); line-height: var(--lh-13); color: var(--text-secondary); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .row__value { font-size: var(--type-15); line-height: var(--lh-15); letter-spacing: var(--tr-15); font-weight: var(--w-semibold); font-variant-numeric: tabular-nums; }
@@ -507,9 +512,12 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
    Interpolated, not switched. --full runs 0 to 1 over the last stretch of
    the drag (chrome.js writes it every frame), so the inset closes and the
    bottom corners flatten as the sheet arrives instead of snapping 8px
-   sideways and growing 22px corners on the first pixel of movement. A sheet
-   with one height and the --full class set is at 1 the whole time, which is
-   the same geometry as before. */
+   sideways and growing 22px corners on the first pixel of movement.
+
+   A sheet with a single height never enters this rule -- the detent pass
+   returns before it can, and the fallback of 0 is the inset geometry, which
+   is what a partial-height sheet wants. A sheet whose range tops out below
+   full screen stays at 0 the whole way for the same reason. */
 .sheet[data-detents] {
   left: calc(var(--sp-2) * (1 - var(--full, 0)));
   right: calc(var(--sp-2) * (1 - var(--full, 0)));
@@ -518,18 +526,18 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
   border-bottom-right-radius: calc(var(--r-xl) * (1 - var(--full, 0)));
   padding-bottom: calc(var(--sp-5) + var(--safe-bottom) * var(--full, 0));
 }
-.sheet--full {
-  left: 0; right: 0; bottom: 0;
-  border-radius: var(--r-xl) var(--r-xl) 0 0;
-  padding-bottom: calc(var(--sp-5) + var(--safe-bottom));
-}
+/* .sheet--full was here and is gone: no markup in the build carried it, and
+   .sheet[data-detents] beats it on specificity and sits earlier in the file,
+   so anything that did carry it would have taken the interpolated geometry
+   anyway. Dead code that was also a trap. */
 @keyframes sheetUp { from { transform: translateY(100%); } }
 /* Section 8.7: a sheet springs from the control that summoned it. chrome.js
    sets transform-origin to that control's centre at press time and marks the
-   sheet; the rise stays, because a sheet still comes from the bottom edge --
-   what changes is that it also grows from the point that was touched, so the
-   overlay has a relationship to the tap instead of arriving from nowhere.
-   A sheet opened by something with no known trigger keeps the plain rise. */
+   sheet, and this animation REPLACES the full-height rise rather than adding
+   to it: a sheet that grows from the point that was touched is not also
+   travelling the height of the screen, so what is left is a 24px settle
+   under the scale. A sheet opened by something with no known trigger keeps
+   the plain rise from the bezel. */
 .sheet[data-from-trigger] { animation-name: sheetFromTrigger; }
 @keyframes sheetFromTrigger {
   from { opacity: 0; transform: translateY(24px) scale(0.92); }

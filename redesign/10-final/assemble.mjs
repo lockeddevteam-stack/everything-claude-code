@@ -95,6 +95,7 @@ const MANIFEST = {
     { from: 'train', selector: '[data-action="start-today"]', to: 'workout-log', mode: 'push' },
     { from: 'workout-log', selector: '[data-action="finish"]', to: 'review', mode: 'push' },
     { from: 'fuel', selector: '[data-testid="chip-more"]', to: 'shopping', mode: 'push' },
+    { from: 'progress', selector: '[data-testid="empty-action"]', to: 'train', mode: 'tab' },
     { from: 'profile', selector: '[data-testid="open-settings"]', to: 'settings', mode: 'push' }
   ],
 
@@ -511,19 +512,29 @@ const RUNTIME = String.raw`
     prevRoute = route;
   }
 
-  function goTab(tabId) { location.hash = '#/' + tabId; }
+  /* The hashes THIS document navigated away from, so Back knows whether
+     there is one of its own entries behind it.
+
+     The old guard asked "not prevRoute or not route.top", and on the case its own
+     comment named -- a deep link straight into a pushed screen -- prevRoute
+     has already been set by the first render and route.top IS the pushed
+     screen, so the guard was false, history.back() ran, and the browser left
+     for whatever document was open before. Load #/fuel/shopping directly and
+     press Back and the demo is gone. history.length cannot answer this
+     either: it counts entries the demo did not create. This can. */
+  var trail = [];
+  function goTab(tabId) { trail.push(location.hash); location.hash = '#/' + tabId; }
   function push(screenId) {
     var route = parseHash();
     var parent = (PUSHED[screenId] && PUSHED[screenId].parent) || route.base;
+    trail.push(location.hash);
     location.hash = '#/' + parent + '/' + screenId;
   }
   function back() {
-    /* No entry to go back to (a deep link opened straight into a pushed
-       screen): fall back to that screen's parent rather than leaving the page. */
+    if (trail.length) { trail.pop(); history.back(); return; }
+    /* Nothing of ours behind us: go to the parent rather than leaving. */
     var route = parseHash();
-    if (!prevRoute || !route.top) { history.back(); return; }
-    if (history.length > 1) history.back();
-    else location.hash = '#/' + ((PUSHED[route.top] && PUSHED[route.top].parent) || route.base);
+    location.hash = '#/' + ((PUSHED[route.top] && PUSHED[route.top].parent) || route.base || TABS[0].id);
   }
 
   /* ---------------------------------------------------------------
@@ -676,7 +687,12 @@ const RUNTIME = String.raw`
       if (e.key === 'Escape' && !document.getElementById('demo-index').hidden) closeIndex();
     });
 
-    window.addEventListener('hashchange', render);
+    window.addEventListener('hashchange', function () {
+      /* The browser's own Back button walks the trail too, or Back-then-Back
+         would try to pop an entry that is already behind us. */
+      if (trail.length && trail[trail.length - 1] === location.hash) trail.pop();
+      render();
+    });
     if (!location.hash) location.replace(location.href.split('#')[0] + '#/' + TABS[0].id);
     render();
   }
@@ -815,15 +831,56 @@ function build() {
      the Climbing lift row on Home did, and the build succeeded. It throws
      now, the way the other four silent-drop paths in this file do. */
   const tabIds = new Set(MANIFEST.tabs.map((t) => t.id));
+  const screenIds = new Set(records.map((r) => r.id));
   for (const n of MANIFEST.nav) {
-    if (!records.some((r) => r.id === n.to)) {
-      throw new Error(`nav ${n.from} -> ${n.to}: no such screen`);
+    /* mode first. Nothing used to assert it was one of the two, so an
+       omitted or misspelled mode passed both checks below and the router
+       falls through to goTab -- which is exactly the failure those checks
+       exist to prevent. */
+    if (n.mode !== 'tab' && n.mode !== 'push') {
+      throw new Error(`nav ${n.from} -> ${n.to}: mode is ${JSON.stringify(n.mode)}, must be "tab" or "push"`);
     }
+    if (!screenIds.has(n.from)) throw new Error(`nav from "${n.from}": no such screen`);
+    if (!screenIds.has(n.to)) throw new Error(`nav ${n.from} -> ${n.to}: no such screen`);
     if (n.mode === 'tab' && !tabIds.has(n.to)) {
       throw new Error(`nav ${n.from} -> ${n.to} is mode "tab", but "${n.to}" is not a tab. Use mode "push" and give it a parent in MANIFEST.pushed.`);
     }
     if (n.mode === 'push' && !MANIFEST.pushed[n.to]) {
       throw new Error(`nav ${n.from} -> ${n.to} is mode "push", but "${n.to}" has no entry in MANIFEST.pushed.`);
+    }
+  }
+
+  /* Every page navigation a screen performs has to be declared as a
+     crossing, or the demo dies on it.
+
+     A screen written to open from disk navigates with location.href, and the
+     location it is handed here is the REAL window.location -- there is no
+     scoped stand-in for it. If the demo has not claimed that click first,
+     the browser leaves for a file that does not exist beside locked-demo.html
+     and the whole demo is gone in one tap. Progress shipped exactly that:
+     a "Start a workout" button under a comment asserting the router would
+     take the click, and no manifest row to make it true.
+
+     The check above cannot see an undeclared crossing, because there is
+     nothing declared to look at. This one reads the screens themselves. */
+  for (const s of screens) {
+    const src = s.scripts.join('\n');
+    const re = /location\.href\s*=\s*['"]([A-Za-z0-9_-]+)\.html['"]/g;
+    let m;
+    while ((m = re.exec(src))) {
+      const to = m[1];
+      if (!screenIds.has(to)) continue;          /* leaves the build entirely */
+      const pushed = MANIFEST.pushed[s.id];
+      /* A pushed screen going back to its parent is claimed by its
+         backSelector rather than by a nav row -- the demo intercepts the
+         same control to pop the route. That counts as declared. */
+      const isBack = pushed && pushed.parent === to && pushed.backSelector;
+      const declared = isBack || MANIFEST.nav.some((n) => n.from === s.id && n.to === to);
+      if (!declared) {
+        throw new Error(
+          `${s.id}.html navigates to ${to}.html but MANIFEST.nav declares no ${s.id} -> ${to} crossing. ` +
+          `In the demo that click leaves the page. Add the row, or stop navigating.`);
+      }
     }
   }
 

@@ -135,9 +135,9 @@
       { name: 'Fat', have: 58, want: 80, unit: 'g', key: 'fat' }
     ],
     meals: [
-      { icon: '🍳', name: 'Eggs, toast, butter', at: '8:05', pro: 38, kcal: 540, src: 'verified' },
-      { icon: '🥗', name: 'Chicken rice bowl', at: '12:40', pro: 52, kcal: 720, src: 'estimate' },
-      { icon: '🥤', name: 'Whey shake, banana', at: '3:15', pro: 31, kcal: 310, src: 'verified' }
+      { icon: '🍳', name: 'Eggs, toast, butter', at: '8:05', pro: 38, carb: 46, fat: 24, kcal: 540, src: 'verified' },
+      { icon: '🥗', name: 'Chicken rice bowl', at: '12:40', pro: 52, carb: 84, fat: 16, kcal: 720, src: 'estimate' },
+      { icon: '🥤', name: 'Whey shake, banana', at: '3:15', pro: 31, carb: 38, fat: 4, kcal: 310, src: 'verified' }
     ],
     /* Not a target and not a nag: a pattern this person already has. */
     closing: { at: '7:30', pro: 40 },
@@ -689,9 +689,15 @@
     return h + ':' + (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
   }
 
+  /* The record carries every macro it contributed, not just protein. It used
+     to keep pro and kcal only, so removing a meal put its calories and its
+     protein back and left its carbs and its fat in the day's totals forever
+     -- structurally, not as a missed line: there was nothing on the record
+     to subtract. Rescaling a portion had the same hole. */
   function addMeal(meal) {
     DAY.meals.push({ icon: meal.icon, name: meal.name, at: meal.at || nowLabel(),
-                     pro: meal.pro, kcal: meal.kcal, src: meal.src || 'estimate' });
+                     pro: meal.pro || 0, carb: meal.carb || 0, fat: meal.fat || 0,
+                     kcal: meal.kcal, src: meal.src || 'estimate' });
     DAY.eaten += meal.kcal;
     bump('pro', meal.pro); bump('carb', meal.carb); bump('fat', meal.fat);
   }
@@ -732,11 +738,14 @@
     var m = DAY.meals[i];
     if (!m || !by) return;
     var f = 1 + by;
-    var dK = Math.round(m.kcal * f) - m.kcal;
-    var dP = Math.round(m.pro * f) - m.pro;
-    m.kcal += dK; m.pro += dP;
-    DAY.eaten += dK; bump('pro', dP);
-    render();
+    var d = {};
+    ['kcal', 'pro', 'carb', 'fat'].forEach(function (k) {
+      d[k] = Math.round((m[k] || 0) * f) - (m[k] || 0);
+      m[k] = (m[k] || 0) + d[k];
+    });
+    DAY.eaten += d.kcal;
+    bump('pro', d.pro); bump('carb', d.carb); bump('fat', d.fat);
+    /* say() renders. Rendering here as well was two full passes a tap. */
     say(esc(m.name) + ' is now ' + n(m.kcal) + ' kcal.');
   }
 
@@ -745,14 +754,14 @@
     if (!m) return;
     DAY.meals.splice(i, 1);
     DAY.eaten -= m.kcal;
-    bump('pro', -m.pro);
+    bump('pro', -m.pro); bump('carb', -m.carb); bump('fat', -m.fat);
     S.sheet = null;
     /* Destructive, so it is undoable rather than confirmed: a confirm asks a
        question the person already answered by pressing a red button. */
     S.undo = function () {
       DAY.meals.splice(i, 0, m);
       DAY.eaten += m.kcal;
-      bump('pro', m.pro);
+      bump('pro', m.pro); bump('carb', m.carb); bump('fat', m.fat);
     };
     say(esc(m.name) + ' removed.');
   }
@@ -778,7 +787,10 @@
   }
 
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && S.sheet) { S.sheet = null; render(); }
+    /* Same reset as the close action. They disagreed: Escape left S.camOil
+       set, so a brand-new photo opened already carrying the last plate's
+       answer to the oil question -- and said so in its own caption. */
+    if (e.key === 'Escape' && S.sheet) { S.sheet = null; S.camOil = null; render(); }
   });
 
   var STATES = [

@@ -216,26 +216,27 @@
          can name the detent it opens at. */
       var want = parseFloat(sheet.getAttribute('data-detent-open'));
       var current = detents.indexOf(want) > -1 ? want : detents[0];
-      /* data-full, not a substring match on the inline style.
-         components.css used to select the full-bleed form with
-         [style*="88%"], so the first pointermove wrote a non-88 height, the
-         selector stopped matching, and in one frame the sheet jumped 8px in
-         from each edge and grew 22px bottom corners. It also meant any sheet
-         whose inline style happened to contain "88%" took the full-bleed
-         rules. The top detent is a fact this code knows; it says so. */
       /* --full, not a substring match on the inline style.
          components.css used to select the full-bleed form with
          [style*="88%"], so the first pointermove wrote a non-88 height, the
          selector stopped matching, and in one frame the sheet jumped 8px in
          from each edge and grew 22px bottom corners. It also meant any sheet
          whose inline style happened to contain "88%" took the full-bleed
-         rules. The top detent is a fact this code knows; it writes a 0-to-1
-         figure over the last 8% of the travel and the CSS interpolates the
-         inset and the corner against it. */
-      var top = detents[detents.length - 1];
+         rules. So this writes a 0-to-1 figure over the last stretch of the
+         travel and the CSS interpolates the inset and the corner against it.
+
+         FULL is an absolute height, not "whatever the largest detent is".
+         Keyed off the top detent, a sheet whose range tops out at 80% --
+         shopping has two -- welded itself to the bezel with square bottom
+         corners at a height that is plainly not full screen. A sheet only
+         squares off against the edge when it is actually against the edge,
+         so a range that never reaches FULL stays inset the whole way. */
+      var FULL = 0.86;
       var BAND = 0.08;
+      var top = detents[detents.length - 1];
+      var reaches = top >= FULL;
       var mark = function (frac) {
-        var t = (frac - (top - BAND)) / BAND;
+        var t = reaches ? (frac - (FULL - BAND)) / BAND : 0;
         sheet.style.setProperty('--full', String(Math.min(1, Math.max(0, t))));
       };
       var setH = function (frac) {
@@ -346,17 +347,39 @@
        origin every sheet grew from its own centre, which is a relationship
        to nothing. Clamped into the overlay's own box, because a trigger at
        the top of the screen and a sheet at the bottom would otherwise put
-       the origin outside the thing being scaled and read as a slide. */
+       the origin outside the thing being scaled and read as a slide.
+
+       The LAYOUT box, not the rendered one. This runs the instant the sheet
+       lands in the DOM, which is the frame its entry animation starts, and
+       getBoundingClientRect() returns the transformed box -- so the sheet
+       measured as if it were still 100% of its own height below the screen
+       and every vertical origin came out large-negative and clamped to 0.
+       offsetTop and offsetHeight ignore transforms, which is also the space
+       transform-origin is resolved in, so they are the right measurement in
+       both senses. */
     function anchor(box) {
       if (!openerBox) { box.removeAttribute('data-from-trigger'); return; }
-      var r;
-      try { r = box.getBoundingClientRect(); } catch (err) { return; }
-      if (!r.width || !r.height) return;
-      var ox = openerBox.left + openerBox.width / 2 - r.left;
-      var oy = openerBox.top + openerBox.height / 2 - r.top;
+      var parent = box.offsetParent;
+      var w = box.offsetWidth, h = box.offsetHeight;
+      var left, top;
+      if (parent && w && h) {
+        var pr;
+        try { pr = parent.getBoundingClientRect(); } catch (err) { return; }
+        left = pr.left + box.offsetLeft;
+        top = pr.top + box.offsetTop;
+      } else {
+        /* No offsetParent (display:none somewhere above, or a detached
+           tree): fall back rather than guess. */
+        var r;
+        try { r = box.getBoundingClientRect(); } catch (err) { return; }
+        if (!r.width || !r.height) return;
+        left = r.left; top = r.top; w = r.width; h = r.height;
+      }
+      var ox = openerBox.left + openerBox.width / 2 - left;
+      var oy = openerBox.top + openerBox.height / 2 - top;
       box.style.transformOrigin =
-        Math.max(0, Math.min(r.width, ox)) + 'px ' +
-        Math.max(0, Math.min(r.height, oy)) + 'px';
+        Math.max(0, Math.min(w, ox)) + 'px ' +
+        Math.max(0, Math.min(h, oy)) + 'px';
       box.setAttribute('data-from-trigger', 'true');
     }
 
@@ -442,15 +465,26 @@
     function measure(screen) {
       var acc = screen.querySelector(':scope > .findbar--bottom, :scope > #shelf-slot');
       if (!acc) return;
+      /* Once per accessory, like the rest of this file. Six screens call
+         LKChrome.init on every render, and without the guard this did a
+         forced layout read and a style write on each of them for a figure
+         that only changes when the accessory changes shape -- which is what
+         the ResizeObserver is for. */
+      if (!once(acc, 'acc')) return;
       var apply = function () {
         var h = acc.offsetHeight;
         if (h) screen.style.setProperty('--accessory-h', h + 'px');
       };
       apply();
-      if (!acc.__lk_acc && typeof ResizeObserver === 'function') {
-        acc.__lk_acc = true;
-        try { new ResizeObserver(apply).observe(acc); } catch (e) {}
-      }
+      if (typeof ResizeObserver !== 'function') return;
+      /* Held on the element it watches, so a caller that tears a screen down
+         has something to disconnect. Nothing in this build tears one down --
+         demo screens are permanent -- but an observer with no owner is the
+         one thing in this file that could outlive its subject. */
+      try {
+        acc.__lk_accObs = new ResizeObserver(apply);
+        acc.__lk_accObs.observe(acc);
+      } catch (e) {}
     }
   }
 
