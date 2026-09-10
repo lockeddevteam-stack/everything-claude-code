@@ -455,3 +455,160 @@
   if (!global.LK) global.LK = {};
   global.LK.patch = patch;
 })(typeof window !== 'undefined' ? window : this);
+
+/* LOCKED — the spring a gesture hands off to.
+
+   The sampled linear() curves in tokens.css cover everything with a known
+   start and end, and they run on the compositor, so they are the right tool
+   almost always. What they cannot do is start at the velocity a finger left
+   behind. A drag released at 800px/s that finishes on a fixed curve decelerates
+   like a web page, and that single detail is the most obvious tell that
+   something is not native.
+
+   So this is the other half: a real spring, integrated per frame, seeded with
+   the gesture's own velocity.
+
+       var s = LKSpring.to(el, 'x', { from: 120, to: 0, velocity: -800 });
+       s.stop();                       // interruptible, always
+
+   Interruption matters as much as the physics. A spring that must finish
+   before it will accept a new target is a spring a person can out-run. Calling
+   `to` again on the same element and property retakes the current position and
+   velocity mid-flight, which is what makes a list feel like it is being handled
+   rather than played back.
+*/
+(function (global) {
+  'use strict';
+
+  /* Apple's own parameters, from duration and bounce. Same maths as the
+     generator that produced the linear() curves, so a gesture that hands off
+     mid-flight matches the curve it is replacing. */
+  function params(duration, bounce) {
+    var stiffness = Math.pow((2 * Math.PI) / duration, 2);
+    var damping = bounce >= 0
+      ? ((1 - bounce) * 4 * Math.PI) / duration
+      : (4 * Math.PI) / (duration * (1 + bounce));
+    return { stiffness: stiffness, damping: damping, mass: 1 };
+  }
+
+  var PRESETS = {
+    smooth: params(0.5, 0),
+    snappy: params(0.5, 0.15),
+    bouncy: params(0.5, 0.3),
+    /* Response 0.15 and damping 0.86, the interactive pair: short response
+       because a drag that lags the thumb is instantly wrong. */
+    interactive: (function () {
+      var response = 0.15, zeta = 0.86;
+      var wn = (2 * Math.PI) / response;
+      return { stiffness: wn * wn, damping: 2 * zeta * wn, mass: 1 };
+    })()
+  };
+
+  var running = [];
+  var frame = null;
+
+  /* Settling is judged on both position and velocity. A spring that has
+     arrived but is still moving will leave again, and stopping it there is
+     what produces a visible snap. */
+  var EPS_X = 0.05, EPS_V = 0.05;
+
+  function tick(now) {
+    frame = null;
+    var i, s, dt;
+    for (i = running.length - 1; i >= 0; i--) {
+      s = running[i];
+      dt = Math.min((now - s.last) / 1000, 1 / 30);   /* a long frame must not explode the integrator */
+      s.last = now;
+
+      /* Semi-implicit Euler, substepped. Stiff springs need small steps;
+         one step per frame at 158 N/m visibly overshoots. */
+      var steps = Math.max(1, Math.ceil(dt / (1 / 240)));
+      var h = dt / steps;
+      for (var k = 0; k < steps; k++) {
+        var a = (-s.p.stiffness * (s.x - s.to) - s.p.damping * s.v) / s.p.mass;
+        s.v += a * h;
+        s.x += s.v * h;
+      }
+
+      s.apply(s.x, s.v);
+
+      if (Math.abs(s.x - s.to) < EPS_X && Math.abs(s.v) < EPS_V) {
+        s.x = s.to;
+        s.apply(s.x, 0);
+        running.splice(i, 1);
+        if (s.onDone) s.onDone();
+      }
+    }
+    if (running.length) frame = requestAnimationFrame(tick);
+  }
+
+  function schedule() {
+    if (frame == null) frame = requestAnimationFrame(function (t) { tick(t); });
+  }
+
+  function find(el, key) {
+    for (var i = 0; i < running.length; i++) {
+      if (running[i].el === el && running[i].key === key) return i;
+    }
+    return -1;
+  }
+
+  /* Reduced motion asks for no spring at all: the value is placed, not
+     travelled to. The API is unchanged so no caller has to branch. */
+  function reduced() {
+    return global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  function to(el, key, opts) {
+    opts = opts || {};
+    var preset = PRESETS[opts.preset || 'snappy'] || PRESETS.snappy;
+    var target = opts.to || 0;
+    var apply = opts.apply || function (v) {
+      el.style.transform = 'translate3d(' + (key === 'y' ? '0,' + v + 'px,0' : v + 'px,0,0') + ')';
+    };
+
+    var existing = find(el, key);
+    var startX = opts.from, startV = opts.velocity || 0;
+    if (existing >= 0) {
+      /* Retake the flight rather than restart it. */
+      if (startX == null) startX = running[existing].x;
+      if (!opts.velocity) startV = running[existing].v;
+      running.splice(existing, 1);
+    }
+    if (startX == null) startX = target;
+
+    if (reduced()) {
+      apply(target, 0);
+      if (opts.onDone) opts.onDone();
+      return { stop: function () {} };
+    }
+
+    var s = {
+      el: el, key: key, x: startX, v: startV, to: target,
+      p: preset, apply: apply, onDone: opts.onDone,
+      last: (global.performance || Date).now()
+    };
+    running.push(s);
+    schedule();
+    return {
+      stop: function () {
+        var i = find(el, key);
+        if (i >= 0) running.splice(i, 1);
+      },
+      get value() { return s.x; },
+      get velocity() { return s.v; }
+    };
+  }
+
+  /* iOS rubber-banding. A hard stop at the end of a list is the other tell.
+     c = 0.55, from the spec. */
+  function rubberBand(offset, dimension, c) {
+    c = c || 0.55;
+    if (!dimension) return 0;
+    var sign = offset < 0 ? -1 : 1;
+    var o = Math.abs(offset);
+    return sign * (1 - (1 / ((o * c / dimension) + 1))) * dimension;
+  }
+
+  global.LKSpring = { to: to, rubberBand: rubberBand, presets: PRESETS };
+})(typeof window !== 'undefined' ? window : this);
