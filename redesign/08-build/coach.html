@@ -980,6 +980,13 @@
     S.chat.draft = '';
     S.chat.status = 'thinking';
     render();
+    /* Clearing the state is not enough: LKPatch deliberately keeps what a
+       person has typed into a live field, which is right on every other
+       render and wrong on this one. The field kept the sent message, so it
+       read as "it did not go", and the obvious recovery — tap send again —
+       posted it twice. */
+    var box = phone.querySelector('[data-testid="composer-input"]');
+    if (box) box.value = '';
     later(function () {
       if (S.chat.status !== 'thinking') return;
       var wantsPlan = /plan|block|program/i.test(text);
@@ -1005,7 +1012,15 @@
       toast('New chat. The last one is kept in your history.');
     },
     'suggest': function (el) { sendMessage(SUGGEST[Number(el.dataset.i)]); },
-    'send': function () { if (S.chat.draft.trim()) sendMessage(S.chat.draft.trim()); },
+    /* Empties the field. It kept the text, which every chat on the platform
+       reads as "it did not send" — and the obvious recovery, tapping send
+       again, posted it twice. */
+    'send': function () {
+      var text = S.chat.draft.trim();
+      if (!text) return;
+      S.chat.draft = '';
+      sendMessage(text);
+    },
     'stop': function () {
       S.chat.status = 'ready';
       render();

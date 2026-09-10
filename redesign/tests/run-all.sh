@@ -30,6 +30,7 @@ while read -r f; do
   node screen-audit.mjs "$f" | grep -E '^FAIL|failing|passed' | sed "s|^|$f  |" || fail=1
 done < /tmp/screens.txt
 run "body map — targets and selection"             node tap-test.mjs
+run "skeletons — nothing shifts on load"            node skeleton-fit.mjs
 run "dynamic type — default ladder and AX5"         node dynamic-type.mjs
 run "actions — every control does something"       node action-coverage.mjs
 run "demo — assembled"                             sh -c 'node ../10-final/assemble.mjs && node ../10-final/verify-demo.mjs'

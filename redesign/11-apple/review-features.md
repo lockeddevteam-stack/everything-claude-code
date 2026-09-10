@@ -29,8 +29,13 @@ Scope: `08-build/` driven from `file://` with Playwright 1.56.1 (Chromium at
 | `agent-feat-presets.mjs` / `agent-feat-presets2.mjs` | the same sweep for the screens whose dev menu uses `data-preset` (coach, exercise-library) or has no `?state=` support (workout-log) |
 | `agent-feat-split*.mjs`, `agent-feat-exlib*.mjs`, `agent-feat-wl*.mjs`, `agent-feat-fuel.mjs`, `agent-feat-progress.mjs`, `agent-feat-profile2.mjs`, `agent-feat-keys.mjs`, `agent-feat-shop3.mjs`, `agent-feat-final.mjs` | per-screen confirmation of anything the sweep flagged, including popup and `navigator.share` / clipboard interception |
 
-Everything below was confirmed by a second, targeted run. Findings the first
-sweep produced by index drift are not listed — they were false.
+Everything below was confirmed by a second, targeted run. Sweep artifacts are
+not listed as findings: an index-drift bug in the first pass, clicks on the
+option that is already selected, `?state=` entries on the three screens whose
+dev menu uses `data-preset` or has no URL support at all (`coach.html`,
+`exercise-library.html`, `workout-log.html` — swept separately with
+`agent-feat-presets*.mjs`), and clicks on the already-active segment of a
+control the sweep reaches once per panel.
 
 ---
 
@@ -97,6 +102,15 @@ Driven to exhaustion with no dead action found:
   `note` is the input handler at `:1004`. `rir` is a set of `<input>` radios.
   Only `addex-q` is dead (above).
 - `train.html`, `settings.html`, `review.html`, `onboarding.html` — nothing dead.
+
+### Correct, but silent
+
+`shopping.html` `pan-add` and `add-custom` return early when their required
+fields are empty (`if (!n) return;`), which is exactly what live `PantryTab` and
+`MyStoresTab` do. Verified: pantry 7 → 7 rows, stores 3 → 3 with the fields
+blank; both add correctly once filled. The gap is that neither says why — no
+message, no field error, and the sweep flagged them as dead for the same reason
+a user would think they were. Not a lost feature; a missing explanation.
 
 ### Not driven, but a handler exists — not a loss
 
