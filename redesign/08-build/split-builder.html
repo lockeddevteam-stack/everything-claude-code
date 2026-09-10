@@ -9,6 +9,7 @@
 <script src="theme.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
+<script src="session.js"></script>
 <style>
   /* Demo chrome only. Layout, no new values: every colour, size, radius and
      duration below is a token from tokens.css. */
@@ -449,7 +450,7 @@
 
   function manualScreen() {
     return '<section class="screen" data-testid="screen-manual" data-state="' + S.manual.status + '">' +
-      manualHeader() + manualBody() + manualBar() + '</section>';
+      manualHeader() + manualBody() + (window.LKSession ? LKSession.html() : '') + manualBar() + '</section>';
   }
 
   /* ---------------------------------------------------------------
@@ -600,7 +601,7 @@
   function aiScreen() {
     var st = S.ai.status;
     var body = st === 'loading' ? aiLoadingBody() : st === 'error' ? aiErrorBody() : st === 'ready' ? aiReadyBody() : aiIdleBody();
-    return '<section class="screen" data-testid="screen-ai" data-state="' + st + '">' + aiHeader() + body + aiBar() + '</section>';
+    return '<section class="screen" data-testid="screen-ai" data-state="' + st + '">' + aiHeader() + body + (window.LKSession ? LKSession.html() : '') + aiBar() + '</section>';
   }
 
   /* ---------------------------------------------------------------
@@ -1151,6 +1152,26 @@
   PRESETS[2][1]();
   render();
 })();
+
+  /* The running workout, from a screen that is not it. This screen redraws
+     itself whole, so the shelf is rendered inline with everything else
+     rather than mounted into a slot a redraw would throw away. A one-second
+     tick repaints only when the strip's own text changes, so a session
+     twenty minutes in does not sit at the same number while you read. */
+
+  if (window.LKSession) {
+    var shelfKey = null;
+    window.setInterval(function () {
+      var k = LKSession.html();
+      if (k === shelfKey) return;
+      shelfKey = k;
+      render();
+    }, 1000);
+    document.addEventListener('click', function (e) {
+      var el = e.target.closest ? e.target.closest('[data-testid="shelf-resume"]') : null;
+      if (el) { e.preventDefault(); location.href = 'workout-log.html'; }
+    });
+  }
 </script>
 </body>
 </html>

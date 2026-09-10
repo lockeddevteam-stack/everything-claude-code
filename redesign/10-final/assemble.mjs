@@ -107,10 +107,26 @@ const MANIFEST = {
        no way to become an account holder from inside the app. */
     { from: 'profile', selector: '[data-testid="signup"]', to: 'onboarding', mode: 'push' },
     { from: 'profile', selector: '[data-testid="start-first"]', to: 'onboarding', mode: 'push' },
-    /* The session shelf exists so a running session is not lost, and it was
-       the one control on Home and Fuel that did nothing at all. */
+    /* The session shelf exists so a running session is not lost. It used to
+       live on Home and Fuel only, and on both it was hand-written markup
+       gated on a dev state -- a picture of the feature rather than the
+       feature, with nothing anywhere writing a session down. It now reads
+       the record in session.js and appears on every screen you can reach
+       mid-workout, which is every screen but the workout log itself and
+       onboarding, where there is no workout to be in the middle of. */
     { from: 'home', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'fuel', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    { from: 'train', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    { from: 'coach', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    { from: 'profile', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    { from: 'progress', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    { from: 'exercise-library', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    { from: 'shopping', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    { from: 'cycle', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    { from: 'settings', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    { from: 'split-builder', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    { from: 'workout-detail', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    { from: 'review', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     /* Coach's "open this lift in Progress", and Train's session-picker day.
        Both toasted a sentence describing what a working button would do. */
     { from: 'coach', selector: '[data-act="target"]', to: 'progress', mode: 'push' },

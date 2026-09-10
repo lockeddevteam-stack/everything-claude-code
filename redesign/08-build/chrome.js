@@ -490,8 +490,34 @@
     for (var i = 0; i < screens.length; i++) measure(screens[i]);
 
     function measure(screen) {
-      var acc = screen.querySelector(':scope > .findbar--bottom, :scope > #shelf-slot');
-      if (!acc) return;
+      /* Every accessory, not the first. A screen can carry two at once --
+         the library has a search bar, and any screen can grow a session
+         shelf the moment a workout starts -- and measuring one of them left
+         the content padded for one while two were drawn. They also sat on
+         top of each other, because both are positioned off the same edge;
+         --findbar-h below is what lifts the shelf clear of the search bar. */
+      var accs = screen.querySelectorAll(':scope > .findbar--bottom, :scope > #shelf-slot');
+      if (!accs.length) return;
+      var acc = accs[0];
+      if (accs.length > 1) {
+        var stack = function () {
+          var total = 0, barH = 0;
+          for (var k = 0; k < accs.length; k++) {
+            var h = accs[k].offsetHeight;
+            if (!h) continue;
+            total += h + 8;                       /* the gap between them */
+            if (accs[k].classList.contains('findbar--bottom')) barH = h;
+          }
+          if (total) screen.style.setProperty('--accessory-h', total + 'px');
+          screen.style.setProperty('--findbar-h', barH ? barH + 'px' : '0px');
+        };
+        stack();
+        if (typeof ResizeObserver === 'function') {
+          var ro = new ResizeObserver(stack);
+          for (var j = 0; j < accs.length; j++) ro.observe(accs[j]);
+        }
+        return;
+      }
       /* Once per accessory, like the rest of this file. Six screens call
          LKChrome.init on every render, and without the guard this did a
          forced layout read and a style write on each of them for a figure

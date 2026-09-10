@@ -9,6 +9,7 @@
 <script src="theme.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
+<script src="session.js"></script>
 </head>
 <body>
 <!--
@@ -421,17 +422,22 @@
   /* The shelf is what a running session looks like from anywhere else in the
      app: it names the session, counts what is done, and gets back in one tap.
      A floating pill would do the same job while covering a row of content. */
+  /* The shelf comes from the live session record, not from this screen.
+     It used to be hand-written markup gated on a dev state, which meant it
+     showed a fixed "Push A, 4 of 7, 38:12" whether or not a workout was
+     running, and never showed a real one. The dev state is kept: it seeds a
+     session so the demo can show the strip without anybody training. */
   function shelfHTML() {
-    if (current !== 'live') return '';
-    return '<button class="shelf" type="button" data-minimize data-action="resume" ' +
-        'data-testid="shelf-resume" aria-label="Return to Push A, 4 of 7 exercises done, 38 minutes elapsed">' +
-      '<span class="shelf__live" aria-hidden="true"></span>' +
-      '<span class="shelf__main">' +
-        '<span class="shelf__title">Push A</span>' +
-        '<span class="shelf__sub">4 of 7 &middot; 38:12</span>' +
-      '</span>' +
-      '<span class="shelf__action t-body-em" aria-hidden="true">Resume</span>' +
-    '</button>';
+    return window.LKSession && LKSession.get() ? LKSession.html() : '';
+  }
+
+  /* The demo's own "live" state, seeded into the record so the shelf on
+     every other screen agrees with this one. */
+  function seedDemoSession(on) {
+    if (!window.LKSession) return;
+    var live = LKSession.get();
+    if (on && !live) LKSession.start({ name: 'Push A', startedAt: Date.now() - 2292000, done: 4, total: 7 });
+    else if (!on && live && live.name === 'Push A') LKSession.end();
   }
 
   function render(state) {
@@ -439,6 +445,7 @@
     document.getElementById('screen').setAttribute('data-state', current);
     hdrDate.textContent = (DATA[current] || DATA.training).date;
     LKPatch(body, VIEWS[current]());
+    seedDemoSession(current === 'live');
     LKPatch(document.getElementById('shelf-slot'), shelfHTML());
     body.scrollTop = 0;
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
@@ -491,6 +498,18 @@
 
   render(new URLSearchParams(location.search).get('state') || 'training');
 })();
+
+  /* The strip's clock, on a screen that only repaints when something on it
+     changes. Without this the shelf freezes at whatever second you arrived. */
+  if (window.LKSession) {
+    var shelfWas = null;
+    window.setInterval(function () {
+      var now = LKSession.html();
+      if (now === shelfWas) return;
+      shelfWas = now;
+      LKPatch(document.getElementById('shelf-slot'), now);
+    }, 1000);
+  }
 </script>
 </body>
 </html>

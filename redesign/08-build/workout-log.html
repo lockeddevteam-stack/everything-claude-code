@@ -9,6 +9,7 @@
 <script src="theme.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
+<script src="session.js"></script>
 </head>
 <body>
 <!--
@@ -293,6 +294,18 @@
     S.exercises.forEach(function (ex) { ex.sets.forEach(function (st) { if (st.done) c++; }); });
     return c;
   }
+  /* Total sets in the session. The shelf on every other screen counts sets
+     against this, because sets are what this screen's own header counts and
+     two places describing one workout should not use two different units.
+     Completed exercises were the first try and read "0 of 5" twenty-one
+     minutes into real work, which is the opposite of what a progress
+     figure is for. */
+  function totalSets() {
+    var c = 0;
+    S.exercises.forEach(function (ex) { c += ex.sets.length; });
+    return c;
+  }
+
   function volumeKg() {
     var v = 0;
     S.exercises.forEach(function (ex) {
@@ -848,7 +861,33 @@
      says it was already open, because the caller sets it and then paints. */
   var renderedOverlay = false;
 
+  /* The record the rest of the app reads. Written from paint rather than
+     from each action, because a session that is on screen but not in the
+     record is exactly the bug this file used to have: eighteen actions
+     change the session and remembering to write in all eighteen is a thing
+     a person forgets once and loses a workout to. Painting is the one thing
+     they all do. */
+  function record() {
+    if (!window.LKSession) return;
+    if (!S.exercises.length || S.state === 'empty') { LKSession.end(); return; }
+    /* Seeded from the elapsed time already on screen the first time, so a
+       session opened twenty-one minutes in does not restart its clock at
+       zero. After that the record's own start time is the truth and this
+       screen reads it rather than counting. */
+    if (!LKSession.get()) {
+      LKSession.start({
+        name: S.name,
+        startedAt: Date.now() - (S.elapsed || 0) * 1000,
+        done: doneSets(),
+        total: totalSets()
+      });
+      return;
+    }
+    LKSession.update({ name: S.name, done: doneSets(), total: totalSets() });
+  }
+
   function paint() {
+    record();
     var hadOverlay = renderedOverlay;
     var opener = document.activeElement && document.activeElement.dataset
       ? document.activeElement.dataset.testid : null;
@@ -1059,11 +1098,19 @@
         S.blocks = [];
         S.elapsed = 0;
         S.restRunning = false; S.restLeft = 0;
+        if (window.LKSession) LKSession.end();
         toast('Workout discarded.');
         break;
       /* Finish leaves for Review; in the demo the router takes the click
          first. It used to toast "Opening review." and stay here. */
-      case 'finish': location.href = 'review.html'; break;
+      /* The session is over the moment Finish is pressed. Review reads the
+         numbers it shows from the workout, not from this record, so ending
+         it here is what stops a finished workout following you around the
+         app on a shelf that says Resume. */
+      case 'finish':
+        if (window.LKSession) LKSession.end();
+        location.href = 'review.html';
+        break;
 
       /* ---- rest ---- */
       case 'rest-add': S.restLeft += 30; say('Rest extended to ' + clock(S.restLeft)); break;
