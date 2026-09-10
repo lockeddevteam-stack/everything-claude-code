@@ -48,3 +48,34 @@ stamp `__lk_ts__` timestamps, so every write has a side effect.
 Storage is not a single abstraction. Three layers coexist: the `ld`/`sd`
 wrapper (82 keys), direct raw access (14+ keys/prefixes above), and a
 patched `setItem` that shadows writes with timestamp keys.
+
+## Wave 2 disambiguation: TWO unrelated "cycle" features
+
+Agents flagged a possible duplicate cycle implementation. It is not a duplicate.
+The word "cycle" names two entirely separate modules:
+
+**1. Menstrual cycle tracking** — `Mc*` components, lines 22417-26140.
+- Full-screen route: `screen === "cycletrack"` renders `CycleTrackerScreen` (57675)
+- Home card: `CycleTrackerCard` (22596) rendered at 26612, gated on `isFemaleUser(p.profile)`
+- Storage: `lk_mcProfile`, `lk_mcDays`, `lk_mcCloudSync`, `lk_mcFuelAdjust`
+
+**2. Performance-enhancing compound cycle tracking ("Stack")** — `CycleTab`, line 47432.
+- Fuel sub-tab: rendered at 37460 when `tab === "cycle"`, labelled **"Stack"** (37329)
+- Gated behind the `perfTracking` setting, default **false** (33335, 37329)
+- Tracks compounds with dose, route (Oral/injectable), frequency, category
+  `compCat: "aas"` (anabolic-androgenic steroids), and cycle length in weeks (47456-47461)
+- Storage: `lk_cycles`, `lk_cycleLog`
+- Settings toggle at 33335-33360
+
+These share no code and no storage. The redesign must keep them distinct; the
+overloaded "cycle" name in both component and storage-key naming
+(`cycles`/`cycleLog` vs `mcDays`/`mcProfile`) is a live source of confusion.
+
+## Wave 0 count corrections (from agent reports)
+
+- `Onboarding` ends at **34767**, not 35762. Lines 34768-35656 are a `FOODS`
+  nutrition database plus `estimateMacros`/`calcTDEE`/`calcMacros`
+  (reported by Agent 9, who documented them anyway).
+- Event listeners: **54** actual, not the 106 raw grep matches.
+- Timers: **65** actual, not the 81 raw grep matches.
+  (Raw counts included definition sites and string matches.)
