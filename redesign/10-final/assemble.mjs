@@ -143,6 +143,17 @@ function parseScreen(file) {
     if (/<\/script/i.test(s)) throw new Error(`${file}: script contains a closing script tag`);
   }
 
+  /* stripTag keeps the text BETWEEN the tags, so a <script src> in the body
+     contributes an empty string and its file is never inlined — the screen
+     then boots with a function it needs simply absent. No screen does this
+     today; the point is that none can start to without the build saying so.
+     A head-level inline script has the same problem: the head is mined for
+     <title> and <style> and nothing else. */
+  const bodySrc = bodyMatch[1].match(/<script[^>]*\ssrc=/i);
+  if (bodySrc) throw new Error(`${file}: <script src> in the body would be dropped. Put it in the head and add it to MANIFEST.js.`);
+  const headInline = head.replace(/<script[^>]*\ssrc=[^>]*>\s*<\/script>/gi, '').match(/<script[\s>]/i);
+  if (headInline) throw new Error(`${file}: an inline <script> in the head would be dropped.`);
+
   /* External files the screen fetches. They are inlined so the demo makes no
      request from file://. */
   const assets = [];
@@ -240,7 +251,11 @@ function buildAssets(screens) {
   for (const s of screens) {
     for (const a of s.assets) {
       const p = resolve(SRC, a);
-      if (existsSync(p)) map[a] = read(p);
+      /* A missing asset used to be dropped here and surface much later as
+         "demo is offline" from scopedFetch, at runtime, on whichever screen
+         happened to need it. A build knows now. */
+      if (!existsSync(p)) throw new Error(`${s.id}.html fetches "${a}", which does not exist in ${MANIFEST.srcDir}`);
+      map[a] = read(p);
     }
   }
   return map;
@@ -761,7 +776,12 @@ function build() {
   for (const t of MANIFEST.tabs) {
     if (t.screen) {
       const s = screens.find((x) => x.id === t.screen);
-      if (s) records.push({ id: s.id, label: s.label, tab: t.id, css: s.css, markup: s.markup, scripts: s.scripts });
+      /* Throws. It used to skip: a tab whose screen file was renamed or
+         deleted produced no record, no placeholder and no error, while
+         cfg.tabs still carried the id — so the tab rendered a blank screen in
+         a demo that built successfully. */
+      if (!s) throw new Error(`tab "${t.id}" names screen "${t.screen}", which is not in ${MANIFEST.srcDir}`);
+      records.push({ id: s.id, label: s.label, tab: t.id, css: s.css, markup: s.markup, scripts: s.scripts });
     } else {
       const copy = MANIFEST.placeholders[t.id];
       if (copy) {
