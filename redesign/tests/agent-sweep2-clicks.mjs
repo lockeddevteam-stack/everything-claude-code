@@ -66,6 +66,19 @@ async function doScreen(ctx, s) {
          ANY scroll position is a finding. */
       if (await loc.isDisabled().catch(() => false)) continue;
       await loc.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => {});
+      /* A control behind an open modal is not blocked, it is behind a modal.
+         Several states in this build ARE an open sheet -- the numeric pad,
+         a detail sheet -- and enumerating every testid in them walks the
+         screen underneath the scrim, where nothing is meant to be clickable.
+         463 of the 463 blocked controls were this or a disabled control. */
+      const behindScrim = await p.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return false;
+        if (el.closest('.sheet, .dialog, .scrim')) return false;   /* in the overlay */
+        if (!document.querySelector('.scrim')) return false;       /* no modal up */
+        return true;
+      }, sel).catch(() => false);
+      if (behindScrim) continue;
       const before = await p.evaluate(([S,sel])=>{ const r=eval(S); const e=document.querySelector(sel);
         r.aria = e?{exp:e.getAttribute('aria-expanded'),pr:e.getAttribute('aria-pressed'),sel:e.getAttribute('aria-selected'),ch:e.getAttribute('aria-checked')}:null; return r; }, [SNAP, sel]);
       errs.length = 0;

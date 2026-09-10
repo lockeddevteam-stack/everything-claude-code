@@ -204,6 +204,16 @@
       var sel = keySelector(snap.key);
       if (sel) target = container.querySelector(sel);
     }
+    /* Still there, but no longer focusable. A control that disables itself
+       while it works -- Sync going to "Syncing", a permission toggle while
+       the answer is written -- keeps its node and its key, so this found it
+       and called focus() on a disabled element, which does nothing and
+       leaves the reader on <body>. Treat it as gone and fall through. */
+    if (target && (target.disabled ||
+                   target.getAttribute('aria-disabled') === 'true' ||
+                   target.getAttribute('tabindex') === '-1')) {
+      target = null;
+    }
     /* The control removed itself. A row's delete button, an accepted
        suggestion, a chip that filtered itself away: there is no node to go
        back to, and focus was landing on <body>, which restarts the next Tab
@@ -215,7 +225,52 @@
       var after = focusables(container);
       if (after.length) target = after[Math.min(snap.index, after.length - 1)];
     }
-    if (!target || typeof target.focus !== 'function') return;
+    /* Nothing left to focus inside the container -- a Retry that replaced the
+       screen with a loading skeleton, a rest strip that skipped itself away,
+       an overlay layer that is now empty.
+
+       Climb until something can hold the focus: a real control just after
+       where the reader was, or failing that the nearest region that still has
+       content. Anything is better than <body>, which restarts the next Tab at
+       the top of the document; but an emptied overlay layer is nearly as bad,
+       which is why this climbs rather than stopping at the container. The
+       holder is not a control and does not draw a ring. */
+    if (!target) {
+      /* The region itself, while it still has something in it. A Retry that
+         swapped the screen for a loading skeleton leaves no control but
+         plenty of content, and holding focus there keeps the reader where
+         they were -- throwing them to the tab bar because that is the next
+         focusable in the document would be worse than the bug. */
+      var hasContent = function (el) {
+        return el && (el.children.length > 0 ||
+                      (el.textContent && el.textContent.trim()));
+      };
+      var holder = container;
+      while (holder && !hasContent(holder)) holder = holder.parentElement;
+      /* Only an emptied region climbs, and then only to a real control after
+         it -- an empty overlay layer is nearly as bad a place to leave focus
+         as <body>. */
+      if (!holder) {
+        var root = container.getRootNode ? container.getRootNode() : document;
+        var host = root.body || root;
+        var here = host ? focusables(host) : [];
+        for (var k = 0; k < here.length; k++) {
+          if (!container.contains(here[k]) &&
+              (container.compareDocumentPosition(here[k]) & 4)) { target = here[k]; break; }
+        }
+        if (!target && here.length) target = here[here.length - 1];
+      }
+      if (!target) {
+        try {
+          var hold = holder || container;
+          hold.setAttribute('data-lk-focus-holder', '');
+          if (!hold.hasAttribute('tabindex')) hold.tabIndex = -1;
+          hold.focus({ preventScroll: true });
+        } catch (e) {}
+        return;
+      }
+    }
+    if (typeof target.focus !== 'function') return;
 
     try { target.focus({ preventScroll: true }); } catch (e) { target.focus(); }
     if (snap.start !== null && typeof target.setSelectionRange === 'function') {
