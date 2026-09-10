@@ -74,6 +74,9 @@ const MANIFEST = {
     /* Every history row on Train points here. It was in the shipped app and
        the rebuild dropped it without a note; the rows pointed at nothing. */
     'workout-detail': { parent: 'train', backSelector: '[data-testid="back"]' },
+    /* The shipped app's entry was a card on Home, and it is a card on Home
+       here. Gated, so the row only appears when the switch is on. */
+    cycle: { parent: 'home', backSelector: '[data-testid="back"]' },
     /* Progress lives under Home. It was reachable only through the demo
        index, which pushes; the one tap that led to it from a screen was
        declared as a tab and there is no Progress tab, so it wrote a route
@@ -114,7 +117,9 @@ const MANIFEST = {
     { from: 'train', selector: '[data-action="start-day"]', to: 'workout-log', mode: 'push' },
     { from: 'train', selector: '[data-action="open-session"]', to: 'workout-detail', mode: 'push' },
     { from: 'workout-detail', selector: '[data-testid="detail-repeat"]', to: 'workout-log', mode: 'push' },
-    { from: 'workout-detail', selector: '[data-testid="detail-edit"]', to: 'workout-log', mode: 'push' }
+    { from: 'workout-detail', selector: '[data-testid="detail-edit"]', to: 'workout-log', mode: 'push' },
+    { from: 'home', selector: '[data-testid="row-cycle"]', to: 'cycle', mode: 'push' },
+    { from: 'cycle', selector: '[data-testid="cycle-open-settings"]', to: 'settings', mode: 'push' }
   ],
 
   /* Where a screen keeps its own state switcher. Harvested for the demo-level

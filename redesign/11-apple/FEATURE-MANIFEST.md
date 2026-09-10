@@ -27,6 +27,15 @@ suggest                 target                  toast                   view    
 write-again
 ```
 
+**cycle.html** — 16
+
+```
+back                    close                   cs-delete               cs-save                 day-clear
+day-save                discreet                flow                    irregular               mood
+open-day                open-settings           retry                   settings                setup-save
+sym
+```
+
 **exercise-library.html** — 22
 
 ```
@@ -138,9 +147,10 @@ The selectors every test and every audit script addresses.
 | Screen | testids |
 |---|---|
 | `coach.html` | 98 |
+| `cycle.html` | 42 |
 | `exercise-library.html` | 50 |
 | `fuel.html` | 69 |
-| `home.html` | 20 |
+| `home.html` | 21 |
 | `onboarding.html` | 65 |
 | `profile.html` | 22 |
 | `progress.html` | 61 |
@@ -152,10 +162,11 @@ The selectors every test and every audit script addresses.
 | `workout-detail.html` | 30 |
 | `workout-log.html` | 94 |
 
-## Storage keys — 4
+## Storage keys — 5
 
 ```
-lk_                       lk_badges                 lk_fuelNumbers            lk_libBrowse
+lk_                       lk_badges                 lk_cycle                  lk_fuelNumbers
+lk_libBrowse
 ```
 
 ## Per-screen totals
@@ -166,17 +177,18 @@ five columns after them are.
 | Screen | Lines | Listeners | Actions | Buttons | Inputs | testids |
 |---|---|---|---|---|---|---|
 | `coach.html` | 1542 | 5 | 46 | 53 | 3 | 98 |
+| `cycle.html` | 643 | 4 | 16 | 19 | 6 | 42 |
 | `exercise-library.html` | 1189 | 6 | 22 | 31 | 4 | 50 |
 | `fuel.html` | 1003 | 5 | 22 | 39 | 3 | 69 |
-| `home.html` | 471 | 3 | 1 | 17 | 0 | 20 |
+| `home.html` | 496 | 3 | 1 | 18 | 0 | 21 |
 | `onboarding.html` | 1152 | 10 | 0 | 31 | 5 | 65 |
 | `profile.html` | 382 | 3 | 4 | 12 | 0 | 22 |
 | `progress.html` | 1037 | 5 | 15 | 26 | 6 | 61 |
 | `review.html` | 996 | 4 | 0 | 23 | 0 | 46 |
-| `settings.html` | 1022 | 4 | 15 | 23 | 4 | 30 |
+| `settings.html` | 1030 | 4 | 15 | 23 | 4 | 30 |
 | `shopping.html` | 1567 | 5 | 44 | 60 | 16 | 116 |
 | `split-builder.html` | 1156 | 11 | 28 | 36 | 4 | 68 |
 | `train.html` | 969 | 5 | 18 | 28 | 2 | 51 |
 | `workout-detail.html` | 517 | 3 | 9 | 12 | 1 | 30 |
 | `workout-log.html` | 1202 | 6 | 38 | 50 | 5 | 94 |
-| **total** | **14205** | **75** | **262** | **441** | **53** | **820** |
+| **total** | **14881** | **79** | **278** | **461** | **59** | **863** |

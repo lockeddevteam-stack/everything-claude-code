@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — Cycle</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<script src="theme.js"></script>
+<script src="app.js"></script>
+<script src="chrome.js"></script>
+</head>
+<body>
+<!--
+  CYCLE — where you are in it, and what you logged.
+
+  WHY IT EXISTS. It was in the shipped app, a feature audit found it dropped
+  with nothing anywhere saying so, and the standing instruction on this
+  rebuild is that no function of the app is removed. It is also the one thing
+  in the build that changes how the training advice should read: a hard week
+  in the late luteal phase is a different fact about a lifter than the same
+  week mid-follicular.
+
+  IT IS GATED, and the gate is the shipped app's. Cycle tracking appears when
+  the profile's sex is set to female, and says so plainly when it is not,
+  with a way to go and change it. That is not a judgement about who trains;
+  it is that a prediction built on a cycle length is meaningless without one.
+
+  WHAT IT PREDICTS AND WHAT IT DOES NOT. The phase and the day count come
+  from the last recorded start plus the cycle length -- arithmetic, and it
+  says so. It does not diagnose, it does not warn, and it never tells anybody
+  they are late. A prediction with no measurement behind it is a guess with a
+  confident face, and the copy names it as an estimate every time it shows
+  one.
+
+  DISCREET MODE was in the original and is here: the phase name and the
+  symptom names go, the day count stays. Somebody may hand this phone to a
+  training partner.
+-->
+
+<div class="stage">
+  <div class="phone">
+    <div class="screen" id="screen" data-testid="screen-cycle">
+
+      <header class="hdr" data-scroll-edge="#body" id="hdr"></header>
+
+      <main class="body" id="body" data-testid="cycle-scroll" tabindex="-1"></main>
+
+      <div id="overlay" data-testid="overlay"></div>
+
+    </div>
+  </div>
+</div>
+
+<div class="dev">
+  <button class="dev__toggle" id="dev-toggle" aria-expanded="false" aria-controls="dev-menu" data-testid="dev-toggle">State</button>
+  <div class="dev__menu" id="dev-menu" hidden data-testid="dev-menu"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  function svg(d) {
+    return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + d + '</svg>';
+  }
+  var ICO = {
+    back:  svg('<path d="m15 5-7 7 7 7"/>'),
+    close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+    gear:  svg('<circle cx="12" cy="12" r="3.5"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/>'),
+    alert: svg('<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/>')
+  };
+
+  function esc(t) {
+    return String(t).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function n(v) { return '<span class="num">' + v + '</span>'; }
+
+  var TODAY = '2026-09-09';
+  var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  function ms(iso) { var p = iso.split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]); }
+  function iso(t) {
+    var d = new Date(t), p2 = function (x) { return (x < 10 ? '0' : '') + x; };
+    return d.getUTCFullYear() + '-' + p2(d.getUTCMonth() + 1) + '-' + p2(d.getUTCDate());
+  }
+  function daysBetween(a, b) { return Math.round((ms(b) - ms(a)) / 86400000); }
+  function absDate(i) { var p = i.split('-'); return MON[+p[1] - 1] + ' ' + (+p[2]); }
+  function dowOf(i) { return DOW[new Date(ms(i)).getUTCDay()]; }
+
+  /* ---------------------------------------------------------------
+     The profile and the log. Fixtures, so the screen renders the same
+     way every run.
+     --------------------------------------------------------------- */
+  function seedProfile() {
+    return { setup: true, sex: 'female', lastStart: '2026-08-25', cycleLen: 28,
+             periodLen: 5, irregular: false, discreet: false };
+  }
+  function seedDays() {
+    return {
+      '2026-08-25': { flow: 3, sym: { cramps: 2 }, mood: ['tired'], note: '' },
+      '2026-08-26': { flow: 3, sym: { cramps: 2, headache: 1 }, mood: ['tired'], note: 'Skipped the session.' },
+      '2026-08-27': { flow: 2, sym: {}, mood: [], note: '' },
+      '2026-08-28': { flow: 1, sym: {}, mood: ['ok'], note: '' },
+      '2026-08-29': { flow: 1, sym: {}, mood: ['ok'], note: '' },
+      '2026-09-03': { flow: 0, sym: {}, mood: ['strong'], note: 'Best squat session in weeks.' },
+      '2026-09-07': { flow: 0, sym: { bloating: 1 }, mood: ['low'], note: '' }
+    };
+  }
+
+  var SYMPTOMS = [
+    ['cramps', 'Cramps'], ['headache', 'Headache'], ['bloating', 'Bloating'],
+    ['backache', 'Back ache'], ['tender', 'Tenderness'], ['nausea', 'Nausea']
+  ];
+  var MOODS = [['low','Low'],['tired','Tired'],['ok','OK'],['strong','Strong'],['irritable','Irritable']];
+  var FLOWS = [['0','None'],['1','Light'],['2','Medium'],['3','Heavy']];
+
+  /* Four phases from two numbers. Named as an estimate everywhere it is
+     shown, because that is exactly what it is. */
+  function phaseOf(dayInCycle, p) {
+    if (dayInCycle <= p.periodLen) return { key: 'menstrual', name: 'Period', hue: 'var(--id-1)' };
+    var ov = Math.round(p.cycleLen / 2);
+    if (dayInCycle < ov - 1) return { key: 'follicular', name: 'Follicular', hue: 'var(--id-3)' };
+    if (dayInCycle <= ov + 1) return { key: 'ovulatory', name: 'Ovulation', hue: 'var(--id-5)' };
+    return { key: 'luteal', name: 'Luteal', hue: 'var(--id-4)' };
+  }
+  function dayInCycle(p) {
+    if (!p.lastStart) return null;
+    return (daysBetween(p.lastStart, TODAY) % p.cycleLen) + 1;
+  }
+  function nextStart(p) {
+    if (!p.lastStart) return null;
+    var d = daysBetween(p.lastStart, TODAY);
+    var cycles = Math.floor(d / p.cycleLen) + 1;
+    return iso(ms(p.lastStart) + cycles * p.cycleLen * 86400000);
+  }
+
+  /* What training the phase suggests. Not a rule and not a limit -- the
+     one line the original showed on Train, which is the whole reason this
+     screen is worth having in a training app. */
+  var PHASE_NOTE = {
+    menstrual: 'Training through it is fine. If the first two days are heavy, taking load off and keeping the session is better than skipping it.',
+    follicular: 'The stretch where most people add weight most easily. Worth putting your hardest sessions here if you get to choose.',
+    ovulatory: 'Strength usually peaks around here. Warm up longer: joints are looser and that is where the tweaks happen.',
+    luteal: 'Effort feels higher for the same weight, especially late. That is the reading, not a drop in strength. Judge sessions on RIR rather than on how heavy they felt.'
+  };
+
+  var S = {
+    state: 'populated',
+    p: seedProfile(),
+    days: seedDays(),
+    sheet: null,        /* null | 'settings' | an ISO date */
+    draft: null,
+    toast: null
+  };
+
+  /* ---------------------------------------------------------------
+     Pieces
+     --------------------------------------------------------------- */
+  function headerHTML() {
+    return '' +
+      '<button class="hdr__back" type="button" data-act="back" data-testid="back" aria-label="Back to Home">' +
+        ICO.back + '</button>' +
+      '<div class="hdr__title stack stack--1">' +
+        '<span class="t-meta">YOUR CYCLE</span>' +
+        '<h1 class="t-title">Cycle</h1>' +
+      '</div>' +
+      (S.state === 'populated' || S.state === 'discreet'
+        ? '<button class="iconbtn" type="button" data-act="settings" data-testid="cycle-settings" ' +
+            'aria-label="Cycle settings">' + ICO.gear + '</button>'
+        : '');
+  }
+
+  function todayCard() {
+    var p = S.p, d = dayInCycle(p);
+    var ph = phaseOf(d, p);
+    var next = nextStart(p);
+    var to = daysBetween(TODAY, next);
+    var quiet = p.discreet;
+    return '<div class="card mt-4" data-testid="cycle-today">' +
+      '<div class="hstack hstack--3">' +
+        '<span class="stack stack--1 grow">' +
+          '<span class="t-label">TODAY</span>' +
+          '<span class="t-hero num" data-testid="cycle-day">Day ' + d + '</span>' +
+          '<span class="t-detail">' +
+            (quiet ? 'Of an estimated ' + p.cycleLen + '-day cycle.'
+                   : esc(ph.name) + ' &middot; estimated, from your last start and a ' +
+                     p.cycleLen + '-day cycle.') +
+          '</span>' +
+        '</span>' +
+        /* A marker, not a numbered disc. The disc carried the day number in
+           white on an --id hue, which at 2.29:1 was unreadable on the lighter
+           two -- and the number is already the biggest thing on the card. The
+           phase is named in text beside it, so colour is never the only thing
+           carrying it. */
+        (quiet ? '' : '<span class="cyc__phase" aria-hidden="true" style="background:' + ph.hue + '"></span>') +
+      '</div>' +
+      '<p class="t-detail mt-3">Next period estimated ' + esc(absDate(next)) + ', ' +
+        (to === 0 ? 'today' : to === 1 ? 'tomorrow' : 'in ' + to + ' days') + '.</p>' +
+      (quiet ? '' : '<p class="t-caption-1 quiet mt-2">' + esc(PHASE_NOTE[ph.key]) + '</p>') +
+    '</div>';
+  }
+
+  /* The last 28 days, most recent last, so the strip reads left to right the
+     way a calendar does. A logged day carries its flow; today is ringed. */
+  function strip() {
+    var p = S.p;
+    var out = [];
+    for (var i = 27; i >= 0; i--) {
+      var day = iso(ms(TODAY) - i * 86400000);
+      var e = S.days[day];
+      var isToday = day === TODAY;
+      var flow = e && e.flow ? e.flow : 0;
+      var logged = !!e;
+      out.push('<button class="cyc__day' + (isToday ? ' cyc__day--now' : '') + '" type="button" ' +
+        'data-act="open-day" data-day="' + day + '" data-testid="cyc-' + day + '" ' +
+        'aria-label="' + dowOf(day) + ' ' + absDate(day) +
+          (logged ? ', logged' : ', nothing logged') + '">' +
+        '<span class="cyc__mark" data-flow="' + flow + '" data-logged="' + logged + '"' +
+          (flow && !p.discreet ? ' style="background:' + phaseOf(1, p).hue + '; opacity:' + (0.35 + flow * 0.2) + '"' : '') +
+        '></span>' +
+        '<span class="cyc__cap">' + (+day.split('-')[2]) + '</span>' +
+      '</button>');
+    }
+    return '<div class="section mt-5">' +
+      '<div class="section__head"><h2 class="t-label">Last 28 days</h2>' +
+        '<span class="t-meta num">' + Object.keys(S.days).length + ' logged</span></div>' +
+      '<div class="cyc" role="group" aria-label="Last 28 days, tap a day to log it">' +
+        out.join('') + '</div>' +
+      '<p class="t-caption-1 quiet mt-2">Tap any day to log or change it. Nothing here is sent anywhere.</p>' +
+    '</div>';
+  }
+
+  function insights() {
+    var entries = Object.keys(S.days);
+    if (entries.length < 3) {
+      return '<div class="empty mt-5" data-testid="cycle-insights-empty">' +
+        '<p class="empty__title">Not enough logged yet</p>' +
+        '<p class="empty__body">Three cycles is where a pattern starts to be worth reading. ' +
+          'Until then this stays quiet rather than guessing.</p>' +
+      '</div>';
+    }
+    var symCount = {};
+    entries.forEach(function (k) {
+      var sym = S.days[k].sym || {};
+      Object.keys(sym).forEach(function (id) { symCount[id] = (symCount[id] || 0) + 1; });
+    });
+    var top = Object.keys(symCount).sort(function (a, b) { return symCount[b] - symCount[a]; }).slice(0, 3);
+    var notes = entries.filter(function (k) { return S.days[k].note; }).length;
+    return '<div class="section mt-5">' +
+      '<div class="section__head"><h2 class="t-label">What you have logged</h2></div>' +
+      '<div class="card card--flush">' +
+        top.map(function (id) {
+          var label = SYMPTOMS.filter(function (x) { return x[0] === id; })[0];
+          return '<div class="row row--static" data-testid="ins-' + id + '">' +
+            '<span class="row__main"><span class="row__title">' +
+              esc(label ? label[1] : id) + '</span></span>' +
+            '<span class="row__value num">' + symCount[id] +
+              (symCount[id] === 1 ? ' day' : ' days') + '</span></div>';
+        }).join('') +
+        '<div class="row row--static"><span class="row__main"><span class="row__title">Notes written</span></span>' +
+          '<span class="row__value num">' + notes + '</span></div>' +
+      '</div>' +
+      '<p class="t-caption-1 quiet mt-2">Counts, not conclusions. This screen does not diagnose ' +
+        'anything and it never tells you that you are late.</p>' +
+    '</div>';
+  }
+
+  var VIEWS = {};
+  VIEWS.populated = function () { return todayCard() + strip() + insights(); };
+  VIEWS.discreet = VIEWS.populated;
+
+  VIEWS.gated = function () {
+    return '<div class="empty mt-5" data-testid="cycle-gated">' +
+        '<p class="empty__title">Cycle tracking is off</p>' +
+        '<p class="empty__body">It appears when your profile&rsquo;s sex is set to female, because ' +
+          'everything on this screen is worked out from a cycle length and there is nothing to ' +
+          'work from otherwise.</p>' +
+        '<button class="btn btn--primary mt-2" type="button" data-act="open-settings" data-testid="cycle-open-settings">' +
+          '<span class="btn__label">Open Settings</span></button>' +
+      '</div>';
+  };
+
+  VIEWS.setup = function () {
+    var p = S.p;
+    return '<p class="t-detail mt-3">Three numbers and the screen works. All of them can be ' +
+        'changed later, and the estimate says how confident it is not.</p>' +
+      '<div class="card mt-4">' +
+        '<label class="t-label field__label" for="su-start">Day your last period started</label>' +
+        '<input class="input" id="su-start" type="date" value="' + (p.lastStart || '') + '" data-testid="su-start">' +
+        '<label class="t-label field__label mt-3" for="su-cycle">Usual cycle length, days</label>' +
+        '<input class="input num" id="su-cycle" type="number" min="15" max="60" step="1" ' +
+          'inputmode="numeric" value="' + p.cycleLen + '" data-testid="su-cycle">' +
+        '<label class="t-label field__label mt-3" for="su-period">Usual period length, days</label>' +
+        '<input class="input num" id="su-period" type="number" min="1" max="10" step="1" ' +
+          'inputmode="numeric" value="' + p.periodLen + '" data-testid="su-period">' +
+        (S.setupError ? '<p class="field__error mt-2" role="alert" data-testid="su-error">' +
+          esc(S.setupError) + '</p>' : '') +
+        '<button class="btn btn--primary btn--block mt-4" type="button" data-act="setup-save" data-testid="su-save">' +
+          '<span class="btn__label">Start tracking</span></button>' +
+      '</div>' +
+      '<p class="t-caption-1 quiet mt-3">Stored on this phone. Nothing is uploaded and nothing is ' +
+        'shared with the coach unless you turn that on.</p>';
+  };
+
+  VIEWS.empty = function () {
+    return todayCard() +
+      '<div class="empty mt-5" data-testid="cycle-empty">' +
+        '<p class="empty__title">Nothing logged yet</p>' +
+        '<p class="empty__body">Tap a day below to record flow, how you felt, or a note. ' +
+          'One tap a day is enough for the pattern to be worth reading.</p>' +
+      '</div>' + strip();
+  };
+
+  VIEWS.loading = function () {
+    return '<div class="mt-4" role="status" aria-busy="true" aria-label="Loading your cycle">' +
+      '<div class="card">' +
+        '<div class="skel" style="height: var(--sp-3); width: 30%"></div>' +
+        '<div class="skel mt-3" style="height: var(--sp-6); width: 45%"></div>' +
+        '<div class="skel mt-3" style="height: var(--sp-3); width: 80%"></div>' +
+      '</div>' +
+      '<div class="card mt-3"><div class="skel" style="height: var(--sp-6); width: 100%"></div></div>' +
+    '</div>';
+  };
+
+  VIEWS.error = function () {
+    return '<div class="banner banner--error mt-4" role="alert" data-testid="cycle-error">' +
+        ICO.alert +
+        '<span><strong>Could not read your cycle log</strong>It is on this phone; the app could ' +
+          'not open it just now. Nothing has been changed or lost.</span>' +
+      '</div>' +
+      '<button class="btn btn--primary btn--block mt-3" type="button" data-act="retry" data-testid="cycle-retry">' +
+        '<span class="btn__label">Try again</span></button>';
+  };
+
+  /* ---------------------------------------------------------------
+     Sheets
+     --------------------------------------------------------------- */
+  function daySheet(day) {
+    var d = S.draft;
+    return '<div class="scrim" data-act="close" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="dy-title" ' +
+        'data-detents="0.6 0.88" data-detent-open="0.88" data-testid="day-sheet">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+        '<div class="sheet__head">' +
+          '<h2 class="t-headline grow" id="dy-title">' + dowOf(day) + ', ' + esc(absDate(day)) + '</h2>' +
+          '<button class="iconbtn" type="button" data-act="close" aria-label="Close" data-testid="day-close">' +
+            ICO.close + '</button></div>' +
+        '<div class="sheet__body">' +
+          '<h3 class="t-label">Flow</h3>' +
+          '<div class="seg mt-2" role="radiogroup" aria-label="Flow">' +
+            FLOWS.map(function (f) {
+              return '<button class="seg__item" type="button" role="radio" ' +
+                'aria-checked="' + (String(d.flow) === f[0] ? 'true' : 'false') + '" ' +
+                'data-act="flow" data-v="' + f[0] + '" data-testid="flow-' + f[0] + '">' + f[1] + '</button>';
+            }).join('') +
+          '</div>' +
+          '<h3 class="t-label mt-5">Symptoms</h3>' +
+          '<div class="chiprow mt-2">' +
+            SYMPTOMS.map(function (sy) {
+              var on = !!(d.sym && d.sym[sy[0]]);
+              return '<button class="chip" type="button" aria-pressed="' + on + '" ' +
+                'data-act="sym" data-k="' + sy[0] + '" data-testid="sym-' + sy[0] + '">' + sy[1] + '</button>';
+            }).join('') +
+          '</div>' +
+          '<h3 class="t-label mt-5">How you felt</h3>' +
+          '<div class="chiprow mt-2">' +
+            MOODS.map(function (m) {
+              var on = (d.mood || []).indexOf(m[0]) >= 0;
+              return '<button class="chip" type="button" aria-pressed="' + on + '" ' +
+                'data-act="mood" data-k="' + m[0] + '" data-testid="mood-' + m[0] + '">' + m[1] + '</button>';
+            }).join('') +
+          '</div>' +
+          '<label class="t-label field__label mt-5" for="day-note">Note</label>' +
+          '<textarea class="input" id="day-note" rows="3" data-testid="day-note" ' +
+            'placeholder="Anything worth remembering.">' + esc(d.note || '') + '</textarea>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<div class="hstack hstack--2">' +
+            '<button class="btn btn--primary grow" type="button" data-act="day-save" data-testid="day-save">' +
+              '<span class="btn__label">Save</span></button>' +
+            (S.days[day]
+              ? '<button class="btn btn--danger" type="button" data-act="day-clear" data-testid="day-clear">' +
+                  '<span class="btn__label">Clear</span></button>'
+              : '') +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function settingsSheet() {
+    var p = S.p;
+    return '<div class="scrim" data-act="close" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="cs-title" ' +
+        'data-testid="cycle-settings-sheet">' +
+        '<div class="sheet__head"><h2 class="t-headline grow" id="cs-title">Cycle settings</h2>' +
+          '<button class="iconbtn" type="button" data-act="close" aria-label="Close" data-testid="cs-close">' +
+            ICO.close + '</button></div>' +
+        '<div class="sheet__body">' +
+          '<div class="card card--flush">' +
+            '<div class="row">' +
+              '<span class="row__main">' +
+                '<span class="row__title" id="lbl-discreet">Discreet mode</span>' +
+                '<span class="row__sub">' + (p.discreet
+                  ? 'The day count stays. The phase and the symptom names do not.'
+                  : 'Shows the phase name and your symptoms.') + '</span>' +
+              '</span>' +
+              '<button class="switch" role="switch" aria-checked="' + p.discreet + '" ' +
+                'aria-labelledby="lbl-discreet" data-act="discreet" data-testid="cs-discreet">' +
+                '<span class="switch__track"></span><span class="switch__knob"></span></button>' +
+            '</div>' +
+            '<div class="row">' +
+              '<span class="row__main">' +
+                '<span class="row__title" id="lbl-irregular">Irregular cycles</span>' +
+                '<span class="row__sub">' + (p.irregular
+                  ? 'Estimates are shown as a range rather than a date.'
+                  : 'Estimates are shown as a single date.') + '</span>' +
+              '</span>' +
+              '<button class="switch" role="switch" aria-checked="' + p.irregular + '" ' +
+                'aria-labelledby="lbl-irregular" data-act="irregular" data-testid="cs-irregular">' +
+                '<span class="switch__track"></span><span class="switch__knob"></span></button>' +
+            '</div>' +
+          '</div>' +
+          '<label class="t-label field__label mt-4" for="cs-cycle">Cycle length, days</label>' +
+          '<input class="input num" id="cs-cycle" type="number" min="15" max="60" step="1" ' +
+            'inputmode="numeric" value="' + p.cycleLen + '" data-testid="cs-cycle">' +
+          '<label class="t-label field__label mt-3" for="cs-period">Period length, days</label>' +
+          '<input class="input num" id="cs-period" type="number" min="1" max="10" step="1" ' +
+            'inputmode="numeric" value="' + p.periodLen + '" data-testid="cs-period">' +
+          (S.setupError ? '<p class="field__error mt-2" role="alert" data-testid="cs-error">' +
+            esc(S.setupError) + '</p>' : '') +
+          '<p class="t-caption-1 quiet mt-4">Everything here is on this phone. Deleting removes ' +
+            'the log and the settings and cannot be undone.</p>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<div class="stack stack--2">' +
+            '<button class="btn btn--primary btn--block" type="button" data-act="cs-save" data-testid="cs-save">' +
+              '<span class="btn__label">Save</span></button>' +
+            '<button class="btn btn--danger btn--block" type="button" data-act="cs-delete" data-testid="cs-delete">' +
+              '<span class="btn__label">Delete everything logged here</span></button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function overlayHTML() {
+    if (S.sheet === 'settings') return settingsSheet();
+    if (S.sheet) return daySheet(S.sheet);
+    return '';
+  }
+
+  /* ---------------------------------------------------------------
+     Paint
+     --------------------------------------------------------------- */
+  var hdr = document.getElementById('hdr');
+  var body = document.getElementById('body');
+  var overlay = document.getElementById('overlay');
+  var screen = document.getElementById('screen');
+  var toastTimer = null;
+
+  function toastHTML() {
+    if (!S.toast) return '';
+    return '<div class="toast" role="status" data-testid="toast">' +
+      '<span class="toast__body">' + esc(S.toast) + '</span></div>';
+  }
+
+  function render() {
+    screen.setAttribute('data-state', S.state);
+    LKPatch(hdr, headerHTML());
+    LKPatch(body, (VIEWS[S.state] || VIEWS.populated)());
+    LKPatch(overlay, overlayHTML() + toastHTML());
+    Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.state === S.state));
+    });
+    if (window.LKChrome) LKChrome.init(document);
+    /* Today is the rightmost day, so the strip opens on it rather than on
+       four weeks ago. Only when the reader has not scrolled it themselves --
+       LKPatch keeps the scroll position, and overriding a deliberate scroll
+       on every render would fight the finger. */
+    var strip = document.querySelector('.cyc');
+    if (strip && !strip.__lk_placed) {
+      strip.__lk_placed = true;
+      strip.scrollLeft = strip.scrollWidth;
+    }
+    clearTimeout(toastTimer);
+    if (S.toast) toastTimer = setTimeout(function () { S.toast = null; render(); }, 5000);
+  }
+  function say(msg) { S.toast = msg; render(); }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest ? e.target.closest('[data-act]') : null;
+    if (!t) return;
+    var a = t.getAttribute('data-act');
+
+    if (a === 'back') { location.href = 'home.html'; return; }
+    if (a === 'open-settings') { location.href = 'settings.html'; return; }
+    if (a === 'close') { S.sheet = null; S.draft = null; S.setupError = null; render(); return; }
+    if (a === 'settings') { S.sheet = 'settings'; S.setupError = null; render(); return; }
+    if (a === 'retry') {
+      S.state = 'loading'; render();
+      setTimeout(function () { S.state = 'populated'; render(); }, 700);
+      return;
+    }
+
+    if (a === 'open-day') {
+      var day = t.getAttribute('data-day');
+      var e0 = S.days[day];
+      S.draft = e0 ? JSON.parse(JSON.stringify(e0)) : { flow: 0, sym: {}, mood: [], note: '' };
+      S.sheet = day;
+      render();
+      return;
+    }
+    if (a === 'flow') { S.draft.flow = Number(t.getAttribute('data-v')); render(); return; }
+    if (a === 'sym') {
+      var k = t.getAttribute('data-k');
+      S.draft.sym = S.draft.sym || {};
+      if (S.draft.sym[k]) delete S.draft.sym[k]; else S.draft.sym[k] = 1;
+      render();
+      return;
+    }
+    if (a === 'mood') {
+      var m = t.getAttribute('data-k');
+      S.draft.mood = S.draft.mood || [];
+      var at = S.draft.mood.indexOf(m);
+      if (at >= 0) S.draft.mood.splice(at, 1); else S.draft.mood.push(m);
+      render();
+      return;
+    }
+    if (a === 'day-save') {
+      var f = document.getElementById('day-note');
+      S.draft.note = f ? f.value.trim() : '';
+      var target = S.sheet;
+      /* An entry with nothing in it is not an entry. Saving a blank day
+         clears it rather than filling the strip with empty marks. */
+      var blank = !S.draft.flow && !Object.keys(S.draft.sym || {}).length &&
+                  !(S.draft.mood || []).length && !S.draft.note;
+      if (blank) delete S.days[target]; else S.days[target] = S.draft;
+      /* A day logged with flow on a day the cycle did not predict is the
+         start of a new one, which is the only thing here that moves the
+         estimate. */
+      if (S.draft.flow >= 2 && (!S.p.lastStart || daysBetween(S.p.lastStart, target) > S.p.periodLen)) {
+        S.p.lastStart = target;
+      }
+      S.sheet = null; S.draft = null;
+      render();
+      say(blank ? esc(absDate(target)) + ' cleared.' : esc(absDate(target)) + ' saved.');
+      return;
+    }
+    if (a === 'day-clear') {
+      var c = S.sheet;
+      delete S.days[c];
+      S.sheet = null; S.draft = null;
+      render();
+      say(esc(absDate(c)) + ' cleared.');
+      return;
+    }
+    if (a === 'discreet') { S.p.discreet = !S.p.discreet; render(); return; }
+    if (a === 'irregular') { S.p.irregular = !S.p.irregular; render(); return; }
+    if (a === 'cs-save' || a === 'setup-save') {
+      var cy = parseInt((document.getElementById(a === 'cs-save' ? 'cs-cycle' : 'su-cycle') || {}).value, 10);
+      var pe = parseInt((document.getElementById(a === 'cs-save' ? 'cs-period' : 'su-period') || {}).value, 10);
+      if (isNaN(cy) || cy < 15 || cy > 60) { S.setupError = 'A cycle between 15 and 60 days.'; render(); return; }
+      if (isNaN(pe) || pe < 1 || pe > 10) { S.setupError = 'A period between 1 and 10 days.'; render(); return; }
+      if (pe >= cy) { S.setupError = 'A period cannot be as long as the whole cycle.'; render(); return; }
+      S.p.cycleLen = cy; S.p.periodLen = pe;
+      if (a === 'setup-save') {
+        var st = (document.getElementById('su-start') || {}).value;
+        if (!st) { S.setupError = 'When did the last one start?'; render(); return; }
+        S.p.lastStart = st;
+        S.p.setup = true;
+        S.state = 'populated';
+      }
+      S.sheet = null; S.setupError = null;
+      render();
+      say('Saved.');
+      return;
+    }
+    if (a === 'cs-delete') {
+      S.days = {};
+      S.p = { setup: false, sex: 'female', lastStart: null, cycleLen: 28, periodLen: 5,
+              irregular: false, discreet: false };
+      S.sheet = null;
+      S.state = 'setup';
+      render();
+      say('Everything logged here is gone.');
+      return;
+    }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && S.sheet) { S.sheet = null; S.draft = null; render(); }
+  });
+
+  /* ---- dev states -------------------------------------------------- */
+  var STATES = [
+    ['populated', 'Tracking'],
+    ['discreet', 'Discreet mode'],
+    ['empty', 'Nothing logged'],
+    ['setup', 'First run'],
+    ['gated', 'Not enabled'],
+    ['loading', 'Loading'],
+    ['error', 'Error']
+  ];
+  var menu = document.getElementById('dev-menu');
+  var toggle = document.getElementById('dev-toggle');
+  LKPatch(menu, STATES.map(function (s) {
+    return '<button class="dev__item" data-state="' + s[0] + '" aria-pressed="false" data-testid="dev-state-' + s[0] + '">' + s[1] + '</button>';
+  }).join(''));
+  toggle.addEventListener('click', function () {
+    var open = menu.hidden;
+    menu.hidden = !open;
+    this.setAttribute('aria-expanded', String(open));
+  });
+  menu.addEventListener('click', function (e) {
+    var b = e.target.closest('.dev__item');
+    if (!b) return;
+    var st = b.dataset.state;
+    S.state = st;
+    S.p = seedProfile();
+    S.days = st === 'empty' || st === 'setup' ? {} : seedDays();
+    S.p.discreet = st === 'discreet';
+    if (st === 'setup') { S.p.setup = false; S.p.lastStart = null; }
+    S.sheet = null; S.draft = null; S.toast = null; S.setupError = null;
+    render();
+  });
+
+  /* Settings owns the gate and writes it where this screen can read it. It
+     is the default here, not an override: the dev switcher still wins. */
+  try {
+    if (localStorage.getItem('lk_cycle') !== 'true') S.state = 'gated';
+  } catch (e) {}
+
+  var q = new URLSearchParams(location.search);
+  if (q.get('state') && VIEWS[q.get('state')]) S.state = q.get('state');
+  render();
+  requestAnimationFrame(function () { window.__ready = true; });
+})();
+</script>
+</body>
+</html>
