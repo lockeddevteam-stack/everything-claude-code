@@ -407,6 +407,27 @@
          muscle can be grown without being painted over by the next group. */
       svg.addEventListener('click', function (e) { choose(e.target, null); });
 
+      /* Touch-down feedback. A muscle has to answer the finger before the
+         click resolves, the same 80ms every other control in the build
+         honours. The group is found from the reach path's own id, because
+         the path that took the press is not inside the group it belongs to. */
+      var pressed = null;
+      function unpress() {
+        if (pressed) pressed.removeAttribute('data-press');
+        pressed = null;
+      }
+      svg.addEventListener('pointerdown', function (e) {
+        unpress();
+        var t = e.target.closest ? e.target.closest('[data-g], [data-part]') : null;
+        if (!t) return;
+        var g = t.getAttribute('data-g');
+        pressed = t.hasAttribute('data-part') ? t : (g ? svg.querySelector('.mg--' + g) : null);
+        if (pressed) pressed.setAttribute('data-press', '');
+      });
+      ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) {
+        svg.addEventListener(ev, unpress);
+      });
+
       /* Enter and Space on a focused muscle, so the map is not mouse-only.
          Groups are already focusable, in anatomical order. */
       svg.addEventListener('keydown', function (e) {

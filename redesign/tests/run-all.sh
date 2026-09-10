@@ -21,6 +21,7 @@ run "foundation — springs, glass, squircles, type" node apple-foundation.mjs
 run "chrome — collapse, minimize, edge, detents"   node chrome-check.mjs
 run "squircles — smoothed vs capsules"             node squircle-check.mjs
 run "press — every control moves"                  node press-audit.mjs
+run "press — muscles answer a real pointer"        node press-pointer.mjs
 run "re-render — focus, caret, scroll"             node rerender-sweep.mjs
 # One process per screen. Thirteen screens times a hundred states times two
 # themes in one browser session outran Chromium's patience and the whole

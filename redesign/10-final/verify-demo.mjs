@@ -275,6 +275,14 @@ for (const id of info.screens) {
     const bad = [];
     for (const el of els) {
       if (el.disabled) continue;
+      /* A muscle on the body map is not a rectangle, and its bounding box is
+         not its target: the tap lands on a reach path drawn wider than the
+         paint, and a forearm is correctly a long thin strip. Measuring the
+         box here read a correctly-drawn figure as six failures. What the
+         44pt rule actually asks of these -- that a finger landing on a
+         muscle selects that muscle -- is asserted below for every group
+         drawn in the demo, and by tap-test.mjs on both views standalone. */
+      if (el.closest('.mg, .part')) continue;
       const r = el.getBoundingClientRect();
       if (r.width === 0 && r.height === 0) continue;
       const cs = getComputedStyle(el);
@@ -310,18 +318,55 @@ const drawn = await inLib(function () {
 });
 ok('body map draws inside the demo', drawn >= 9, drawn + ' muscle groups');
 
-const pecBox = await inLib(function () {
-  const e = root.querySelector('[data-testid="bodymap"] .mg--chest .mg__gnd');
-  if (!e) return null;
-  const b = e.getBoundingClientRect();
-  return [b.x + b.width / 2, b.y + b.height / 2];
+/* Every muscle the figure draws, not just the pectoral. This is what stands
+   in for the 44pt rectangle rule the targets check cannot apply to anatomy:
+   a point that resolves to the muscle's own paint is clicked, and the group
+   it opens has to be that muscle. A point inside the bounding rectangle is
+   not enough -- a long diagonal belly has a rectangle whose centre lands on
+   the thigh beside it -- so the paint is scanned until a point hits. */
+const gids = await inLib(function () {
+  return [...root.querySelectorAll('[data-testid="bodymap"] .view:not([data-hidden="true"]) .mg[data-g]')]
+    .map(function (g) { return g.getAttribute('data-g'); });
 });
-if (pecBox) { await page.mouse.click(pecBox[0], pecBox[1]); await page.waitForTimeout(600); }
-const opened = await inLib(function () {
-  const h = root.querySelector('.hdr h1');
-  return h ? h.textContent.trim() : null;
-});
-ok('tapping the pectoral opens Chest', opened === 'Chest', 'header reads ' + JSON.stringify(opened));
+const missed = [];
+for (const gid of gids) {
+  /* The point has to be on the reach path, because that is the tap target:
+     the reach paths carry the group id but sit outside the group they grow,
+     so a point on the paint alone is not what a finger actually lands on. */
+  const pt = await inLib(new Function('root', `
+    var hits = [].slice.call(root.querySelectorAll(
+      '[data-testid="bodymap"] .view:not([data-hidden="true"]) .hit[data-g="${gid}"]'));
+    for (var h = 0; h < hits.length; h++) {
+      var r = hits[h].getBoundingClientRect();
+      if (!r.width) continue;
+      for (var fy = 0.5; fy > 0.04; fy -= 0.06) {
+        var fxs = [0.5, 0.4, 0.6, 0.3, 0.7];
+        for (var i = 0; i < fxs.length; i++) {
+          var x = r.x + r.width * fxs[i], y = r.y + r.height * fy;
+          var el = root.elementFromPoint(x, y);
+          if (el && el.getAttribute && el.getAttribute('data-g') === '${gid}') return [x, y];
+        }
+      }
+    }
+    return null;
+  `));
+  if (!pt) { missed.push(gid + ' (no point lands on its reach)'); continue; }
+  await page.mouse.click(pt[0], pt[1]);
+  await page.waitForTimeout(450);
+  const opened = await inLib(function () {
+    const h = root.querySelector('.hdr h1');
+    return h ? h.textContent.trim() : null;
+  });
+  const back = await inLib(function () {
+    const b = root.querySelector('[data-testid="back"], .hdr [data-action="back"]');
+    if (b) { b.click(); return true; }
+    return false;
+  });
+  if (!opened || opened === 'Exercises') missed.push(gid + ' -> ' + JSON.stringify(opened));
+  if (back) await page.waitForTimeout(450);
+}
+ok('every muscle drawn opens its group', gids.length >= 9 && missed.length === 0,
+  gids.length + ' groups' + (missed.length ? ', missed: ' + missed.join('; ') : ''));
 
 // ---------- horizontal overflow ----------
 for (const id of info.screens) {

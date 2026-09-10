@@ -20,15 +20,25 @@ const screens = process.argv.slice(2).length
   ? process.argv.slice(2)
   : readFileSync('/tmp/screens.txt', 'utf8').trim().split('\n');
 
-/* Class names that appear inside an :active selector, read from disk: on
+/* Class names that appear inside a pressed selector, read from disk: on
    file:// Chromium refuses cssRules, so reading them in the page returns an
-   empty set and passes everything. */
+   empty set and passes everything.
+
+   Two ways a control can carry a press. ':active' is the normal one. The
+   other is '[data-press]', set by script on pointerdown, which is the only
+   option where the element that takes the tap is not the element that
+   paints -- the body map's reach paths sit outside the muscle groups they
+   belong to, so ':active' on a group never fires. Counting only ':active'
+   read the map's muscles as controls that do not move, which they now are
+   not; counting the attribute without proving it fires would be worse, so
+   press-pointer.mjs drives a real pointer over every region and checks the
+   computed style actually changes. */
 const PRESSED = new Set();
 for (const css of ['tokens.css', 'components.css']) {
   const text = readFileSync(path.join(BUILD, css), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   for (const sel of text.match(/[^{}]+(?=\{)/g) || []) {
     for (const part of sel.split(',')) {
-      if (!part.includes(':active')) continue;
+      if (!part.includes(':active') && !part.includes('[data-press]')) continue;
       for (const c of part.match(/\.[A-Za-z0-9_-]+/g) || []) PRESSED.add(c.slice(1));
     }
   }
