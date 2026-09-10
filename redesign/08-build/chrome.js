@@ -171,6 +171,18 @@
       else if (!down && min) { min = false; set('false'); }
     });
 
+    /* Tapping the collapsed capsule expands it. Without this the collapse is
+       a dead end: the four hidden tabs cannot be reached at all until the
+       reader thinks to scroll back up, and the one thing anybody tries first
+       is tapping the thing that is still on screen. */
+    bar.addEventListener('click', function (e) {
+      if (bar.getAttribute('data-minimized') !== 'true') return;
+      e.preventDefault();
+      e.stopPropagation();
+      min = false;
+      set('false');
+    }, true);
+
     /* The accessory shelf is the same piece of bottom chrome as the bar, so
        it leaves and returns with it. A strip left hanging over nothing after
        the bar slides away reads as a bug rather than as a design. */

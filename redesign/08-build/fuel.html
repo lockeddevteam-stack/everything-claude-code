@@ -212,7 +212,12 @@
      hidden      a word, because the number is the thing being hidden
      --------------------------------------------------------------- */
   function hero() {
-    var left = DAY.target - DAY.eaten;
+    /* An empty day has eaten nothing, whatever the fixture says. The fixture
+       is shared across the dev states, so the empty state was printing the
+       populated day's "1,410 kcal left of 2,980" directly above the words
+       "Nothing logged today". */
+    var eaten = S.state === 'empty' ? 0 : DAY.eaten;
+    var left = DAY.target - eaten;
 
     if (S.state === 'hidden') {
       return '<div class="fuel-hero" data-testid="hero">' +
@@ -227,16 +232,23 @@
       return '<div class="fuel-hero" data-testid="hero">' +
         '<div class="stack stack--1">' +
           '<p class="t-meta">DAY 3 OF 14</p>' +
-          '<p class="fuel-hero__num num" data-testid="hero-value">' + n(left) + '</p>' +
-          '<p class="t-footnote quiet">kcal left of ' + n(DAY.target) + ' &middot; ' +
+          '<p class="fuel-hero__num num" data-testid="hero-value">' + n(Math.abs(left)) + '</p>' +
+          '<p class="t-footnote quiet">' + (left < 0 ? 'kcal over ' : 'kcal left of ') +
+            n(DAY.target) + ' &middot; ' +
             'a starting formula, not your trend yet. It updates once there are two weeks to read.</p>' +
         '</div></div>';
     }
 
+    /* Past the target the figure is what you are over BY, not a negative
+       amount remaining. "-210 kcal left" is not a sentence anybody says, and
+       a minus sign in front of the biggest number on the screen reads as a
+       fault rather than as a fact about lunch. */
+    var over = left < 0;
     return '<div class="fuel-hero" data-testid="hero">' +
       '<div class="stack stack--1 grow">' +
-        '<p class="fuel-hero__num num" data-testid="hero-value">' + n(left) + '</p>' +
-        '<p class="t-footnote quiet">kcal left of ' + n(DAY.target) + ' &middot; ' + esc(DAY.goal) + '</p>' +
+        '<p class="fuel-hero__num num" data-testid="hero-value">' + n(Math.abs(left)) + '</p>' +
+        '<p class="t-footnote quiet">' + (over ? 'kcal over ' : 'kcal left of ') +
+          n(DAY.target) + ' &middot; ' + esc(DAY.goal) + '</p>' +
       '</div>' +
       '<div class="fuel-hero__side stack stack--1">' +
         '<p class="t-subheadline num">' + DAY.weightKg.toFixed(1) + ' kg</p>' +
@@ -653,6 +665,11 @@
     if (a === 'meal-portion') { portion(+act.getAttribute('data-i'), parseFloat(act.getAttribute('data-by'))); return; }
     if (a === 'meal-delete') { removeMeal(+act.getAttribute('data-i')); return; }
     if (a === 'undo') { doUndo(); return; }
+    if (a === 'resume') {
+      /* The shelf exists so a running session is not lost, and it was the one
+         control on this screen that did nothing at all. */
+      location.href = 'workout-log.html'; return;
+    }
     if (a === 'more') {
       /* Standalone this is a page; in the demo the router takes the click
          first. It had no branch at all and was the screen's dead end. */
@@ -758,17 +775,23 @@
     S.sheet = null;
     /* Destructive, so it is undoable rather than confirmed: a confirm asks a
        question the person already answered by pressing a red button. */
-    S.undo = function () {
+    say(esc(m.name) + ' removed.', function () {
       DAY.meals.splice(i, 0, m);
       DAY.eaten += m.kcal;
       bump('pro', m.pro); bump('carb', m.carb); bump('fat', m.fat);
-    };
-    say(esc(m.name) + ' removed.');
+    });
   }
 
   var toastTimer = null;
-  function say(msg) {
+  /* say(msg, undo). The undo belongs to THIS message and to nothing else.
+     removeMeal was the only writer of S.undo and say() never cleared it, so
+     logging anything within six seconds of a delete produced a toast reading
+     "Chicken, rice, broccoli logged" with an Undo that put the deleted meal
+     back: three rows became four. An action that cannot be taken back says
+     so by passing nothing. */
+  function say(msg, undo) {
     S.toast = msg;
+    S.undo = undo || null;
     render();
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { S.toast = null; S.undo = null; render(); }, 6000);

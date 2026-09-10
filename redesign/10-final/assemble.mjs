@@ -66,7 +66,7 @@ const MANIFEST = {
   pushed: {
     'split-builder': { parent: 'train', backSelector: '[data-action="manual-back"]' },
     'exercise-library': { parent: 'train' },
-    onboarding: { parent: 'home', standalone: true },
+    onboarding: { parent: 'profile', standalone: true },
     settings: { parent: 'profile', backSelector: '[data-testid="back"]' },
     'workout-log': { parent: 'train' },
     shopping: { parent: 'fuel', backSelector: '[data-testid="back"]' },
@@ -96,7 +96,15 @@ const MANIFEST = {
     { from: 'workout-log', selector: '[data-testid="btn-finish"]', to: 'review', mode: 'push' },
     { from: 'fuel', selector: '[data-testid="chip-more"]', to: 'shopping', mode: 'push' },
     { from: 'progress', selector: '[data-testid="empty-action"]', to: 'train', mode: 'tab' },
-    { from: 'profile', selector: '[data-testid="open-settings"]', to: 'settings', mode: 'push' }
+    { from: 'profile', selector: '[data-testid="open-settings"]', to: 'settings', mode: 'push' },
+    /* Onboarding is a seventeen-step flow that nothing pushed. A guest had
+       no way to become an account holder from inside the app. */
+    { from: 'profile', selector: '[data-testid="signup"]', to: 'onboarding', mode: 'push' },
+    { from: 'profile', selector: '[data-testid="start-first"]', to: 'onboarding', mode: 'push' },
+    /* The session shelf exists so a running session is not lost, and it was
+       the one control on Home and Fuel that did nothing at all. */
+    { from: 'home', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    { from: 'fuel', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' }
   ],
 
   /* Where a screen keeps its own state switcher. Harvested for the demo-level
