@@ -11,7 +11,7 @@
    A text input, where one exists, is typed into before the reading, so the
    caret and its offset are part of what the comparison covers. */
 import { chromium } from 'playwright';
-import { readdirSync, writeFileSync } from 'fs';
+import { readdirSync, writeFileSync, readFileSync } from 'fs';
 import { pathToFileURL } from 'url';
 import path from 'path';
 
@@ -42,6 +42,14 @@ const snap = page => page.evaluate(() => ({
     .map(e => (e.getAttribute('data-testid') || e.id || e.tagName) + ':' + e.scrollTop)
 }));
 
+/* The crossings, read from the manifest so the two cannot drift. */
+const NAV = (() => {
+  const src = readFileSync(path.join(BUILD, '../10-final/assemble.mjs'), 'utf8');
+  const block = src.slice(src.indexOf('nav: ['), src.indexOf('],', src.indexOf('nav: [')));
+  return [...block.matchAll(/\{\s*from:\s*'([^']+)',\s*selector:\s*'([^']+)'/g)]
+    .map((m) => ({ from: m[1], selector: m[2] }));
+})();
+
 for (const theme of ['dark', 'light']) {
   for (const file of screens) {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
@@ -54,12 +62,42 @@ for (const theme of ['dark', 'light']) {
     await page.waitForTimeout(400);
 
     /* A control that re-renders without navigating away: prefer a toggle,
-       filter or range control, and never the dev state menu. */
-    const btn = page.locator('button:not([disabled]):not(.dev__item):not([data-action="sheet"])')
-      .filter({ visible: true }).nth(1);
-    let clicked = false;
-    if (await btn.count()) {
-      try { await btn.click({ timeout: 3000 }); clicked = true; } catch (e) {}
+       filter or range control, and never the dev state menu, a tab, or a
+       declared crossing.
+
+       The crossing list is read out of assemble.mjs rather than guessed,
+       because a screen's controls change and this test's whole premise is
+       that the page is still there afterwards. Home used to have no
+       navigating controls at all and the second visible button was safe;
+       once it got its crossings, the sweep clicked one, landed on train,
+       and reported that focus had fallen to <body>. */
+    const exclude = NAV.filter((n) => n.from === file.replace('.html', ''))
+      .map((n) => `:not(${n.selector})`).join('');
+    const SAFE = 'button:not([disabled]):not(.dev__item):not([data-action="sheet"])' +
+      ':not(.tabbar__item):not(.shelf)' + exclude;
+
+    /* An overlay is the other way a control legitimately moves focus: opening
+       a sheet focuses the safe control inside it, which is correct and is not
+       what this test measures. So candidates are tried in order and the first
+       one that leaves the screen where it was is the one used. */
+    const candidates = page.locator(SAFE).filter({ visible: true });
+    const total = Math.min(await candidates.count(), 8);
+    let btn = null, clicked = false;
+    for (let i = 1; i < total; i++) {
+      const c = candidates.nth(i);
+      try { await c.click({ timeout: 3000 }); } catch (e) { continue; }
+      await page.waitForTimeout(300);
+      const overlay = await page.evaluate(() =>
+        !!document.querySelector('.sheet, .dialog, .scrim'));
+      if (!overlay) { btn = c; clicked = true; break; }
+      /* Put it back and try the next one. */
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(250);
+      await page.evaluate(() => {
+        const s = document.querySelector('.scrim');
+        if (s) s.click();
+      });
+      await page.waitForTimeout(250);
     }
     await page.waitForTimeout(300);
 
