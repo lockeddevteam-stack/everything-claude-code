@@ -185,7 +185,14 @@
   var WEIGHT_LOG = [["2026-07-27",65.3],["2026-08-03",65.3],["2026-08-10",64.9],["2026-08-17",64.7],
     ["2026-08-24",64.6],["2026-08-31",64.5],["2026-09-07",64.2]];
 
-  var GOALS_ACTIVE = 3;
+  /* Module scope, because the sheet can add one. It was a local const inside
+     the sheet's own render function, which is why "Add a goal" had nowhere to
+     put a goal. */
+  var GOALS = [
+    { name: 'Bench press 100 kg for 5', by: 'Nov 7', now: '87.5 kg for 8', pct: 74 },
+    { name: 'Body weight 62 kg', by: 'Dec 1', now: '64.2 kg', pct: 55 },
+    { name: 'Train 4 times a week', by: 'Ongoing', now: '3.4 a week over 8 weeks', pct: 85 }
+  ];
 
   var RANGES = [
     { id: '4w', label: '4 weeks', days: 28 },
@@ -376,7 +383,14 @@
     view: 'populated',
     range: '12w',
     liftId: 111,      /* lk_featuredLifts[0] */
-    sheet: false
+    sheet: false,
+    /* The three sheets that write. Each carries its own error sentence rather
+       than a shared flag, so a message can say which field is wrong. */
+    weightError: null,
+    goalForm: false,
+    goalError: null,
+    recordError: null,
+    toast: null
   };
   function rangeDays() {
     for (var i = 0; i < RANGES.length; i++) if (RANGES[i].id === S.range) return RANGES[i].days;
@@ -540,7 +554,7 @@
             '<span class="ico-well">' + ICO.flag + '</span>' +
             '<span class="row__main stack">' +
               '<span class="row__title">Goals</span>' +
-              '<span class="row__sub">' + n(GOALS_ACTIVE) + ' active, next due Nov 7</span>' +
+              '<span class="row__sub">' + n(GOALS.length) + ' active, next due Nov 7</span>' +
             '</span>' +
             '<span class="row__chev">' + ICO.chev + '</span>' +
           '</button>' +
@@ -644,7 +658,12 @@
           }).join('') + '</div>' +
         '</div>' +
         '<div class="sheet__foot">' +
-          '<button class="btn btn--primary btn--block" data-action="close-sheet" data-testid="weight-log">' +
+          '<label class="t-label field__label" for="wt-kg">Today, kg</label>' +
+          '<input class="input num" id="wt-kg" type="number" min="20" max="400" step="0.1" ' +
+            'inputmode="decimal" value="' + (last ? last[1] : '') + '" data-testid="wt-kg">' +
+          (S.weightError ? '<p class="field__error" role="alert" data-testid="wt-error">' +
+            esc(S.weightError) + '</p>' : '') +
+          '<button class="btn btn--primary btn--block mt-3" data-action="log-weight" data-testid="weight-log">' +
             '<span class="btn__label">Log today&rsquo;s weight</span></button>' +
         '</div>' +
       '</div>';
@@ -653,11 +672,7 @@
   /* Goals. Each one is a number with a date, and each says what it is
      measured against, because a goal you cannot check is a wish. */
   function goalsSheet() {
-    var goals = [
-      { name: 'Bench press 100 kg for 5', by: 'Nov 7', now: '87.5 kg for 8', pct: 74 },
-      { name: 'Body weight 62 kg', by: 'Dec 1', now: '64.2 kg', pct: 55 },
-      { name: 'Train 4 times a week', by: 'Ongoing', now: '3.4 a week over 8 weeks', pct: 85 }
-    ];
+    var goals = GOALS;
     return '' +
       '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
       '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="gl-title" ' +
@@ -678,8 +693,19 @@
           }).join('') +
         '</div>' +
         '<div class="sheet__foot">' +
-          '<button class="btn btn--secondary btn--block" data-action="close-sheet" data-testid="goals-add">' +
-            '<span class="btn__label">Add a goal</span></button>' +
+          (S.goalForm
+            ? '<label class="t-label field__label" for="gl-name">What</label>' +
+              '<input class="input" id="gl-name" type="text" placeholder="e.g. Deadlift 140 kg for 3" ' +
+                'data-testid="gl-name">' +
+              '<label class="t-label field__label mt-3" for="gl-by">By</label>' +
+              '<input class="input" id="gl-by" type="text" placeholder="e.g. Dec 1, or Ongoing" ' +
+                'data-testid="gl-by">' +
+              (S.goalError ? '<p class="field__error" role="alert" data-testid="gl-error">' +
+                esc(S.goalError) + '</p>' : '') +
+              '<button class="btn btn--primary btn--block mt-3" data-action="save-goal" data-testid="goals-save">' +
+                '<span class="btn__label">Add it</span></button>'
+            : '<button class="btn btn--secondary btn--block" data-action="add-goal" data-testid="goals-add">' +
+                '<span class="btn__label">Add a goal</span></button>') +
         '</div>' +
       '</div>';
   }
@@ -711,7 +737,9 @@
           '</div>' +
         '</div>' +
         '<div class="sheet__foot">' +
-          '<button class="btn btn--primary btn--block" data-action="close-sheet" data-testid="rec-save">' +
+          (S.recordError ? '<p class="field__error" role="alert" data-testid="rec-error">' +
+            esc(S.recordError) + '</p>' : '') +
+          '<button class="btn btn--primary btn--block" data-action="save-record" data-testid="rec-save">' +
             '<span class="btn__label">Add to my records</span></button>' +
         '</div>' +
       '</div>';
@@ -784,7 +812,7 @@
     screen.setAttribute('data-state', S.view);
     LKPatch(body, (VIEWS[S.view] || VIEWS.populated)());
     drawChart();
-    LKPatch(overlay, S.sheet ? sheetHTML() : '');
+    LKPatch(overlay, (S.sheet ? sheetHTML() : '') + toastHTML());
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.state === S.view));
     });
@@ -792,6 +820,21 @@
       var f = overlay.querySelector('[data-testid="sheet-close"]');
       if (f) f.focus();
     }
+    clearTimeout(toastTimer);
+    if (S.toast) toastTimer = setTimeout(function () { S.toast = null; render(); }, 6000);
+  }
+
+  /* A write that changes nothing on screen has to say so. Three sheets here
+     write into lists that are behind the sheet, so without this the only
+     feedback was the sheet closing. Six seconds, then it goes on its own. */
+  var toastTimer = null;
+  function toastHTML() {
+    if (!S.toast) return '';
+    return '<div class="toast toast--nonav" role="status" data-testid="toast">' +
+      '<span class="toast__body">' + esc(S.toast) + '</span>' +
+      '<button class="toast__action" type="button" data-action="dismiss-toast" ' +
+        'data-testid="toast-dismiss">Done</button>' +
+    '</div>';
   }
 
   /* S.sheet holds WHICH sheet, not whether one is open. It was a boolean
@@ -840,11 +883,99 @@
       openSheet('goals');
     } else if (a === 'log-record') {
       openSheet('record');
+    } else if (a === 'log-weight') {
+      logWeight();
+    } else if (a === 'add-goal') {
+      S.goalForm = true; S.goalError = null; render(); focusIn('gl-name');
+    } else if (a === 'save-goal') {
+      saveGoal();
+    } else if (a === 'save-record') {
+      saveRecord();
+    } else if (a === 'start-workout') {
+      /* Standalone this is a page; in the demo the router takes the click
+         before this runs. Either way the empty state's one call to action
+         now leads somewhere -- it was rendered with no branch behind it. */
+      location.href = 'train.html';
+    } else if (a === 'dismiss-toast') {
+      S.toast = null; render();
     } else if (a === 'retry' || a === 'show-cached') {
       S.view = 'populated';
       render();
     }
   });
+
+  /* ---- The three writes -------------------------------------------
+     Each of these sheets used to close on its primary and change nothing;
+     the record one discarded whatever had been typed into it first. */
+
+  function focusIn(id) {
+    var el = document.getElementById(id);
+    if (el) el.focus();
+  }
+  function todayISO() {
+    var d = new Date();
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  }
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+  function logWeight() {
+    var el = document.getElementById('wt-kg');
+    var v = el ? parseFloat(el.value) : NaN;
+    if (isNaN(v) || v < 20 || v > 400) {
+      S.weightError = 'A weight between 20 and 400 kg.';
+      render();
+      return;
+    }
+    var iso = todayISO();
+    var last = WEIGHT_LOG[WEIGHT_LOG.length - 1];
+    /* One reading a day. A second one replaces the first rather than
+       stacking two points on the same date, which would put a vertical
+       segment in the trend. */
+    if (last && last[0] === iso) last[1] = v;
+    else WEIGHT_LOG.push([iso, v]);
+    S.weightError = null;
+    S.sheet = false;
+    S.toast = num1(v) + ' kg logged for today.';
+    render();
+    refocus('row-body-weight');
+  }
+
+  function saveGoal() {
+    var name = (document.getElementById('gl-name') || {}).value || '';
+    var by = (document.getElementById('gl-by') || {}).value || '';
+    name = name.trim(); by = by.trim();
+    if (!name) { S.goalError = 'What are you aiming at?'; render(); focusIn('gl-name'); return; }
+    if (!by) { S.goalError = 'By when? "Ongoing" counts.'; render(); focusIn('gl-by'); return; }
+    /* pct 0 and "Not started": a goal added by hand has no measurement
+       behind it yet, and inventing a percentage would be inventing data. */
+    GOALS.push({ name: name, by: by, now: 'Not started', pct: 0 });
+    S.goalForm = false; S.goalError = null;
+    S.toast = 'Goal added.';
+    render();
+  }
+
+  function saveRecord() {
+    var liftSel = document.getElementById('rec-lift');
+    /* `load`, not `kg`: kg() is the formatter and a local of that name
+       shadowed it, so the toast threw the moment a record was saved. */
+    var load = parseFloat((document.getElementById('rec-kg') || {}).value);
+    var reps = parseInt((document.getElementById('rec-reps') || {}).value, 10);
+    if (isNaN(load) || load <= 0) { S.recordError = 'How much did you lift?'; render(); focusIn('rec-kg'); return; }
+    if (isNaN(reps) || reps < 1) { S.recordError = 'At least one rep.'; render(); focusIn('rec-reps'); return; }
+    var id = liftSel ? Number(liftSel.value) : 0;
+    RECORDS.unshift({ id: id, reps: reps, kg: load, date: todayISO() });
+    S.recordError = null;
+    S.sheet = false;
+    var lift = liftById(id);
+    S.toast = (lift ? lift.name : 'Record') + ', ' + num1(load) + ' kg for ' + reps + '. Added.';
+    render();
+    refocus('log-record');
+  }
+
+  function refocus(testid) {
+    var back = document.querySelector('[data-testid="' + testid + '"]');
+    if (back) back.focus();
+  }
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && S.sheet) { e.preventDefault(); closeSheet(true); return; }

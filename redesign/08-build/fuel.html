@@ -160,7 +160,20 @@
             2870, 3040, 2790, 3180, 2900, 2680, 2985]
   };
 
-  var S = { state: 'populated', sheet: null, listening: false };
+  /* Module scope and with macros on it, because these rows log. The list was
+     a literal inside the sheet's own render function and every row closed the
+     sheet without logging anything, under copy that says "one tap logs it
+     again with the same portion". */
+  var OFTEN = [
+    { icon: '🍳', name: 'Eggs, toast, butter', n: 41, kcal: 540, pro: 38, carb: 46, fat: 24 },
+    { icon: '🥗', name: 'Chicken rice bowl', n: 28, kcal: 720, pro: 52, carb: 84, fat: 16 },
+    { icon: '🥤', name: 'Whey shake, banana', n: 63, kcal: 310, pro: 31, carb: 38, fat: 4 },
+    { icon: '🍝', name: 'Beef mince and pasta', n: 19, kcal: 810, pro: 48, carb: 92, fat: 26 }
+  ];
+
+  var S = { state: 'populated', sheet: null, listening: false,
+            /* The camera sheet's one question. null until it is answered. */
+            camOil: null, toast: null, undo: null };
 
   /* The same strip Home shows, from the same facts. It is here because
      eating during or straight after a session is exactly when somebody
@@ -394,7 +407,7 @@
      --------------------------------------------------------------- */
   /* A logged row, opened. Everything the log knows about one entry, and the
      two things you can do to it: change what it was, or take it back. */
-  function mealSheet(m) {
+  function mealSheet(m, i) {
     var pct = Math.round(m.kcal / DAY.target * 100);
     return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
       '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="ml-title" ' +
@@ -421,12 +434,14 @@
             : 'A model read the photo and estimated the portion. Expect it to be within about 15% on a ' +
               'plate like this one, and further out on anything with a sauce.') + '</p>' +
           '<div class="chiprow mt-4">' +
-            '<button class="chip" type="button" data-action="close" data-testid="meal-edit">Change the portion</button>' +
-            '<button class="chip" type="button" data-action="close" data-testid="meal-swap">It was something else</button>' +
+            '<button class="chip" type="button" data-action="meal-portion" data-i="' + i + '" data-by="-0.25" ' +
+              'data-testid="meal-edit">A quarter less</button>' +
+            '<button class="chip" type="button" data-action="meal-portion" data-i="' + i + '" data-by="0.25" ' +
+              'data-testid="meal-swap">A quarter more</button>' +
           '</div>' +
         '</div>' +
         '<div class="sheet__foot">' +
-          '<button class="btn btn--danger btn--block" type="button" data-action="close" data-testid="meal-delete">' +
+          '<button class="btn btn--danger btn--block" type="button" data-action="meal-delete" data-i="' + i + '" data-testid="meal-delete">' +
             '<span class="btn__label">Remove this entry</span></button>' +
         '</div>' +
       '</div>';
@@ -435,7 +450,7 @@
   function sheetHTML() {
     if (S.sheet && S.sheet.indexOf('meal:') === 0) {
       var m = DAY.meals[+S.sheet.slice(5)];
-      return m ? mealSheet(m) : '';
+      return m ? mealSheet(m, +S.sheet.slice(5)) : '';
     }
     if (S.sheet === 'water') {
       var pctW = Math.min(100, Math.round(DAY.waterMl / DAY.waterGoalMl * 100));
@@ -529,13 +544,9 @@
           '<div class="sheet__body">' +
             '<p class="t-detail">One tap logs it again with the same portion. This is what makes the ' +
               'second week faster than the first.</p>' +
-            '<div class="card card--flush mt-3">' + [
-              { icon: '🍳', name: 'Eggs, toast, butter', n: 41, kcal: 540 },
-              { icon: '🥗', name: 'Chicken rice bowl', n: 28, kcal: 720 },
-              { icon: '🥤', name: 'Whey shake, banana', n: 63, kcal: 310 },
-              { icon: '🍝', name: 'Beef mince and pasta', n: 19, kcal: 810 }
-            ].map(function (r, i) {
-              return '<button class="row" type="button" data-action="close" data-testid="often-' + i + '">' +
+            '<div class="card card--flush mt-3">' + OFTEN.map(function (r, i) {
+              return '<button class="row" type="button" data-action="log-often" data-i="' + i +
+                '" data-testid="often-' + i + '">' +
                 '<span class="fuel-thumb" aria-hidden="true">' + r.icon + '</span>' +
                 '<span class="row__main stack">' +
                   '<span class="row__title">' + esc(r.name) + '</span>' +
@@ -564,7 +575,7 @@
               '&ldquo;after the gym&rdquo; is 6:15 today.</p>' +
           '</div>' +
           '<div class="sheet__foot">' +
-            '<button class="btn btn--primary btn--block" type="button" data-action="close" data-testid="mic-confirm">' +
+            '<button class="btn btn--primary btn--block" type="button" data-action="mic-log" data-testid="mic-confirm">' +
               '<span class="btn__label">Log both</span></button>' +
           '</div>' +
         '</div>';
@@ -579,19 +590,25 @@
               '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
             '</button></div>' +
           '<div class="sheet__body">' +
-            '<p class="t-body-17">Chicken, rice, broccoli. <span class="quiet">About 690 kcal, 54 g protein.</span></p>' +
-            '<p class="t-caption-1 quiet mt-2">Estimated from the photo, 71% confident.</p>' +
+            '<p class="t-body-17">Chicken, rice, broccoli. <span class="quiet">About ' +
+              n(camPlate().kcal) + ' kcal, ' + camPlate().pro + ' g protein.</span></p>' +
+            '<p class="t-caption-1 quiet mt-2">Estimated from the photo, 71% confident.' +
+              (S.camOil ? ' Adjusted for ' + { none: 'no oil', little: 'a little oil', lot: 'a lot of oil' }[S.camOil] + '.' : '') +
+            '</p>' +
             '<p class="t-label mt-5">Was there oil or sauce?</p>' +
             '<div class="chiprow mt-2">' +
-              '<button class="chip" type="button" data-testid="cam-a1">None</button>' +
-              '<button class="chip" type="button" data-testid="cam-a2">A little</button>' +
-              '<button class="chip" type="button" data-testid="cam-a3">A lot</button>' +
+              ['none', 'little', 'lot'].map(function (k, i) {
+                return '<button class="chip" type="button" data-action="cam-oil" data-oil="' + k +
+                  '" aria-pressed="' + (S.camOil === k ? 'true' : 'false') +
+                  '" data-testid="cam-a' + (i + 1) + '">' +
+                  ['None', 'A little', 'A lot'][i] + '</button>';
+              }).join('') +
             '</div>' +
             '<p class="t-caption-1 quiet mt-3">One question, asked because oil moves this plate by ' +
               'more than 15%. Nothing else is worth interrupting you for.</p>' +
           '</div>' +
           '<div class="sheet__foot">' +
-            '<button class="btn btn--primary btn--block" type="button" data-action="close" data-testid="cam-confirm">' +
+            '<button class="btn btn--primary btn--block" type="button" data-action="cam-log" data-testid="cam-confirm">' +
               '<span class="btn__label">Log it</span></button>' +
           '</div>' +
         '</div>';
@@ -607,7 +624,7 @@
     hdr.classList.add('hdr--large');
     LKPatch(hdr, headerHTML());
     LKPatch(body, (VIEWS[S.state] || VIEWS.populated)());
-    LKPatch(overlay, sheetHTML());
+    LKPatch(overlay, sheetHTML() + toastHTML());
     LKPatch(document.getElementById('shelf-slot'), shelfHTML());
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.state === S.state));
@@ -629,9 +646,136 @@
       DAY.supps[k].taken = !DAY.supps[k].taken;
       render(); return;
     }
-    if (a === 'close') { S.sheet = null; render(); return; }
+    if (a === 'cam-oil') { S.camOil = act.getAttribute('data-oil'); render(); return; }
+    if (a === 'cam-log') { camLog(); return; }
+    if (a === 'mic-log') { micLog(); return; }
+    if (a === 'log-often') { logOften(+act.getAttribute('data-i')); return; }
+    if (a === 'meal-portion') { portion(+act.getAttribute('data-i'), parseFloat(act.getAttribute('data-by'))); return; }
+    if (a === 'meal-delete') { removeMeal(+act.getAttribute('data-i')); return; }
+    if (a === 'undo') { doUndo(); return; }
+    if (a === 'more') {
+      /* Standalone this is a page; in the demo the router takes the click
+         first. It had no branch at all and was the screen's dead end. */
+      location.href = 'shopping.html'; return;
+    }
+    if (a === 'close') { S.sheet = null; S.camOil = null; render(); return; }
     if (a === 'retry') { S.state = 'loading'; render(); setTimeout(function () { S.state = 'populated'; render(); }, 700); return; }
   });
+
+  /* ---------------------------------------------------------------
+     Logging
+
+     Eight controls across the five sheets used to carry data-action="close"
+     under copy that promised a write: "Log it", "Log both", "One tap logs it
+     again", "Remove this entry". Three of them carried no action at all.
+     Each one now does the thing its label says, and the day's totals move
+     with it, because a log that does not move the number on the screen is
+     indistinguishable from a log that failed.
+     --------------------------------------------------------------- */
+
+  /* The plate the camera sheet is looking at. Oil is the one question worth
+     interrupting for because it is the one that moves the figure. */
+  var CAM_BASE = { name: 'Chicken, rice, broccoli', icon: '🍗', kcal: 690, pro: 54, carb: 78, fat: 18 };
+  var OIL = { none: { kcal: -90, fat: -10 }, little: { kcal: 0, fat: 0 }, lot: { kcal: 160, fat: 18 } };
+  function camPlate() {
+    var d = OIL[S.camOil] || OIL.little;
+    return { name: CAM_BASE.name, icon: CAM_BASE.icon, kcal: CAM_BASE.kcal + d.kcal,
+             pro: CAM_BASE.pro, carb: CAM_BASE.carb, fat: CAM_BASE.fat + d.fat, src: 'estimate' };
+  }
+
+  function nowLabel() {
+    var d = new Date();
+    var h = d.getHours() % 12 || 12;
+    return h + ':' + (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+  }
+
+  function addMeal(meal) {
+    DAY.meals.push({ icon: meal.icon, name: meal.name, at: meal.at || nowLabel(),
+                     pro: meal.pro, kcal: meal.kcal, src: meal.src || 'estimate' });
+    DAY.eaten += meal.kcal;
+    bump('pro', meal.pro); bump('carb', meal.carb); bump('fat', meal.fat);
+  }
+  function bump(key, by) {
+    if (!by) return;
+    for (var i = 0; i < DAY.macros.length; i++) {
+      if (DAY.macros[i].key === key) { DAY.macros[i].have = Math.max(0, DAY.macros[i].have + by); return; }
+    }
+  }
+
+  function camLog() {
+    var plate = camPlate();
+    addMeal(plate);
+    S.sheet = null; S.camOil = null;
+    say(esc(plate.name) + ' logged, ' + n(plate.kcal) + ' kcal.');
+  }
+
+  function micLog() {
+    /* The two the sheet says it heard, with the times it says it resolved. */
+    addMeal({ icon: '🥗', name: 'Chicken rice bowl', at: '6:15', pro: 52, carb: 84, fat: 16, kcal: 720 });
+    addMeal({ icon: '🥤', name: 'Whey shake', at: '6:15', pro: 31, carb: 38, fat: 4, kcal: 310, src: 'verified' });
+    S.sheet = null;
+    say('Two meals logged, 1,030 kcal.');
+  }
+
+  function logOften(i) {
+    var r = OFTEN[i];
+    if (!r) return;
+    r.n += 1;
+    addMeal({ icon: r.icon, name: r.name, pro: r.pro, carb: r.carb, fat: r.fat, kcal: r.kcal, src: 'verified' });
+    S.sheet = null;
+    say(esc(r.name) + ' logged again.');
+  }
+
+  /* A portion, not a rewrite. Scaling every figure by the same factor is the
+     honest edit: the plate was the plate, there was just more or less of it. */
+  function portion(i, by) {
+    var m = DAY.meals[i];
+    if (!m || !by) return;
+    var f = 1 + by;
+    var dK = Math.round(m.kcal * f) - m.kcal;
+    var dP = Math.round(m.pro * f) - m.pro;
+    m.kcal += dK; m.pro += dP;
+    DAY.eaten += dK; bump('pro', dP);
+    render();
+    say(esc(m.name) + ' is now ' + n(m.kcal) + ' kcal.');
+  }
+
+  function removeMeal(i) {
+    var m = DAY.meals[i];
+    if (!m) return;
+    DAY.meals.splice(i, 1);
+    DAY.eaten -= m.kcal;
+    bump('pro', -m.pro);
+    S.sheet = null;
+    /* Destructive, so it is undoable rather than confirmed: a confirm asks a
+       question the person already answered by pressing a red button. */
+    S.undo = function () {
+      DAY.meals.splice(i, 0, m);
+      DAY.eaten += m.kcal;
+      bump('pro', m.pro);
+    };
+    say(esc(m.name) + ' removed.');
+  }
+
+  var toastTimer = null;
+  function say(msg) {
+    S.toast = msg;
+    render();
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { S.toast = null; S.undo = null; render(); }, 6000);
+  }
+  function doUndo() {
+    if (S.undo) S.undo();
+    S.undo = null; S.toast = null;
+    render();
+  }
+  function toastHTML() {
+    if (!S.toast) return '';
+    return '<div class="toast" role="status" data-testid="toast">' +
+      '<span class="toast__body">' + S.toast + '</span>' +
+      (S.undo ? '<button class="toast__action" type="button" data-action="undo" data-testid="undo">Undo</button>' : '') +
+    '</div>';
+  }
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && S.sheet) { S.sheet = null; render(); }

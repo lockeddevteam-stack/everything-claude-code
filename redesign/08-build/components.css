@@ -373,9 +373,19 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
 .screen:has(.tabbar) {
   --float-h: calc(var(--nav-h) + var(--sp-3) + var(--safe-bottom));
 }
+/* The accessory's own height, measured by chrome.js and written back as
+   --accessory-h, with --tap as the floor for the first frame and for a
+   screen whose script has not run.
+
+   The figure used to be --tap flat, on the assumption that an accessory is
+   one tap target high. The library's find bar is a search field AND a chip
+   row -- 120px, not 44 -- so the scroller was short by about 60px and the
+   last row of every group list came to rest under the glass and could not
+   be tapped at any scroll position. Fuel's shelf is 54. Nothing measured
+   either of them. */
 .screen:has(.tabbar):has(.shelf),
 .screen:has(.tabbar):has(.findbar--bottom) {
-  --float-h: calc(var(--nav-h) + var(--tap) + var(--sp-5) + var(--safe-bottom));
+  --float-h: calc(var(--nav-h) + max(var(--tap), var(--accessory-h, 0px)) + var(--sp-5) + var(--safe-bottom));
 }
 .screen:has(.tabbar) > .body,
 .screen:has(.tabbar) .body { padding-bottom: calc(var(--float-h) + var(--sp-4)); }
@@ -481,8 +491,22 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
   display: flex; flex-direction: column;
 }
 /* A sheet that reaches the top of its range is effectively full screen, so
-   it squares off against the bottom edge the way the system's does. */
-.sheet[data-detents][style*="88%"],
+   it squares off against the bottom edge the way the system's does.
+
+   Interpolated, not switched. --full runs 0 to 1 over the last stretch of
+   the drag (chrome.js writes it every frame), so the inset closes and the
+   bottom corners flatten as the sheet arrives instead of snapping 8px
+   sideways and growing 22px corners on the first pixel of movement. A sheet
+   with one height and the --full class set is at 1 the whole time, which is
+   the same geometry as before. */
+.sheet[data-detents] {
+  left: calc(var(--sp-2) * (1 - var(--full, 0)));
+  right: calc(var(--sp-2) * (1 - var(--full, 0)));
+  bottom: calc((var(--sp-2) + var(--safe-bottom)) * (1 - var(--full, 0)));
+  border-bottom-left-radius: calc(var(--r-xl) * (1 - var(--full, 0)));
+  border-bottom-right-radius: calc(var(--r-xl) * (1 - var(--full, 0)));
+  padding-bottom: calc(var(--sp-5) + var(--safe-bottom) * var(--full, 0));
+}
 .sheet--full {
   left: 0; right: 0; bottom: 0;
   border-radius: var(--r-xl) var(--r-xl) 0 0;
@@ -1212,7 +1236,12 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
   letter-spacing: var(--tr-11);
   font-weight: var(--w-semibold);
   text-transform: uppercase;
-  white-space: nowrap;
+  /* Wraps at large text. "Generated, not measured" ran 44..424 of a 393px
+     screen at 200% -- nowrap on a two-word-plus label buys nothing and costs
+     the label. Vertical padding so the capsule grows with the second line. */
+  padding-top: 2px;
+  padding-bottom: 2px;
+  min-height: var(--sp-5);
 }
 .badge--accent { background: var(--accent-quiet); color: var(--accent-text); }
 

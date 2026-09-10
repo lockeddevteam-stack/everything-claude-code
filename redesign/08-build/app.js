@@ -167,10 +167,22 @@
     return el;
   }
 
+  /* Everything a person can Tab to, in reading order. */
+  var FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), ' +
+    'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  function focusables(container) {
+    return Array.prototype.filter.call(container.querySelectorAll(FOCUSABLE), function (el) {
+      return el.offsetWidth || el.offsetHeight || el.getClientRects().length;
+    });
+  }
+
   function captureFocus(container) {
     var el = deepActive(container);
     if (!el || el === document.body || !container.contains(el)) return null;
-    var snap = { el: el, key: keyOf(el), start: null, end: null, dir: null };
+    var snap = { el: el, key: keyOf(el), start: null, end: null, dir: null,
+                 /* Where it sat in reading order, for the case where the
+                    control removes itself. See restoreFocus. */
+                 index: focusables(container).indexOf(el) };
     try {
       if (typeof el.selectionStart === 'number') {
         snap.start = el.selectionStart;
@@ -191,6 +203,17 @@
     else if (snap.key) {
       var sel = keySelector(snap.key);
       if (sel) target = container.querySelector(sel);
+    }
+    /* The control removed itself. A row's delete button, an accepted
+       suggestion, a chip that filtered itself away: there is no node to go
+       back to, and focus was landing on <body>, which restarts the next Tab
+       at the top of the document. 125 controls across twelve screens did
+       this. Whatever took its place in reading order gets the focus instead,
+       which is what the platform does and what a person expects: you stay
+       where you were, on the next thing down. */
+    if (!target && snap.index >= 0) {
+      var after = focusables(container);
+      if (after.length) target = after[Math.min(snap.index, after.length - 1)];
     }
     if (!target || typeof target.focus !== 'function') return;
 

@@ -216,9 +216,32 @@
          can name the detent it opens at. */
       var want = parseFloat(sheet.getAttribute('data-detent-open'));
       var current = detents.indexOf(want) > -1 ? want : detents[0];
+      /* data-full, not a substring match on the inline style.
+         components.css used to select the full-bleed form with
+         [style*="88%"], so the first pointermove wrote a non-88 height, the
+         selector stopped matching, and in one frame the sheet jumped 8px in
+         from each edge and grew 22px bottom corners. It also meant any sheet
+         whose inline style happened to contain "88%" took the full-bleed
+         rules. The top detent is a fact this code knows; it says so. */
+      /* --full, not a substring match on the inline style.
+         components.css used to select the full-bleed form with
+         [style*="88%"], so the first pointermove wrote a non-88 height, the
+         selector stopped matching, and in one frame the sheet jumped 8px in
+         from each edge and grew 22px bottom corners. It also meant any sheet
+         whose inline style happened to contain "88%" took the full-bleed
+         rules. The top detent is a fact this code knows; it writes a 0-to-1
+         figure over the last 8% of the travel and the CSS interpolates the
+         inset and the corner against it. */
+      var top = detents[detents.length - 1];
+      var BAND = 0.08;
+      var mark = function (frac) {
+        var t = (frac - (top - BAND)) / BAND;
+        sheet.style.setProperty('--full', String(Math.min(1, Math.max(0, t))));
+      };
       var setH = function (frac) {
         current = frac;
         sheet.style.height = (frac * 100) + '%';
+        mark(frac);
       };
       setH(current);
 
@@ -242,6 +265,7 @@
         var frac = Math.min(1, Math.max(detents[0] * 0.5, h / vh()));
         sheet.style.height = (frac * 100) + '%';
         current = frac;
+        mark(frac);
       });
 
       function release() {
@@ -263,6 +287,7 @@
             apply: function (v) { sheet.style.height = v + '%'; }
           });
           current = best;
+          mark(best);
         } else {
           setH(best);
         }
@@ -399,9 +424,40 @@
     });
   }
 
+  /* ---------------------------------------------------------------
+     The floating accessory's height
+
+     A screen with a tab bar budgets the bottom of its scroller for the
+     floating stack. The budget used to assume the accessory above the bar
+     was one tap target high; the exercise library's find bar is a search
+     field and a chip row, 120px, so the scroller was 60px short and the
+     last row of every group list came to rest under the glass, unreachable
+     at any scroll position. Measured, written back, and re-measured when
+     the accessory changes shape.
+     --------------------------------------------------------------- */
+  function initAccessory(root) {
+    var screens = root.querySelectorAll('.screen');
+    for (var i = 0; i < screens.length; i++) measure(screens[i]);
+
+    function measure(screen) {
+      var acc = screen.querySelector(':scope > .findbar--bottom, :scope > #shelf-slot');
+      if (!acc) return;
+      var apply = function () {
+        var h = acc.offsetHeight;
+        if (h) screen.style.setProperty('--accessory-h', h + 'px');
+      };
+      apply();
+      if (!acc.__lk_acc && typeof ResizeObserver === 'function') {
+        acc.__lk_acc = true;
+        try { new ResizeObserver(apply).observe(acc); } catch (e) {}
+      }
+    }
+  }
+
   function init(root) {
     root = root || doc;
     initTabLinks(root);
+    initAccessory(root);
     initLargeTitle(root);
     initTabBar(root);
     initScrollEdge(root);

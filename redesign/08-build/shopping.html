@@ -100,6 +100,10 @@
   var menu    = document.getElementById('dev-menu');
   var hdrCount = document.getElementById('hdr-count');
 
+  /* One item is not "1 items". The toast had this and the dialog above it
+     did not, so the same act was counted two ways on one screen. */
+  function plural(n, word) { return n === 1 ? word : word + 's'; }
+
   function esc(s) {
     return String(s).replace(/[&<>"]/g, function (c) {
       return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c];
@@ -575,6 +579,9 @@
         MYSTORES.map(function (s) { return '<option value="' + s.id + '">' + esc(s.name) + '</option>'; }).join('') +
         '<option value="other">Other</option>' +
       '</select>' +
+      (S.purchaseError
+        ? '<p class="field__error mt-2" role="alert" data-testid="p-error">' + esc(S.purchaseError) + '</p>'
+        : '') +
       '<button class="btn btn--primary btn--block mt-3" type="button" data-action="save-purchase" data-testid="save-purchase">' +
         '<span class="btn__label">Add to history</span></button>' +
     '</div>';
@@ -1062,14 +1069,22 @@
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
         '<div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="cf-title" aria-describedby="cf-body" data-testid="dialog-' + S.sheet + '">' +
           '<h2 class="t-section" id="cf-title">' + (all ? 'Empty the list' : 'Clear what you picked up') + '</h2>' +
+          /* Counted, not templated. This dialog said "1 items go" and, when
+             everything was ticked, "including the 0 you have not picked up
+             yet" -- a zero clause about nothing. The toast underneath has
+             had the plural right all along; the dialog just never used it. */
           '<p class="t-detail mt-2" id="cf-body">' +
             (all
-              ? 'All ' + n + ' items go, including the ' + left() + ' you have not picked up yet. Your pantry and your history are untouched.'
-              : n + ' picked-up items go. The ' + left() + ' still to get stay where they are.') +
+              ? 'All ' + n + ' ' + plural(n, 'item') + (n === 1 ? ' goes' : ' go') +
+                (left() ? ', including the ' + left() + ' you have not picked up yet' : '') +
+                '. Your pantry and your history are untouched.'
+              : n + ' picked-up ' + plural(n, 'item') + (n === 1 ? ' goes. ' : ' go. ') +
+                (left() ? 'The ' + left() + ' still to get stay where they are.'
+                        : 'Nothing is left to get.')) +
           '</p>' +
           '<button class="btn btn--danger btn--block mt-4" type="button" data-action="' +
             (all ? 'do-clear-all' : 'do-clear-done') + '" data-testid="confirm-' + S.sheet + '">' +
-            '<span class="btn__label">' + (all ? 'Empty the list' : 'Clear ' + n + ' items') + '</span></button>' +
+            '<span class="btn__label">' + (all ? 'Empty the list' : 'Clear ' + n + ' ' + plural(n, 'item')) + '</span></button>' +
           '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="close" data-testid="cancel-' + S.sheet + '">' +
             '<span class="btn__label">Keep them</span></button>' +
         '</div>';
@@ -1202,11 +1217,15 @@
     /* The dialogs' confirm buttons. They were data-action="close": the dialog
        shut, which looks exactly like it worked, and the list was untouched. */
     'do-clear-done': function () {
-      var gone = LIST.filter(function (i) { return i.done; });
-      for (var i = LIST.length - 1; i >= 0; i--) if (LIST[i].done) LIST.splice(i, 1);
+      /* The index goes with the item, so undo puts each one back where it
+         was. Appending them restored the list in a different order than it
+         had -- Salmon, Chicken breast, Ground beef where it read Chicken
+         breast, Ground beef, Salmon -- which is not what undo means. */
+      var gone = [];
+      for (var i = LIST.length - 1; i >= 0; i--) if (LIST[i].done) gone.unshift({ at: i, item: LIST.splice(i, 1)[0] });
       S.sheet = null;
       offerUndo(gone.length + ' picked-up item' + (gone.length === 1 ? '' : 's') + ' cleared.',
-        function () { Array.prototype.push.apply(LIST, gone); });
+        function () { gone.forEach(function (g) { LIST.splice(g.at, 0, g.item); }); });
     },
     'do-clear-all': function () {
       var gone = LIST.slice();
@@ -1254,7 +1273,6 @@
       undo = null;
       undoTimer = setTimeout(function () { S.toast = null; render(); }, 5000);
     },
-    'store-open': function () {},
 
     'edit-target': function () { S.editTarget = !S.editTarget; },
     'save-target': function () {
@@ -1270,12 +1288,20 @@
       var price = parseFloat(document.getElementById('p-price').value);
       var qty = parseInt(document.getElementById('p-qty').value, 10) || 1;
       var sel = document.getElementById('p-store');
+      /* The store is required. Left on its prompt it used to fall through to
+         "Unknown store" -- a name that is in no list and that nobody chose --
+         and the purchase was written under it. The prompt says "Select a
+         store", which is a promise that the form checks. It checks now, and
+         S.purchaseError carries the sentence rather than a boolean nothing
+         ever rendered. */
       var store = sel.value === 'other' ? 'Other'
-        : (MYSTORES.filter(function (x) { return x.id === sel.value; })[0] || {}).name || 'Unknown store';
-      if (!name || isNaN(price) || price < 0) { S.purchaseError = true; return; }
+        : (MYSTORES.filter(function (x) { return x.id === sel.value; })[0] || {}).name || '';
+      if (!name) { S.purchaseError = 'What did you buy?'; return; }
+      if (isNaN(price) || price < 0) { S.purchaseError = 'A price, so the week adds up.'; return; }
+      if (!store) { S.purchaseError = 'Pick a store, or Other.'; return; }
       BUDGET.history.unshift({ id: 'p' + Date.now(), store: store, when: 'Today', daysAgo: 0,
         total: price * qty, source: 'manual', items: [{ n: name, q: qty, p: price * qty }] });
-      S.addOpen = false; S.purchaseError = false;
+      S.addOpen = false; S.purchaseError = null;
     },
     'scan-cam': function () { S.receipt = 'ok'; },
     'scan-lib': function () { S.receipt = 'none'; },
@@ -1380,7 +1406,10 @@
     },
 
     close: function () { S.sheet = null; },
-    back:  function () {},
+    /* Standalone the back button is a page navigation; in the demo the router
+       takes the click first. It used to be an empty function, so on disk the
+       control was visible, enabled and inert. */
+    back:  function () { location.href = 'fuel.html'; },
     retry: function () {
       S.state = 'loading'; render();
       setTimeout(function () { S.state = 'populated'; render(); }, 700);

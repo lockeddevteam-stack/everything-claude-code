@@ -70,7 +70,12 @@ const MANIFEST = {
     settings: { parent: 'profile', backSelector: '[data-testid="back"]' },
     'workout-log': { parent: 'train' },
     shopping: { parent: 'fuel', backSelector: '[data-testid="back"]' },
-    review: { parent: 'train', backSelector: '[data-testid="action-back"]' }
+    review: { parent: 'train', backSelector: '[data-testid="action-back"]' },
+    /* Progress lives under Home. It was reachable only through the demo
+       index, which pushes; the one tap that led to it from a screen was
+       declared as a tab and there is no Progress tab, so it wrote a route
+       nothing owned and the app went blank. */
+    progress: { parent: 'home' }
   },
 
   /* Taps that leave a screen. Selector is matched with closest() inside the
@@ -80,7 +85,7 @@ const MANIFEST = {
     { from: 'home', selector: '[data-testid="primary-action"]', to: 'train', mode: 'tab' },
     { from: 'home', selector: '[data-testid="action-choose-session"]', to: 'train', mode: 'tab' },
     { from: 'home', selector: '[data-testid="row-last-session"]', to: 'train', mode: 'tab' },
-    { from: 'home', selector: '[data-testid="row-climbing-lift"]', to: 'progress', mode: 'tab' },
+    { from: 'home', selector: '[data-testid="row-climbing-lift"]', to: 'progress', mode: 'push' },
     { from: 'train', selector: '[data-action="open-library"]', to: 'exercise-library', mode: 'push' },
     { from: 'train', selector: '[data-action="new-split"]', to: 'split-builder', mode: 'push' },
     { from: 'train', selector: '[data-action="edit-split"]', to: 'split-builder', mode: 'push' },
@@ -802,6 +807,24 @@ function build() {
   for (const s of screens) {
     if (tabByScreen.has(s.id)) continue;
     records.push({ id: s.id, label: s.label, tab: null, css: s.css, markup: s.markup, scripts: s.scripts });
+  }
+
+  /* Every crossing has to land somewhere. `mode: 'tab'` writes a top-level
+     route, and a top-level route that no tab owns renders nothing: the app
+     goes blank with the hash changed, which reads as a freeze. That is what
+     the Climbing lift row on Home did, and the build succeeded. It throws
+     now, the way the other four silent-drop paths in this file do. */
+  const tabIds = new Set(MANIFEST.tabs.map((t) => t.id));
+  for (const n of MANIFEST.nav) {
+    if (!records.some((r) => r.id === n.to)) {
+      throw new Error(`nav ${n.from} -> ${n.to}: no such screen`);
+    }
+    if (n.mode === 'tab' && !tabIds.has(n.to)) {
+      throw new Error(`nav ${n.from} -> ${n.to} is mode "tab", but "${n.to}" is not a tab. Use mode "push" and give it a parent in MANIFEST.pushed.`);
+    }
+    if (n.mode === 'push' && !MANIFEST.pushed[n.to]) {
+      throw new Error(`nav ${n.from} -> ${n.to} is mode "push", but "${n.to}" has no entry in MANIFEST.pushed.`);
+    }
   }
 
   const cfg = {
