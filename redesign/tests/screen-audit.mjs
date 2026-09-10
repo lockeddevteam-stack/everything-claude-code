@@ -147,7 +147,11 @@ for (const file of files) {
           /* Not every screen gives its scroller an id: coach renders the
              whole screen from JS and identifies its body by class. Checking
              one id reported "no content" on seventeen states that had it. */
+          /* A loading state is skeletons and no words, on purpose. Matching
+             the state's NAME to spot one only worked while every screen
+             happened to call it "loading"; a skeleton is the actual signal. */
           empty: !(document.getElementById('body') || document.querySelector('.body'))?.textContent.trim()
+                 && !document.querySelector('.skel')
         };
       }, [...knownFor(file)]);
 
@@ -167,7 +171,7 @@ for (const file of files) {
       ok(m.touching.length === 0, tag + ' — adjacent controls are separated', m.touching.slice(0, 3).join(' / '));
       ok(a.length === 0, tag + ' — axe clean', a.join(', '));
       ok(!m.overflow, tag + ' — no sideways overflow');
-      if (state !== 'loading') ok(!m.empty, tag + ' — renders content');
+      ok(!m.empty, tag + ' — renders content or a skeleton');
       await ctx.close();
     }
   }

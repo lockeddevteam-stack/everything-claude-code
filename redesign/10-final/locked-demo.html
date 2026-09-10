@@ -40,18 +40,35 @@
      SF splits its optical size at 20pt: below that it draws Text, at and above
      it draws Display. The system stack gets that for free on Apple hardware.
      Elsewhere the tracking below is what carries the difference.
+
+     WHY rem AND em, NOT px
+     iOS scales every one of these with Dynamic Type, up to AX5. Absolute px
+     ignores the browser's text-size setting completely: a build measured at
+     AX5 moved nothing on any screen, which is the same as having no
+     accessibility text support at all.
+
+     Sizes and leading are rem, so they follow the root and therefore the
+     reader's setting. Tracking is em, so it stays proportional to the glyph
+     it is tightening rather than becoming a heavier and heavier correction
+     as the text grows -- which is also what makes it identical to the pixel
+     table at the default size. 1rem is 16px, so 17px Body is 1.0625rem and
+     its -0.43px tracking is -0.0253em, both exact.
+
+     Spacing, radii and the 44px tap floor stay in px, as they do on iOS:
+     type grows and layout reflows around it; a target does not shrink
+     because somebody prefers small text.
      ---- */
-  --type-large-title: 34px;  --lh-large-title: 41px;  --tr-large-title: -0.4px;
-  --type-title-1:     28px;  --lh-title-1:     34px;  --tr-title-1:     -0.8px;
-  --type-title-2:     22px;  --lh-title-2:     28px;  --tr-title-2:     -0.5px;
-  --type-title-3:     20px;  --lh-title-3:     25px;  --tr-title-3:     -0.45px;
-  --type-headline:    17px;  --lh-headline:    22px;  --tr-headline:    -0.43px;
-  --type-body:        17px;  --lh-body:        22px;  --tr-body:        -0.43px;
-  --type-callout:     16px;  --lh-callout:     21px;  --tr-callout:     -0.31px;
-  --type-subheadline: 15px;  --lh-subheadline: 20px;  --tr-subheadline: -0.23px;
-  --type-footnote:    13px;  --lh-footnote:    18px;  --tr-footnote:    -0.08px;
-  --type-caption-1:   12px;  --lh-caption-1:   16px;  --tr-caption-1:   0px;
-  --type-caption-2:   11px;  --lh-caption-2:   13px;  --tr-caption-2:   0.07px;
+  --type-large-title: 2.125rem;  --lh-large-title: 2.5625rem;  --tr-large-title: -0.0118em;
+  --type-title-1:     1.75rem;  --lh-title-1:     2.125rem;  --tr-title-1:     -0.0286em;
+  --type-title-2:     1.375rem;  --lh-title-2:     1.75rem;  --tr-title-2:     -0.0227em;
+  --type-title-3:     1.25rem;  --lh-title-3:     1.5625rem;  --tr-title-3:     -0.0225em;
+  --type-headline:    1.0625rem;  --lh-headline:    1.375rem;  --tr-headline:    -0.0253em;
+  --type-body:        1.0625rem;  --lh-body:        1.375rem;  --tr-body:        -0.0253em;
+  --type-callout:     1rem;  --lh-callout:     1.3125rem;  --tr-callout:     -0.0194em;
+  --type-subheadline: 0.9375rem;  --lh-subheadline: 1.25rem;  --tr-subheadline: -0.0153em;
+  --type-footnote:    0.8125rem;  --lh-footnote:    1.125rem;  --tr-footnote:    -0.0062em;
+  --type-caption-1:   0.75rem;  --lh-caption-1:   1rem;  --tr-caption-1:   0em;
+  --type-caption-2:   0.6875rem;  --lh-caption-2:   0.8125rem;  --tr-caption-2:   0.0064em;
 
   /* The size-named tokens the build already speaks, pointed at their roles.
      Kept so no screen has to change in the same commit that adds the scale,
@@ -540,17 +557,28 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* The root keeps the reader's own text size. Setting font-size here in a
+   rem build is self-defeating: every rem then resolves against the value we
+   just overrode, so the whole scale silently shrank by 15/16 and Dynamic
+   Type scaled a scale that was already wrong.
+
+   "SF Pro Text" is gone from the stack with it. Naming the Text optical size
+   explicitly pins every size to it, which is the opposite of the optical
+   split described above; -apple-system and system-ui pick the right one. */
+html { font-size: 100%; }
+
 html, body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
-  font-size: var(--type-15);
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif;
   line-height: var(--lh-15);
   letter-spacing: var(--tr-15);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
+
+body { font-size: var(--type-15); }
 
 /* Numbers are tabular everywhere. A weight that changes width is a bug. */
 .num, [data-num] {
@@ -2775,8 +2803,14 @@ button.shelf:active { background: var(--fill-press); }
   box-shadow: inset 0 0 0 2px currentColor;
   display: flex; align-items: center; justify-content: center;
 }
-.tick[aria-pressed="true"] { color: var(--success); }
-.tick[aria-pressed="true"] .tick__box { background: var(--success); box-shadow: none; color: var(--text-on-solid); }
+/* The pressed state can sit on the tick itself or on the row that contains
+   it: a row whose whole job is the toggle puts it on the row, so that the
+   whole row is the 44px target rather than the box inside it. */
+.tick[aria-pressed="true"], [aria-pressed="true"] > .tick { color: var(--success); }
+.tick[aria-pressed="true"] .tick__box,
+[aria-pressed="true"] > .tick .tick__box {
+  background: var(--success); box-shadow: none; color: var(--text-on-solid);
+}
 .tick:active { background: var(--fill-press); border-radius: var(--r-full); }
 /* A picked-up item is done, not deleted: it stays legible so you can see you
    already have it. */
@@ -3733,11 +3767,23 @@ button.shelf:active { background: var(--fill-press); }
     var scroller = root.querySelector(bar.getAttribute('data-minimize'));
     if (!scroller) return;
     if (!once(bar, 'minimize')) return;
-    var last = 0, min = false;
+    var last = 0, min = false, touched = false;
+
+    /* The bar hides because the person is scrolling, and only then. A screen
+       that scrolls itself — coach jumps its chat to the latest message on
+       every render — was read as a hard scroll down, so the tab bar was
+       already gone before the screen was even looked at, off-screen and
+       pointer-events: none, with no gesture that could bring it back. The
+       flag is set by the input that means a person did it. */
+    ['pointerdown', 'wheel', 'touchstart', 'keydown'].forEach(function (ev) {
+      scroller.addEventListener(ev, function () { touched = true; }, { passive: true });
+    });
+
     onScrollFrame(scroller, function (y) {
       var down = y > last;
       var delta = Math.abs(y - last);
       last = y;
+      if (!touched) return;
       if (delta < 4) return;                 /* ignore the jitter of a settling scroll */
       if (down && y > 64 && !min) { min = true; set('true'); }
       else if (!down && min) { min = false; set('false'); }
@@ -5238,7 +5284,7 @@ button.shelf:active { background: var(--fill-press); }
           </button>
           <h1 class="hdr__title t-section" tabindex="-1" data-testid="guest-warning-title">Guest mode</h1>
         </header>
-        <div class="body body--flush fill" role="main" tabindex="0" data-testid="guest-scroll" aria-label="Guest mode details">
+        <div class="body body--flush fill" role="region" tabindex="0" data-testid="guest-scroll" aria-label="Guest mode details">
           <div class="pane">
             <div id="guest-banner" aria-live="polite"></div>
             <h2 class="t-title">Guest mode keeps nothing safe.</h2>
@@ -5353,7 +5399,7 @@ button.shelf:active { background: var(--fill-press); }
         <header class="hdr">
           <h1 class="hdr__title t-section" tabindex="-1" data-testid="overview-title">Today</h1>
         </header>
-        <div class="body body--flush fill" role="main" tabindex="0" data-testid="overview-scroll" aria-label="Today's plan">
+        <div class="body body--flush fill" role="region" tabindex="0" data-testid="overview-scroll" aria-label="Today's plan">
           <div class="pane" id="overview-body"></div>
         </div>
         <div class="footer" id="overview-footer"></div>
@@ -7506,6 +7552,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
   var ICO = {
     mic: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
     cam: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+    tick: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l5 5L19 7"/></svg>',
     chev: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg>',
     alert: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/></svg>',
     plus: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg>'
@@ -7532,7 +7579,24 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       { icon: '🥤', name: 'Whey shake, banana', at: '3:15', pro: 31, kcal: 310, src: 'verified' }
     ],
     /* Not a target and not a nag: a pattern this person already has. */
-    closing: { at: '7:30', pro: 40 }
+    closing: { at: '7:30', pro: 40 },
+
+    waterMl: 1750,
+    waterGoalMl: 3000,
+    /* Taken, not "due": the app knows what was swallowed, not what was
+       intended. Timing is what the row says, because timing is the only
+       thing about a supplement that is worth a reminder. */
+    supps: [
+      { name: 'Creatine monohydrate', dose: '5 g', when: 'Any time, daily', taken: true },
+      { name: 'Vitamin D3', dose: '2000 IU', when: 'With a meal containing fat', taken: true },
+      { name: 'Whey', dose: '30 g', when: 'Counted as food, not a supplement', taken: false },
+      { name: 'Magnesium glycinate', dose: '200 mg', when: 'Evening', taken: false }
+    ],
+    /* Fourteen days of intake against target. A trend is the only thing a
+       single day cannot tell you, which is the whole reason this sheet
+       exists. */
+    trend: [2980, 3120, 2740, 2880, 3310, 2610, 2950,
+            2870, 3040, 2790, 3180, 2900, 2680, 2985]
   };
 
   var S = { state: 'populated', sheet: null, listening: false };
@@ -7763,7 +7827,162 @@ DEMO.define("fuel", function (document, window, location, fetch) {
      Sheets. Both fast paths open one, and both say what they are doing
      rather than spinning.
      --------------------------------------------------------------- */
+  /* A logged row, opened. Everything the log knows about one entry, and the
+     two things you can do to it: change what it was, or take it back. */
+  function mealSheet(m) {
+    var pct = Math.round(m.kcal / DAY.target * 100);
+    return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="ml-title" ' +
+        'data-detents="0.55 0.88" data-testid="sheet-meal">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+        '<div class="sheet__head">' +
+          '<span class="fuel-thumb" aria-hidden="true">' + m.icon + '</span>' +
+          '<h2 class="t-headline grow" id="ml-title">' + esc(m.name) + '</h2>' +
+          '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="meal-close">' +
+            '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+          '</button></div>' +
+        '<div class="sheet__body">' +
+          '<p class="t-detail">Logged at ' + esc(m.at) + ' &middot; ' + pct + '% of today</p>' +
+          '<div class="card card--sunken mt-3">' +
+            '<div class="hstack hstack--3"><span class="t-body grow">Energy</span>' +
+              '<span class="t-body-em num">' + n(m.kcal) + ' kcal</span></div>' +
+            '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Protein</span>' +
+              '<span class="t-body-em num">' + m.pro + ' g</span></div>' +
+          '</div>' +
+          '<h3 class="t-label mt-5">Where these numbers came from</h3>' +
+          '<p class="t-detail mt-2">' + (m.src === 'verified'
+            ? 'A barcode matched a database row, so the figures are the manufacturer&rsquo;s own. ' +
+              'They are only wrong if the portion was.'
+            : 'A model read the photo and estimated the portion. Expect it to be within about 15% on a ' +
+              'plate like this one, and further out on anything with a sauce.') + '</p>' +
+          '<div class="chiprow mt-4">' +
+            '<button class="chip" type="button" data-action="close" data-testid="meal-edit">Change the portion</button>' +
+            '<button class="chip" type="button" data-action="close" data-testid="meal-swap">It was something else</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--danger btn--block" type="button" data-action="close" data-testid="meal-delete">' +
+            '<span class="btn__label">Remove this entry</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
   function sheetHTML() {
+    if (S.sheet && S.sheet.indexOf('meal:') === 0) {
+      var m = DAY.meals[+S.sheet.slice(5)];
+      return m ? mealSheet(m) : '';
+    }
+    if (S.sheet === 'water') {
+      var pctW = Math.min(100, Math.round(DAY.waterMl / DAY.waterGoalMl * 100));
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="wt-title" data-testid="sheet-water">' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="wt-title">Water</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="water-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<div class="hstack hstack--2" style="align-items: baseline">' +
+              '<p class="money num" data-testid="water-value">' + (DAY.waterMl / 1000).toFixed(2) + '</p>' +
+              '<p class="hero__unit grow">of ' + (DAY.waterGoalMl / 1000).toFixed(1) + ' L</p>' +
+            '</div>' +
+            '<div class="meter mt-3" role="img" aria-label="' + pctW + ' per cent of today&rsquo;s water">' +
+              '<span class="meter__fill" style="width:' + pctW + '%"></span></div>' +
+            '<div class="hstack hstack--3 mt-4">' +
+              '<button class="btn btn--secondary grow" type="button" data-action="water-sub" data-testid="water-sub">' +
+                '<span class="btn__label">&minus; 250 ml</span></button>' +
+              '<button class="btn btn--primary grow" type="button" data-action="water-add" data-testid="water-add">' +
+                '<span class="btn__label">+ 250 ml</span></button>' +
+            '</div>' +
+            '<p class="t-caption-1 quiet mt-3">A glass is about 250 ml. The target moves with your weight and ' +
+              'the weather, not with a round number somebody picked.</p>' +
+          '</div>' +
+        '</div>';
+    }
+    if (S.sheet === 'supps') {
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sp-title" ' +
+          'data-detents="0.55 0.88" data-testid="sheet-supps">' +
+          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="sp-title">Supplements</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="supps-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<div class="card card--flush">' + DAY.supps.map(function (sp, i) {
+              return '<button class="row" type="button" data-action="supp" data-i="' + i +
+                '" aria-pressed="' + sp.taken + '" data-testid="supp-' + i + '">' +
+                '<span class="tick"><span class="tick__box">' + (sp.taken ? ICO.tick : '') + '</span></span>' +
+                '<span class="row__main stack">' +
+                  '<span class="row__title">' + esc(sp.name) + '</span>' +
+                  '<span class="row__sub">' + esc(sp.dose) + ' &middot; ' + esc(sp.when) + '</span>' +
+                '</span></button>';
+            }).join('') + '</div>' +
+            '<p class="t-caption-1 quiet mt-3">Whey is in your food log as food, because that is what it is. ' +
+              'It sits here so the list matches what is on the shelf.</p>' +
+          '</div>' +
+        '</div>';
+    }
+    if (S.sheet === 'trends') {
+      var t = DAY.trend, mx = Math.max.apply(null, t), mn = Math.min.apply(null, t);
+      var avg = Math.round(t.reduce(function (a, b) { return a + b; }, 0) / t.length);
+      var pts = t.map(function (v, i) {
+        return (i / (t.length - 1) * 300).toFixed(1) + ',' + (70 - (v - mn) / (mx - mn) * 60).toFixed(1);
+      }).join(' ');
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="tr-title" data-testid="sheet-trends">' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="tr-title">Last fourteen days</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="trends-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<div class="hstack hstack--2" style="align-items: baseline">' +
+              '<p class="money num" data-testid="trend-avg">' + n(avg) + '</p>' +
+              '<p class="hero__unit grow">kcal a day on average</p>' +
+            '</div>' +
+            '<p class="t-detail mt-2">Target is ' + n(DAY.target) + '. A single day means nothing; ' +
+              'fourteen of them are what the target is set from.</p>' +
+            '<svg class="chart mt-4" viewBox="0 0 300 80" role="img" ' +
+              'aria-label="Daily energy over fourteen days, averaging ' + n(avg) + ' kcal">' +
+              '<polyline class="chart__line" points="' + pts + '"/>' +
+            '</svg>' +
+            '<div class="hstack hstack--3 mt-2">' +
+              '<span class="t-meta num grow">' + n(mn) + ' low</span>' +
+              '<span class="t-meta num">' + n(mx) + ' high</span>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    }
+    if (S.sheet === 'meals') {
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="me-title" ' +
+          'data-detents="0.5 0.88" data-testid="sheet-meals">' +
+          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="me-title">Meals you log often</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="meals-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<p class="t-detail">One tap logs it again with the same portion. This is what makes the ' +
+              'second week faster than the first.</p>' +
+            '<div class="card card--flush mt-3">' + [
+              { icon: '🍳', name: 'Eggs, toast, butter', n: 41, kcal: 540 },
+              { icon: '🥗', name: 'Chicken rice bowl', n: 28, kcal: 720 },
+              { icon: '🥤', name: 'Whey shake, banana', n: 63, kcal: 310 },
+              { icon: '🍝', name: 'Beef mince and pasta', n: 19, kcal: 810 }
+            ].map(function (r, i) {
+              return '<button class="row" type="button" data-action="close" data-testid="often-' + i + '">' +
+                '<span class="fuel-thumb" aria-hidden="true">' + r.icon + '</span>' +
+                '<span class="row__main stack">' +
+                  '<span class="row__title">' + esc(r.name) + '</span>' +
+                  '<span class="row__sub num">logged ' + r.n + ' times</span>' +
+                '</span>' +
+                '<span class="row__value num">' + n(r.kcal) +
+                  '<small class="t-caption-2 quiet"> kcal</small></span>' +
+                '<span class="row__chev">' + ICO.chev + '</span></button>';
+            }).join('') + '</div>' +
+          '</div>' +
+        '</div>';
+    }
     if (S.sheet === 'mic') {
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
         '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="mic-title" ' +
@@ -7836,6 +8055,15 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     if (!act) return;
     var a = act.getAttribute('data-action');
     if (a === 'mic' || a === 'cam') { S.sheet = a; render(); return; }
+    if (a === 'meal') { S.sheet = 'meal:' + act.getAttribute('data-i'); render(); return; }
+    if (a === 'meals' || a === 'trends' || a === 'water' || a === 'supps') { S.sheet = a; render(); return; }
+    if (a === 'water-add') { DAY.waterMl = Math.min(4000, DAY.waterMl + 250); render(); return; }
+    if (a === 'water-sub') { DAY.waterMl = Math.max(0, DAY.waterMl - 250); render(); return; }
+    if (a === 'supp') {
+      var k = act.getAttribute('data-i');
+      DAY.supps[k].taken = !DAY.supps[k].taken;
+      render(); return;
+    }
     if (a === 'close') { S.sheet = null; render(); return; }
     if (a === 'retry') { S.state = 'loading'; render(); setTimeout(function () { S.state = 'populated'; render(); }, 700); return; }
   });
@@ -9802,9 +10030,16 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
         '</div></div>';
     }
 
-    /* The name lives in the header once it exists. The field is shown while
-       the split is unnamed (it cannot be saved without one) and inside Edit. */
-    var head = (m.edit || !m.name.trim())
+    /* The name lives in the header once the split is SAVED. The condition was
+       "while it is unnamed", which is true for exactly as long as the field is
+       empty: the first keystroke made the name truthy, the render dropped the
+       field mid-typing, focus fell to the body, and every character after the
+       first went nowhere. A new split could not be given a name longer than
+       one letter.
+
+       savedAt is the right test because it is the thing that changes once,
+       when the split becomes a split, rather than on every keystroke. */
+    var head = (m.edit || !m.savedAt)
       ? '<div class="section">' +
           '<label class="field">' +
             '<span class="field__label t-label">Split name</span>' +
@@ -12897,7 +13132,13 @@ DEMO.define("settings", function (document, window, location, fetch) {
     });
 
     if (S.sheet || S.dialog) {
+      /* Focus goes to the way OUT, never to the thing that cannot be undone.
+         "the first button in the dialog" is the confirm button, so opening
+         "Erase everything on this phone" put focus on Erase everything and
+         one Return wiped the device. Cancel is the safe default; the person
+         who means it can reach the other button with one Tab. */
       var f = overlay.querySelector('[data-testid="sheet-close"]') ||
+              overlay.querySelector('[data-action="close-dialog"].btn') ||
               overlay.querySelector('.dialog button');
       if (f) f.focus();
     }
@@ -14264,6 +14505,10 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     ['budget', 'Budget']
   ];
 
+  var FIXTURE = {
+    list: LIST.slice(), pantry: PANTRY.slice(), stores: MYSTORES.slice()
+  };
+
   var S = {
     state: 'populated',
     panel: 'list',
@@ -14933,16 +15178,6 @@ DEMO.define("shopping", function (document, window, location, fetch) {
   function bodyHTML() {
     if (S.state === 'loading') return viewLoading();
     if (S.state === 'error') return viewError();
-    if (S.state === 'empty') {
-      /* Empty is a property of the data, so every panel has its own. */
-      var saveList = LIST.slice(), savePan = PANTRY.slice(), saveStores = MYSTORES.slice();
-      LIST.length = 0; PANTRY.length = 0; MYSTORES.length = 0;
-      var out = (VIEWS[S.panel] || panelList)();
-      Array.prototype.push.apply(LIST, saveList);
-      Array.prototype.push.apply(PANTRY, savePan);
-      Array.prototype.push.apply(MYSTORES, saveStores);
-      return out;
-    }
     return (VIEWS[S.panel] || panelList)();
   }
 
@@ -15054,13 +15289,41 @@ DEMO.define("shopping", function (document, window, location, fetch) {
   /* ---------------------------------------------------------------
      Render
      --------------------------------------------------------------- */
+  /* Undo, not confirm.
+
+     The shipped screen deleted a receipt, a store, a pantry item and a list
+     item instantly with no way back, while gating "Clear done" — which throws
+     away nothing you cannot re-tick — behind a counting dialog. The gating was
+     inverted: a wholesale action earns a dialog because you cannot describe
+     it afterwards, and a single row earns an undo because you can.
+
+     One slot, one timer, one restore closure. A second delete replaces the
+     first rather than stacking, which is the honest thing: the toast can only
+     promise what it is still holding. */
+  var undo = null, undoTimer = null;
+
+  function offerUndo(msg, restore) {
+    undo = restore;
+    S.toast = msg;
+    if (undoTimer) clearTimeout(undoTimer);
+    undoTimer = setTimeout(function () { S.toast = null; undo = null; render(); }, 6000);
+  }
+
+  function toastHTML() {
+    if (!S.toast) return '';
+    return '<div class="toast toast--nonav" role="status" data-testid="toast">' +
+      '<span class="toast__body">' + esc(S.toast) + '</span>' +
+      (undo ? '<button class="toast__action" type="button" data-action="undo" data-testid="undo">Undo</button>' : '') +
+    '</div>';
+  }
+
   function render() {
     screen.setAttribute('data-state', S.state);
     screen.setAttribute('data-panel', S.panel);
     hdrCount.textContent = headerCount();
     LKPatch(subbar, subbarHTML());
     LKPatch(body, bodyHTML());
-    LKPatch(overlay, overlayHTML());
+    LKPatch(overlay, overlayHTML() + toastHTML());
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.state === S.state));
     });
@@ -15117,8 +15380,15 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     'open-item': function (el) { S.sheet = 'item:' + el.dataset.id; },
     remove: function (el) {
       var k = LIST.map(function (i) { return i.id; }).indexOf(el.dataset.id);
-      if (k > -1) LIST.splice(k, 1);
+      if (k < 0) return;
+      var gone = LIST.splice(k, 1)[0];
       S.sheet = null;
+      offerUndo(gone.name + ' removed from the list.', function () { LIST.splice(k, 0, gone); });
+    },
+    undo: function () {
+      if (undo) undo();
+      undo = null; S.toast = null;
+      if (undoTimer) clearTimeout(undoTimer);
     },
     'clear-done': function () { S.sheet = 'clear-done'; },
     'clear-all':  function () { S.sheet = 'clear-all'; },
@@ -15141,7 +15411,12 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     compare: function () {}, 'find-swaps': function () {},
     'del-hist': function (el) {
       var k = BUDGET.history.map(function (h) { return h.id; }).indexOf(el.dataset.id);
-      if (k > -1) BUDGET.history.splice(k, 1);
+      if (k < 0) return;
+      var gone = BUDGET.history.splice(k, 1)[0];
+      /* The week and month figures are read from history, so deleting one
+         moves the budget. The toast says which one and what it was worth. */
+      offerUndo(usd(gone.total) + ' at ' + gone.store + ' removed from your history.',
+        function () { BUDGET.history.splice(k, 0, gone); });
     },
 
     'pan-filter': function (el) { S.staplesOnly = el.dataset.f === 'staples'; },
@@ -15182,8 +15457,10 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     },
     'pan-remove': function (el) {
       var k = PANTRY.map(function (i) { return i.id; }).indexOf(el.dataset.id);
-      if (k > -1) PANTRY.splice(k, 1);
+      if (k < 0) return;
+      var gone = PANTRY.splice(k, 1)[0];
       S.sheet = null;
+      offerUndo(gone.name + ' removed from the pantry.', function () { PANTRY.splice(k, 0, gone); });
     },
 
     'store-toggle': function (el) {
@@ -15191,7 +15468,10 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     },
     'store-remove': function (el) {
       var k = MYSTORES.map(function (s) { return s.id; }).indexOf(el.dataset.id);
-      if (k > -1) MYSTORES.splice(k, 1);
+      if (k < 0) return;
+      var gone = MYSTORES.splice(k, 1)[0];
+      offerUndo(gone.name + ' removed. Its searches go with it.',
+        function () { MYSTORES.splice(k, 0, gone); });
     },
     'add-store': function (el) {
       var p = PRESETS.filter(function (x) { return x.host === el.dataset.host; })[0];
@@ -15268,16 +15548,30 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     menu.hidden = !open;
     this.setAttribute('aria-expanded', String(open));
   });
+  /* Switching states rebuilds the fixture rather than hiding it, so anything
+     added from the empty state stays added and the screen actually leaves
+     that state. */
+  function setState(name) {
+    S.state = name;
+    S.sheet = null;
+    LIST.length = 0; PANTRY.length = 0; MYSTORES.length = 0;
+    if (name !== 'empty') {
+      Array.prototype.push.apply(LIST, FIXTURE.list.map(function (x) { return Object.assign({}, x); }));
+      Array.prototype.push.apply(PANTRY, FIXTURE.pantry.map(function (x) { return Object.assign({}, x); }));
+      Array.prototype.push.apply(MYSTORES, FIXTURE.stores.map(function (x) { return Object.assign({}, x); }));
+    }
+    render();
+  }
+
   menu.addEventListener('click', function (e) {
     var b = e.target.closest('.dev__item');
     if (!b) return;
-    S.state = b.dataset.state; S.sheet = null; render();
+    setState(b.dataset.state);
   });
 
   var q = new URLSearchParams(location.search);
-  if (q.get('state')) S.state = q.get('state');
   if (q.get('panel') && VIEWS[q.get('panel')]) S.panel = q.get('panel');
-  render();
+  setState(q.get('state') || 'populated');
   requestAnimationFrame(function () { window.__ready = true; });
 })();
 
@@ -15960,8 +16254,14 @@ DEMO.define("review", function (document, window, location, fetch) {
     paint(false);
   }
 
+  /* Paints. The shipped version set the message and left the painting to
+     whoever called it next: save painted again by accident and its toast
+     appeared, discard did not and its toast was written into an
+     already-painted slot, sat there invisible, and was cleared four seconds
+     later. A function that shows a message shows it. */
   function toast(msg) {
     S.toast = msg;
+    LKPatch(toastSlot, toastHTML());
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { S.toast = null; paint(true); }, 4000);
   }
@@ -15991,10 +16291,17 @@ DEMO.define("review", function (document, window, location, fetch) {
         S.saved = true;
         paint(true);
         toast('Session saved' + (S.feel ? ', marked ' + S.feel : '') + '.');
-        paint(true);
         return;
       case 'action-discard':
-        S.discardArmed = true; paint(true); return;
+        S.discardArmed = true;
+        paint(true);
+        /* The armed confirmation is the last thing in the scroller and the
+           action bar sits under it, so on a full session both its buttons
+           land below the fold. A confirmation you have to go looking for is
+           a dead end in both directions. */
+        var armed = body.querySelector('[data-testid="section-discard"]');
+        if (armed && armed.scrollIntoView) armed.scrollIntoView({ block: 'end', behavior: 'smooth' });
+        return;
       case 'action-discard-cancel':
         S.discardArmed = false; paint(true); return;
       case 'action-discard-confirm':
@@ -16555,7 +16862,116 @@ DEMO.define("progress", function (document, window, location, fetch) {
      Lift picker sheet. Every lift with history, not only those with
      a record, because a lift you are building has no record yet.
      ============================================================= */
+  /* Body weight, in full. The row above it says the trend; this says every
+     reading it was drawn from, because a trend nobody can check is a claim. */
+  function weightSheet() {
+    var log = WEIGHT_LOG.slice().reverse();
+    var first = WEIGHT_LOG[0], last = WEIGHT_LOG[WEIGHT_LOG.length - 1];
+    var d = last[1] - first[1];
+    var weeks = (WEIGHT_LOG.length - 1) || 1;
+    return '' +
+      '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="wt-title" ' +
+        'data-testid="weight-sheet" data-detents="0.55 0.88" data-detent-open="0.88">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+        '<div class="sheet__head"><h2 class="t-section grow" id="wt-title">Body weight</h2>' +
+          '<button class="iconbtn" data-action="close-sheet" data-testid="weight-close" aria-label="Close body weight">' +
+            ICO.close + '</button></div>' +
+        '<div class="sheet__body">' +
+          '<p class="t-detail">' + signedKg(d) + ' over ' + weeks + ' weeks, or ' +
+            signedKg(d / weeks) + ' a week. A weekly figure is the only one worth reading: ' +
+            'a single morning moves a kilo on water alone.</p>' +
+          '<div class="card card--flush mt-4">' + log.map(function (r, i) {
+            var prev = log[i + 1];
+            var step = prev ? r[1] - prev[1] : null;
+            return '<div class="row row--static" data-testid="w-' + r[0] + '">' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + kg(r[1]) + '</span>' +
+                '<span class="row__sub">' + dayLabel(r[0]) + '</span>' +
+              '</span>' +
+              (step === null ? '<span class="row__value quiet">first</span>'
+                             : '<span class="row__value num">' + signedKg(step) + '</span>') +
+            '</div>';
+          }).join('') + '</div>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--primary btn--block" data-action="close-sheet" data-testid="weight-log">' +
+            '<span class="btn__label">Log today&rsquo;s weight</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* Goals. Each one is a number with a date, and each says what it is
+     measured against, because a goal you cannot check is a wish. */
+  function goalsSheet() {
+    var goals = [
+      { name: 'Bench press 100 kg for 5', by: 'Nov 7', now: '87.5 kg for 8', pct: 74 },
+      { name: 'Body weight 62 kg', by: 'Dec 1', now: '64.2 kg', pct: 55 },
+      { name: 'Train 4 times a week', by: 'Ongoing', now: '3.4 a week over 8 weeks', pct: 85 }
+    ];
+    return '' +
+      '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="gl-title" ' +
+        'data-testid="goals-sheet" data-detents="0.55 0.88" data-detent-open="0.88">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+        '<div class="sheet__head"><h2 class="t-section grow" id="gl-title">Goals</h2>' +
+          '<button class="iconbtn" data-action="close-sheet" data-testid="goals-close" aria-label="Close goals">' +
+            ICO.close + '</button></div>' +
+        '<div class="sheet__body">' +
+          goals.map(function (g, i) {
+            return '<div class="card' + (i ? ' mt-3' : '') + '" data-testid="goal-' + i + '">' +
+              '<div class="hstack hstack--3"><span class="t-section grow">' + g.name + '</span>' +
+                '<span class="t-meta num">' + g.pct + '%</span></div>' +
+              '<div class="meter mt-2" role="img" aria-label="' + g.pct + ' per cent of the way there">' +
+                '<span class="meter__fill" style="width:' + g.pct + '%"></span></div>' +
+              '<p class="t-detail mt-2">Now ' + g.now + ' &middot; by ' + g.by + '</p>' +
+            '</div>';
+          }).join('') +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--secondary btn--block" data-action="close-sheet" data-testid="goals-add">' +
+            '<span class="btn__label">Add a goal</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* A record set outside a logged session. It happens, and refusing to
+     record it is how a personal best goes missing from the one place that
+     is meant to hold all of them. */
+  function recordSheet() {
+    return '' +
+      '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="rc-title" data-testid="record-sheet">' +
+        '<div class="sheet__head"><h2 class="t-section grow" id="rc-title">Log a record</h2>' +
+          '<button class="iconbtn" data-action="close-sheet" data-testid="record-close" aria-label="Close">' +
+            ICO.close + '</button></div>' +
+        '<div class="sheet__body">' +
+          '<p class="t-detail">For a lift you did somewhere the app was not. It joins your records ' +
+            'and your charts; it does not create a session.</p>' +
+          '<label class="t-label field__label mt-4" for="rec-lift">Lift</label>' +
+          '<select class="input" id="rec-lift" data-testid="rec-lift">' +
+            LIFTS.map(function (l) { return '<option value="' + l.id + '">' + l.name + '</option>'; }).join('') +
+          '</select>' +
+          '<div class="hstack hstack--3 mt-3">' +
+            '<div class="field grow"><label class="t-label field__label" for="rec-kg">Weight, kg</label>' +
+              '<input class="input num" id="rec-kg" type="number" min="0" step="0.5" inputmode="decimal" ' +
+                'placeholder="0" data-testid="rec-kg"></div>' +
+            '<div class="field" style="width: 96px"><label class="t-label field__label" for="rec-reps">Reps</label>' +
+              '<input class="input num" id="rec-reps" type="number" min="1" step="1" inputmode="numeric" ' +
+                'value="1" data-testid="rec-reps"></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--primary btn--block" data-action="close-sheet" data-testid="rec-save">' +
+            '<span class="btn__label">Add to my records</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
   function sheetHTML() {
+    if (S.sheet === 'weight') return weightSheet();
+    if (S.sheet === 'goals') return goalsSheet();
+    if (S.sheet === 'record') return recordSheet();
     var days = rangeDays();
     return '' +
       '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
@@ -16618,9 +17034,13 @@ DEMO.define("progress", function (document, window, location, fetch) {
     }
   }
 
-  function openSheet() {
+  /* S.sheet holds WHICH sheet, not whether one is open. It was a boolean
+     when the screen had one; three more rows now have somewhere to go, and
+     "true" cannot say which. Everything that reads it as truthy still works
+     because a name is truthy. */
+  function openSheet(name) {
     lastFocus = document.activeElement;
-    S.sheet = true;
+    S.sheet = name || 'lift';
     render();
   }
   function closeSheet(refocus) {
@@ -16640,7 +17060,7 @@ DEMO.define("progress", function (document, window, location, fetch) {
       S.range = t.dataset.range;
       render();
     } else if (a === 'open-picker') {
-      openSheet();
+      openSheet('lift');
     } else if (a === 'close-sheet') {
       closeSheet(true);
     } else if (a === 'pick-lift') {
@@ -16654,6 +17074,12 @@ DEMO.define("progress", function (document, window, location, fetch) {
         var back = document.querySelector('[data-testid="choose-lift"]');
         if (back) back.focus();
       }
+    } else if (a === 'open-weight') {
+      openSheet('weight');
+    } else if (a === 'open-goals') {
+      openSheet('goals');
+    } else if (a === 'log-record') {
+      openSheet('record');
     } else if (a === 'retry' || a === 'show-cached') {
       S.view = 'populated';
       render();

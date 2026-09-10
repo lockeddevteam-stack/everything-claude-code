@@ -61,6 +61,14 @@ for (const file of screens) {
         const a = el.dataset.action || el.dataset.act;
         if (!a || known.includes(a)) return;
         if (el.closest('.dev')) return;
+        /* A field answers to typing, not to a click, and a disabled or
+           already-selected control is meant to do nothing. Counting those as
+           dead is how a coverage test gets ignored. */
+        if (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+        if (el.disabled || el.getAttribute('aria-disabled') === 'true') return;
+        if (el.getAttribute('aria-selected') === 'true' ||
+            el.getAttribute('aria-pressed') === 'true' ||
+            el.getAttribute('aria-current') === 'page') return;
         const r = el.getBoundingClientRect();
         if (r.width < 6 || r.height < 6) return;
         out.push({ a });
@@ -74,6 +82,14 @@ for (const file of screens) {
       seen.add(a);
       const before = await p.evaluate(() => ({
         dom: document.body.innerHTML.length + ':' + document.body.textContent.length,
+        /* Selection state, because a control whose whole job is to move a
+           selection swaps one aria-pressed="false" for one "true" and leaves
+           the markup exactly the same length. Coach's tone chips reported
+           dead while working correctly. */
+        aria: [...document.querySelectorAll('[aria-pressed],[aria-selected],[aria-checked],[aria-current]')]
+          .map(e => (e.dataset.testid || '') + (e.getAttribute('aria-pressed') || '') +
+                    (e.getAttribute('aria-selected') || '') + (e.getAttribute('aria-checked') || '') +
+                    (e.getAttribute('aria-current') || '')).join('|'),
         hash: location.hash,
         focus: document.activeElement?.getAttribute('data-testid') || '',
         scroll: [...document.querySelectorAll('*')].filter(e => e.scrollTop > 0).length
@@ -86,6 +102,11 @@ for (const file of screens) {
       const hit = await p.evaluate(act => {
         const el = [...document.querySelectorAll('[data-action], [data-act]')]
           .find(e => (e.dataset.action || e.dataset.act) === act && !e.closest('.dev') &&
+                     !/^(INPUT|TEXTAREA|SELECT)$/.test(e.tagName) &&
+                     !e.disabled && e.getAttribute('aria-disabled') !== 'true' &&
+                     e.getAttribute('aria-selected') !== 'true' &&
+                     e.getAttribute('aria-pressed') !== 'true' &&
+                     e.getAttribute('aria-current') !== 'page' &&
                      e.getBoundingClientRect().width > 6);
         if (!el) return false;
         el.click();
@@ -95,11 +116,20 @@ for (const file of screens) {
       await p.waitForTimeout(320);
       const after = await p.evaluate(() => ({
         dom: document.body.innerHTML.length + ':' + document.body.textContent.length,
+        /* Selection state, because a control whose whole job is to move a
+           selection swaps one aria-pressed="false" for one "true" and leaves
+           the markup exactly the same length. Coach's tone chips reported
+           dead while working correctly. */
+        aria: [...document.querySelectorAll('[aria-pressed],[aria-selected],[aria-checked],[aria-current]')]
+          .map(e => (e.dataset.testid || '') + (e.getAttribute('aria-pressed') || '') +
+                    (e.getAttribute('aria-selected') || '') + (e.getAttribute('aria-checked') || '') +
+                    (e.getAttribute('aria-current') || '')).join('|'),
         hash: location.hash,
         focus: document.activeElement?.getAttribute('data-testid') || '',
         scroll: [...document.querySelectorAll('*')].filter(e => e.scrollTop > 0).length
       }));
       const changed = before.dom !== after.dom || before.hash !== after.hash ||
+                      before.aria !== after.aria ||
                       before.focus !== after.focus || before.scroll !== after.scroll;
       if (!changed) (NAV.has(a) ? navOnly : dead).push(`${file}  ${a}`);
       /* Back to a known state: the click may have opened something. */

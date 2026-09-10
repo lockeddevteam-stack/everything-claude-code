@@ -582,7 +582,116 @@
      Lift picker sheet. Every lift with history, not only those with
      a record, because a lift you are building has no record yet.
      ============================================================= */
+  /* Body weight, in full. The row above it says the trend; this says every
+     reading it was drawn from, because a trend nobody can check is a claim. */
+  function weightSheet() {
+    var log = WEIGHT_LOG.slice().reverse();
+    var first = WEIGHT_LOG[0], last = WEIGHT_LOG[WEIGHT_LOG.length - 1];
+    var d = last[1] - first[1];
+    var weeks = (WEIGHT_LOG.length - 1) || 1;
+    return '' +
+      '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="wt-title" ' +
+        'data-testid="weight-sheet" data-detents="0.55 0.88" data-detent-open="0.88">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+        '<div class="sheet__head"><h2 class="t-section grow" id="wt-title">Body weight</h2>' +
+          '<button class="iconbtn" data-action="close-sheet" data-testid="weight-close" aria-label="Close body weight">' +
+            ICO.close + '</button></div>' +
+        '<div class="sheet__body">' +
+          '<p class="t-detail">' + signedKg(d) + ' over ' + weeks + ' weeks, or ' +
+            signedKg(d / weeks) + ' a week. A weekly figure is the only one worth reading: ' +
+            'a single morning moves a kilo on water alone.</p>' +
+          '<div class="card card--flush mt-4">' + log.map(function (r, i) {
+            var prev = log[i + 1];
+            var step = prev ? r[1] - prev[1] : null;
+            return '<div class="row row--static" data-testid="w-' + r[0] + '">' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + kg(r[1]) + '</span>' +
+                '<span class="row__sub">' + dayLabel(r[0]) + '</span>' +
+              '</span>' +
+              (step === null ? '<span class="row__value quiet">first</span>'
+                             : '<span class="row__value num">' + signedKg(step) + '</span>') +
+            '</div>';
+          }).join('') + '</div>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--primary btn--block" data-action="close-sheet" data-testid="weight-log">' +
+            '<span class="btn__label">Log today&rsquo;s weight</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* Goals. Each one is a number with a date, and each says what it is
+     measured against, because a goal you cannot check is a wish. */
+  function goalsSheet() {
+    var goals = [
+      { name: 'Bench press 100 kg for 5', by: 'Nov 7', now: '87.5 kg for 8', pct: 74 },
+      { name: 'Body weight 62 kg', by: 'Dec 1', now: '64.2 kg', pct: 55 },
+      { name: 'Train 4 times a week', by: 'Ongoing', now: '3.4 a week over 8 weeks', pct: 85 }
+    ];
+    return '' +
+      '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="gl-title" ' +
+        'data-testid="goals-sheet" data-detents="0.55 0.88" data-detent-open="0.88">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+        '<div class="sheet__head"><h2 class="t-section grow" id="gl-title">Goals</h2>' +
+          '<button class="iconbtn" data-action="close-sheet" data-testid="goals-close" aria-label="Close goals">' +
+            ICO.close + '</button></div>' +
+        '<div class="sheet__body">' +
+          goals.map(function (g, i) {
+            return '<div class="card' + (i ? ' mt-3' : '') + '" data-testid="goal-' + i + '">' +
+              '<div class="hstack hstack--3"><span class="t-section grow">' + g.name + '</span>' +
+                '<span class="t-meta num">' + g.pct + '%</span></div>' +
+              '<div class="meter mt-2" role="img" aria-label="' + g.pct + ' per cent of the way there">' +
+                '<span class="meter__fill" style="width:' + g.pct + '%"></span></div>' +
+              '<p class="t-detail mt-2">Now ' + g.now + ' &middot; by ' + g.by + '</p>' +
+            '</div>';
+          }).join('') +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--secondary btn--block" data-action="close-sheet" data-testid="goals-add">' +
+            '<span class="btn__label">Add a goal</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* A record set outside a logged session. It happens, and refusing to
+     record it is how a personal best goes missing from the one place that
+     is meant to hold all of them. */
+  function recordSheet() {
+    return '' +
+      '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="rc-title" data-testid="record-sheet">' +
+        '<div class="sheet__head"><h2 class="t-section grow" id="rc-title">Log a record</h2>' +
+          '<button class="iconbtn" data-action="close-sheet" data-testid="record-close" aria-label="Close">' +
+            ICO.close + '</button></div>' +
+        '<div class="sheet__body">' +
+          '<p class="t-detail">For a lift you did somewhere the app was not. It joins your records ' +
+            'and your charts; it does not create a session.</p>' +
+          '<label class="t-label field__label mt-4" for="rec-lift">Lift</label>' +
+          '<select class="input" id="rec-lift" data-testid="rec-lift">' +
+            LIFTS.map(function (l) { return '<option value="' + l.id + '">' + l.name + '</option>'; }).join('') +
+          '</select>' +
+          '<div class="hstack hstack--3 mt-3">' +
+            '<div class="field grow"><label class="t-label field__label" for="rec-kg">Weight, kg</label>' +
+              '<input class="input num" id="rec-kg" type="number" min="0" step="0.5" inputmode="decimal" ' +
+                'placeholder="0" data-testid="rec-kg"></div>' +
+            '<div class="field" style="width: 96px"><label class="t-label field__label" for="rec-reps">Reps</label>' +
+              '<input class="input num" id="rec-reps" type="number" min="1" step="1" inputmode="numeric" ' +
+                'value="1" data-testid="rec-reps"></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--primary btn--block" data-action="close-sheet" data-testid="rec-save">' +
+            '<span class="btn__label">Add to my records</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
   function sheetHTML() {
+    if (S.sheet === 'weight') return weightSheet();
+    if (S.sheet === 'goals') return goalsSheet();
+    if (S.sheet === 'record') return recordSheet();
     var days = rangeDays();
     return '' +
       '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
@@ -645,9 +754,13 @@
     }
   }
 
-  function openSheet() {
+  /* S.sheet holds WHICH sheet, not whether one is open. It was a boolean
+     when the screen had one; three more rows now have somewhere to go, and
+     "true" cannot say which. Everything that reads it as truthy still works
+     because a name is truthy. */
+  function openSheet(name) {
     lastFocus = document.activeElement;
-    S.sheet = true;
+    S.sheet = name || 'lift';
     render();
   }
   function closeSheet(refocus) {
@@ -667,7 +780,7 @@
       S.range = t.dataset.range;
       render();
     } else if (a === 'open-picker') {
-      openSheet();
+      openSheet('lift');
     } else if (a === 'close-sheet') {
       closeSheet(true);
     } else if (a === 'pick-lift') {
@@ -681,6 +794,12 @@
         var back = document.querySelector('[data-testid="choose-lift"]');
         if (back) back.focus();
       }
+    } else if (a === 'open-weight') {
+      openSheet('weight');
+    } else if (a === 'open-goals') {
+      openSheet('goals');
+    } else if (a === 'log-record') {
+      openSheet('record');
     } else if (a === 'retry' || a === 'show-cached') {
       S.view = 'populated';
       render();
