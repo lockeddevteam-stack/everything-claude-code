@@ -301,7 +301,10 @@
     filter: 'all',        /* all | lift | cardio */
     sheet: null,          /* null | { kind: 'split', id } | { kind: 'activity' } */
     query: '',
-    toast: null
+    toast: null,
+    /* The cardio log in progress: { id, name, min } while its sheet is open. */
+    logging: null,
+    logError: null
   };
 
   /* =============================================================
@@ -314,9 +317,16 @@
      chevron into the session. The duration appears once and nothing
      here is wrapped in an accent pill. */
   function historyRow(w) {
-    var meta = w.kind === 'lift'
-      ? n(w.min) + ' min &middot; ' + n(w.sets) + ' sets &middot; ' + n(group(w.kg)) + ' kg'
-      : n(w.min) + ' min &middot; ' + n(w.km) + ' km &middot; ' + n(w.cal) + ' cal';
+    /* Only the parts that exist. A cardio record logged by hand has minutes
+       and nothing else -- no watch measured a distance -- and the fixed
+       three-part line printed "undefined km, undefined cal" for it. An
+       absent figure is absent, not zero and not a word. */
+    var parts = w.kind === 'lift'
+      ? [n(w.min) + ' min', n(w.sets) + ' sets', n(group(w.kg)) + ' kg']
+      : [n(w.min) + ' min',
+         w.km != null ? n(w.km) + ' km' : null,
+         w.cal != null ? n(w.cal) + ' cal' : null];
+    var meta = parts.filter(Boolean).join(' &middot; ');
     /* The date sits on the title line, not beside the metrics: at 393px
        a lifting metric line plus a date wrapped to two lines. */
     return '' +
@@ -398,8 +408,75 @@
            out.join('') + '</svg>';
   }
 
+  /* An activity by id, from either list. */
+  function findCardio(id) {
+    var all = CARDIO_QUICK.concat(CARDIO_ALL);
+    for (var i = 0; i < all.length; i++) if (all[i].id === id) return all[i];
+    return null;
+  }
+
+  /* The write. It moves the week chart, the four-week total and the history
+     list, because a log that changes none of those is indistinguishable from
+     one that failed -- which is what this was: a toast saying "Logged
+     Treadmill run" over a chart that still read 120 min in 4 weeks. */
+  function saveCardio() {
+    var l = S.logging;
+    if (!l) return;
+    var f = overlay.querySelector('[data-testid="cardio-min"]');
+    var min = f ? parseInt(f.value, 10) : l.min;
+    if (isNaN(min) || min < 1 || min > 600) {
+      S.logError = 'Between 1 and 600 minutes.';
+      render();
+      if (f) f.focus();
+      return;
+    }
+    var week = WEEKS[WEEKS.length - 1];
+    week.min += min;
+    HISTORY.unshift({ id: 'w' + Date.now(), kind: 'cardio', name: l.name,
+                      date: todayISO(), min: min });
+    /* Its own row remembers what you actually did, so the next one-tap log
+       is right rather than the catalogue default. */
+    var c = findCardio(l.id);
+    if (c) { c.min = min; c.last = todayISO(); }
+    S.logging = null; S.logError = null;
+    render();
+    say(esc(l.name) + ' &middot; ' + min + ' min logged.');
+  }
+
+  /* TODAY, not the wall clock. Every date on this screen is measured against
+     the fixture, so a log stamped with the real date read "last -1 days ago"
+     the moment the two disagreed. */
+  function todayISO() { return TODAY; }
+
+  function cardioSheet() {
+    var l = S.logging;
+    if (!l) return '';
+    return '<div class="scrim" data-action="cardio-cancel" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="cd-title" data-testid="cardio-sheet">' +
+        '<div class="sheet__head"><h2 class="t-section grow" id="cd-title">' + esc(l.name) + '</h2>' +
+          '<button class="iconbtn" type="button" data-action="cardio-cancel" aria-label="Cancel" ' +
+            'data-testid="cardio-close">' + ICO.close + '</button></div>' +
+        '<div class="sheet__body">' +
+          '<label class="t-label field__label" for="cardio-min">Minutes</label>' +
+          '<input class="input num" id="cardio-min" type="number" min="1" max="600" step="1" ' +
+            'inputmode="numeric" value="' + l.min + '" data-testid="cardio-min">' +
+          (S.logError ? '<p class="field__error" role="alert" data-testid="cardio-error">' +
+            esc(S.logError) + '</p>' : '') +
+          '<p class="t-caption-1 quiet mt-3">Starts at what you normally do. It becomes the ' +
+            'default for next time.</p>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--primary btn--block" type="button" data-action="cardio-save" ' +
+            'data-testid="cardio-save"><span class="btn__label">Log it</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
   function cardioBlock() {
-    var last4 = WEEKS.slice(3, 7).reduce(function (a, w) { return a + w.min; }, 0);
+    /* The last four weeks INCLUDING this one. It was the four before this
+       one, so anything logged today landed in a week the figure did not
+       count and the total never moved. */
+    var last4 = WEEKS.slice(-4).reduce(function (a, w) { return a + w.min; }, 0);
     var rows = CARDIO_QUICK.map(function (c) {
       return '' +
         '<button class="row" type="button" data-action="log-cardio" data-id="' + c.id + '" ' +
@@ -711,6 +788,7 @@
   }
 
   function overlayHTML() {
+    if (S.logging) return cardioSheet();
     if (!S.sheet) return '';
     var inner = S.sheet.kind === 'split'
       ? splitSheet(SPLITS.filter(function (s) { return s.id === S.sheet.id; })[0])
@@ -803,12 +881,23 @@
     if (a === 'open-history') { S.view = 'history'; render(); body.focus(); return; }
     if (a === 'back') { S.view = 'hub'; render(); return; }
     if (a === 'filter') { S.filter = t.dataset.filter; render(true); return; }
+    /* Opens the duration sheet rather than logging on the tap. The row
+       carries the duration this activity is normally done for, and one tap
+       from there logs it -- but "logged 30 minutes" when it was 22 is a
+       wrong number in the record, and the shipped app asked. */
     if (a === 'log-cardio') {
-      var name = t.getAttribute('aria-label').replace(/^Log /, '');
+      var id = t.getAttribute('data-id');
+      var c = findCardio(id);
+      if (!c) return;
+      S.logging = { id: id, name: c.name, min: c.min };
       if (S.sheet) closeSheet();
-      say('Logged ' + name.replace(/, (\d+) minutes$/, ' &middot; $1 min') + '.');
+      render();
+      var f = overlay.querySelector('[data-testid="cardio-min"]');
+      if (f) { f.focus(); f.select(); }
       return;
     }
+    if (a === 'cardio-cancel') { S.logging = null; render(); return; }
+    if (a === 'cardio-save') { saveCardio(); return; }
     if (a === 'undo') { S.toast = null; render(true); return; }
     if (a === 'retry') { S.state = 'loading'; render(); setTimeout(function () { S.state = 'populated'; render(); }, 900); return; }
     if (a === 'use-cached') { S.state = 'populated'; render(); return; }

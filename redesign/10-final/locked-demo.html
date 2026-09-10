@@ -7822,7 +7822,10 @@ DEMO.define("train", function (document, window, location, fetch) {
     filter: 'all',        /* all | lift | cardio */
     sheet: null,          /* null | { kind: 'split', id } | { kind: 'activity' } */
     query: '',
-    toast: null
+    toast: null,
+    /* The cardio log in progress: { id, name, min } while its sheet is open. */
+    logging: null,
+    logError: null
   };
 
   /* =============================================================
@@ -7835,9 +7838,16 @@ DEMO.define("train", function (document, window, location, fetch) {
      chevron into the session. The duration appears once and nothing
      here is wrapped in an accent pill. */
   function historyRow(w) {
-    var meta = w.kind === 'lift'
-      ? n(w.min) + ' min &middot; ' + n(w.sets) + ' sets &middot; ' + n(group(w.kg)) + ' kg'
-      : n(w.min) + ' min &middot; ' + n(w.km) + ' km &middot; ' + n(w.cal) + ' cal';
+    /* Only the parts that exist. A cardio record logged by hand has minutes
+       and nothing else -- no watch measured a distance -- and the fixed
+       three-part line printed "undefined km, undefined cal" for it. An
+       absent figure is absent, not zero and not a word. */
+    var parts = w.kind === 'lift'
+      ? [n(w.min) + ' min', n(w.sets) + ' sets', n(group(w.kg)) + ' kg']
+      : [n(w.min) + ' min',
+         w.km != null ? n(w.km) + ' km' : null,
+         w.cal != null ? n(w.cal) + ' cal' : null];
+    var meta = parts.filter(Boolean).join(' &middot; ');
     /* The date sits on the title line, not beside the metrics: at 393px
        a lifting metric line plus a date wrapped to two lines. */
     return '' +
@@ -7919,8 +7929,75 @@ DEMO.define("train", function (document, window, location, fetch) {
            out.join('') + '</svg>';
   }
 
+  /* An activity by id, from either list. */
+  function findCardio(id) {
+    var all = CARDIO_QUICK.concat(CARDIO_ALL);
+    for (var i = 0; i < all.length; i++) if (all[i].id === id) return all[i];
+    return null;
+  }
+
+  /* The write. It moves the week chart, the four-week total and the history
+     list, because a log that changes none of those is indistinguishable from
+     one that failed -- which is what this was: a toast saying "Logged
+     Treadmill run" over a chart that still read 120 min in 4 weeks. */
+  function saveCardio() {
+    var l = S.logging;
+    if (!l) return;
+    var f = overlay.querySelector('[data-testid="cardio-min"]');
+    var min = f ? parseInt(f.value, 10) : l.min;
+    if (isNaN(min) || min < 1 || min > 600) {
+      S.logError = 'Between 1 and 600 minutes.';
+      render();
+      if (f) f.focus();
+      return;
+    }
+    var week = WEEKS[WEEKS.length - 1];
+    week.min += min;
+    HISTORY.unshift({ id: 'w' + Date.now(), kind: 'cardio', name: l.name,
+                      date: todayISO(), min: min });
+    /* Its own row remembers what you actually did, so the next one-tap log
+       is right rather than the catalogue default. */
+    var c = findCardio(l.id);
+    if (c) { c.min = min; c.last = todayISO(); }
+    S.logging = null; S.logError = null;
+    render();
+    say(esc(l.name) + ' &middot; ' + min + ' min logged.');
+  }
+
+  /* TODAY, not the wall clock. Every date on this screen is measured against
+     the fixture, so a log stamped with the real date read "last -1 days ago"
+     the moment the two disagreed. */
+  function todayISO() { return TODAY; }
+
+  function cardioSheet() {
+    var l = S.logging;
+    if (!l) return '';
+    return '<div class="scrim" data-action="cardio-cancel" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="cd-title" data-testid="cardio-sheet">' +
+        '<div class="sheet__head"><h2 class="t-section grow" id="cd-title">' + esc(l.name) + '</h2>' +
+          '<button class="iconbtn" type="button" data-action="cardio-cancel" aria-label="Cancel" ' +
+            'data-testid="cardio-close">' + ICO.close + '</button></div>' +
+        '<div class="sheet__body">' +
+          '<label class="t-label field__label" for="cardio-min">Minutes</label>' +
+          '<input class="input num" id="cardio-min" type="number" min="1" max="600" step="1" ' +
+            'inputmode="numeric" value="' + l.min + '" data-testid="cardio-min">' +
+          (S.logError ? '<p class="field__error" role="alert" data-testid="cardio-error">' +
+            esc(S.logError) + '</p>' : '') +
+          '<p class="t-caption-1 quiet mt-3">Starts at what you normally do. It becomes the ' +
+            'default for next time.</p>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--primary btn--block" type="button" data-action="cardio-save" ' +
+            'data-testid="cardio-save"><span class="btn__label">Log it</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
   function cardioBlock() {
-    var last4 = WEEKS.slice(3, 7).reduce(function (a, w) { return a + w.min; }, 0);
+    /* The last four weeks INCLUDING this one. It was the four before this
+       one, so anything logged today landed in a week the figure did not
+       count and the total never moved. */
+    var last4 = WEEKS.slice(-4).reduce(function (a, w) { return a + w.min; }, 0);
     var rows = CARDIO_QUICK.map(function (c) {
       return '' +
         '<button class="row" type="button" data-action="log-cardio" data-id="' + c.id + '" ' +
@@ -8232,6 +8309,7 @@ DEMO.define("train", function (document, window, location, fetch) {
   }
 
   function overlayHTML() {
+    if (S.logging) return cardioSheet();
     if (!S.sheet) return '';
     var inner = S.sheet.kind === 'split'
       ? splitSheet(SPLITS.filter(function (s) { return s.id === S.sheet.id; })[0])
@@ -8324,12 +8402,23 @@ DEMO.define("train", function (document, window, location, fetch) {
     if (a === 'open-history') { S.view = 'history'; render(); body.focus(); return; }
     if (a === 'back') { S.view = 'hub'; render(); return; }
     if (a === 'filter') { S.filter = t.dataset.filter; render(true); return; }
+    /* Opens the duration sheet rather than logging on the tap. The row
+       carries the duration this activity is normally done for, and one tap
+       from there logs it -- but "logged 30 minutes" when it was 22 is a
+       wrong number in the record, and the shipped app asked. */
     if (a === 'log-cardio') {
-      var name = t.getAttribute('aria-label').replace(/^Log /, '');
+      var id = t.getAttribute('data-id');
+      var c = findCardio(id);
+      if (!c) return;
+      S.logging = { id: id, name: c.name, min: c.min };
       if (S.sheet) closeSheet();
-      say('Logged ' + name.replace(/, (\d+) minutes$/, ' &middot; $1 min') + '.');
+      render();
+      var f = overlay.querySelector('[data-testid="cardio-min"]');
+      if (f) { f.focus(); f.select(); }
       return;
     }
+    if (a === 'cardio-cancel') { S.logging = null; render(); return; }
+    if (a === 'cardio-save') { saveCardio(); return; }
     if (a === 'undo') { S.toast = null; render(true); return; }
     if (a === 'retry') { S.state = 'loading'; render(); setTimeout(function () { S.state = 'populated'; render(); }, 900); return; }
     if (a === 'use-cached') { S.state = 'populated'; render(); return; }
@@ -14807,6 +14896,8 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     elapsed: 1261,           /* 21:01 */
     exercises: pushDay(),
     blocks: [],
+    /* Which exercise the picker is replacing, or null when it is adding. */
+    swapAt: null,
     hidePartials: false,     /* lk_hidePartials */
     restEnabled: true,       /* lk_restEnabled */
     restSeconds: 90,
@@ -14830,7 +14921,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     S.state = name;
     S.exercises = pushDay();
     S.blocks = [];
-    S.pad = null; S.overlay = null; S.toast = null;
+    S.pad = null; S.overlay = null; S.toast = null; S.swapAt = null;
     S.restRunning = false; S.restLeft = 0; S.aiBusyEx = -1; S.liftedEx = -1;
     S.tapCount = 0;
     S.elapsed = 1261;
@@ -15597,9 +15688,24 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
           S.overlay = null; toast('Warm-up set added.'); break;
         }
         if (key === 'remove') { S.exercises.splice(S.overlayEx, 1); S.overlay = null; toast('Exercise removed.', 'info', 'Undo'); break; }
-        if (key === 'swap') { S.overlay = 'addex'; break; }
+        /* Swap REPLACES. It opened the add picker, which pushes -- so
+           "Swap exercise" left the original in place and appended the new
+           one beside it: five exercises became six. S.swapAt records which
+           one is being replaced, and the picker reads it. */
+        if (key === 'swap') { S.swapAt = S.overlayEx; S.overlay = 'addex'; break; }
+        if (key === 'superset') {
+          cur.superset = !cur.superset;
+          S.overlay = null;
+          toast(cur.superset ? 'Supersetted with the next exercise.' : 'Superset off.');
+          break;
+        }
+        if (key === 'unilateral') {
+          cur.unilateral = !cur.unilateral;
+          S.overlay = null;
+          toast(cur.unilateral ? 'Left and right tracked separately.' : 'Tracked as one side.');
+          break;
+        }
         S.overlay = null;
-        toast(key === 'superset' ? 'Superset on.' : 'Left and right tracked separately.');
         break;
       }
 
@@ -15612,8 +15718,22 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
         break;
       }
       case 'discard': S.overlay = 'discard'; break;
-      case 'discard-confirm': S.overlay = null; toast('Workout discarded.'); break;
-      case 'finish': toast(doneSets() + ' sets saved. Opening review.'); break;
+      /* Discard DISCARDS. It toasted "Workout discarded." and left all five
+         exercises and every set on screen, which is the worst possible
+         outcome for a destructive confirm: the reader believes their session
+         is gone and it is not. The session empties and the screen says so;
+         Undo is not offered, because the dialog already asked. */
+      case 'discard-confirm':
+        S.overlay = null;
+        S.exercises = [];
+        S.blocks = [];
+        S.elapsed = 0;
+        S.restRunning = false; S.restLeft = 0;
+        toast('Workout discarded.');
+        break;
+      /* Finish leaves for Review; in the demo the router takes the click
+         first. It used to toast "Opening review." and stay here. */
+      case 'finish': location.href = 'review.html'; break;
 
       /* ---- rest ---- */
       case 'rest-add': S.restLeft += 30; say('Rest extended to ' + clock(S.restLeft)); break;
@@ -15642,6 +15762,17 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       case 'addex': S.overlay = 'addex'; break;
       case 'addex-pick': {
         var pick = LIBRARY[Number(t.getAttribute('data-i'))];
+        if (S.swapAt !== null && S.exercises[S.swapAt]) {
+          /* The sets stay. A swap is "I did this movement instead", not "start
+             again" -- the weights already entered are the reader's work and
+             throwing them away to change a name would be the worse bug. */
+          var was = S.exercises[S.swapAt];
+          was.id = pick.id; was.name = pick.name; was.muscle = pick.muscle;
+          S.overlay = null;
+          var from = S.swapAt; S.swapAt = null;
+          toast('Swapped to ' + pick.name + '.', 'info');
+          break;
+        }
         S.exercises.push({ id: pick.id, name: pick.name, muscle: pick.muscle, note: '', sets: [set(null, null, {}), set(null, null, {}), set(null, null, {})] });
         S.overlay = null;
         toast(pick.name + ' added.');
@@ -15659,7 +15790,9 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       case 'block-remove': S.blocks.splice(Number(t.getAttribute('data-i')), 1); break;
 
       case 'toast-action': S.toast = null; break;
-      case 'close': S.overlay = null; break;
+      /* swapAt goes with the picker. Left set, the next plain "Add
+         Exercise" would replace instead of adding. */
+      case 'close': S.overlay = null; S.swapAt = null; break;
       default: break;
     }
     paint();
@@ -18821,11 +18954,10 @@ DEMO.define("progress", function (document, window, location, fetch) {
     var el = document.getElementById(id);
     if (el) el.focus();
   }
-  function todayISO() {
-    var d = new Date();
-    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
-  }
-  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  /* TODAY, not the wall clock. Every date on this screen is measured against
+     the fixture, so a reading stamped with the real date sorts and labels
+     itself wrongly the moment the two disagree. */
+  function todayISO() { return TODAY; }
 
   function logWeight() {
     var el = document.getElementById('wt-kg');

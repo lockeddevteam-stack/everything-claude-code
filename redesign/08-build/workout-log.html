@@ -226,6 +226,8 @@
     elapsed: 1261,           /* 21:01 */
     exercises: pushDay(),
     blocks: [],
+    /* Which exercise the picker is replacing, or null when it is adding. */
+    swapAt: null,
     hidePartials: false,     /* lk_hidePartials */
     restEnabled: true,       /* lk_restEnabled */
     restSeconds: 90,
@@ -249,7 +251,7 @@
     S.state = name;
     S.exercises = pushDay();
     S.blocks = [];
-    S.pad = null; S.overlay = null; S.toast = null;
+    S.pad = null; S.overlay = null; S.toast = null; S.swapAt = null;
     S.restRunning = false; S.restLeft = 0; S.aiBusyEx = -1; S.liftedEx = -1;
     S.tapCount = 0;
     S.elapsed = 1261;
@@ -1016,9 +1018,24 @@
           S.overlay = null; toast('Warm-up set added.'); break;
         }
         if (key === 'remove') { S.exercises.splice(S.overlayEx, 1); S.overlay = null; toast('Exercise removed.', 'info', 'Undo'); break; }
-        if (key === 'swap') { S.overlay = 'addex'; break; }
+        /* Swap REPLACES. It opened the add picker, which pushes -- so
+           "Swap exercise" left the original in place and appended the new
+           one beside it: five exercises became six. S.swapAt records which
+           one is being replaced, and the picker reads it. */
+        if (key === 'swap') { S.swapAt = S.overlayEx; S.overlay = 'addex'; break; }
+        if (key === 'superset') {
+          cur.superset = !cur.superset;
+          S.overlay = null;
+          toast(cur.superset ? 'Supersetted with the next exercise.' : 'Superset off.');
+          break;
+        }
+        if (key === 'unilateral') {
+          cur.unilateral = !cur.unilateral;
+          S.overlay = null;
+          toast(cur.unilateral ? 'Left and right tracked separately.' : 'Tracked as one side.');
+          break;
+        }
         S.overlay = null;
-        toast(key === 'superset' ? 'Superset on.' : 'Left and right tracked separately.');
         break;
       }
 
@@ -1031,8 +1048,22 @@
         break;
       }
       case 'discard': S.overlay = 'discard'; break;
-      case 'discard-confirm': S.overlay = null; toast('Workout discarded.'); break;
-      case 'finish': toast(doneSets() + ' sets saved. Opening review.'); break;
+      /* Discard DISCARDS. It toasted "Workout discarded." and left all five
+         exercises and every set on screen, which is the worst possible
+         outcome for a destructive confirm: the reader believes their session
+         is gone and it is not. The session empties and the screen says so;
+         Undo is not offered, because the dialog already asked. */
+      case 'discard-confirm':
+        S.overlay = null;
+        S.exercises = [];
+        S.blocks = [];
+        S.elapsed = 0;
+        S.restRunning = false; S.restLeft = 0;
+        toast('Workout discarded.');
+        break;
+      /* Finish leaves for Review; in the demo the router takes the click
+         first. It used to toast "Opening review." and stay here. */
+      case 'finish': location.href = 'review.html'; break;
 
       /* ---- rest ---- */
       case 'rest-add': S.restLeft += 30; say('Rest extended to ' + clock(S.restLeft)); break;
@@ -1061,6 +1092,17 @@
       case 'addex': S.overlay = 'addex'; break;
       case 'addex-pick': {
         var pick = LIBRARY[Number(t.getAttribute('data-i'))];
+        if (S.swapAt !== null && S.exercises[S.swapAt]) {
+          /* The sets stay. A swap is "I did this movement instead", not "start
+             again" -- the weights already entered are the reader's work and
+             throwing them away to change a name would be the worse bug. */
+          var was = S.exercises[S.swapAt];
+          was.id = pick.id; was.name = pick.name; was.muscle = pick.muscle;
+          S.overlay = null;
+          var from = S.swapAt; S.swapAt = null;
+          toast('Swapped to ' + pick.name + '.', 'info');
+          break;
+        }
         S.exercises.push({ id: pick.id, name: pick.name, muscle: pick.muscle, note: '', sets: [set(null, null, {}), set(null, null, {}), set(null, null, {})] });
         S.overlay = null;
         toast(pick.name + ' added.');
@@ -1078,7 +1120,9 @@
       case 'block-remove': S.blocks.splice(Number(t.getAttribute('data-i')), 1); break;
 
       case 'toast-action': S.toast = null; break;
-      case 'close': S.overlay = null; break;
+      /* swapAt goes with the picker. Left set, the next plain "Add
+         Exercise" would replace instead of adding. */
+      case 'close': S.overlay = null; S.swapAt = null; break;
       default: break;
     }
     paint();
