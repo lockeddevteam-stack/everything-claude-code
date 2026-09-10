@@ -236,3 +236,90 @@ node cleanup-audit.mjs       # unused selectors, cross-screen measurements
 ```
 
 The demo opens from disk. No build step, no server, no network.
+
+---
+
+# The Apple wave
+
+Everything above described eleven screens. This wave added two, rebuilt the
+chrome and the foundation underneath all thirteen against
+`11-apple/apple-design-spec.md`, and put the app on five tabs.
+
+Nothing was removed. `11-apple/freeze-check.sh` counts the interactive
+elements, actions, testids, forms and text blocks on every screen and fails
+if any of them drops; it is the first thing `tests/run-all.sh` runs.
+
+## Five tabs
+
+Home, Train, Fuel, Coach, Profile. Progress moved under Home, the exercise
+library and the workout log sit under Train, Shopping and Budget live inside
+Fuel, Settings under Profile. Every tab is a real screen — none is a
+placeholder, and `assemble.mjs` throws rather than rendering one if a tab's
+screen file is missing.
+
+## Two screens built
+
+**Fuel.** One number, two ways to log it, and a meal list that says where
+each figure came from. A verified badge means a barcode matched a database
+row; an estimate badge means a model read a photo. The camera path asks the
+one question that moves the figure — oil — and adjusts the estimate with the
+answer. Water, supplements, trends and the meals you log often are sheets off
+the same screen. Shopping and Budget are a pushed screen inside the tab: a
+list that merges by unit and refuses to add teaspoons to pounds, a pantry the
+receipt scanner writes into, and a budget that reads from real purchase
+history.
+
+**Profile.** Identity, four totals, records, badges, and the settings screen
+pushed behind it.
+
+## The foundation
+
+**Springs.** Three sampled `linear()` easings, measured rather than eyeballed:
+smooth never overshoots, snappy peaks at 1.0063, bouncy at 1.046.
+
+**Type.** Eleven Apple roles, every size in `rem` and every tracking in `em`,
+so the whole ladder scales with the reader's setting. At the default root it
+renders exactly Apple's table — 11, 12, 13, 15, 17, 22, 28, 34. At AX5 it is
+34 to 106 and no text is clipped on any screen: buttons and chips wrap, list
+rows wrap rather than crush their title column, the set grid sizes to its
+content and scrolls, and the tab bar drops to icons through a container query
+whose `em` scales with the setting — hidden the way `.vis-hidden` hides text,
+so "Profile, tab" is still the accessible name.
+
+**Glass in the chrome only.** The floating tab bar and the bottom find bar,
+and nothing else. Zero content glass, enforced by `tests/apple-foundation.mjs`.
+
+**Corners.** `corner-shape: squircle` — the continuous corner iOS draws —
+applied to 168 elements as progressive enhancement over a radius every
+browser already renders. 130 capsules deliberately opt out, because a
+superellipse flattens a capsule.
+
+**Press.** 52 of 52 kinds of control take a spring on release. Colour answers
+in 150ms; anything that moves or fades runs on a spring at 300ms.
+
+## The chrome
+
+The large title collapses over 52px of travel into a 44px bar, interpolated
+rather than switched. The tab bar floats inset from three edges as a glass
+capsule and collapses to the active tab on scroll rather than leaving the
+screen. Sheets are inset with concentric corners, spring from the control
+that summoned them, show a grabber only where detents exist, and interpolate
+their full-bleed geometry over the last stretch of the drag.
+
+## One accent
+
+One accent fill per surface, on the primary action, in every state every
+screen declares. The audit reads SVG as well as HTML and treats an open sheet
+as its own surface. Second and third hues are semantic only: green is a state
+that is on, red is a consequence.
+
+## Verifying it
+
+```
+sh redesign/tests/run-all.sh
+```
+
+Fourteen suites: the freeze check, springs and type and glass, the chrome,
+squircles, press states, re-render, every screen in every state in both
+themes through axe, the body map, accent budget, focus, skeletons, Dynamic
+Type at AX5, dead controls, and the assembled demo.
