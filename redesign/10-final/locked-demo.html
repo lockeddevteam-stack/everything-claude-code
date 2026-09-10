@@ -9263,6 +9263,13 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     render();
   });
 
+  /* Settings owns "Show calorie numbers" and writes it where this screen can
+     see it, the same way the theme is shared. It is the DEFAULT here: the
+     dev switcher still overrides, because that is what the switcher is for. */
+  try {
+    if (localStorage.getItem('lk_fuelNumbers') === 'false') S.state = 'hidden';
+  } catch (e) {}
+
   var p = new URLSearchParams(location.search);
   if (p.get('state') && VIEWS[p.get('state')]) S.state = p.get('state');
   render();
@@ -11045,6 +11052,14 @@ DEMO.define("profile", function (document, window, location, fetch) {
     if (!b) return;
     S.state = b.dataset.state; render();
   });
+
+  /* "Streaks and badges are a setting, off unless somebody turned them on" --
+     the comment at the top of this file has said so all along, and until now
+     there was no such setting anywhere. Settings owns it and writes it where
+     this screen can see it. The dev switcher still overrides. */
+  try {
+    if (localStorage.getItem('lk_badges') === 'true') S.state = 'badges';
+  } catch (e) {}
 
   var q = new URLSearchParams(location.search);
   if (q.get('state') && VIEWS[q.get('state')]) S.state = q.get('state');
@@ -13986,6 +14001,15 @@ DEMO.define("settings", function (document, window, location, fetch) {
      screen keeps a number in display units, which is the whole of
      defect 3.
      ============================================================= */
+  /* A shared switch, or its default. localStorage throws in a few contexts
+     and can come back empty, so a miss is the default rather than a crash. */
+  function read(key, dflt) {
+    try {
+      var v = localStorage.getItem(key);
+      return v === null ? dflt : v === 'true';
+    } catch (e) { return dflt; }
+  }
+
   var S = {
     view: 'signed-in',
     name: 'Cesco',
@@ -13995,6 +14019,10 @@ DEMO.define("settings", function (document, window, location, fetch) {
     dist: 'km',
     weekStart: 'mon',
     theme: (window.LKTheme ? window.LKTheme.get() : 'dark'),
+    /* Named by Fuel's hidden state and Profile's own source comment, and
+       until now existing on neither screen. */
+    fuelNumbers: read('lk_fuelNumbers', true),
+    badges: read('lk_badges', false),
     restTimer: true,
     restSec: 90,
     partials: false,
@@ -14313,6 +14341,25 @@ DEMO.define("settings", function (document, window, location, fetch) {
       '</div>');
   }
 
+  /* Two switches that were named on other screens and existed on none.
+
+     Fuel's hidden state says "Numbers are off in Settings" and there was no
+     such control anywhere; Profile's own source comment says badges are "a
+     setting, off unless somebody turned them on" and there was no such
+     setting either. Both are here now, where the copy already said they
+     were. */
+  function seenSection() {
+    return group('What you see',
+      '<div class="card card--flush">' +
+        switchRow('fuelNumbers', 'Show calorie numbers',
+          S.fuelNumbers ? 'Fuel shows the figures' : 'Fuel shows how the day is going, not the numbers',
+          S.fuelNumbers, 'switch-fuel-numbers') +
+        switchRow('badges', 'Streaks and badges',
+          S.badges ? 'On. Profile shows them.' : 'Off. Nothing is scored.',
+          S.badges, 'switch-badges') +
+      '</div>');
+  }
+
   function remindersSection() {
     return group('Reminders',
       '<div class="card card--flush">' +
@@ -14358,7 +14405,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
   }
 
   function screenHTML() {
-    return accountSection() + displaySection() + trainingSection() + remindersSection() + dataSection();
+    return accountSection() + displaySection() + seenSection() + trainingSection() + remindersSection() + dataSection();
   }
 
   /* =============================================================
@@ -14627,8 +14674,16 @@ DEMO.define("settings", function (document, window, location, fetch) {
       render();
       var el = document.querySelector('[data-testid="' + t.dataset.testid + '"]');
       if (el) el.focus();
-      say((k === 'restTimer' ? 'Rest timer ' : k === 'partials' ? 'Count partial reps ' : 'Workout reminder ') +
-          (S[k] ? 'on' : 'off'));
+      /* These two are read by other screens, so they are written where those
+         screens can see them -- the same way the theme is shared. Everything
+         else in this file is a per-screen fixture and stays one. */
+      if (k === 'fuelNumbers' || k === 'badges') {
+        try { localStorage.setItem('lk_' + k, String(S[k])); } catch (e) {}
+      }
+      var LABEL = { restTimer: 'Rest timer ', partials: 'Count partial reps ',
+                    reminder: 'Workout reminder ', fuelNumbers: 'Calorie numbers ',
+                    badges: 'Streaks and badges ' };
+      say((LABEL[k] || 'Setting ') + (S[k] ? 'on' : 'off'));
 
     } else if (a === 'pick') {
       var key2 = t.dataset.key, raw = t.dataset.value;
@@ -16768,9 +16823,11 @@ DEMO.define("shopping", function (document, window, location, fetch) {
               '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
             '</button></div>' +
           '<div class="sheet__body">' +
-            '<p class="t-detail">Opens a search for each of your first ten unchecked items, one tab at a time.</p>' +
+            '<p class="t-detail">Opens a search for the next thing on your list. ' +
+              (left() ? left() + ' still to get.' : 'Nothing left to get.') + '</p>' +
             '<div class="card card--flush mt-3">' + onStores().map(function (s) {
-              return '<button class="row" type="button" data-action="close" data-testid="sa-' + s.id + '">' +
+              return '<button class="row" type="button" data-action="search-store" data-id="' + s.id +
+                '" data-testid="sa-' + s.id + '">' +
                 '<span class="fuel-thumb" style="background: ' + s.hue + '; color: var(--text-on-solid)" aria-hidden="true">' +
                   esc(s.name.charAt(0)) + '</span>' +
                 '<span class="row__main"><span class="row__title">' + esc(s.name) + '</span></span>' +
@@ -16999,6 +17056,46 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     'clear-done': function () { S.sheet = 'clear-done'; },
     'clear-all':  function () { S.sheet = 'clear-all'; },
     'shop-at':    function () { S.sheet = 'shop-at'; },
+
+    /* One search, for the next unchecked item. The copy used to promise ten
+       tabs "one at a time" and every row was data-action="close" -- the whole
+       My Stores panel, chips and toggles and the custom-store form, had no
+       consequence anywhere in the app.
+
+       One tab, not ten: ten is a thing a page does to you, and the next item
+       is the one you are standing in front of the shelf for. */
+    'search-store': function (el) {
+      var st = MYSTORES.filter(function (x) { return x.id === el.getAttribute('data-id'); })[0];
+      if (!st) return;
+      var next = LIST.filter(function (i) { return !i.done; })[0];
+      S.sheet = null;
+      if (!next) { S.toast = 'Nothing left to get.'; return; }
+      var url = 'https://' + st.host + '/search?q=' + encodeURIComponent(next.name);
+      var win = null;
+      /* Not the 'noopener' feature string: it makes window.open return null
+         by spec, so there is no way left to tell a blocked pop-up from an
+         opened one. The opener is cleared on the handle instead, which is
+         the same protection with an answer. */
+      try {
+        win = window.open(url, '_blank');
+        if (win) { try { win.opener = null; } catch (e) {} }
+      } catch (e) {}
+      if (win) { S.toast = 'Searching ' + esc(st.name) + ' for ' + esc(next.name) + '.'; return; }
+
+      /* A blocked pop-up is a normal outcome from a file:// page, so the
+         fallback is the address itself rather than silence. The clipboard
+         can be refused too -- it is a permission -- and a rejected promise
+         is not an error the reader should see in a console. */
+      S.toast = 'Your browser blocked the tab. Search ' + esc(st.host) + ' for ' + esc(next.name) + '.';
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).then(function () {
+            S.toast = 'Your browser blocked the tab. The ' + esc(st.name) + ' search link is copied.';
+            render();
+          }, function () {});
+        }
+      } catch (e) {}
+    },
 
     /* The dialogs' confirm buttons. They were data-action="close": the dialog
        shut, which looks exactly like it worked, and the list was untouched. */

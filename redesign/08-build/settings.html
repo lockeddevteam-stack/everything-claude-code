@@ -196,6 +196,15 @@
      screen keeps a number in display units, which is the whole of
      defect 3.
      ============================================================= */
+  /* A shared switch, or its default. localStorage throws in a few contexts
+     and can come back empty, so a miss is the default rather than a crash. */
+  function read(key, dflt) {
+    try {
+      var v = localStorage.getItem(key);
+      return v === null ? dflt : v === 'true';
+    } catch (e) { return dflt; }
+  }
+
   var S = {
     view: 'signed-in',
     name: 'Cesco',
@@ -205,6 +214,10 @@
     dist: 'km',
     weekStart: 'mon',
     theme: (window.LKTheme ? window.LKTheme.get() : 'dark'),
+    /* Named by Fuel's hidden state and Profile's own source comment, and
+       until now existing on neither screen. */
+    fuelNumbers: read('lk_fuelNumbers', true),
+    badges: read('lk_badges', false),
     restTimer: true,
     restSec: 90,
     partials: false,
@@ -523,6 +536,25 @@
       '</div>');
   }
 
+  /* Two switches that were named on other screens and existed on none.
+
+     Fuel's hidden state says "Numbers are off in Settings" and there was no
+     such control anywhere; Profile's own source comment says badges are "a
+     setting, off unless somebody turned them on" and there was no such
+     setting either. Both are here now, where the copy already said they
+     were. */
+  function seenSection() {
+    return group('What you see',
+      '<div class="card card--flush">' +
+        switchRow('fuelNumbers', 'Show calorie numbers',
+          S.fuelNumbers ? 'Fuel shows the figures' : 'Fuel shows how the day is going, not the numbers',
+          S.fuelNumbers, 'switch-fuel-numbers') +
+        switchRow('badges', 'Streaks and badges',
+          S.badges ? 'On. Profile shows them.' : 'Off. Nothing is scored.',
+          S.badges, 'switch-badges') +
+      '</div>');
+  }
+
   function remindersSection() {
     return group('Reminders',
       '<div class="card card--flush">' +
@@ -568,7 +600,7 @@
   }
 
   function screenHTML() {
-    return accountSection() + displaySection() + trainingSection() + remindersSection() + dataSection();
+    return accountSection() + displaySection() + seenSection() + trainingSection() + remindersSection() + dataSection();
   }
 
   /* =============================================================
@@ -837,8 +869,16 @@
       render();
       var el = document.querySelector('[data-testid="' + t.dataset.testid + '"]');
       if (el) el.focus();
-      say((k === 'restTimer' ? 'Rest timer ' : k === 'partials' ? 'Count partial reps ' : 'Workout reminder ') +
-          (S[k] ? 'on' : 'off'));
+      /* These two are read by other screens, so they are written where those
+         screens can see them -- the same way the theme is shared. Everything
+         else in this file is a per-screen fixture and stays one. */
+      if (k === 'fuelNumbers' || k === 'badges') {
+        try { localStorage.setItem('lk_' + k, String(S[k])); } catch (e) {}
+      }
+      var LABEL = { restTimer: 'Rest timer ', partials: 'Count partial reps ',
+                    reminder: 'Workout reminder ', fuelNumbers: 'Calorie numbers ',
+                    badges: 'Streaks and badges ' };
+      say((LABEL[k] || 'Setting ') + (S[k] ? 'on' : 'off'));
 
     } else if (a === 'pick') {
       var key2 = t.dataset.key, raw = t.dataset.value;
