@@ -158,8 +158,19 @@ for (const file of files) {
           if (id && !document.getElementById(id)) dangling.push('label for -> ' + id);
         });
 
+        /* Nine screens hand-write the same five-item bar. They had drifted:
+           one could never minimize because it carried no data-minimize, and
+           one marked no current tab at all — the demo's router papered over
+           the second and standalone nothing did. */
+        const bar = document.querySelector('.tabbar');
+        const tabbar = !bar ? null : {
+          minimize: bar.getAttribute('data-minimize'),
+          current: [...bar.querySelectorAll('[aria-current]')].length,
+          items: bar.querySelectorAll('.tabbar__item').length
+        };
+
         return {
-          unknown: [...unknown], targets, small, touching, dangling,
+          unknown: [...unknown], targets, small, touching, dangling, tabbar,
           overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
           /* Not every screen gives its scroller an id: coach renders the
              whole screen from JS and identifies its body by class. Checking
@@ -187,6 +198,10 @@ for (const file of files) {
       ok(m.small.length === 0, tag + ' — targets >= 44px', m.small.slice(0, 3).join(', '));
       ok(m.touching.length === 0, tag + ' — adjacent controls are separated', m.touching.slice(0, 3).join(' / '));
       ok(m.dangling.length === 0, tag + ' — every aria reference resolves', m.dangling.slice(0, 3).join(' / '));
+      if (m.tabbar) {
+        ok(m.tabbar.items === 5 && m.tabbar.current === 1 && !!m.tabbar.minimize,
+           tag + ' — the tab bar is the tab bar', JSON.stringify(m.tabbar));
+      }
       ok(a.length === 0, tag + ' — axe clean', a.join(', '));
       ok(!m.overflow, tag + ' — no sideways overflow');
       ok(!m.empty, tag + ' — renders content or a skeleton');
