@@ -59,7 +59,11 @@ for (const theme of ['dark', 'light']) {
     }
     await page.waitForTimeout(300);
 
-    /* Scroll the inner scroller now that the layout has settled. */
+    /* Scroll the inner scroller now that the layout has settled, then let the
+       chrome react before reading anything. A large title collapsing changes
+       the scroller's height, so a reading taken in the same frame as the
+       scroll records a position the page is about to clamp, and the clamp
+       then looks like the re-render moving the page. */
     await page.evaluate(() => {
       document.querySelectorAll('*').forEach(el => {
         if (el.scrollHeight > el.clientHeight + 40 && /auto|scroll/.test(getComputedStyle(el).overflowY)) {
@@ -67,6 +71,7 @@ for (const theme of ['dark', 'light']) {
         }
       });
     });
+    await page.waitForTimeout(250);
 
     const input = page.locator('input[type="text"], input[type="search"], input:not([type]), textarea')
       .filter({ visible: true }).first();
@@ -115,4 +120,4 @@ const bad = rows.filter(r => !r.scrollOK || !r.caretOK || !r.focusOK || r.errors
 for (const b of bad) console.log('FAIL', b.theme, b.file,
   'scroll', b.scrollOK, b.scrollBefore, '->', b.scrollAfter,
   '| focus', b.focusOK, b.focus, '| caret', b.caretOK, b.caret, '|', b.errors.join(' ~ '));
-console.log(`\n${rows.length - bad.length} / ${rows.length} clean (11 screens x 2 themes)`);
+console.log(`\n${rows.length - bad.length} / ${rows.length} clean (${rows.length / 2} screens x 2 themes)`);

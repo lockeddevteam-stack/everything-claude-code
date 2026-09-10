@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — Fuel</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<script src="theme.js"></script>
+<script src="app.js"></script>
+<script src="chrome.js"></script>
+</head>
+<body>
+<!--
+  FUEL — built from Concept D, "Glance and Ledger merged, no Fuel Score".
+
+  The whole screen answers one question: what is left to eat today, and how do
+  I record what I just ate. Everything else is a chip at the bottom.
+
+  WHY THE SPLIT BUTTON
+  Voice and camera are the two fast paths and neither is secondary, so they
+  share one accent control rather than competing as two. That keeps the
+  screen's single accent on the single job the screen is for. Concept D's
+  own note: "Mic and camera share one orange split button. Equal weight, one
+  accent per surface, nothing floats over content."
+
+  WHAT WAS CUT, AND ON WHOSE SAY-SO
+  The Fuel Score is gone. It was a composite of weighted sub-scores, which
+  reads as rigorous and cannot be acted on: the targets and the day's actuals
+  already say what to do differently. Cut at the Wave 0 gate by the owner.
+  Receipt scanning went with it, to Shopping, because parsing a receipt is a
+  grocery job rather than a logging one.
+
+  SOURCE BADGES ARE NOT DECORATION
+  Every logged row says where its numbers came from. A verified barcode and an
+  AI estimate from a photo are not the same claim, and a screen that renders
+  them identically is lying about its own confidence. This is the trust layer
+  the rebuild plan asks for, and it is why "Estimate" is a visible word rather
+  than a shade of grey.
+
+  STATES
+  populated, first-weeks (the target is a formula until the trend takes over),
+  hidden (numbers off, for anyone the numbers hurt), empty, loading, error.
+-->
+
+<div class="stage">
+  <div class="phone">
+    <div class="screen" id="screen" data-testid="screen-fuel" data-state="populated">
+
+      <header class="hdr hdr--large" data-large-title="#body" data-scroll-edge="#body" id="hdr"></header>
+
+      <main class="body" id="body" data-testid="fuel-scroll" tabindex="-1"></main>
+
+      <div id="overlay"></div>
+
+      <nav class="tabbar" aria-label="Sections" data-minimize="#body">
+        <button class="tabbar__item" type="button" data-testid="tab-home">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4v-5H9v5H5a1 1 0 0 1-1-1z"/></svg>
+          Home
+        </button>
+        <button class="tabbar__item" type="button" data-testid="tab-train">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/></svg>
+          Train
+        </button>
+        <button class="tabbar__item" type="button" aria-current="page" data-testid="tab-fuel">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7 3v8a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V3"/><path d="M9 13v8"/><path d="M17 3c-1.5 1.8-2 3.6-2 5.5 0 1.6.7 2.5 2 2.5s2-.9 2-2.5c0-1.9-.5-3.7-2-5.5Z"/><path d="M17 11v10"/></svg>
+          Fuel
+        </button>
+        <button class="tabbar__item" type="button" data-testid="tab-coach">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 15a3 3 0 0 1-3 3H9l-4 3V7a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3z"/></svg>
+          Coach
+        </button>
+        <button class="tabbar__item" type="button" data-testid="tab-profile">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>
+          Profile
+        </button>
+      </nav>
+
+    </div>
+  </div>
+</div>
+
+<div class="dev">
+  <button class="dev__toggle" id="dev-toggle" aria-expanded="false" aria-controls="dev-menu" data-testid="dev-toggle">State</button>
+  <div class="dev__menu" id="dev-menu" hidden data-testid="dev-menu"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var screen = document.getElementById('screen');
+  var hdr = document.getElementById('hdr');
+  var body = document.getElementById('body');
+  var overlay = document.getElementById('overlay');
+  var menu = document.getElementById('dev-menu');
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c];
+    });
+  }
+  function n(v) { return Number(v).toLocaleString('en-GB'); }
+
+  var ICO = {
+    mic: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
+    cam: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+    chev: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg>',
+    alert: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/></svg>',
+    plus: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg>'
+  };
+
+  /* The day. Numbers are the fixture's, not invented at render time, so the
+     same screen renders the same way every run and a screenshot diff means
+     something. */
+  var DAY = {
+    date: 'Mon 7 Sep',
+    target: 2980,
+    eaten: 1570,
+    goal: 'lean bulk',
+    weightKg: 78.3,
+    weekPct: 0.34,
+    macros: [
+      { name: 'Protein', have: 121, want: 160, unit: 'g', key: 'pro' },
+      { name: 'Carbs', have: 178, want: 380, unit: 'g', key: 'carb' },
+      { name: 'Fat', have: 58, want: 80, unit: 'g', key: 'fat' }
+    ],
+    meals: [
+      { icon: '🍳', name: 'Eggs, toast, butter', at: '8:05', pro: 38, kcal: 540, src: 'verified' },
+      { icon: '🥗', name: 'Chicken rice bowl', at: '12:40', pro: 52, kcal: 720, src: 'estimate' },
+      { icon: '🥤', name: 'Whey shake, banana', at: '3:15', pro: 31, kcal: 310, src: 'verified' }
+    ],
+    /* Not a target and not a nag: a pattern this person already has. */
+    closing: { at: '7:30', pro: 40 }
+  };
+
+  var S = { state: 'populated', sheet: null, listening: false };
+
+  /* ---------------------------------------------------------------
+     Header
+     --------------------------------------------------------------- */
+  function headerHTML() {
+    return '' +
+      '<div class="hdr__title stack stack--1">' +
+        '<span class="t-meta">' + esc(DAY.date) + '</span>' +
+        '<h1 class="hdr__title-large" data-title-large>Fuel</h1>' +
+      '</div>' +
+      '<span class="hdr__title-small" data-title-small aria-hidden="true">Fuel</span>';
+  }
+
+  /* ---------------------------------------------------------------
+     The hero, and the three ways it can read
+
+     populated   the number left, and what it is left of
+     first-weeks a day counter, because the target is still a formula
+     hidden      a word, because the number is the thing being hidden
+     --------------------------------------------------------------- */
+  function hero() {
+    var left = DAY.target - DAY.eaten;
+
+    if (S.state === 'hidden') {
+      return '<div class="fuel-hero" data-testid="hero">' +
+        '<div class="stack stack--1">' +
+          '<p class="t-title-1" data-testid="hero-value">On track</p>' +
+          '<p class="t-footnote quiet">Protein is ahead of pace and the day has room left. ' +
+            'Numbers are off in Settings.</p>' +
+        '</div></div>';
+    }
+
+    if (S.state === 'first-weeks') {
+      return '<div class="fuel-hero" data-testid="hero">' +
+        '<div class="stack stack--1">' +
+          '<p class="t-meta">DAY 3 OF 14</p>' +
+          '<p class="fuel-hero__num num" data-testid="hero-value">' + n(left) + '</p>' +
+          '<p class="t-footnote quiet">kcal left of ' + n(DAY.target) + ' &middot; ' +
+            'a starting formula, not your trend yet. It updates once there are two weeks to read.</p>' +
+        '</div></div>';
+    }
+
+    return '<div class="fuel-hero" data-testid="hero">' +
+      '<div class="stack stack--1 grow">' +
+        '<p class="fuel-hero__num num" data-testid="hero-value">' + n(left) + '</p>' +
+        '<p class="t-footnote quiet">kcal left of ' + n(DAY.target) + ' &middot; ' + esc(DAY.goal) + '</p>' +
+      '</div>' +
+      '<div class="fuel-hero__side stack stack--1">' +
+        '<p class="t-subheadline num">' + DAY.weightKg.toFixed(1) + ' kg</p>' +
+        '<p class="t-caption-2 quiet">+' + DAY.weekPct.toFixed(2) + '% / wk, on target</p>' +
+      '</div></div>';
+  }
+
+  /* The one accent on the screen, holding both fast paths. Two buttons rather
+     than one with a mode, because a mode is a thing to get wrong; one control
+     because voice and camera are the same job done two ways. */
+  function logAction() {
+    return '<div class="fuel-log" role="group" aria-label="Log what you ate">' +
+      '<button class="fuel-log__half" type="button" data-action="mic" data-testid="log-mic">' +
+        ICO.mic + '<span class="t-headline">Say it</span>' +
+      '</button>' +
+      '<span class="fuel-log__split" aria-hidden="true"></span>' +
+      '<button class="fuel-log__half" type="button" data-action="cam" data-testid="log-cam">' +
+        ICO.cam + '<span class="t-headline">Snap it</span>' +
+      '</button>' +
+    '</div>' +
+    '<p class="t-caption-1 quiet fuel-log__hint">Say what you ate, or snap the plate.</p>';
+  }
+
+  function macros() {
+    if (S.state === 'hidden') {
+      var words = ['Ahead', 'On pace', 'On pace'];
+      return '<div class="card mt-4" data-testid="macros">' +
+        DAY.macros.map(function (m, i) {
+          return '<div class="fuel-macro">' +
+            '<div class="hstack"><span class="t-subheadline grow">' + esc(m.name) + '</span>' +
+            '<span class="t-footnote quiet">' + words[i] + '</span></div>' +
+            '<div class="meter mt-2"><span class="meter__fill" style="width:' +
+              Math.round(m.have / m.want * 100) + '%"></span></div>' +
+          '</div>';
+        }).join('') + '</div>';
+    }
+    return '<div class="card mt-4" data-testid="macros">' +
+      DAY.macros.map(function (m) {
+        var pct = Math.min(100, Math.round(m.have / m.want * 100));
+        return '<div class="fuel-macro">' +
+          '<div class="hstack">' +
+            '<span class="t-subheadline grow">' + esc(m.name) + '</span>' +
+            '<span class="t-footnote num"><strong>' + m.have + '</strong> / ' + m.want + ' ' + m.unit + '</span>' +
+          '</div>' +
+          '<div class="meter mt-2" role="img" aria-label="' + esc(m.name) + ', ' + m.have +
+            ' of ' + m.want + ' ' + m.unit + '"><span class="meter__fill" style="width:' + pct + '%"></span></div>' +
+        '</div>';
+      }).join('') + '</div>';
+  }
+
+  /* A badge is a claim about where a number came from. Verified means a
+     barcode or a database row; Estimate means a model looked at a photo. */
+  function badge(src) {
+    return src === 'verified'
+      ? '<span class="badge badge--ok" data-testid="badge-verified">Verified</span>'
+      : '<span class="badge badge--est" data-testid="badge-estimate">Estimate</span>';
+  }
+
+  function mealRow(m, i) {
+    return '<button class="row" type="button" data-action="meal" data-i="' + i +
+        '" data-testid="meal-' + i + '">' +
+      '<span class="fuel-thumb" aria-hidden="true">' + m.icon + '</span>' +
+      '<span class="row__main stack">' +
+        '<span class="row__title">' + esc(m.name) + '</span>' +
+        '<span class="row__sub">' + esc(m.at) + ' &middot; ' + m.pro + ' g protein</span>' +
+      '</span>' +
+      /* The badge belongs with the number, not with the time: it is a claim
+         about where that number came from. It also stays when the numbers are
+         hidden, because "a barcode read this" is not itself a calorie count. */
+      '<span class="fuel-src">' +
+        (S.state === 'hidden' ? '' : '<span class="row__value num">' + n(m.kcal) +
+          '<small class="t-caption-2 quiet"> kcal</small></span>') +
+        badge(m.src) +
+      '</span>' +
+      '<span class="row__chev">' + ICO.chev + '</span>' +
+    '</button>';
+  }
+
+  function today() {
+    var rows = DAY.meals.map(mealRow).join('');
+    /* The empty slot is a pattern, not a target. "About 40g protein closes
+       today" is something this person already does; "600 calories to beat"
+       would be a number invented to be chased. */
+    var closing = '<div class="row row--quiet" data-testid="meal-closing">' +
+      '<span class="fuel-thumb" aria-hidden="true">🍽</span>' +
+      '<span class="row__main stack">' +
+        '<span class="row__title">Dinner</span>' +
+        '<span class="row__sub">Usually ' + esc(DAY.closing.at) + ' &middot; about ' +
+          DAY.closing.pro + ' g protein closes today.</span>' +
+      '</span>' +
+      '<span class="fuel-src"><span class="row__value quiet">&mdash;</span></span>' +
+      '<span class="row__chev" aria-hidden="true"></span></div>';
+
+    return '<div class="section">' +
+      '<div class="section__head">' +
+        '<h2 class="t-label">Today</h2>' +
+        '<button class="hdr__action" type="button" data-action="meals" data-testid="open-meals">Meals</button>' +
+      '</div>' +
+      '<div class="card card--flush">' + rows + closing + '</div>' +
+    '</div>';
+  }
+
+  /* Everything that is not logging. Quiet chips, because a fake button row is
+     how a screen ends up with five things competing for one job. */
+  function chips() {
+    var items = [['trends', 'Trends'], ['water', 'Water'], ['supps', 'Supps'], ['more', 'More']];
+    return '<div class="chiprow mt-4" data-testid="fuel-chips">' +
+      items.map(function (c) {
+        return '<button class="chip" type="button" data-action="' + c[0] +
+          '" data-testid="chip-' + c[0] + '">' + c[1] + '</button>';
+      }).join('') + '</div>';
+  }
+
+  /* ---------------------------------------------------------------
+     Views
+     --------------------------------------------------------------- */
+  var VIEWS = {};
+
+  VIEWS.populated = function () {
+    return '<div>' + hero() + logAction() + macros() + '</div>' +
+      today() + '<div>' + chips() + '</div>';
+  };
+  VIEWS['first-weeks'] = VIEWS.populated;
+  VIEWS.hidden = VIEWS.populated;
+
+  VIEWS.empty = function () {
+    return '<div>' + hero() + logAction() + '</div>' +
+      '<div class="empty mt-5" data-testid="state-empty">' +
+        '<p class="empty__title">Nothing logged today</p>' +
+        '<p class="empty__body">Say what you ate or snap the plate. The first one takes ' +
+          'about ten seconds and the rest get faster, because it learns what you eat.</p>' +
+      '</div>';
+  };
+
+  VIEWS.loading = function () {
+    return '<div role="status" aria-busy="true" aria-label="Loading today">' +
+      '<div class="skel" style="height: 56px; width: 60%"></div>' +
+      '<div class="skel mt-2" style="height: var(--sp-4); width: 78%"></div>' +
+      '<div class="skel mt-4" style="height: 64px"></div>' +
+      '<div class="card mt-4">' +
+        '<div class="skel" style="height: var(--sp-4); width: 40%"></div>' +
+        '<div class="skel mt-3" style="height: var(--sp-2)"></div>' +
+        '<div class="skel mt-4" style="height: var(--sp-4); width: 36%"></div>' +
+        '<div class="skel mt-3" style="height: var(--sp-2)"></div>' +
+      '</div></div>';
+  };
+
+  VIEWS.error = function () {
+    return '<div class="mt-4" data-testid="state-error">' +
+      '<div class="banner banner--error">' + ICO.alert +
+        '<span><strong>Today did not load</strong>What you logged is on this device and is not lost. ' +
+          'The targets need the server and it did not answer.</span></div>' +
+      '<button class="btn btn--primary btn--block mt-4" type="button" data-action="retry" data-testid="retry">' +
+        '<span class="btn__label">Try again</span></button>' +
+      '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="mic" data-testid="log-offline">' +
+        '<span class="btn__label">Log anyway, without targets</span></button>' +
+    '</div>';
+  };
+
+  /* ---------------------------------------------------------------
+     Sheets. Both fast paths open one, and both say what they are doing
+     rather than spinning.
+     --------------------------------------------------------------- */
+  function sheetHTML() {
+    if (S.sheet === 'mic') {
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="mic-title" ' +
+          'data-detents="0.45 0.9" data-testid="sheet-mic">' +
+          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="mic-title">Listening</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Stop" data-testid="mic-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<div class="fuel-listen" data-testid="mic-pulse" aria-hidden="true"><span></span><span></span><span></span></div>' +
+            '<p class="t-body-17 mt-4">&ldquo;Chicken rice bowl and a whey shake after the gym&rdquo;</p>' +
+            '<p class="t-footnote quiet mt-3">Two meals heard. Times resolve from your session: ' +
+              '&ldquo;after the gym&rdquo; is 6:15 today.</p>' +
+          '</div>' +
+          '<div class="sheet__foot">' +
+            '<button class="btn btn--primary btn--block" type="button" data-action="close" data-testid="mic-confirm">' +
+              '<span class="btn__label">Log both</span></button>' +
+          '</div>' +
+        '</div>';
+    }
+    if (S.sheet === 'cam') {
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="cam-title" ' +
+          'data-detents="0.6 0.95" data-testid="sheet-cam">' +
+          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="cam-title">What is on the plate</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="cam-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<p class="t-body-17">Chicken, rice, broccoli. <span class="quiet">About 690 kcal, 54 g protein.</span></p>' +
+            '<p class="t-caption-1 quiet mt-2">Estimated from the photo, 71% confident.</p>' +
+            '<p class="t-label mt-5">Was there oil or sauce?</p>' +
+            '<div class="chiprow mt-2">' +
+              '<button class="chip" type="button" data-testid="cam-a1">None</button>' +
+              '<button class="chip" type="button" data-testid="cam-a2">A little</button>' +
+              '<button class="chip" type="button" data-testid="cam-a3">A lot</button>' +
+            '</div>' +
+            '<p class="t-caption-1 quiet mt-3">One question, asked because oil moves this plate by ' +
+              'more than 15%. Nothing else is worth interrupting you for.</p>' +
+          '</div>' +
+          '<div class="sheet__foot">' +
+            '<button class="btn btn--primary btn--block" type="button" data-action="close" data-testid="cam-confirm">' +
+              '<span class="btn__label">Log it</span></button>' +
+          '</div>' +
+        '</div>';
+    }
+    return '';
+  }
+
+  /* ---------------------------------------------------------------
+     Render
+     --------------------------------------------------------------- */
+  function render() {
+    screen.setAttribute('data-state', S.state);
+    hdr.classList.add('hdr--large');
+    LKPatch(hdr, headerHTML());
+    LKPatch(body, (VIEWS[S.state] || VIEWS.populated)());
+    LKPatch(overlay, sheetHTML());
+    Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.state === S.state));
+    });
+    if (window.LKChrome) LKChrome.init(document);
+  }
+
+  document.addEventListener('click', function (e) {
+    var act = e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!act) return;
+    var a = act.getAttribute('data-action');
+    if (a === 'mic' || a === 'cam') { S.sheet = a; render(); return; }
+    if (a === 'close') { S.sheet = null; render(); return; }
+    if (a === 'retry') { S.state = 'loading'; render(); setTimeout(function () { S.state = 'populated'; render(); }, 700); return; }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && S.sheet) { S.sheet = null; render(); }
+  });
+
+  var STATES = [
+    ['populated', 'Populated'], ['first-weeks', 'First two weeks'],
+    ['hidden', 'Numbers hidden'], ['empty', 'Empty'],
+    ['loading', 'Loading'], ['error', 'Error']
+  ];
+  LKPatch(menu, STATES.map(function (s) {
+    return '<button class="dev__item" data-state="' + s[0] + '" aria-pressed="false" data-testid="dev-state-' + s[0] + '">' + s[1] + '</button>';
+  }).join(''));
+  document.getElementById('dev-toggle').addEventListener('click', function () {
+    var open = menu.hidden;
+    menu.hidden = !open;
+    this.setAttribute('aria-expanded', String(open));
+  });
+  menu.addEventListener('click', function (e) {
+    var b = e.target.closest('.dev__item');
+    if (!b) return;
+    S.state = b.dataset.state;
+    S.sheet = null;
+    render();
+  });
+
+  var p = new URLSearchParams(location.search);
+  if (p.get('state') && VIEWS[p.get('state')]) S.state = p.get('state');
+  render();
+  requestAnimationFrame(function () { window.__ready = true; });
+})();
+</script>
+</body>
+</html>

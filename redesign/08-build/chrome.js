@@ -60,8 +60,21 @@
       var small = bar.querySelector('[data-title-small]');
       if (!big) return;
 
+      /* The bar's height is interpolated, not switched. The shipped version
+         put the whole 30px height change on a class that flipped at t > 0.98,
+         so the page lurched once, in one frame, halfway through a scroll --
+         and at the bottom of a short page the grown scroll container clamped
+         scrollTop and dragged the content back down with it. Measured on
+         Fuel: clientHeight 714 -> 744 in one frame, scrollTop 73 -> 43. */
+      var expanded = 0;
+
       onScrollFrame(scroller, function (y) {
         var t = Math.min(1, Math.max(0, y / TRAVEL));
+        if (!expanded && t === 0) expanded = bar.offsetHeight;
+        if (expanded) {
+          var compact = parseFloat(getComputedStyle(bar).getPropertyValue('--nav-h-compact')) || 44;
+          if (compact < expanded) bar.style.height = (expanded - t * (expanded - compact)) + 'px';
+        }
         bar.setAttribute('data-collapsed', t > 0.98 ? 'true' : 'false');
         if (reduced()) {
           big.style.opacity = t > 0.5 ? '0' : '1';
@@ -136,14 +149,17 @@
         .filter(function (n) { return n > 0 && n <= 1; }).sort(function (a, b) { return a - b; });
       if (detents.length < 2) return;
 
-      var grip = sheet.querySelector('.sheet__grip');
+      var grip = sheet.querySelector('.sheet__grab, .sheet__grip');
       if (grip) grip.setAttribute('data-grabber', 'true');
 
       var handle = sheet.querySelector('[data-sheet-drag]') || grip || sheet;
       var startY = 0, startH = 0, dragging = false, vy = 0, lastT = 0, lastY = 0;
       var vh = function () { return (root.host ? root.host.clientHeight : global.innerHeight) || 1; };
 
-      var current = detents[detents.length - 1];
+      /* Open at the smallest detent. The larger ones are what the drag is
+         for: a sheet that opens fully has nothing to reveal and covers the
+         screen it was asked to sit in front of. */
+      var current = detents[0];
       var setH = function (frac) {
         current = frac;
         sheet.style.height = (frac * 100) + '%';
