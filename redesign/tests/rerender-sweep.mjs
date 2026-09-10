@@ -82,14 +82,23 @@ for (const theme of ['dark', 'light']) {
        one that leaves the screen where it was is the one used. */
     const candidates = page.locator(SAFE).filter({ visible: true });
     const total = Math.min(await candidates.count(), 8);
-    let btn = null, clicked = false;
+    let btn = null, clicked = false, ctrl = null;
     for (let i = 1; i < total; i++) {
       const c = candidates.nth(i);
       try { await c.click({ timeout: 3000 }); } catch (e) { continue; }
       await page.waitForTimeout(300);
       const overlay = await page.evaluate(() =>
         !!document.querySelector('.sheet, .dialog, .scrim'));
-      if (!overlay) { btn = c; clicked = true; break; }
+      if (!overlay) {
+        /* The handle is taken NOW, not re-resolved later. The click
+           re-renders, LKPatch replaces nodes, and the nth() that matched a
+           moment ago can match nothing at all -- which timed out at 30s
+           rather than failing anything. */
+        btn = c;
+        try { ctrl = await c.elementHandle({ timeout: 2000 }); } catch (e) { ctrl = null; }
+        clicked = !!ctrl;
+        break;
+      }
       /* Put it back and try the next one. */
       await page.keyboard.press('Escape');
       await page.waitForTimeout(250);
@@ -128,9 +137,10 @@ for (const theme of ['dark', 'light']) {
     }
 
     /* Focus the control the way a tap does, without the harness scrolling. */
-    let ctrl = null;
-    if (clicked) ctrl = await btn.elementHandle();
-    if (ctrl) await ctrl.evaluate(el => el.focus({ preventScroll: true }));
+    if (ctrl) {
+      try { await ctrl.evaluate(el => el.focus({ preventScroll: true })); }
+      catch (e) { ctrl = null; }
+    }
 
     const before = await snap(page);
     if (ctrl) await ctrl.evaluate(el => el.click());
