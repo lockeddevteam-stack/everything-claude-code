@@ -83,9 +83,15 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   justify-content: center;
   gap: var(--sp-2);
   min-height: var(--tap);
-  padding: 0 var(--sp-4);
-  border-radius: var(--r-md);
-  corner-shape: var(--corner-smooth);
+  padding: 0 var(--sp-5);
+  /* Capsule, which is what the spec says a button is: radius = height / 2.
+     A 12px radius on a 44px button is the shape every web framework ships,
+     and because it was on every button in the build it was the single thing
+     that most made the app read as a web page. A capsule cannot be smoothed
+     — a superellipse flattens it — so it opts out of corner-shape the way
+     the other capsules in this file do. */
+  border-radius: var(--r-full);
+  corner-shape: round;
   font-size: var(--type-15); line-height: var(--lh-15);
   font-weight: var(--w-semibold);
   letter-spacing: var(--tr-15);
@@ -202,6 +208,30 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   color: var(--text);
   font-size: var(--type-15); line-height: var(--lh-15); letter-spacing: var(--tr-15);
 }
+/* A select keeps the platform's own picker — on iOS that is the wheel, which
+   is the right control and better than anything a page can build. What it
+   does not keep is the platform's CHROME: a bordered rectangle with a
+   browser-drawn arrow was the loudest web-page tell in the build, and it was
+   on seven controls across four screens.
+
+   appearance: none takes the arrow and the bevel; the chevron below is the
+   build's own, the same 24-unit glyph at the same 1.75 stroke as every other
+   icon, drawn as a background so no markup has to change. */
+select.input, select.cell {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: calc(var(--sp-5) + var(--sp-3));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888892' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 10l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--sp-3) center;
+  background-size: 20px 20px;
+  cursor: pointer;
+}
+select.cell { padding-right: var(--sp-5); background-position: right var(--sp-1) center; background-size: 16px 16px; }
+select.input:focus, select.cell:focus { outline: none; }
+/* The arrow is inert decoration, so it is not a target: the whole field is. */
+select.input::-ms-expand, select.cell::-ms-expand { display: none; }
+
 .input::placeholder { color: var(--text-tertiary); }
 .input:focus { outline: none; border-color: var(--accent-text); box-shadow: 0 0 0 var(--sp-1) var(--accent-quiet); }
 .input[aria-invalid="true"] { border-color: var(--error); }
@@ -286,15 +316,79 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
    Tab bar
    =============================================================== */
 
+/* iOS 26 unglued the tab bar from the bottom edge: it floats over the
+   content as a capsule with an edge of its own, rather than sitting in a band
+   welded to the screen. Measured before this change: left 0, right 0, radius
+   0, flush to the bezel — which is the shape of every web page's bottom nav
+   and was, with the 12px buttons, most of why the build read as one.
+
+   It floats over the content, so the scroller keeps a bottom inset the height
+   of the bar plus its margins: content scrolls UNDER glass, which is the
+   whole reason the glass is there, and still comes to rest clear of it. */
 .tabbar {
+  position: absolute;
+  left: var(--sp-3);
+  right: var(--sp-3);
+  bottom: calc(var(--sp-3) + var(--safe-bottom));
+  z-index: 9;
   display: flex;
   align-items: stretch;
-  height: calc(var(--nav-h) + var(--safe-bottom));
-  padding-bottom: var(--safe-bottom);
+  height: var(--nav-h);
+  border-radius: var(--r-full);
+  corner-shape: round;
   background: var(--glass-tint);
   backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
   -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
-  box-shadow: inset 0 1px 0 var(--glass-specular);
+  /* Two edges, not one: a specular highlight along the top and a hairline all
+     the way round. Without the outer stroke the bar has no boundary against
+     the content it is floating over and reads as a translucent band. */
+  box-shadow: inset 0 1px 0 var(--glass-specular),
+              inset 0 0 0 1px var(--glass-edge),
+              var(--glass-shadow);
+  overflow: hidden;
+}
+/* Anything else that belongs at the bottom floats WITH the bar, stacked above
+   it, because a bar that floats over the content also floats over whatever
+   used to sit under it: the accessory shelf ended up behind the tab bar the
+   moment the bar came off the edge.
+
+   One variable carries the height of the floating stack. The scroller pads
+   by it so content scrolls under the glass and still comes to rest clear. */
+.screen:has(.tabbar) {
+  --float-h: calc(var(--nav-h) + var(--sp-3) + var(--safe-bottom));
+}
+.screen:has(.tabbar):has(.shelf),
+.screen:has(.tabbar):has(.findbar--bottom) {
+  --float-h: calc(var(--nav-h) + var(--tap) + var(--sp-5) + var(--safe-bottom));
+}
+.screen:has(.tabbar) > .body,
+.screen:has(.tabbar) .body { padding-bottom: calc(var(--float-h) + var(--sp-4)); }
+/* A screen that keeps its bar inside a footer alongside something else --
+   coach puts the composer there -- lifts that footer clear of the floating
+   bar the same way. */
+.screen footer:has(> .tabbar) { padding-bottom: var(--float-h); }
+
+.screen:has(.tabbar) > #shelf-slot,
+.screen:has(.tabbar) > .findbar--bottom {
+  position: absolute;
+  left: var(--sp-3);
+  right: var(--sp-3);
+  bottom: calc(var(--nav-h) + var(--sp-3) + var(--sp-2) + var(--safe-bottom));
+  z-index: 9;
+}
+.screen:has(.tabbar) > .findbar--bottom {
+  border-radius: var(--r-xl);
+  corner-shape: var(--corner-smooth);
+  box-shadow: inset 0 1px 0 var(--glass-specular),
+              inset 0 0 0 1px var(--glass-edge),
+              var(--glass-shadow);
+}
+.screen:has(.tabbar) > #shelf-slot > .shelf {
+  border-radius: var(--r-xl);
+  corner-shape: var(--corner-smooth);
+  box-shadow: inset 0 1px 0 var(--glass-specular),
+              inset 0 0 0 1px var(--glass-edge),
+              var(--glass-shadow);
 }
 .tabbar__item {
   flex: 1;
@@ -323,17 +417,35 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
 }
 @keyframes scrimIn { from { opacity: 0; } }
 
+/* iOS 26 insets a partial-height sheet and pulls its bottom edges inward to
+   nest inside the display's own curved corners. The shipped sheet was
+   full-bleed with a square bottom, welded to the bezel: the same shape a web
+   page uses for a bottom drawer.
+
+   All four corners are the same radius, which is what "do not hardcode a
+   bottom radius" means in a build that cannot read the device's screen
+   radius: one value, concentric with the phone rather than with nothing. */
 .sheet {
-  position: absolute; left: 0; right: 0; bottom: 0;
+  position: absolute;
+  left: var(--sp-2); right: var(--sp-2);
+  bottom: calc(var(--sp-2) + var(--safe-bottom));
   z-index: 11;
   background: var(--surface-raised);
-  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  border-radius: var(--r-xl);
   corner-shape: var(--corner-smooth);
-  box-shadow: var(--shadow-overlay);
-  padding: var(--sp-2) var(--page-x) calc(var(--sp-5) + var(--safe-bottom));
+  box-shadow: var(--shadow-overlay), inset 0 0 0 1px var(--glass-edge);
+  padding: var(--sp-2) var(--page-x) var(--sp-5);
   animation: sheetUp var(--dur-slow) var(--spring-snappy) both;
   max-height: 88%;
   display: flex; flex-direction: column;
+}
+/* A sheet that reaches the top of its range is effectively full screen, so
+   it squares off against the bottom edge the way the system's does. */
+.sheet[data-detents][style*="88%"],
+.sheet--full {
+  left: 0; right: 0; bottom: 0;
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  padding-bottom: calc(var(--sp-5) + var(--safe-bottom));
 }
 @keyframes sheetUp { from { transform: translateY(100%); } }
 .sheet__grab {
@@ -344,7 +456,12 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   flex: none;
 }
 .sheet__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); margin-bottom: var(--sp-3); }
-.sheet__body { overflow-y: auto; }
+/* Takes the space between the head and the foot, so the foot sits on the
+   bottom edge of the sheet rather than under the content. Without it a sheet
+   held open at a detent taller than its content left the primary button
+   floating in the middle with dead space beneath it. */
+.sheet__body { flex: 1; min-height: 0; overflow-y: auto; }
+.sheet__foot { flex: none; margin-top: var(--sp-4); }
 
 .dialog {
   position: absolute; left: var(--sp-5); right: var(--sp-5); top: 50%;
@@ -581,22 +698,45 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   .phone { width: 100%; height: 100vh; height: 100dvh; border-radius: 0; box-shadow: none; }
 }
 
+/* The state switcher is scaffolding and it has to go somewhere that is not
+   the app. Top right is the header's trailing action slot -- it covered New
+   on coach, Account on home, Edit on train and Finish on the workout log,
+   and in light it was a white pill on a near-white page with no boundary.
+   Top left is the large title.
+
+   The middle of the left edge is the one band no screen in this build uses,
+   so it sits there as a tab, half off the screen, at rest. It comes fully
+   into view when it is reached for. */
 .dev {
   position: fixed;
-  top: var(--sp-3);
-  right: var(--sp-3);
-  z-index: 20;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  /* Under the overlays. At z-index 20 the tab sat on top of an open sheet
+     and clipped the first letter of its body text. Scaffolding does not get
+     to cover the thing it exists to show. */
+  z-index: 8;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: var(--sp-2);
 }
+.dev__toggle {
+  opacity: 0.55;
+  transform: translateX(calc(var(--sp-5) * -1));
+  transition: transform var(--dur-slow) var(--spring-snappy),
+              opacity var(--dur-fast) var(--ease);
+}
+.dev:hover .dev__toggle,
+.dev:focus-within .dev__toggle,
+.dev__toggle[aria-expanded="true"] { opacity: 1; transform: none; }
 .dev__toggle {
   display: flex; align-items: center; justify-content: center;
   min-width: var(--tap); min-height: var(--tap);
   padding: 0 var(--sp-3);
   border-radius: var(--r-full);
   background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1px var(--border), var(--glass-shadow);
   color: var(--text-secondary);
   font-size: var(--type-11);
   line-height: var(--lh-11);
@@ -947,6 +1087,9 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
    search field is present at every level of the library and cannot
    scroll away. The audited library dropped search at group level. */
 .findbar { padding: var(--sp-2) var(--page-x) var(--sp-3); background: var(--bg); }
+
+/* A search field is a capsule too, for the same reason and by the same rule. */
+.search--find .input { border-radius: var(--r-full); corner-shape: round; }
 
 /* Prominent search. The audited field carried a 1.07:1 border on its own
    fill and disappeared under an 8px blur. This one is raised off the
@@ -1694,7 +1837,7 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   will-change: transform;
 }
 .tabbar[data-minimized="true"] {
-  transform: translate3d(0, calc(100% - var(--safe-bottom)), 0);
+  transform: translate3d(0, calc(100% + var(--sp-3) + var(--safe-bottom)), 0);
   opacity: 0;
   pointer-events: none;
 }
@@ -1926,7 +2069,7 @@ button.shelf:active { background: var(--fill-press); }
 /* The shelf leaves with the tab bar, because they are one piece of bottom
    chrome and a strip left hanging over nothing reads as a bug. */
 .shelf[data-minimized="true"] {
-  transform: translate3d(0, calc(100% + var(--nav-h) + var(--safe-bottom)), 0);
+  transform: translate3d(0, calc(100% + var(--nav-h) + var(--sp-6) + var(--safe-bottom)), 0);
   opacity: 0;
   pointer-events: none;
 }

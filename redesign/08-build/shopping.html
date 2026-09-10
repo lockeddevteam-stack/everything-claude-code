@@ -1074,6 +1074,17 @@
     '</div>';
   }
 
+  /* Opening and closing a sheet does not touch the list under it. LKPatch
+     morphs rather than replaces, so a full render was mostly harmless — but
+     the scroll was read before the patch and written after, and on a panel
+     whose height changes between the two the browser had already clamped it.
+     Cancelling a confirmation, which is the "nothing happened" path, threw
+     away where somebody had scrolled to mid-shop. */
+  function renderOverlay() {
+    LKPatch(overlay, overlayHTML() + toastHTML());
+    if (window.LKChrome) LKChrome.init(document);
+  }
+
   function render() {
     screen.setAttribute('data-state', S.state);
     screen.setAttribute('data-panel', S.panel);
@@ -1271,13 +1282,24 @@
     return 'other';
   }
 
+  /* Actions whose whole effect is on the overlay. Everything else changes
+     the data under it and needs the full render. */
+  var OVERLAY_ONLY = {
+    close: 1, 'shop-at': 1, 'open-item': 1, 'pan-open': 1,
+    'clear-done': 1, 'clear-all': 1
+  };
+
   document.addEventListener('click', function (e) {
     var el = e.target.closest ? e.target.closest('[data-action]') : null;
     if (!el || el.getAttribute('aria-disabled') === 'true') return;
     var fn = ACT[el.getAttribute('data-action')];
     if (!fn) return;
+    var a = el.getAttribute('data-action');
     fn(el);
-    if (el.getAttribute('data-action') !== 'retry') render();
+    if (a === 'retry') return;
+    /* An action that only opens or closes an overlay repaints the overlay. */
+    if (OVERLAY_ONLY[a]) { renderOverlay(); return; }
+    render();
   });
 
   /* Typing is state, not a side effect: the suggestions and the Add button

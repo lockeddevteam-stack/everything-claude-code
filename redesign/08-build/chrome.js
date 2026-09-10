@@ -68,6 +68,9 @@
       if (!scroller) return;
       var big = bar.querySelector('[data-title-large]');
       var small = bar.querySelector('[data-title-small]');
+      /* The line above the large title: a date, a count, a section name. It
+         is whatever sits before the title inside .hdr__title. */
+      var kicker = bar.querySelector('.hdr__title > .t-meta, .hdr__title > .t-label');
       if (!big) return;
       if (!once(bar, 'title')) return;
 
@@ -99,6 +102,7 @@
         bar.setAttribute('data-collapsed', t > 0.98 ? 'true' : 'false');
         if (reduced()) {
           big.style.opacity = t > 0.5 ? '0' : '1';
+          if (kicker) kicker.style.opacity = t > 0.5 ? '0' : '1';
           if (small) small.style.opacity = t > 0.5 ? '1' : '0';
           return;
         }
@@ -106,6 +110,12 @@
            one arrives late so the two are never both fully present. */
         big.style.transform = 'scale(' + (1 - t * 0.28) + ')';
         big.style.opacity = String(1 - Math.min(1, t * 1.6));
+        /* The eyebrow goes with the title it belongs to. Left alone it sits
+           above the large title, so as the bar shrinks the bar's own edge
+           cuts through it and a half-height "TRAINING" rides the whole
+           scroll on five screens. It leaves faster than the title, because
+           it is a label for a title that is on its way out. */
+        if (kicker) kicker.style.opacity = String(1 - Math.min(1, t * 2.2));
         if (small) small.style.opacity = String(Math.max(0, (t - 0.45) / 0.55));
       });
     });
