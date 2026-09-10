@@ -38,9 +38,11 @@ const MANIFEST = {
 
   /* Shared scripts every screen links with <script src=...> in <head>. They
      are inlined once, at the top of the page and outside every screen closure,
-     so the global they define (LKPatch) is the same object for every screen —
-     exactly as the two stylesheets are one parsed copy adopted by every root. */
-  js: ['theme.js', 'app.js'],
+     so the globals they define — LKPatch, LKBodyArt, LKBodyMap — are the same
+     objects for every screen, exactly as the two stylesheets are one parsed
+     copy adopted by every root. Order matters: bodymap.js reads the art at
+     load and throws if it is not there yet. */
+  js: ['theme.js', 'app.js', 'vendor/body-art.js', 'bodymap.js'],
 
   /* Files in srcDir that are not app screens. */
   exclude: [/^mockup-/],

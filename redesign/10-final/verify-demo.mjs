@@ -262,6 +262,37 @@ const chromeSmall = await page.evaluate(() =>
     .map((el) => el.id + ' ' + Math.round(el.getBoundingClientRect().width) + 'x' + Math.round(el.getBoundingClientRect().height)));
 ok('demo chrome targets >= 44x44', chromeSmall.length === 0, chromeSmall.join('; ') || '0 under 44');
 
+// ---------- the body map, inside the demo ----------
+// A component that works from a file on disk can still fail here: every screen
+// runs behind a document/window proxy in its own shadow root, and a global the
+// assembler forgets to inline is only missing at the moment the map mounts.
+// So it is driven, not merely looked for.
+await goto('exercise-library');
+const inLib = (fn) => page.evaluate((src) => {
+  const r = [...document.querySelectorAll('.demo-screen')].find((d) => !d.hidden).shadowRoot;
+  return (new Function('root', src))(r);
+}, fn.toString().slice(fn.toString().indexOf('{') + 1, fn.toString().lastIndexOf('}')));
+
+await inLib(function () { root.querySelector('[data-testid="browse-toggle"]').click(); });
+await page.waitForTimeout(700);
+const drawn = await inLib(function () {
+  return root.querySelectorAll('[data-testid="bodymap"] .mg[data-g]').length;
+});
+ok('body map draws inside the demo', drawn >= 9, drawn + ' muscle groups');
+
+const pecBox = await inLib(function () {
+  const e = root.querySelector('[data-testid="bodymap"] .mg--chest .mg__gnd');
+  if (!e) return null;
+  const b = e.getBoundingClientRect();
+  return [b.x + b.width / 2, b.y + b.height / 2];
+});
+if (pecBox) { await page.mouse.click(pecBox[0], pecBox[1]); await page.waitForTimeout(600); }
+const opened = await inLib(function () {
+  const h = root.querySelector('.hdr h1');
+  return h ? h.textContent.trim() : null;
+});
+ok('tapping the pectoral opens Chest', opened === 'Chest', 'header reads ' + JSON.stringify(opened));
+
 // ---------- horizontal overflow ----------
 for (const id of info.screens) {
   await goto(id);

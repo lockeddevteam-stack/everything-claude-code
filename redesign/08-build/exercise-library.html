@@ -8,6 +8,8 @@
 <link rel="stylesheet" href="components.css">
 <script src="theme.js"></script>
 <script src="app.js"></script>
+<script src="vendor/body-art.js"></script>
+<script src="bodymap.js"></script>
 </head>
 <body>
 <!--
@@ -81,6 +83,27 @@
         <div class="chiprow mt-3" id="filters"></div>
       </div>
 
+      <!-- Browsing by body. The figure lives outside the patched body so a
+           re-render never rebuilds it: LKPatch replaces what is inside #body,
+           and rebuilding an SVG this size on every keystroke would be both
+           slow and visibly a flicker. It is shown or hidden instead. -->
+      <div class="libmap" id="libmap" hidden>
+        <div class="listhead gutter">
+          <h2 class="t-label">Muscle groups</h2>
+          <span class="t-meta" id="libmap-count"></span>
+        </div>
+        <div class="map" id="map" data-testid="bodymap"></div>
+        <div class="libmap__foot">
+          <div class="seg seg--tall" role="tablist" aria-label="Body view">
+            <button class="seg__item" type="button" role="tab" id="tab-front"
+                    aria-selected="true" data-action="body-view" data-view="front">Front</button>
+            <button class="seg__item" type="button" role="tab" id="tab-back"
+                    aria-selected="false" data-action="body-view" data-view="back">Back</button>
+          </div>
+          <p class="t-detail quiet mt-2">Tap a muscle. Search finds a lift by name, muscle, region or equipment.</p>
+        </div>
+      </div>
+
       <main class="body body--flush" id="body" tabindex="-1" data-testid="library-scroll"></main>
 
       <nav class="tabbar" aria-label="Sections">
@@ -132,7 +155,11 @@
     alert: '<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/>',
     search:'<circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/>',
     lift:  '<path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/>',
-    star:  '<path d="M12 4l2.4 5.2 5.6.7-4.1 3.9 1.1 5.6-5-2.9-5 2.9 1.1-5.6L4 9.9l5.6-.7z"/>'
+    star:  '<path d="M12 4l2.4 5.2 5.6.7-4.1 3.9 1.1 5.6-5-2.9-5 2.9 1.1-5.6L4 9.9l5.6-.7z"/>',
+    /* The two browse modes, each a mark for its own shape: rows of a list,
+       and a torso with arms. */
+    list:  '<path d="M4 7h16M4 12h16M4 17h16"/>',
+    body:  '<circle cx="12" cy="5" r="2.2"/><path d="M12 8v7M12 8L6 11M12 8l6 3M9.5 15L8 21M14.5 15L16 21"/>'
   };
   function ico(name, cls) {
     return '<svg class="ico' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
@@ -266,6 +293,8 @@
     items: [],
     q: '',
     gid: null,
+    browse: 'list',       /* list | map, how the groups are chosen */
+    bodyView: 'front',    /* front | back, while browsing by body */
     scope: 'group',       /* group | all, while a group is open */
     filter: 'all',        /* all | custom */
     sheet: null,          /* exercise id */
@@ -276,6 +305,14 @@
     toast: null,
     restore: null
   };
+
+  /* How this person last chose to browse. A preference about reading, not a
+     step in a task, so it outlives the session. */
+  try {
+    var savedBrowse = localStorage.getItem('lk_libBrowse');
+    if (savedBrowse === 'map' || savedBrowse === 'list') S.browse = savedBrowse;
+  } catch (e) { /* private mode: the list is the default and stays it */ }
+
 
   function normalise(list) {
     return list.map(function (x) {
@@ -452,6 +489,12 @@
      --------------------------------------------------------------- */
   function viewGroups() {
     var total = pool().length;
+    /* Browsing by body puts the figure where the list would be, so the two
+       are one choice rather than two surfaces stacked on each other. */
+    /* The figure is not inside the patched body; it is a sibling that takes
+       the whole browse surface. So the body renders nothing here, and the
+       heading and the hint travel with the figure instead. */
+    if (S.browse === 'map') return '';
     return head('Muscle groups', n(total) + ' exercises') +
       listCard(GROUP_INDEX.map(function (g) { return groupRow(g[0]); })) +
       '<p class="t-detail quiet mt-4 gutter">Search finds a lift by name, muscle, region or equipment. Browsing is two taps: a group, then the lift.</p>';
@@ -767,10 +810,22 @@
   function renderFilters() {
     if (S.status !== 'ready') return '';
     var customs = S.items.filter(function (x) { return x.custom; }).length;
-    return [['all', 'All ' + S.items.length], ['custom', 'Custom ' + customs]].map(function (f) {
+    var chips = [['all', 'All ' + S.items.length], ['custom', 'Custom ' + customs]].map(function (f) {
       return '<button class="chip" type="button" data-action="filter" data-filter="' + f[0] + '" aria-pressed="' +
         (S.filter === f[0]) + '" data-testid="filter-' + f[0] + '">' + esc(f[1]) + '</button>';
     }).join('');
+
+    /* The switch appears only where it means anything: choosing a group. Once
+       a group is open, or a search is running, there is nothing on the body
+       left to choose. */
+    if (S.gid || S.q.trim() || S.filter === 'custom') return chips;
+    return chips +
+      '<div class="chiprow__end"><button class="chip chip--icon" type="button" ' +
+        'data-action="browse" data-browse="' + (S.browse === 'map' ? 'list' : 'map') + '" ' +
+        'data-testid="browse-toggle" aria-label="Browse by ' +
+        (S.browse === 'map' ? 'list' : 'body') + '">' +
+        (S.browse === 'map' ? ico('list') : ico('body')) +
+        '<span>' + (S.browse === 'map' ? 'List' : 'Body') + '</span></button></div>';
   }
 
   /* ---------------------------------------------------------------
@@ -783,6 +838,46 @@
   var input = document.getElementById('q');
   var clear = document.getElementById('clear');
   var filters = document.getElementById('filters');
+
+  /* The figure. Mounted the first time the body is asked for and kept, so
+     switching back to it is instant and the SVG is built once. */
+  var libmap = document.getElementById('libmap');
+  var mapFrame = document.getElementById('map');
+  var FIG = null;
+
+  function mapGroups() {
+    var out = {};
+    GROUP_INDEX.forEach(function (g) {
+      out[g[0]] = { name: g[1], n: inGroup(g[0]).length };
+    });
+    return out;
+  }
+
+  function syncMap() {
+    var on = S.browse === 'map' && !S.gid && !S.q.trim() &&
+             S.filter !== 'custom' && S.status === 'ready';
+    libmap.hidden = !on;
+    if (!on) return;
+    if (!FIG) {
+      FIG = LKBodyMap.mount(mapFrame, {
+        groups: mapGroups(), order: GROUP_INDEX.map(function (g) { return g[0]; }),
+        onSelect: function (gid) {
+          /* The same destination a row in the list goes to. The map is a
+             second way to the group, not a second flow. */
+          S.gid = gid;
+          S.scope = 'group';
+          render({ scrollTop: true });
+        }
+      });
+    }
+    FIG.setView(S.bodyView);
+    FIG.select(null);
+    var count = document.getElementById('libmap-count');
+    if (count) count.textContent = pool().length + ' exercises';
+    var f = document.getElementById('tab-front'), b = document.getElementById('tab-back');
+    if (f) f.setAttribute('aria-selected', String(S.bodyView === 'front'));
+    if (b) b.setAttribute('aria-selected', String(S.bodyView === 'back'));
+  }
 
   function stateName() {
     if (S.status !== 'ready') return S.status;
@@ -800,6 +895,7 @@
     input.disabled = S.status !== 'ready';
     input.placeholder = S.status !== 'ready' ? 'Search'
       : (S.gid && !S.q ? 'Search ' + GNAME[S.gid] + ' and the whole library' : 'Search ' + S.items.length + ' exercises');
+    syncMap();
     screen.setAttribute('data-state', stateName());
     screen.setAttribute('data-entry', S.entry);
     screen.setAttribute('data-source', S.source);
@@ -823,6 +919,19 @@
   }
 
   var ACTIONS = {
+    /* Switching between the list of groups and the body. The choice is
+       remembered, because it is a preference about how a person reads
+       rather than a step in a task. */
+    browse: function (el) {
+      S.browse = el.getAttribute('data-browse') === 'map' ? 'map' : 'list';
+      try { localStorage.setItem('lk_libBrowse', S.browse); } catch (e) {}
+      render({ scrollTop: true });
+    },
+    'body-view': function (el) {
+      S.bodyView = el.getAttribute('data-view') === 'back' ? 'back' : 'front';
+      if (FIG) FIG.setView(S.bodyView);
+      syncMap();
+    },
     group: function (el) { S.gid = el.getAttribute('data-gid'); S.scope = 'group'; render({ scrollTop: true }); },
     back: function () { S.gid = null; render({ scrollTop: true, focus: 'search-input' }); },
     filter: function (el) {
