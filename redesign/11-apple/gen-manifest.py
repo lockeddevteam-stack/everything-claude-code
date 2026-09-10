@@ -7,6 +7,11 @@
 An empty diff is a clean wave. A skin and motion pass has no business changing
 a handler count, a testid, or a storage key, so anything else needs an
 explanation before the wave lands.
+
+Line counts are the exception and are reported separately: a restyle adds and
+removes lines by definition, and a freeze check that fires on every edit is a
+freeze check people learn to ignore. What must not move is the function
+columns.
 """
 import re, os, glob, sys
 
@@ -72,6 +77,9 @@ w("```")
 w("")
 
 w("## Per-screen totals")
+w("")
+w("Line counts are listed for orientation and are not part of the freeze. The")
+w("five columns after them are.")
 w("")
 w("| Screen | Lines | Listeners | Actions | Buttons | Inputs | testids |")
 w("|---|---|---|---|---|---|---|")

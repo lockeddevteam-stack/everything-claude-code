@@ -116,17 +116,20 @@ lk_libBrowse
 
 ## Per-screen totals
 
+Line counts are listed for orientation and are not part of the freeze. The
+five columns after them are.
+
 | Screen | Lines | Listeners | Actions | Buttons | Inputs | testids |
 |---|---|---|---|---|---|---|
 | `coach.html` | 1382 | 5 | 44 | 51 | 3 | 90 |
-| `exercise-library.html` | 1159 | 6 | 22 | 31 | 4 | 50 |
-| `home.html` | 412 | 2 | 0 | 16 | 0 | 19 |
+| `exercise-library.html` | 1172 | 6 | 22 | 31 | 4 | 50 |
+| `home.html` | 420 | 2 | 0 | 16 | 0 | 19 |
 | `mockup-bodymap.html` | 676 | 3 | 2 | 5 | 1 | 2 |
 | `onboarding.html` | 1116 | 10 | 0 | 31 | 5 | 65 |
-| `progress.html` | 737 | 5 | 10 | 18 | 0 | 37 |
-| `review.html` | 961 | 4 | 0 | 23 | 0 | 45 |
-| `settings.html` | 961 | 4 | 14 | 23 | 4 | 30 |
+| `progress.html` | 739 | 5 | 10 | 18 | 0 | 37 |
+| `review.html` | 962 | 4 | 0 | 23 | 0 | 45 |
+| `settings.html` | 962 | 4 | 14 | 23 | 4 | 30 |
 | `split-builder.html` | 1107 | 10 | 28 | 36 | 4 | 68 |
-| `train.html` | 865 | 5 | 16 | 26 | 1 | 46 |
-| `workout-log.html` | 1064 | 6 | 38 | 49 | 5 | 91 |
-| **total** | **10440** | **60** | **174** | **309** | **27** | **543** |
+| `train.html` | 879 | 5 | 16 | 26 | 1 | 46 |
+| `workout-log.html` | 1065 | 6 | 38 | 49 | 5 | 91 |
+| **total** | **10480** | **60** | **174** | **309** | **27** | **543** |

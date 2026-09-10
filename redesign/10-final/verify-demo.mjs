@@ -48,7 +48,7 @@ const goto = async (id) => {
 };
 
 // ---------- tabs ----------
-const tabs = [['home', 'home'], ['train', 'train'], ['fuel', 'fuel-placeholder'], ['progress', 'progress'], ['coach', 'coach']];
+const tabs = [['home', 'home'], ['train', 'train'], ['fuel', 'fuel-placeholder'], ['coach', 'coach'], ['profile', 'profile-placeholder']];
 for (const [tab, screen] of tabs) {
   await page.evaluate((t) => {
     const cur = [...document.querySelectorAll('.demo-screen')].find((d) => !d.hidden);
@@ -129,7 +129,7 @@ const idx = await page.evaluate(() =>
 );
 const totalStates = idx.reduce((n, g) => n + g.states.length, 0);
 ok('index lists every screen', idx.length === info.screens.length, idx.length + ' screens, ' + totalStates + ' states');
-ok('every non-placeholder screen contributes states', idx.filter((g) => !g.states.length).length <= 1,
+ok('every non-placeholder screen contributes states', idx.filter((g) => !g.states.length).length <= 2,
   'screens with no state list: ' + idx.filter((g) => !g.states.length).map((g) => g.screen).join(', '));
 results.index = idx;
 // drive one state entry per screen end to end
@@ -220,7 +220,7 @@ for (const id of info.screens) {
 
 // ---------- axe standalone, for the delta ----------
 for (const id of info.screens) {
-  if (id === 'fuel-placeholder') { results.axeStandalone[id] = []; continue; }
+  if (/-placeholder$/.test(id)) { results.axeStandalone[id] = []; continue; }
   const p2 = await ctx.newPage();
   await p2.goto('file://' + ROOT + '/08-build/' + id + '.html');
   await p2.waitForTimeout(700);

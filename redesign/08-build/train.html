@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="components.css">
 <script src="theme.js"></script>
 <script src="app.js"></script>
+<script src="chrome.js"></script>
 </head>
 <body>
 <!--
@@ -94,11 +95,12 @@
   <div class="phone">
     <div class="screen" id="screen" data-testid="screen-train" data-state="populated" data-view="hub">
 
-      <header class="hdr" id="hdr"></header>
+      <header class="hdr" data-scroll-edge="#body" id="hdr">
+      </header>
 
       <main class="body" id="body" data-testid="train-scroll" tabindex="-1"></main>
 
-      <nav class="tabbar" aria-label="Sections">
+      <nav class="tabbar" aria-label="Sections" data-minimize="#body">
         <button class="tabbar__item" type="button" data-testid="tab-home">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4v-5H9v5H5a1 1 0 0 1-1-1z"/></svg>
           Home
@@ -111,9 +113,9 @@
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7 3v8a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V3"/><path d="M9 13v8"/><path d="M17 3c-1.5 1.8-2 3.6-2 5.5 0 1.6.7 2.5 2 2.5s2-.9 2-2.5c0-1.9-.5-3.7-2-5.5Z"/><path d="M17 11v10"/></svg>
           Fuel
         </button>
-        <button class="tabbar__item" type="button" data-testid="tab-progress">
-          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 19h16M7 16v-4M12 16V7M17 16v-6"/></svg>
-          Progress
+        <button class="tabbar__item" type="button" data-testid="tab-profile">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>
+          Profile
         </button>
         <button class="tabbar__item" type="button" data-testid="tab-coach">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 15a3 3 0 0 1-3 3H9l-4 3V7a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3z"/></svg>
@@ -606,11 +608,15 @@
           '<h1 class="t-title">History</h1>' +
         '</div>';
     }
+    /* Tab-level, so it carries the large title. A pushed sub-view above keeps
+       a 17px one: a screen you arrived at from somewhere else is already the
+       collapsed state. */
     return '' +
       '<div class="hdr__title stack stack--1">' +
         '<span class="t-meta">TRAINING</span>' +
-        '<h1 class="t-title">Train</h1>' +
-      '</div>';
+        '<h1 class="hdr__title-large" data-title-large>Train</h1>' +
+      '</div>' +
+      '<span class="hdr__title-small" data-title-small aria-hidden="true">Train</span>';
   }
 
   /* =============================================================
@@ -738,7 +744,15 @@
     var top = keepScroll ? body.scrollTop : 0;
     screen.setAttribute('data-state', S.state);
     screen.setAttribute('data-view', S.view);
+    /* The large title belongs to the tab-level view only. A pushed sub-view
+       has a back chevron and a 17px title, which is the collapsed state
+       already, so collapsing it again would be collapsing nothing. */
+    var pushed = S.view === 'history';
+    hdr.classList.toggle('hdr--large', !pushed);
+    if (pushed) hdr.removeAttribute('data-large-title');
+    else hdr.setAttribute('data-large-title', '#body');
     LKPatch(hdr, headerHTML());
+    if (window.LKChrome) LKChrome.init(document);
     LKPatch(body, (S.view === 'history' && S.state === 'populated')
       ? historyView()
       : (VIEWS[S.state] || VIEWS.populated)());

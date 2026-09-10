@@ -42,18 +42,21 @@ const MANIFEST = {
      objects for every screen, exactly as the two stylesheets are one parsed
      copy adopted by every root. Order matters: bodymap.js reads the art at
      load and throws if it is not there yet. */
-  js: ['theme.js', 'app.js', 'vendor/body-art.js', 'bodymap.js'],
+  js: ['theme.js', 'app.js', 'chrome.js', 'vendor/body-art.js', 'bodymap.js'],
 
   /* Files in srcDir that are not app screens. */
   exclude: [/^mockup-/],
 
   /* The five tabs, in bar order. `screen: null` means "not built here". */
+  /* The five tabs the app ships. Progress is not one of them: it lives under
+     Home, which is where the live app puts it, reached by pushing rather than
+     by switching. Shopping and Budget live under Fuel the same way. */
   tabs: [
     { id: 'home', label: 'Home', screen: 'home' },
     { id: 'train', label: 'Train', screen: 'train' },
     { id: 'fuel', label: 'Fuel', screen: null },
-    { id: 'progress', label: 'Progress', screen: 'progress' },
-    { id: 'coach', label: 'Coach', screen: 'coach' }
+    { id: 'coach', label: 'Coach', screen: 'coach' },
+    { id: 'profile', label: 'Profile', screen: null }
   ],
 
   /* Screens that are pushed from somewhere rather than being a tab.
@@ -94,8 +97,9 @@ const MANIFEST = {
     '[data-testid="dev-list"] button, .dev__item, .devpanel button, .dev-list button',
   devToggleSelector: '[data-testid="dev-toggle"], [data-testid="dev-open"]',
 
-  fuel: {
-    title: 'Fuel',
+  placeholders: {
+    fuel: {
+      title: 'Fuel',
     kicker: 'Separate track',
     heading: 'Fuel is being designed separately.',
     body:
@@ -109,6 +113,21 @@ const MANIFEST = {
       'returns a single best match with a confidence score instead of a list of ' +
       'near-identical rows.',
     source: '07-briefs/fuel-data-layer.md'
+    },
+    profile: {
+      title: 'Profile',
+      kicker: 'Being built',
+      heading: 'Profile is next in the Apple pass.',
+      body:
+        'The fifth tab holds the account, the settings that are not Coach or ' +
+        'Fuel, and the data controls. Settings already exists as a pushed ' +
+        'screen and moves under here rather than being rebuilt.',
+      truth:
+        'It is a placeholder rather than an empty shell so the tab bar can be ' +
+        'the real five-tab bar now: Home, Train, Fuel, Coach, Profile, with ' +
+        'Progress reached from Home the way the app reaches it.',
+      source: '11-apple/wave-0-recon.md section 7'
+    }
   }
 };
 
@@ -212,11 +231,13 @@ function tabbarFor(screens, currentTabId) {
     .replace(new RegExp(`(<button[^>]*data-testid="tab-${currentTabId}")`), '$1 aria-current="page"');
 }
 
-function fuelMarkup(screens) {
-  const f = MANIFEST.fuel;
+/* A tab whose screen is not built yet. Says what is coming and why, rather
+   than rendering an empty shell that reads as a bug. */
+function placeholderMarkup(screens, tabId, copy) {
+  const f = copy;
   return `<div class="stage">
   <div class="phone">
-    <div class="screen" id="screen" data-testid="screen-fuel" data-state="placeholder">
+    <div class="screen" id="screen" data-testid="screen-${tabId}" data-state="placeholder">
 
       <header class="hdr">
         <div class="hdr__title stack stack--1">
@@ -225,8 +246,8 @@ function fuelMarkup(screens) {
         </div>
       </header>
 
-      <main class="body" id="body" tabindex="-1" data-testid="fuel-scroll">
-        <div class="card card--sunken mt-4" data-testid="fuel-placeholder">
+      <main class="body" id="body" tabindex="-1" data-testid="${tabId}-scroll">
+        <div class="card card--sunken mt-4" data-testid="${tabId}-placeholder">
           <h2 class="t-section">${esc(f.heading)}</h2>
           <p class="t-detail mt-3">${esc(f.body)}</p>
           <p class="t-detail mt-3">${esc(f.truth)}</p>
@@ -234,7 +255,7 @@ function fuelMarkup(screens) {
         </div>
       </main>
 
-      ${tabbarFor(screens, 'fuel')}
+      ${tabbarFor(screens, tabId)}
 
     </div>
   </div>
@@ -424,7 +445,7 @@ const RUNTIME = String.raw`
 
   function screenForTab(tabId) {
     var t = tabOf(tabId);
-    return t && t.screen ? t.screen : 'fuel-placeholder';
+    return t && t.screen ? t.screen : t.id + '-placeholder';
   }
 
   var current = null;
@@ -574,7 +595,7 @@ const RUNTIME = String.raw`
       var h = document.createElement('button');
       h.type = 'button';
       h.className = 'demo-index__screen';
-      h.textContent = rec.label + (rec.tab ? '  ·  tab' : rec.id === 'fuel-placeholder' ? '  ·  tab' : '  ·  pushed');
+      h.textContent = rec.label + (rec.tab ? '  ·  tab' : '  ·  pushed');
       h.addEventListener('click', function () { openScreen(sid); });
       group.appendChild(h);
 
@@ -603,7 +624,7 @@ const RUNTIME = String.raw`
     var rec = screens[sid];
     if (!rec) return;
     if (rec.tab) goTab(rec.tab);
-    else if (sid === 'fuel-placeholder') goTab('fuel');
+    else if (/-placeholder$/.test(sid)) goTab(sid.replace('-placeholder', ''));
     else push(sid);
     closeIndex();
   }
@@ -747,7 +768,6 @@ function build() {
   }).join('\n');
   const assets = buildAssets(screens);
 
-  const fuelId = 'fuel-placeholder';
   const tabByScreen = new Map(MANIFEST.tabs.filter((t) => t.screen).map((t) => [t.screen, t.id]));
 
   const records = [];
@@ -755,8 +775,12 @@ function build() {
     if (t.screen) {
       const s = screens.find((x) => x.id === t.screen);
       if (s) records.push({ id: s.id, label: s.label, tab: t.id, css: s.css, markup: s.markup, scripts: s.scripts });
-    } else if (t.id === 'fuel') {
-      records.push({ id: fuelId, label: MANIFEST.fuel.title, tab: 'fuel', css: '', markup: fuelMarkup(screens), scripts: [] });
+    } else {
+      const copy = MANIFEST.placeholders[t.id];
+      if (copy) {
+        records.push({ id: t.id + '-placeholder', label: copy.title, tab: t.id,
+                       css: '', markup: placeholderMarkup(screens, t.id, copy), scripts: [] });
+      }
     }
   }
   for (const s of screens) {
@@ -765,7 +789,8 @@ function build() {
   }
 
   const cfg = {
-    tabs: MANIFEST.tabs.map((t) => ({ id: t.id, label: t.label, screen: t.screen || (t.id === 'fuel' ? fuelId : null) })),
+    tabs: MANIFEST.tabs.map((t) => ({ id: t.id, label: t.label,
+      screen: t.screen || (MANIFEST.placeholders[t.id] ? t.id + '-placeholder' : null) })),
     pushed: MANIFEST.pushed,
     nav: MANIFEST.nav,
     devStateSelector: MANIFEST.devStateSelector,
