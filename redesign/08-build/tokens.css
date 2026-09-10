@@ -91,9 +91,13 @@
      `corner-shape` ships in Chromium only, so it is applied as a progressive
      enhancement over the radius every browser already draws. Nothing depends
      on it: without it the corners are circular, which is what they are today.
-     The exponent below is the superellipse power that corresponds to 60%
-     smoothing. */
-  --corner-smooth: superellipse(1.8);
+     Chromium's superellipse() argument is the log2 of the curve exponent:
+     superellipse(1) computes back as `round` and superellipse(2) computes
+     back as `squircle`, i.e. |x|^4 + |y|^4 = 1, which is the continuous
+     corner iOS actually draws. superellipse(1.8) was below that -- a
+     smoothing you had to measure to see. The keyword is the platform value,
+     so the token names it rather than approximating it. */
+  --corner-smooth: squircle;
 
   /* ---- Surfaces. Elevation by tone, shadow secondary. ---- */
   --bg: #0A0A0B;          /* app ground, L* 3.4 */
@@ -562,7 +566,15 @@ html, body {
   text-rendering: optimizeLegibility;
 }
 
-body { font-size: var(--type-15); }
+body {
+  font-size: var(--type-15);
+  /* A word that does not fit breaks rather than overflowing its box. At the
+     default ladder this never fires; at AX5 it is the difference between
+     "Barbell Squat" on two lines and "Barbell Squ" with the rest gone. Only
+     `break-word`, not `anywhere`: it leaves min-content sizing alone, so no
+     layout that fits today changes shape because of it. */
+  overflow-wrap: break-word;
+}
 
 /* Numbers are tabular everywhere. A weight that changes width is a bug. */
 .num, [data-num] {
@@ -581,12 +593,18 @@ button {
   touch-action: manipulation;
 }
 
-/* Every control answers within 100ms. */
+/* Every control answers within 100ms -- but only the colour does.
+   Colour and movement are two different jobs and they were sharing one
+   declaration, which put 425 opacity and transform transitions on a 150ms
+   ease. A colour that takes 300ms to answer a finger feels late; a shape
+   that moves in 150ms on a non-spring curve reads as a web page. So the
+   ground and the hairline stay fast and eased, and anything that moves or
+   fades goes onto the spring at the duration the spec asks for. */
 button, [role="button"], a, input, select, .row, .chip {
   transition: background-color var(--dur-fast) var(--ease),
-              transform var(--dur-fast) var(--ease),
-              opacity var(--dur-fast) var(--ease),
-              border-color var(--dur-fast) var(--ease);
+              border-color var(--dur-fast) var(--ease),
+              transform var(--dur-slow) var(--spring-snappy),
+              opacity var(--dur-slow) var(--spring-smooth);
 }
 /* The floor, for a control that carries no component press class of its own.
    The .row and .chip selectors that used to be here were dead: components.css

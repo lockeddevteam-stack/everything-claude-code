@@ -30,7 +30,7 @@ for(const s of SCREENS){
   let states=await listStates(p); if(!states.length)states=['(none)'];
   for(const st of states){
     const setSt=async()=>{await p.goto(D+s+'.html');await p.waitForTimeout(300);
-      if(st!=='(none)')await p.evaluate(t=>{const m=document.getElementById('dev-menu');if(m)m.hidden=false;document.querySelector(`[data-testid="${t}"]`)?.click();},t=st);
+      if(st!=='(none)')await p.evaluate(t=>{const m=document.getElementById('dev-menu');if(m)m.hidden=false;document.querySelector(`[data-testid="${t}"]`)?.click();},st);
       await p.waitForTimeout(300);};
     await setSt();
     const cands=await p.evaluate(()=>[...document.querySelectorAll('.screen [data-testid]')].filter(e=>{

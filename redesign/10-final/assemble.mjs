@@ -696,15 +696,24 @@ function demoCss() {
 .demo-screen[hidden] { display: none; }
 .demo-chrome {
   position: fixed; z-index: 40;
-  left: var(--sp-3); bottom: calc(56px + var(--sp-4) + var(--safe-bottom, 0px));
+  left: 0; bottom: calc(56px + var(--sp-4) + var(--safe-bottom, 0px));
   display: flex; flex-direction: row; align-items: center; gap: var(--sp-2);
+  /* On a narrow window there is nowhere off the phone to put this, so it goes
+     off the canvas instead: an 8px sliver at rest, the whole strip when it is
+     reached for. A "SCREENS" pill sitting on the app's own content is the
+     scaffolding covering the thing it exists to show. */
+  transform: translateX(calc(-100% + 8px));
+  transition: transform var(--dur-slow, 300ms) var(--spring-snappy, ease);
 }
+.demo-chrome:hover, .demo-chrome:focus-within { transform: none; }
 /* Given room, the demo's own controls sit off the phone entirely, so nothing
    in the design is ever covered. */
 @media (min-width: 900px) {
   .demo-chrome {
     left: calc(50% - 196px - 216px); bottom: auto; top: var(--sp-5);
     flex-direction: column; align-items: flex-start;
+    /* Room to sit beside the phone, so nothing needs hiding. */
+    transform: none;
   }
   .demo-index { left: calc(50% - 196px - 216px); bottom: var(--sp-5); }
 }

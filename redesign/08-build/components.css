@@ -95,7 +95,15 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   font-size: var(--type-15); line-height: var(--lh-15);
   font-weight: var(--w-semibold);
   letter-spacing: var(--tr-15);
-  white-space: nowrap;
+  /* Wraps rather than clips. `nowrap` was fine at the default ladder and a
+     silent failure at AX5: Finish became "Fini" and "Choose another session"
+     lost a word off each end of its card. A button that cannot say what it
+     does is not a button, so it takes a second line and the capsule grows
+     with it -- min-height, never a fixed one. */
+  white-space: normal;
+  text-align: center;
+  padding-top: var(--sp-2);
+  padding-bottom: var(--sp-2);
 }
 .btn--block { display: flex; width: 100%; }
 
@@ -171,7 +179,15 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
 }
 .row:active { background: var(--fill-press); }
 .row + .row { box-shadow: inset 0 1px 0 var(--hairline); }
-.row__main { flex: 1; min-width: 0; }
+/* Wraps rather than crushes. At AX5 the value and the chevron beside it
+   squeezed this column to 6px and "Barbell Squat" rendered as a column of
+   half letters. The floor is in em, so it scales with the reader's setting:
+   once the title needs the whole row, it takes the whole row and everything
+   else drops to the next line. min() keeps the floor from ever exceeding the
+   row itself, and at the default ladder 8em is 120px of a 361px row, so
+   nothing that fits today changes. */
+.row { flex-wrap: wrap; }
+.row__main { flex: 1 1 auto; min-width: min(100%, 8em); }
 .row__title { display: block; font-size: var(--type-15); letter-spacing: var(--tr-15); line-height: var(--lh-15); font-weight: var(--w-medium); }
 .row__sub { display: block; font-size: var(--type-13); letter-spacing: var(--tr-13); line-height: var(--lh-13); color: var(--text-secondary); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .row__value { font-size: var(--type-15); line-height: var(--lh-15); letter-spacing: var(--tr-15); font-weight: var(--w-semibold); font-variant-numeric: tabular-nums; }
@@ -265,7 +281,7 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
      reads as a hole rather than a control. */
   background: var(--knob);
   box-shadow: var(--shadow-raised);
-  transition: transform var(--dur-fast) var(--spring-snappy);
+  transition: transform var(--dur-slow) var(--spring-snappy);
 }
 .switch[aria-checked="true"] .switch__knob { transform: translateX(20px); }
 
@@ -404,6 +420,31 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
 }
 .tabbar__item[aria-current="page"] { color: var(--accent-text); }
 .tabbar__item:active { opacity: 0.6; }
+.tabbar__label { white-space: nowrap; }
+
+/* Icon-only above about xxLarge.
+
+   The bar is 369px wide whatever the reader's type setting is, so at AX5 five
+   labels at 34px each ran together and "Profile" was cut off entirely -- the
+   fifth tab had no reachable name. There is no media query for Dynamic Type,
+   but a container query's `em` resolves against the container's own font-size,
+   which does scale: 369px is 24.6em at the default ladder and 7.4em at AX5.
+   So the query fires on the reader's setting without measuring it.
+
+   The label leaves the layout, not the accessibility tree: `display: none`
+   would take the button's accessible name with it and leave five unlabelled
+   glyphs, so it is hidden the way .vis-hidden hides text instead. VoiceOver
+   still says "Profile, tab". */
+.tabbar { container-type: inline-size; container-name: tabbar; }
+.tabbar__item { position: relative; }
+@container tabbar (max-width: 16em) {
+  .tabbar__label {
+    position: absolute;
+    width: 1px; height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+}
 
 /* ===============================================================
    Sheet and dialog. Sheets rise from where they were summoned.
@@ -448,7 +489,23 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
   padding-bottom: calc(var(--sp-5) + var(--safe-bottom));
 }
 @keyframes sheetUp { from { transform: translateY(100%); } }
-.sheet__grab {
+/* Section 8.7: a sheet springs from the control that summoned it. chrome.js
+   sets transform-origin to that control's centre at press time and marks the
+   sheet; the rise stays, because a sheet still comes from the bottom edge --
+   what changes is that it also grows from the point that was touched, so the
+   overlay has a relationship to the tap instead of arriving from nowhere.
+   A sheet opened by something with no known trigger keeps the plain rise. */
+.sheet[data-from-trigger] { animation-name: sheetFromTrigger; }
+@keyframes sheetFromTrigger {
+  from { opacity: 0; transform: translateY(24px) scale(0.92); }
+}
+/* A grabber is a promise that the sheet moves, so it is painted only on a
+   sheet that carries detents. The markup can declare one everywhere; the
+   detent pass in chrome.js is what turns it on. Three fixed-height sheets
+   were showing a bar that nothing would answer. */
+.sheet__grab { display: none; }
+.sheet__grab[data-grabber="true"] {
+  display: block;
   width: 36px; height: 4px;
   margin: var(--sp-2) auto var(--sp-3);
   border-radius: var(--r-full);
@@ -547,8 +604,13 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
 /* Chart. Axes and labels are not optional. */
 .chart { width: 100%; display: block; }
 .chart__grid { stroke: var(--hairline); stroke-width: 1; }
-.chart__line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.chart__dot { fill: var(--accent); }
+/* A chart is data, not an action. Drawn in the accent it became the loudest
+   object on Progress -- a screen whose only button is grey -- and it invited
+   a tap it does not answer. The line is ink; the accent is spent on the last
+   point, which is the one figure the screen exists to report. */
+.chart__line { fill: none; stroke: var(--text-secondary); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.chart__dot { fill: var(--text); }
+.chart__dot--last { fill: var(--accent); }
 .chart__axis { font-size: var(--type-11); line-height: var(--lh-11); letter-spacing: var(--tr-11); fill: var(--text-tertiary); font-variant-numeric: tabular-nums; }
 
 /* ===============================================================
@@ -722,10 +784,13 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
   gap: var(--sp-2);
 }
 .dev__toggle {
-  /* Mostly off the edge at rest, and fully opaque. Fading it instead put its
-     label at 2.89:1 — scaffolding is allowed to be discreet and is not
-     allowed to be unreadable. */
-  transform: translateX(calc(var(--sp-5) * -1));
+  /* Off the canvas at rest, all but an 8px sliver of the capsule's trailing
+     edge. Half off was still 40px of opaque pill sitting on the body copy of
+     every screen -- it clipped "LAST SESSION" to "ST SESSION" on home and cut
+     the first character off list rows on five more. Scaffolding does not get
+     to cover the thing it exists to show, so it now covers nothing: the label
+     rides off-screen with the button and comes back when it is reached for. */
+  transform: translateX(calc(-100% + 8px));
   transition: transform var(--dur-slow) var(--spring-snappy);
 }
 .dev:hover .dev__toggle,
@@ -1061,8 +1126,13 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
    different job: choosing one item out of a list, not switching a setting on.
    The two screens that once had their own copy of this row now use this one,
    so no two screens show the same act two ways. */
-.opt[aria-checked="true"] .opt__mark { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
-.opt__mark .ico { opacity: 0; transition: opacity var(--dur-fast) var(--ease); }
+/* A checkmark in the accent, not a filled disc in it. Six chosen rows put six
+   accent fills on Coach's setup screen and the Save button had to compete
+   with all of them. iOS marks a chosen row in a picker with a bare glyph --
+   Settings does exactly this -- and the mark stays unmistakable because it is
+   the only coloured thing in the row. */
+.opt[aria-checked="true"] .opt__mark { border-color: transparent; color: var(--accent-text); }
+.opt__mark .ico { opacity: 0; transition: opacity var(--dur-slow) var(--spring-smooth); }
 .opt[aria-checked="true"] .opt__mark .ico { opacity: 1; }
 .opt__main { flex: 1; min-width: 0; }
 .opt__title { display: block; font-size: var(--type-15); letter-spacing: var(--tr-15); line-height: var(--lh-15); font-weight: var(--w-medium); }
@@ -1247,7 +1317,7 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
    trash can on every row. The red action exists in the DOM only while a
    row is open, so a list at rest carries no destructive control. */
 .swipe { position: relative; overflow: hidden; background: var(--error-solid); }
-.swipe__pane { position: relative; touch-action: pan-y; transition: transform var(--dur-fast) var(--spring-snappy); }
+.swipe__pane { position: relative; touch-action: pan-y; transition: transform var(--dur-slow) var(--spring-snappy); }
 .swipe[data-open="true"] .swipe__pane { transform: translateX(calc((var(--sp-6) * 2 + var(--sp-5)) * -1)); }
 .swipe__action {
   position: absolute; top: 0; right: 0; bottom: 0;
@@ -1310,10 +1380,13 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
 
 /* A card whose contents are not measured. Everything else on Review is
    computed from the lifter's own history; a generated line is drawn
-   with a dashed boundary and a labelled head so it can never be read
+   with a quiet ground and a labelled head so it can never be read
    as one of the figures above it, and so a failure inside it stays
    visibly a failure. */
-.card--unverified { background: none; border: 1px dashed var(--border); }
+/* iOS has no dashed stroke, so the boundary is a quiet ground and a hairline
+   instead. The labelled head is what carries the meaning; the dash was only
+   ever a web convention for "provisional". */
+.card--unverified { background: var(--fill); box-shadow: inset 0 0 0 1px var(--border); }
 
 /* ===============================================================
    Added for settings. Tokens only, no new values.
@@ -1420,10 +1493,21 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
 .exc--lifted { box-shadow: inset 0 0 0 2px var(--accent-text); }
 
 /* --- The set grid. The dense part, and the point of the screen. */
-.sets { padding: var(--sp-2) var(--sp-3) var(--sp-3); }
+/* Scrolls sideways only when the grid outgrows the card, which at the
+   default ladder it never does. A set table is the one thing on this screen
+   that cannot reflow -- five columns of numbers read across, and stacking
+   them would destroy the comparison the table exists to make. */
+.sets { padding: var(--sp-2) var(--sp-3) var(--sp-3); overflow-x: auto; }
 .setgrid {
   display: grid;
-  grid-template-columns: var(--sp-5) 1fr 1fr calc(var(--sp-6) + var(--sp-5)) var(--tap);
+  width: 100%;
+  min-width: max-content;
+  /* minmax, not fixed: at AX5 a 24px set-number column clipped "#" and "W".
+     The floor is the figure the default ladder wants; auto is what a reader
+     who has asked for 53px type needs. */
+  grid-template-columns:
+    minmax(var(--sp-5), auto) 1fr 1fr
+    minmax(calc(var(--sp-6) + var(--sp-5)), auto) minmax(var(--tap), auto);
   gap: var(--sp-2);
   align-items: center;
 }
@@ -1519,13 +1603,14 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
 
 /* --- Add exercise / block row --------------------------------- */
 .addrow { display: flex; gap: var(--sp-3); margin-top: var(--sp-3); align-items: stretch; }
+/* Was a dashed accent outline, which read as a disabled web upload dropzone.
+   A secondary capsule says the same thing in the platform's own vocabulary. */
 .btn--dashed {
   flex: 1; min-width: 0;
-  background: var(--accent-quiet);
-  border: 1px dashed var(--accent-text);
-  color: var(--accent-text);
+  background: var(--fill);
+  color: var(--text);
 }
-.btn--dashed:active { background: var(--accent-deep); color: var(--text-on-solid); }
+.btn--dashed:active { background: var(--fill-press); }
 
 /* --- The numeric pad. Summoned, as shipped; it replaces on the
    first digit instead of appending, which is the whole fix. ----- */
@@ -1538,17 +1623,20 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
 .padsheet__unit { font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13); color: var(--text-secondary); }
 .padsheet__hint { font-size: var(--type-11); line-height: var(--lh-11); letter-spacing: var(--tr-11); color: var(--text-tertiary); margin: 0 0 var(--sp-2); }
 .padchips { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-2); margin-bottom: var(--sp-3); }
+/* Neutral, not accent. Four outlined accent steppers plus an accent Done
+   plus a red DEL put six tinted objects on one surface: the sheet had more
+   accent in it than any screen behind it. Done is the primary here and it is
+   the only tinted thing. */
 .padchip {
   min-height: var(--tap);
   border-radius: var(--r-sm);
   corner-shape: var(--corner-smooth);
-  border: 1px solid var(--accent-text);
-  background: var(--accent-quiet);
-  color: var(--accent-text);
+  background: var(--fill);
+  color: var(--text);
   font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13);
   font-weight: var(--w-semibold); font-variant-numeric: tabular-nums;
 }
-.padchip:active { background: var(--accent-deep); color: var(--text-on-solid); }
+.padchip:active { background: var(--fill-press); }
 .pad__key--del { color: var(--error); }
 .padsheet__foot { display: flex; gap: var(--sp-2); margin-top: var(--sp-3); }
 .padsheet__foot .btn--secondary { flex: 0 0 calc(var(--sp-6) * 3); }
@@ -1618,7 +1706,8 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
    end of the row, away from the filters, because it is not one. */
 .chiprow__end { margin-left: auto; }
 .chip--icon { display: inline-flex; align-items: center; gap: var(--sp-1); }
-.chip--icon .ico { width: 18px; height: 18px; }
+/* One optical size for inline controls. An 18px glyph here was a third
+   size in a build that otherwise draws every control icon at 20. */
 
 /* ===============================================================
    ANATOMICAL FIGURE
@@ -1710,7 +1799,7 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
      Going down is immediate, because a press that eases in feels late. */
   transition: transform var(--dur-slow) var(--spring-bouncy),
               background-color var(--dur-fast) var(--ease),
-              opacity var(--dur-fast) var(--ease);
+              opacity var(--dur-slow) var(--spring-smooth);
 }
 
 .btn:active, .chip:active, .opt:active, .seg__item:active,
@@ -1771,7 +1860,16 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
    scrolled past. Both titles are in the DOM at once and cross-fade, because
    morphing one element between two sizes and two alignments fights the
    baseline the whole way. */
-.hdr--large { position: relative; }
+/* 96px at rest against the 44px collapsed bar, so the large-title band is
+   52px of travel -- Apple's figure. It was 74px, which gave 30px of travel:
+   the title reached the bar before the collapse had read as a collapse. */
+.hdr--large {
+  position: relative;
+  min-height: 96px;
+  align-items: flex-end;
+  padding-bottom: var(--sp-2);
+}
+.hdr--large[data-collapsed="true"] { align-items: center; }
 .hdr--large .hdr__title-large {
   font-size: var(--type-large-title);
   line-height: var(--lh-large-title);
@@ -1811,13 +1909,45 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
    unusable. */
 .tabbar[data-minimize] {
   transition: transform var(--dur-slow) var(--spring-snappy),
-              opacity var(--dur-fast) var(--ease);
+              left var(--dur-slow) var(--spring-snappy),
+              opacity var(--dur-slow) var(--spring-smooth);
   will-change: transform;
 }
+.tabbar[data-minimize] .tabbar__item {
+  transition: flex-basis var(--dur-slow) var(--spring-snappy),
+              padding var(--dur-slow) var(--spring-snappy),
+              opacity var(--dur-fast) var(--ease);
+}
+/* Section 8.2 says the bar COLLAPSES to the active tab, not that it leaves.
+   It used to translate off the bottom edge entirely, and on a long screen
+   that read as a rendering failure -- scroll down on Train and there is
+   simply no tab bar. Now it shrinks to a capsule around the tab you are on,
+   which keeps the app's location on screen the whole way down and gives the
+   reverse-scroll something to expand back out of. */
 .tabbar[data-minimized="true"] {
-  transform: translate3d(0, calc(100% + var(--sp-3) + var(--safe-bottom)), 0);
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  /* Containment off while collapsed. `inline-size` makes an element's width
+     independent of its contents, which is exactly what the icon-only query
+     needs at rest and exactly what a shrink-to-fit pill cannot have: with it
+     on, the collapsed bar computed to 0px wide. At rest the bar has a
+     definite width and the query works; collapsed it has none and does not
+     need one, because the one tab left is the tab you are on and it keeps
+     its label. */
+  container-type: normal;
+}
+.tabbar[data-minimized="true"] .tabbar__item:not([aria-current="page"]) {
+  flex: 0 0 0;
+  min-width: 0;
+  padding: 0;
   opacity: 0;
+  overflow: hidden;
   pointer-events: none;
+}
+.tabbar[data-minimized="true"] .tabbar__item[aria-current="page"] {
+  flex: none;
+  padding: 0 var(--sp-5);
 }
 
 /* --- Sheet grabber -------------------------------------------------------
@@ -1830,6 +1960,7 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
   padding: var(--sp-2) 0;
   margin-top: calc(var(--sp-2) * -1);
 }
+
 .sheet__grab[data-grabber="true"]:active { cursor: grabbing; }
 .sheet[data-detents] { will-change: height; }
 
@@ -1875,16 +2006,24 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
    One accent, two halves. Voice and camera are the same job done two ways,
    so they are one control; a single button with a mode is a mode to get
    wrong. The halves are equal weight because neither is the fallback. */
+/* Two capsules, not one filled control split down the middle.
+
+   The split button was the right product call for the wrong shape. Voice and
+   camera are the same job done two ways and neither is the other's fallback,
+   so neither may be hidden behind the other -- that part stands. But a filled
+   capsule with a hairline through it is still two co-equal targets claiming
+   primary emphasis, and it is a shape iOS does not have: Messages flanks its
+   field with two plain glyph buttons, Notes puts camera, scan and draw in a
+   toolbar at equal weight. Both keep "neither is the fallback" without either
+   half shouting.
+
+   So both halves are secondary, and Fuel carries no accent fill at all. A
+   screen whose job is reporting does not need one. */
 .fuel-log {
   display: flex;
   align-items: stretch;
+  gap: var(--sp-2);
   margin-top: var(--sp-4);
-  min-height: var(--tap);
-  border-radius: var(--r-lg);
-  corner-shape: var(--corner-smooth);
-  background: var(--accent);
-  color: var(--text-on-accent);
-  overflow: hidden;
 }
 .fuel-log__half {
   flex: 1;
@@ -1895,18 +2034,13 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
   gap: var(--sp-2);
   padding: var(--sp-3) var(--sp-2);
   min-height: var(--tap);
-  background: none;
-  color: inherit;
+  border-radius: var(--r-full);
+  corner-shape: round;
+  background: var(--fill);
+  color: var(--text);
+  font-weight: var(--w-semibold);
 }
-.fuel-log__half:active { background: var(--accent-deep); color: var(--text-on-solid); }
-/* A hairline, not a gap: a gap would read as two controls. */
-.fuel-log__split {
-  flex: none;
-  width: 1px;
-  align-self: stretch;
-  background: var(--text-on-accent);
-  opacity: 0.28;
-}
+.fuel-log__half:active { background: var(--fill-press); }
 .fuel-log__hint { margin-top: var(--sp-2); text-align: center; }
 
 /* --- Macro bars ----------------------------------------------------------
@@ -1927,8 +2061,10 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
    keep the same text indent. */
 .fuel-thumb {
   flex: none;
-  width: var(--sp-6);
-  height: var(--sp-6);
+  /* em, not a fixed 32px: the glyph inside is text and it scales, so the
+     well it sits in has to scale with it. */
+  width: 1.9em;
+  height: 1.9em;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1943,7 +2079,8 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
 .row--quiet { color: var(--text-secondary); }
 .row--quiet:active { background: var(--surface); }
 .row--quiet .row__title { font-weight: var(--w-regular); color: var(--text-secondary); }
-.row--quiet .fuel-thumb { background: none; opacity: 0.5; }
+.row--quiet .fuel-thumb { background: none; }
+.fuel-thumb--ico { color: var(--text-tertiary); }
 /* An empty chevron slot, so the value column above it does not shift right
    on the one row that has nowhere to go. */
 .row--quiet .row__chev { width: 20px; }  /* the chevron icon's own width, from .ico */
@@ -2053,7 +2190,7 @@ button.shelf:active { background: var(--fill-press); }
 }
 .shelf[data-minimize] {
   transition: transform var(--dur-slow) var(--spring-snappy),
-              opacity var(--dur-fast) var(--ease);
+              opacity var(--dur-slow) var(--spring-smooth);
   will-change: transform;
 }
 
@@ -2160,7 +2297,17 @@ button.shelf:active { background: var(--fill-press); }
    already have it. */
 .item--done .item__name { color: var(--text-tertiary); text-decoration: line-through; }
 
-.item { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--page-x); background: var(--surface); }
+/* Inset-grouped, like every other surface in the build. Shop's rows ran
+   edge to edge while the card above them was an inset rounded rectangle, so
+   two iOS list idioms sat on one screen. Both are legitimate; using both at
+   once is what reads as unfinished. */
+.itemgroup {
+  margin: 0 var(--page-x);
+  border-radius: var(--r-lg);
+  corner-shape: var(--corner-smooth);
+  overflow: hidden;
+}
+.item { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); background: var(--surface); }
 .item + .item { box-shadow: inset 0 1px 0 var(--hairline); }
 .item__main { flex: 1; min-width: 0; }
 .item__name { display: block; font-size: var(--type-15); line-height: var(--lh-15); letter-spacing: var(--tr-15); font-variant-numeric: tabular-nums; }
@@ -2201,7 +2348,9 @@ button.shelf:active { background: var(--fill-press); }
    bad about; a letter is just who this is. */
 .avatar {
   flex: none;
-  width: 48px; height: 48px;
+  /* Sized in em so the well grows with the initial inside it. At 48px fixed
+     the letter outgrew its circle at AX5 and rendered clipped. */
+  width: 2.2em; height: 2.2em;
   display: flex; align-items: center; justify-content: center;
   border-radius: var(--r-full);
   background: var(--fill);

@@ -12,6 +12,18 @@
    Measured when this was written: the workout log had three accent fills and
    forty-three accent inks, and Fuel had four fills. The accent then marked
    nothing, which is the failure the rule exists to prevent.
+
+   Two things this used to be blind to, and a ship review found both:
+
+     SVG. The early return on namespaceURI skipped every SVG node, so
+     Progress could draw its 1RM chart as an orange polyline with seven
+     orange dots -- the loudest object on a screen whose only button is
+     grey -- and this audit reported `fills 0`.
+
+     States. Measuring the resting screen only meant the numeric pad's four
+     accent steppers, its accent Done and its red DEL were never counted.
+     A sheet is a surface and the rule is one tint per surface, so every
+     state the screen's own switcher declares is walked.
 */
 import { chromium } from 'playwright';
 import { readFileSync } from 'fs';
@@ -25,11 +37,37 @@ const screens = process.argv.slice(2).length
 const br = await chromium.launch();
 let fails = 0;
 
+const openDev = () => {
+  document.querySelector('[data-testid="dev-toggle"], [data-testid="dev-open"]')?.click();
+  return [...document.querySelectorAll('.dev__item, .dev-list button, [data-testid="dev-list"] button')];
+};
+
 for (const file of screens) {
+  const url = pathToFileURL(path.join(BUILD, file)).href;
+  const probe = await br.newPage({ viewport: { width: 393, height: 852 } });
+  await probe.goto(url);
+  await probe.waitForFunction(() => window.__ready === true, null, { timeout: 2000 }).catch(() => {});
+  await probe.waitForTimeout(600);
+  const states = await probe.evaluate(`(${openDev.toString()})().map((b, i) => ({ i, label: (b.dataset.state || b.textContent.trim() || 'state ' + i).slice(0, 28) }))`);
+  await probe.close();
+
+for (const state of (states.length ? states : [{ i: -1, label: 'default' }])) {
   const p = await br.newPage({ viewport: { width: 393, height: 852 } });
-  await p.goto(pathToFileURL(path.join(BUILD, file)).href);
+  await p.goto(url);
   await p.waitForFunction(() => window.__ready === true, null, { timeout: 2000 }).catch(() => {});
   await p.waitForTimeout(600);
+  if (state.i >= 0) {
+    await p.evaluate(`(function (i) {
+      const list = (${openDev.toString()})();
+      list[i] && list[i].click();
+      const menu = document.querySelector('[data-testid="dev-menu"], [data-testid="dev-panel"]');
+      if (menu && !menu.hidden) {
+        document.querySelector('[data-testid="dev-close"]')?.click();
+        menu.hidden = true;
+      }
+    })(${state.i})`);
+    await p.waitForTimeout(420);
+  }
 
   const r = await p.evaluate(() => {
     const cs = getComputedStyle(document.documentElement);
@@ -42,21 +80,34 @@ for (const file of screens) {
     const acc = new Set(want.map(hex));
     const fills = [], inks = [];
     document.querySelectorAll('*').forEach(el => {
-      if (el.closest('.dev') || el.namespaceURI !== 'http://www.w3.org/1999/xhtml') return;
+      if (el.closest('.dev')) return;
       const b = el.getBoundingClientRect();
       if (b.width < 6 || b.height < 6) return;
       const s = getComputedStyle(el);
-      const name = (el.dataset.testid || el.className || el.tagName).toString().slice(0, 26);
-      if (acc.has(s.backgroundColor)) fills.push(name + ` ${Math.round(b.width)}x${Math.round(b.height)}`);
+      const name = (el.dataset.testid ||
+        (typeof el.className === 'string' ? el.className : el.className.baseVal) ||
+        el.tagName).toString().slice(0, 26);
+      const size = ` ${Math.round(b.width)}x${Math.round(b.height)}`;
+      if (el.namespaceURI !== 'http://www.w3.org/1999/xhtml') {
+        /* An SVG competes for attention the same way a div does. A filled
+           shape is a fill; a stroked path is ink, because a 2px line is not
+           what draws the eye across a screen. Icons inherit their stroke from
+           the control they sit in, so they are counted where they land. */
+        if (acc.has(s.fill)) fills.push(name + size);
+        else if (acc.has(s.stroke)) inks.push(name);
+        return;
+      }
+      if (acc.has(s.backgroundColor)) fills.push(name + size);
       else if (acc.has(s.color) && el.children.length === 0 && el.textContent.trim()) inks.push(name);
     });
     return { fills, inks };
   });
   const over = r.fills.length > 1;
   if (over) fails++;
-  console.log(`${over ? 'FAIL ' : 'PASS '}${file.padEnd(24)} fills ${String(r.fills.length).padStart(2)}   ink ${String(r.inks.length).padStart(2)}`);
+  console.log(`${over ? 'FAIL ' : 'PASS '}${(file + ' · ' + state.label).padEnd(46)} fills ${String(r.fills.length).padStart(2)}   ink ${String(r.inks.length).padStart(2)}`);
   if (r.fills.length) console.log('    fills: ' + r.fills.join(', '));
   await p.close();
+}
 }
 await br.close();
 console.log(fails ? `\n${fails} screens carry more than one accent fill` : '\nevery screen carries at most one accent fill');

@@ -27,7 +27,9 @@ for (const f of screens) {
       const box = el.getBoundingClientRect();
       if (!box.width) return;
       const isCapsule = rad >= Math.min(box.width, box.height) / 2 - 0.5;
-      if (shape.includes('superellipse')) {
+      /* Chromium computes superellipse(2) back as the keyword `squircle`,
+         so the token's own value never contains the word `superellipse`. */
+      if (shape.includes('superellipse') || shape.includes('squircle')) {
         sm++;
         if (isCapsule) bad.push((el.className || el.tagName) + ' capsule got smoothing');
       } else if (isCapsule && rad > 0) cap++;

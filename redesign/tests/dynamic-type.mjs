@@ -63,9 +63,38 @@ for (const file of screens) {
   ok(grew, `${file} — AX5 scales the type`,
      `${Math.max(...base)}px -> ${big.length ? Math.max(...big) : 0}px`);
 
-  const over = await p.evaluate(() =>
-    document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
-  ok(!over, `${file} — no sideways overflow at AX5`);
+  /* Per element, not per document. .screen sets overflow-x: hidden, so
+     documentElement.scrollWidth can never exceed clientWidth -- the old
+     assertion here was unfalsifiable and reported green on screens whose
+     primary button was visibly clipped to "Fini". A text node whose own
+     scrollWidth is wider than its box is text the reader cannot finish,
+     which is the thing AX5 is supposed to catch. */
+  const clipped = await p.evaluate(() => {
+    const bad = [];
+    document.querySelectorAll('*').forEach(e => {
+      if (e.children.length || !e.textContent.trim()) return;
+      if (e.closest('.dev')) return;
+      if (e.namespaceURI !== 'http://www.w3.org/1999/xhtml') return;
+      const s = getComputedStyle(e);
+      if (s.display === 'none' || s.visibility === 'hidden') return;
+      if (s.overflow === 'auto' || s.overflow === 'scroll' ||
+          s.overflowX === 'auto' || s.overflowX === 'scroll') return;
+      /* Text hidden from sight on purpose is a 1px box by construction, and
+         it is read aloud rather than looked at. */
+      if (e.clientWidth <= 2) return;
+      /* A designed truncation is not a break. iOS truncates a list row's
+         title at AX5 too -- what it does not do is cut a word in half with
+         no ellipsis, which is what everything left in this list does. */
+      if (s.textOverflow === 'ellipsis') return;
+      if (e.scrollWidth > e.clientWidth + 1 && e.clientWidth > 0) {
+        bad.push((e.className || e.tagName) + ' "' +
+                 e.textContent.trim().slice(0, 22) + '"');
+      }
+    });
+    return bad;
+  });
+  ok(clipped.length === 0, `${file} — no text is clipped at AX5`,
+     clipped.length ? clipped.length + ': ' + clipped.slice(0, 4).join(' | ') : '');
   await p.close();
 }
 await br.close();

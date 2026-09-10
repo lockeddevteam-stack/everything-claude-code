@@ -291,6 +291,7 @@
     if (root.__lk_ovfocus || typeof MutationObserver !== 'function') return;
 
     var opener = null;
+    var openerBox = null;
     var host = root.host ? root : (root.body || root);
 
     /* What was pressed, remembered at press time. Reading the active element
@@ -305,9 +306,34 @@
          the element the finger landed on may be a different object by the
          time the overlay closes, so holding a reference gives back something
          that is no longer in the document. */
-      if (el && !el.closest('.sheet, .dialog, .scrim')) opener = el.getAttribute('data-testid') || opener;
+      if (el && !el.closest('.sheet, .dialog, .scrim')) {
+        opener = el.getAttribute('data-testid') || opener;
+        /* The geometry too, taken at press time. Section 8.7: a sheet or a
+           menu springs from the control that summoned it, and by the time
+           the overlay is in the DOM the screen has usually re-rendered and
+           the control is a different node. */
+        try { openerBox = el.getBoundingClientRect(); } catch (err) { openerBox = null; }
+      }
     }, true);
     });
+
+    /* Anchors the overlay's scale on the control it came from. Without an
+       origin every sheet grew from its own centre, which is a relationship
+       to nothing. Clamped into the overlay's own box, because a trigger at
+       the top of the screen and a sheet at the bottom would otherwise put
+       the origin outside the thing being scaled and read as a slide. */
+    function anchor(box) {
+      if (!openerBox) { box.removeAttribute('data-from-trigger'); return; }
+      var r;
+      try { r = box.getBoundingClientRect(); } catch (err) { return; }
+      if (!r.width || !r.height) return;
+      var ox = openerBox.left + openerBox.width / 2 - r.left;
+      var oy = openerBox.top + openerBox.height / 2 - r.top;
+      box.style.transformOrigin =
+        Math.max(0, Math.min(r.width, ox)) + 'px ' +
+        Math.max(0, Math.min(r.height, oy)) + 'px';
+      box.setAttribute('data-from-trigger', 'true');
+    }
 
     function safeIn(box) {
       var buttons = box.querySelectorAll('button:not([disabled])');
@@ -327,6 +353,7 @@
       if (now === was) return;
       was = now;
       if (now) {
+        anchor(box);
         var a = (root.activeElement || doc.activeElement);
         if (a && box.contains(a)) return;          /* the screen did it itself */
         var t = safeIn(box);
