@@ -74,7 +74,11 @@ All file references below are `redesign/input/locked-current-v6.html:<line>` unl
 - AI: none
 - Edge cases: If `targets.cal` were 0, `pct` is Infinity → `Math.min(pct,1)` in MacroRing clamps it (35768).
 - Gating: always on
-- Status: BROKEN (partial)
+- Status: WORKING *(corrected in Wave 3 — was BROKEN)*
+- **Wave 3 correction:** the original BROKEN status cited 37270/37287, which are
+  CSS style properties, not the logic described. The real code is at 37275/37281.
+  The posited NaN cannot occur: `fmtQ` (4349-4354) returns `String(r)` or `""`,
+  never `"NaN"`. Reclassified WORKING with a code smell. See WAVE3_VERIFICATION.md.
 - Evidence for status: 37270 compares `m.val > m.target` where `m.val` is `fmtQ(totalPro)` — a formatted **string** (37223, 37228, 37233), so the hide-numbers "Over"/"On track" comparison and the `Math.min(m.val / m.target, 1)` bar width (37287) both rely on string→number coercion; `fmtQ` output containing a non-numeric suffix would yield NaN.
 - Notes: Verify `fmtQ` (4349–4354) return type. Bar-width math `m.val / m.target` at 37287 uses the same possibly-string value. The hide-numbers and framing settings were previously dead per the code comments at 36896–36903; they are now read here.
 

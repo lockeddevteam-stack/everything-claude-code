@@ -25,8 +25,8 @@ Every claim below cites `file:line` in the production file.
 
 | Status | Count | Share |
 |---|---|---|
-| WORKING | 388 | 71.7% |
-| PARTIAL | 105 | 19.4% |
+| WORKING | 389 | 71.9% |
+| PARTIAL | 104 | 19.2% |
 | DEAD | 20 | 3.7% |
 | UNVERIFIED | 10 | 1.8% |
 | BROKEN | 1 | 0.2% |
@@ -481,7 +481,56 @@ told to use Share → Add to Home Screen manually (1581). A service worker
 Every component, storage key and endpoint in the Wave 0 raw inventories appears
 in at least one feature entry or in the Orphans list above.
 
-Wave 3 error rate: see `WAVE3_VERIFICATION.md`.
+### Wave 3 verification — FAILED the 5% threshold
+
+A fresh agent re-read 40 sampled items (15 features, 25 function rows) cold
+across all 18 reports. Full detail in `WAVE3_VERIFICATION.md`.
+
+| Rate | Result |
+|---|---|
+| Feature entries | 9/15 = **60.0%** (1 major, 8 minor) |
+| Function rows | 10/25 = **40.0%** (0 major, 10 minor) |
+| **Overall** | **19/40 = 47.5% — FAIL** (threshold 5%) |
+| Major-only | 1/40 = **2.5%** |
+
+**What actually failed.** 18 of the 19 errors are *citation* errors — line
+numbers drifted 5-64 lines — not *conclusion* errors. The agents read their
+ranges in `sed` chunks and accumulated offset drift when reporting absolute
+line numbers. Every substantive claim that was stress-tested held:
+
+- **9 of 9 dead-code claims verified independently** under `rg`
+  (`LoadingSpinner`, `RecipeBuilder`, `McFuelStrip`, `LOCKED.can`,
+  `window.LOCKED._client`, `betaAdmin`, `normalizeAiItems`, `cloneFoodItem`,
+  `importCheckedItems`).
+- `DEAD` statuses held 9/9. `BROKEN` held only 1/2.
+
+**Remediation applied.**
+1. **All 1,540 function-index entries were machine-re-anchored.** Each symbol's
+   definition line was recomputed directly from the source rather than trusting
+   the agent cite. 939 anchored exactly, **168 of which corrected real drift**;
+   601 are inline handlers and closures with no top-level definition, which keep
+   their original cite and are explicitly marked `*(unresolved)*`.
+2. **The single major error was corrected.** F-FUEL-202 was labelled BROKEN on
+   evidence pointing at CSS properties (37270/37287 rather than 37275/37281),
+   describing a NaN that `fmtQ` (4349-4354) cannot produce — it returns
+   `String(r)` or `""`, never `"NaN"`. Reclassified **WORKING**.
+
+**Standing caveat for the redesign.** Feature-entry line cites in
+`audit/agents/*.md` were *not* re-anchored and should be treated as approximate
+to within ~60 lines. Re-anchor by symbol name, not by line number. The audit is
+reliable as a map of what exists, what is dead and how it behaves; it is not a
+reliable coordinate system. Re-verify any remaining `BROKEN` or `PARTIAL` status
+before acting on it.
+
+### Playwright
+
+Ran. Playwright v1.56.1 with preinstalled Chromium; nothing was installed. The
+production file cannot boot from a local server here because it loads React and
+Supabase from unpkg/jsDelivr and the environment proxy blocks browser CDN
+fetches. The verifier served a scratchpad copy repointed at the repo's own
+`redesign/input/vendor/` files — `redesign/input/` itself was not modified.
+Guest → skip tutorial → all five tabs clicked, **zero page errors**.
+Screenshots in `audit/screens/`.
 
 ---
 
