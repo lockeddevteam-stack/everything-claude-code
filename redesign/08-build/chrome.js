@@ -124,11 +124,23 @@
     var scroller = root.querySelector(bar.getAttribute('data-minimize'));
     if (!scroller) return;
     if (!once(bar, 'minimize')) return;
-    var last = 0, min = false;
+    var last = 0, min = false, touched = false;
+
+    /* The bar hides because the person is scrolling, and only then. A screen
+       that scrolls itself — coach jumps its chat to the latest message on
+       every render — was read as a hard scroll down, so the tab bar was
+       already gone before the screen was even looked at, off-screen and
+       pointer-events: none, with no gesture that could bring it back. The
+       flag is set by the input that means a person did it. */
+    ['pointerdown', 'wheel', 'touchstart', 'keydown'].forEach(function (ev) {
+      scroller.addEventListener(ev, function () { touched = true; }, { passive: true });
+    });
+
     onScrollFrame(scroller, function (y) {
       var down = y > last;
       var delta = Math.abs(y - last);
       last = y;
+      if (!touched) return;
       if (delta < 4) return;                 /* ignore the jitter of a settling scroll */
       if (down && y > 64 && !min) { min = true; set('true'); }
       else if (!down && min) { min = false; set('false'); }

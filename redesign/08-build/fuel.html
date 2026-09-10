@@ -110,6 +110,7 @@
   var ICO = {
     mic: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
     cam: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+    tick: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l5 5L19 7"/></svg>',
     chev: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg>',
     alert: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/></svg>',
     plus: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg>'
@@ -136,7 +137,24 @@
       { icon: '🥤', name: 'Whey shake, banana', at: '3:15', pro: 31, kcal: 310, src: 'verified' }
     ],
     /* Not a target and not a nag: a pattern this person already has. */
-    closing: { at: '7:30', pro: 40 }
+    closing: { at: '7:30', pro: 40 },
+
+    waterMl: 1750,
+    waterGoalMl: 3000,
+    /* Taken, not "due": the app knows what was swallowed, not what was
+       intended. Timing is what the row says, because timing is the only
+       thing about a supplement that is worth a reminder. */
+    supps: [
+      { name: 'Creatine monohydrate', dose: '5 g', when: 'Any time, daily', taken: true },
+      { name: 'Vitamin D3', dose: '2000 IU', when: 'With a meal containing fat', taken: true },
+      { name: 'Whey', dose: '30 g', when: 'Counted as food, not a supplement', taken: false },
+      { name: 'Magnesium glycinate', dose: '200 mg', when: 'Evening', taken: false }
+    ],
+    /* Fourteen days of intake against target. A trend is the only thing a
+       single day cannot tell you, which is the whole reason this sheet
+       exists. */
+    trend: [2980, 3120, 2740, 2880, 3310, 2610, 2950,
+            2870, 3040, 2790, 3180, 2900, 2680, 2985]
   };
 
   var S = { state: 'populated', sheet: null, listening: false };
@@ -367,7 +385,162 @@
      Sheets. Both fast paths open one, and both say what they are doing
      rather than spinning.
      --------------------------------------------------------------- */
+  /* A logged row, opened. Everything the log knows about one entry, and the
+     two things you can do to it: change what it was, or take it back. */
+  function mealSheet(m) {
+    var pct = Math.round(m.kcal / DAY.target * 100);
+    return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="ml-title" ' +
+        'data-detents="0.55 0.88" data-testid="sheet-meal">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+        '<div class="sheet__head">' +
+          '<span class="fuel-thumb" aria-hidden="true">' + m.icon + '</span>' +
+          '<h2 class="t-headline grow" id="ml-title">' + esc(m.name) + '</h2>' +
+          '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="meal-close">' +
+            '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+          '</button></div>' +
+        '<div class="sheet__body">' +
+          '<p class="t-detail">Logged at ' + esc(m.at) + ' &middot; ' + pct + '% of today</p>' +
+          '<div class="card card--sunken mt-3">' +
+            '<div class="hstack hstack--3"><span class="t-body grow">Energy</span>' +
+              '<span class="t-body-em num">' + n(m.kcal) + ' kcal</span></div>' +
+            '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Protein</span>' +
+              '<span class="t-body-em num">' + m.pro + ' g</span></div>' +
+          '</div>' +
+          '<h3 class="t-label mt-5">Where these numbers came from</h3>' +
+          '<p class="t-detail mt-2">' + (m.src === 'verified'
+            ? 'A barcode matched a database row, so the figures are the manufacturer&rsquo;s own. ' +
+              'They are only wrong if the portion was.'
+            : 'A model read the photo and estimated the portion. Expect it to be within about 15% on a ' +
+              'plate like this one, and further out on anything with a sauce.') + '</p>' +
+          '<div class="chiprow mt-4">' +
+            '<button class="chip" type="button" data-action="close" data-testid="meal-edit">Change the portion</button>' +
+            '<button class="chip" type="button" data-action="close" data-testid="meal-swap">It was something else</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--danger btn--block" type="button" data-action="close" data-testid="meal-delete">' +
+            '<span class="btn__label">Remove this entry</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
   function sheetHTML() {
+    if (S.sheet && S.sheet.indexOf('meal:') === 0) {
+      var m = DAY.meals[+S.sheet.slice(5)];
+      return m ? mealSheet(m) : '';
+    }
+    if (S.sheet === 'water') {
+      var pctW = Math.min(100, Math.round(DAY.waterMl / DAY.waterGoalMl * 100));
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="wt-title" data-testid="sheet-water">' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="wt-title">Water</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="water-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<div class="hstack hstack--2" style="align-items: baseline">' +
+              '<p class="money num" data-testid="water-value">' + (DAY.waterMl / 1000).toFixed(2) + '</p>' +
+              '<p class="hero__unit grow">of ' + (DAY.waterGoalMl / 1000).toFixed(1) + ' L</p>' +
+            '</div>' +
+            '<div class="meter mt-3" role="img" aria-label="' + pctW + ' per cent of today&rsquo;s water">' +
+              '<span class="meter__fill" style="width:' + pctW + '%"></span></div>' +
+            '<div class="hstack hstack--3 mt-4">' +
+              '<button class="btn btn--secondary grow" type="button" data-action="water-sub" data-testid="water-sub">' +
+                '<span class="btn__label">&minus; 250 ml</span></button>' +
+              '<button class="btn btn--primary grow" type="button" data-action="water-add" data-testid="water-add">' +
+                '<span class="btn__label">+ 250 ml</span></button>' +
+            '</div>' +
+            '<p class="t-caption-1 quiet mt-3">A glass is about 250 ml. The target moves with your weight and ' +
+              'the weather, not with a round number somebody picked.</p>' +
+          '</div>' +
+        '</div>';
+    }
+    if (S.sheet === 'supps') {
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sp-title" ' +
+          'data-detents="0.55 0.88" data-testid="sheet-supps">' +
+          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="sp-title">Supplements</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="supps-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<div class="card card--flush">' + DAY.supps.map(function (sp, i) {
+              return '<button class="row" type="button" data-action="supp" data-i="' + i +
+                '" aria-pressed="' + sp.taken + '" data-testid="supp-' + i + '">' +
+                '<span class="tick"><span class="tick__box">' + (sp.taken ? ICO.tick : '') + '</span></span>' +
+                '<span class="row__main stack">' +
+                  '<span class="row__title">' + esc(sp.name) + '</span>' +
+                  '<span class="row__sub">' + esc(sp.dose) + ' &middot; ' + esc(sp.when) + '</span>' +
+                '</span></button>';
+            }).join('') + '</div>' +
+            '<p class="t-caption-1 quiet mt-3">Whey is in your food log as food, because that is what it is. ' +
+              'It sits here so the list matches what is on the shelf.</p>' +
+          '</div>' +
+        '</div>';
+    }
+    if (S.sheet === 'trends') {
+      var t = DAY.trend, mx = Math.max.apply(null, t), mn = Math.min.apply(null, t);
+      var avg = Math.round(t.reduce(function (a, b) { return a + b; }, 0) / t.length);
+      var pts = t.map(function (v, i) {
+        return (i / (t.length - 1) * 300).toFixed(1) + ',' + (70 - (v - mn) / (mx - mn) * 60).toFixed(1);
+      }).join(' ');
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="tr-title" data-testid="sheet-trends">' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="tr-title">Last fourteen days</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="trends-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<div class="hstack hstack--2" style="align-items: baseline">' +
+              '<p class="money num" data-testid="trend-avg">' + n(avg) + '</p>' +
+              '<p class="hero__unit grow">kcal a day on average</p>' +
+            '</div>' +
+            '<p class="t-detail mt-2">Target is ' + n(DAY.target) + '. A single day means nothing; ' +
+              'fourteen of them are what the target is set from.</p>' +
+            '<svg class="chart mt-4" viewBox="0 0 300 80" role="img" ' +
+              'aria-label="Daily energy over fourteen days, averaging ' + n(avg) + ' kcal">' +
+              '<polyline class="chart__line" points="' + pts + '"/>' +
+            '</svg>' +
+            '<div class="hstack hstack--3 mt-2">' +
+              '<span class="t-meta num grow">' + n(mn) + ' low</span>' +
+              '<span class="t-meta num">' + n(mx) + ' high</span>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    }
+    if (S.sheet === 'meals') {
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="me-title" ' +
+          'data-detents="0.5 0.88" data-testid="sheet-meals">' +
+          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="me-title">Meals you log often</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="meals-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<p class="t-detail">One tap logs it again with the same portion. This is what makes the ' +
+              'second week faster than the first.</p>' +
+            '<div class="card card--flush mt-3">' + [
+              { icon: '🍳', name: 'Eggs, toast, butter', n: 41, kcal: 540 },
+              { icon: '🥗', name: 'Chicken rice bowl', n: 28, kcal: 720 },
+              { icon: '🥤', name: 'Whey shake, banana', n: 63, kcal: 310 },
+              { icon: '🍝', name: 'Beef mince and pasta', n: 19, kcal: 810 }
+            ].map(function (r, i) {
+              return '<button class="row" type="button" data-action="close" data-testid="often-' + i + '">' +
+                '<span class="fuel-thumb" aria-hidden="true">' + r.icon + '</span>' +
+                '<span class="row__main stack">' +
+                  '<span class="row__title">' + esc(r.name) + '</span>' +
+                  '<span class="row__sub num">logged ' + r.n + ' times</span>' +
+                '</span>' +
+                '<span class="row__value num">' + n(r.kcal) +
+                  '<small class="t-caption-2 quiet"> kcal</small></span>' +
+                '<span class="row__chev">' + ICO.chev + '</span></button>';
+            }).join('') + '</div>' +
+          '</div>' +
+        '</div>';
+    }
     if (S.sheet === 'mic') {
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
         '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="mic-title" ' +
@@ -440,6 +613,15 @@
     if (!act) return;
     var a = act.getAttribute('data-action');
     if (a === 'mic' || a === 'cam') { S.sheet = a; render(); return; }
+    if (a === 'meal') { S.sheet = 'meal:' + act.getAttribute('data-i'); render(); return; }
+    if (a === 'meals' || a === 'trends' || a === 'water' || a === 'supps') { S.sheet = a; render(); return; }
+    if (a === 'water-add') { DAY.waterMl = Math.min(4000, DAY.waterMl + 250); render(); return; }
+    if (a === 'water-sub') { DAY.waterMl = Math.max(0, DAY.waterMl - 250); render(); return; }
+    if (a === 'supp') {
+      var k = act.getAttribute('data-i');
+      DAY.supps[k].taken = !DAY.supps[k].taken;
+      render(); return;
+    }
     if (a === 'close') { S.sheet = null; render(); return; }
     if (a === 'retry') { S.state = 'loading'; render(); setTimeout(function () { S.state = 'populated'; render(); }, 700); return; }
   });

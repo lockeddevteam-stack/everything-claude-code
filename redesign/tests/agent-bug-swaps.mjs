@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+const b=await chromium.launch();const p=await (await b.newContext({viewport:{width:402,height:874}})).newPage();
+await p.goto('file:///home/user/everything-claude-code/redesign/08-build/shopping.html');await p.waitForTimeout(400);
+await p.locator('[data-testid="seg-budget"]').click();await p.waitForTimeout(500);
+const snap=()=>p.evaluate(()=>document.querySelector('[data-testid="swaps-card"]').innerHTML);
+const a=await snap();
+await p.locator('[data-testid="find-swaps"]').click();await p.waitForTimeout(800);
+const c=await snap();
+console.log('swaps-card unchanged:',a===c);
+console.log('tabbar attr:',await p.evaluate(()=>document.querySelector('.tabbar')?.getAttribute('data-minimized')));
+await b.close();

@@ -37,8 +37,17 @@ const read = () => p.evaluate(() => {
   };
 });
 
+/* Dispatches the input that means a person did it, then scrolls. The tab bar
+   deliberately ignores a scroll no one asked for — coach jumps its chat to
+   the latest message on every render, and reading that as a scroll down hid
+   the bar off-screen before the screen had been looked at. A test that scrolls
+   by assignment alone is testing the case the bar is built to ignore. */
 const scrollTo = async y => {
-  await p.evaluate(v => { document.getElementById('body').scrollTop = v; }, y);
+  await p.evaluate(v => {
+    const b = document.getElementById('body');
+    b.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 1 }));
+    b.scrollTop = v;
+  }, y);
   await p.waitForTimeout(180);
 };
 

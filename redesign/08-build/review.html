@@ -837,8 +837,14 @@
     paint(false);
   }
 
+  /* Paints. The shipped version set the message and left the painting to
+     whoever called it next: save painted again by accident and its toast
+     appeared, discard did not and its toast was written into an
+     already-painted slot, sat there invisible, and was cleared four seconds
+     later. A function that shows a message shows it. */
   function toast(msg) {
     S.toast = msg;
+    LKPatch(toastSlot, toastHTML());
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { S.toast = null; paint(true); }, 4000);
   }
@@ -868,10 +874,17 @@
         S.saved = true;
         paint(true);
         toast('Session saved' + (S.feel ? ', marked ' + S.feel : '') + '.');
-        paint(true);
         return;
       case 'action-discard':
-        S.discardArmed = true; paint(true); return;
+        S.discardArmed = true;
+        paint(true);
+        /* The armed confirmation is the last thing in the scroller and the
+           action bar sits under it, so on a full session both its buttons
+           land below the fold. A confirmation you have to go looking for is
+           a dead end in both directions. */
+        var armed = body.querySelector('[data-testid="section-discard"]');
+        if (armed && armed.scrollIntoView) armed.scrollIntoView({ block: 'end', behavior: 'smooth' });
+        return;
       case 'action-discard-cancel':
         S.discardArmed = false; paint(true); return;
       case 'action-discard-confirm':

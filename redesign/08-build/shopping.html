@@ -262,6 +262,10 @@
     ['budget', 'Budget']
   ];
 
+  var FIXTURE = {
+    list: LIST.slice(), pantry: PANTRY.slice(), stores: MYSTORES.slice()
+  };
+
   var S = {
     state: 'populated',
     panel: 'list',
@@ -931,16 +935,6 @@
   function bodyHTML() {
     if (S.state === 'loading') return viewLoading();
     if (S.state === 'error') return viewError();
-    if (S.state === 'empty') {
-      /* Empty is a property of the data, so every panel has its own. */
-      var saveList = LIST.slice(), savePan = PANTRY.slice(), saveStores = MYSTORES.slice();
-      LIST.length = 0; PANTRY.length = 0; MYSTORES.length = 0;
-      var out = (VIEWS[S.panel] || panelList)();
-      Array.prototype.push.apply(LIST, saveList);
-      Array.prototype.push.apply(PANTRY, savePan);
-      Array.prototype.push.apply(MYSTORES, saveStores);
-      return out;
-    }
     return (VIEWS[S.panel] || panelList)();
   }
 
@@ -1052,13 +1046,41 @@
   /* ---------------------------------------------------------------
      Render
      --------------------------------------------------------------- */
+  /* Undo, not confirm.
+
+     The shipped screen deleted a receipt, a store, a pantry item and a list
+     item instantly with no way back, while gating "Clear done" — which throws
+     away nothing you cannot re-tick — behind a counting dialog. The gating was
+     inverted: a wholesale action earns a dialog because you cannot describe
+     it afterwards, and a single row earns an undo because you can.
+
+     One slot, one timer, one restore closure. A second delete replaces the
+     first rather than stacking, which is the honest thing: the toast can only
+     promise what it is still holding. */
+  var undo = null, undoTimer = null;
+
+  function offerUndo(msg, restore) {
+    undo = restore;
+    S.toast = msg;
+    if (undoTimer) clearTimeout(undoTimer);
+    undoTimer = setTimeout(function () { S.toast = null; undo = null; render(); }, 6000);
+  }
+
+  function toastHTML() {
+    if (!S.toast) return '';
+    return '<div class="toast toast--nonav" role="status" data-testid="toast">' +
+      '<span class="toast__body">' + esc(S.toast) + '</span>' +
+      (undo ? '<button class="toast__action" type="button" data-action="undo" data-testid="undo">Undo</button>' : '') +
+    '</div>';
+  }
+
   function render() {
     screen.setAttribute('data-state', S.state);
     screen.setAttribute('data-panel', S.panel);
     hdrCount.textContent = headerCount();
     LKPatch(subbar, subbarHTML());
     LKPatch(body, bodyHTML());
-    LKPatch(overlay, overlayHTML());
+    LKPatch(overlay, overlayHTML() + toastHTML());
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.state === S.state));
     });
@@ -1115,8 +1137,15 @@
     'open-item': function (el) { S.sheet = 'item:' + el.dataset.id; },
     remove: function (el) {
       var k = LIST.map(function (i) { return i.id; }).indexOf(el.dataset.id);
-      if (k > -1) LIST.splice(k, 1);
+      if (k < 0) return;
+      var gone = LIST.splice(k, 1)[0];
       S.sheet = null;
+      offerUndo(gone.name + ' removed from the list.', function () { LIST.splice(k, 0, gone); });
+    },
+    undo: function () {
+      if (undo) undo();
+      undo = null; S.toast = null;
+      if (undoTimer) clearTimeout(undoTimer);
     },
     'clear-done': function () { S.sheet = 'clear-done'; },
     'clear-all':  function () { S.sheet = 'clear-all'; },
@@ -1139,7 +1168,12 @@
     compare: function () {}, 'find-swaps': function () {},
     'del-hist': function (el) {
       var k = BUDGET.history.map(function (h) { return h.id; }).indexOf(el.dataset.id);
-      if (k > -1) BUDGET.history.splice(k, 1);
+      if (k < 0) return;
+      var gone = BUDGET.history.splice(k, 1)[0];
+      /* The week and month figures are read from history, so deleting one
+         moves the budget. The toast says which one and what it was worth. */
+      offerUndo(usd(gone.total) + ' at ' + gone.store + ' removed from your history.',
+        function () { BUDGET.history.splice(k, 0, gone); });
     },
 
     'pan-filter': function (el) { S.staplesOnly = el.dataset.f === 'staples'; },
@@ -1180,8 +1214,10 @@
     },
     'pan-remove': function (el) {
       var k = PANTRY.map(function (i) { return i.id; }).indexOf(el.dataset.id);
-      if (k > -1) PANTRY.splice(k, 1);
+      if (k < 0) return;
+      var gone = PANTRY.splice(k, 1)[0];
       S.sheet = null;
+      offerUndo(gone.name + ' removed from the pantry.', function () { PANTRY.splice(k, 0, gone); });
     },
 
     'store-toggle': function (el) {
@@ -1189,7 +1225,10 @@
     },
     'store-remove': function (el) {
       var k = MYSTORES.map(function (s) { return s.id; }).indexOf(el.dataset.id);
-      if (k > -1) MYSTORES.splice(k, 1);
+      if (k < 0) return;
+      var gone = MYSTORES.splice(k, 1)[0];
+      offerUndo(gone.name + ' removed. Its searches go with it.',
+        function () { MYSTORES.splice(k, 0, gone); });
     },
     'add-store': function (el) {
       var p = PRESETS.filter(function (x) { return x.host === el.dataset.host; })[0];
@@ -1266,16 +1305,30 @@
     menu.hidden = !open;
     this.setAttribute('aria-expanded', String(open));
   });
+  /* Switching states rebuilds the fixture rather than hiding it, so anything
+     added from the empty state stays added and the screen actually leaves
+     that state. */
+  function setState(name) {
+    S.state = name;
+    S.sheet = null;
+    LIST.length = 0; PANTRY.length = 0; MYSTORES.length = 0;
+    if (name !== 'empty') {
+      Array.prototype.push.apply(LIST, FIXTURE.list.map(function (x) { return Object.assign({}, x); }));
+      Array.prototype.push.apply(PANTRY, FIXTURE.pantry.map(function (x) { return Object.assign({}, x); }));
+      Array.prototype.push.apply(MYSTORES, FIXTURE.stores.map(function (x) { return Object.assign({}, x); }));
+    }
+    render();
+  }
+
   menu.addEventListener('click', function (e) {
     var b = e.target.closest('.dev__item');
     if (!b) return;
-    S.state = b.dataset.state; S.sheet = null; render();
+    setState(b.dataset.state);
   });
 
   var q = new URLSearchParams(location.search);
-  if (q.get('state')) S.state = q.get('state');
   if (q.get('panel') && VIEWS[q.get('panel')]) S.panel = q.get('panel');
-  render();
+  setState(q.get('state') || 'populated');
   requestAnimationFrame(function () { window.__ready = true; });
 })();
 </script>
