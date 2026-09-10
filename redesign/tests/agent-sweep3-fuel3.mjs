@@ -1,0 +1,22 @@
+import {browser,page,DIR} from './agent-sweep3-lib.mjs';
+const b=await browser();const p=await page(b);const L=console.log;
+const go=async()=>{await p.goto(DIR+'fuel.html');await p.waitForTimeout(450);};
+const tap=async t=>{await p.evaluate(x=>document.querySelector('[data-testid="'+x+'"]')?.click(),t);await p.waitForTimeout(350);};
+L('--- water sheet meter, isolated');
+await go(); await tap('chip-water');
+const wm=()=>p.evaluate(()=>{const s=document.querySelector('[data-testid="sheet-water"]');
+ const m=s.querySelector('.meter__fill');
+ return {val:s.querySelector('[data-testid="water-value"]')?.textContent, w:m?.style.width, aria:m?.parentElement.getAttribute('aria-label'), txt:s.innerText.replace(/\s+/g,' ').slice(0,140)};});
+L('start',await wm());
+for(let i=0;i<20;i++)await p.evaluate(()=>document.querySelector('[data-action="water-add"]').click());
+await p.waitForTimeout(300); L('max',await wm());
+L('\n--- hero when overeaten');
+await go();
+for(let i=0;i<3;i++){await tap('open-meals');await tap('often-0');}
+L(await p.evaluate(()=>{const h=document.querySelector('.hero,[data-testid="hero-value"]')?.closest('*');
+ return document.querySelector('.screen').innerText.replace(/\s+/g,' ').slice(0,260);}));
+L('macro meters:',await p.evaluate(()=>[...document.querySelectorAll('.meter__fill')].map(e=>e.style.width)));
+L('macro rows:',await p.evaluate(()=>[...document.querySelectorAll('.meter')].map(e=>e.getAttribute('aria-label'))));
+L('overflow past viewport:',await p.evaluate(()=>[...document.querySelectorAll('.meter__fill')].map(e=>{const r=e.getBoundingClientRect(),q=e.parentElement.getBoundingClientRect();return Math.round(r.width)+'/'+Math.round(q.width);})));
+L('ERRS',p.__errs);
+await b.close();
