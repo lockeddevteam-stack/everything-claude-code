@@ -78,6 +78,42 @@ ok(rm.transform === 'none' || rm.transform === 'matrix(1, 0, 0, 1, 0, 0)',
    'reduced motion: the title does not travel', rm.transform);
 ok(rm.small === 1, 'reduced motion: the collapse still happens', 'small opacity ' + rm.small);
 
+/* A detent that only exists in an attribute is not a detent. This drags the
+   grabber with a real pointer and checks the sheet settles on the next
+   detent up, not wherever the finger let go. */
+const ctx3 = await br.newContext({ viewport: { width: 393, height: 852 } });
+const d = await ctx3.newPage();
+await d.goto(pathToFileURL('/home/user/everything-claude-code/redesign/08-build/fuel.html').href);
+await d.waitForFunction(() => window.__ready === true);
+await d.waitForTimeout(300);
+await d.evaluate(() => document.querySelector('[data-testid="log-cam"]').click());
+await d.waitForTimeout(500);
+const h0 = await d.evaluate(() => Math.round(document.querySelector('.sheet').getBoundingClientRect().height));
+ok(Math.abs(h0 - 852 * 0.6) < 12, 'a sheet opens on the detent it names', `${h0}px, wanted ${Math.round(852 * 0.6)}`);
+ok(await d.evaluate(() => document.querySelector('.sheet__grab')?.getAttribute('data-grabber') === 'true'),
+   'a multi-detent sheet shows a grabber');
+
+const box = await d.locator('.sheet__grab').boundingBox();
+await d.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+await d.mouse.down();
+for (let i = 1; i <= 8; i++) { await d.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - i * 25); await d.waitForTimeout(16); }
+await d.mouse.up();
+await d.waitForTimeout(600);
+const h1 = await d.evaluate(() => Math.round(document.querySelector('.sheet').getBoundingClientRect().height));
+ok(Math.abs(h1 - 852 * 0.88) < 12, 'dragging up settles on the larger detent', `${h0} -> ${h1}px`);
+
+/* A sheet with one height must not pretend it moves. */
+const s1 = await ctx3.newPage();
+await s1.goto(pathToFileURL('/home/user/everything-claude-code/redesign/08-build/settings.html').href);
+await s1.waitForTimeout(500);
+await s1.evaluate(() => document.querySelector('[data-testid="row-unit"], [data-testid^="row-"]')?.click());
+await s1.waitForTimeout(400);
+const single = await s1.evaluate(() => {
+  const sh = document.querySelector('.sheet');
+  return sh ? { detents: sh.getAttribute('data-detents'), grab: sh.querySelector('.sheet__grab')?.getAttribute('data-grabber') } : null;
+});
+if (single) ok(!single.detents && single.grab !== 'true', 'a single-height sheet shows no grabber', JSON.stringify(single));
+
 await br.close();
 console.log(fails === 0 ? '\nchrome: all checks passed' : `\nchrome: ${fails} failed`);
 process.exit(fails ? 1 : 0);

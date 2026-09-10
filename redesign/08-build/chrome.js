@@ -178,10 +178,12 @@
       var startY = 0, startH = 0, dragging = false, vy = 0, lastT = 0, lastY = 0;
       var vh = function () { return (root.host ? root.host.clientHeight : global.innerHeight) || 1; };
 
-      /* Open at the smallest detent. The larger ones are what the drag is
-         for: a sheet that opens fully has nothing to reveal and covers the
-         screen it was asked to sit in front of. */
-      var current = detents[0];
+      /* Open at the smallest detent: the larger ones are what the drag is
+         for, and a sheet that opens fully has nothing to reveal. A long
+         list is the exception — it opens large and drags down — so a sheet
+         can name the detent it opens at. */
+      var want = parseFloat(sheet.getAttribute('data-detent-open'));
+      var current = detents.indexOf(want) > -1 ? want : detents[0];
       var setH = function (frac) {
         current = frac;
         sheet.style.height = (frac * 100) + '%';

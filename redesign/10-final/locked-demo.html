@@ -145,6 +145,7 @@
      the sheet has above a card, and #2E2E34 is its press. */
   --fill-raised: #232328;
   --fill-raised-press: #2E2E34;
+  --text-tertiary-raised: #8B8B94;
 
   /* ---- Text ---- */
   --text: #F5F5F7;
@@ -374,6 +375,8 @@
      a sheet rises to, so the raised pair is the base pair. */
   --fill-raised: #D8D8E5;
   --fill-raised-press: #CFCFDD;
+  /* Light needs no lift: its fill is already darker than the page. */
+  --text-tertiary-raised: var(--text-tertiary);
   --track: #D8D8E5;
 
   --text: #0A0A0B;
@@ -458,6 +461,8 @@
      a sheet rises to, so the raised pair is the base pair. */
   --fill-raised: #D8D8E5;
   --fill-raised-press: #CFCFDD;
+  /* Light needs no lift: its fill is already darker than the page. */
+  --text-tertiary-raised: var(--text-tertiary);
     --track: #D8D8E5;
 
     --text: #0A0A0B;
@@ -2311,7 +2316,8 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
    =============================================================== */
 
 .btn, .chip, .row, .opt, .tabbar__item, .seg__item, .iconbtn,
-.hdr__back, .hdr__action, .pad__key {
+.hdr__back, .hdr__action, .pad__key,
+.pick, .storechip, .tick, .fuel-log__half, .shelf, .item__main {
   /* The spring runs on the way back up, so the release is what wobbles.
      Going down is immediate, because a press that eases in feels late. */
   transition: transform var(--dur-slow) var(--spring-bouncy),
@@ -2320,14 +2326,17 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
 }
 
 .btn:active, .chip:active, .opt:active, .seg__item:active,
-.iconbtn:active, .hdr__back:active, .hdr__action:active, .pad__key:active {
+.iconbtn:active, .hdr__back:active, .hdr__action:active, .pad__key:active,
+.pick:active, .storechip:active, .tick:active, .fuel-log__half:active {
   transform: scale(0.96);
   transition-duration: 0s;
 }
 
 /* A full-width row scales less: 0.96 on something 361px wide is a visible
    jump at the edges, where the same figure on a 44px button is a nudge. */
-.row:active { transform: scale(0.99); transition-duration: 0s; }
+.row:active, .shelf:active, .item__main:active { transform: scale(0.99); transition-duration: 0s; }
+/* A pick that is already on the list is not a control and does not press. */
+.pick[aria-disabled="true"]:active { transform: none; }
 
 /* A control that is doing nothing does not react. */
 .btn:disabled:active, .chip:disabled:active, .opt:disabled:active,
@@ -2335,10 +2344,14 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   .btn, .chip, .row, .opt, .tabbar__item, .seg__item, .iconbtn,
-  .hdr__back, .hdr__action, .pad__key { transition: background-color var(--dur-fast) var(--ease); }
+  .hdr__back, .hdr__action, .pad__key,
+  .pick, .storechip, .tick, .fuel-log__half, .shelf, .item__main {
+    transition: background-color var(--dur-fast) var(--ease);
+  }
   .btn:active, .chip:active, .row:active, .opt:active, .seg__item:active,
-  .iconbtn:active, .hdr__back:active, .hdr__action:active,
-  .pad__key:active { transform: none; }
+  .iconbtn:active, .hdr__back:active, .hdr__action:active, .pad__key:active,
+  .pick:active, .storechip:active, .tick:active, .fuel-log__half:active,
+  .shelf:active, .item__main:active { transform: none; }
 }
 
 /* ===============================================================
@@ -2573,7 +2586,16 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
    two fill tokens one step higher, and everything inside it follows without
    knowing it is on a sheet. Light needs no shift: its fill is already darker
    than the white a sheet rises to. */
-.sheet, .dialog, .popover { --fill: var(--fill-raised); --fill-press: var(--fill-raised-press); }
+.sheet, .dialog, .popover {
+  --fill: var(--fill-raised);
+  --fill-press: var(--fill-raised-press);
+  /* The quietest text lifts with the ground it sits on. --text-tertiary is
+     5.10:1 on a card and 4.34 on a raised fill, so a unit label inside a
+     sheet failed AA the moment the fill above existed. --text-tertiary-raised
+     measures 4.63 on that fill, 5.03 on the sheet itself, and is still a
+     clear step below --text-secondary. */
+  --text-tertiary: var(--text-tertiary-raised);
+}
 
 /* ===============================================================
    Bottom accessory shelf
@@ -3623,6 +3645,16 @@ button.shelf:active { background: var(--fill-press); }
      --------------------------------------------------------------- */
   var TRAVEL = 52;
 
+  /* init() runs after every render on the screens that re-render their own
+     chrome. LKPatch morphs rather than replaces, so the same element comes
+     back each time and would collect another scroll listener on every pass.
+     Each initialiser marks what it has wired. */
+  function once(el, key) {
+    if (el['__lk_' + key]) return false;
+    el['__lk_' + key] = true;
+    return true;
+  }
+
   function initLargeTitle(root) {
     var bars = root.querySelectorAll('[data-large-title]');
     Array.prototype.forEach.call(bars, function (bar) {
@@ -3631,6 +3663,7 @@ button.shelf:active { background: var(--fill-press); }
       var big = bar.querySelector('[data-title-large]');
       var small = bar.querySelector('[data-title-small]');
       if (!big) return;
+      if (!once(bar, 'title')) return;
 
       /* The bar's height is interpolated, not switched. The shipped version
          put the whole 30px height change on a class that flipped at t > 0.98,
@@ -3674,6 +3707,7 @@ button.shelf:active { background: var(--fill-press); }
     if (!bar) return;
     var scroller = root.querySelector(bar.getAttribute('data-minimize'));
     if (!scroller) return;
+    if (!once(bar, 'minimize')) return;
     var last = 0, min = false;
     onScrollFrame(scroller, function (y) {
       var down = y > last;
@@ -3706,6 +3740,7 @@ button.shelf:active { background: var(--fill-press); }
     Array.prototype.forEach.call(els, function (el) {
       var scroller = root.querySelector(el.getAttribute('data-scroll-edge'));
       if (!scroller) return;
+      if (!once(el, 'edge')) return;
       onScrollFrame(scroller, function (y) {
         el.setAttribute('data-edge', y > 2 ? 'true' : 'false');
       });
@@ -3737,10 +3772,12 @@ button.shelf:active { background: var(--fill-press); }
       var startY = 0, startH = 0, dragging = false, vy = 0, lastT = 0, lastY = 0;
       var vh = function () { return (root.host ? root.host.clientHeight : global.innerHeight) || 1; };
 
-      /* Open at the smallest detent. The larger ones are what the drag is
-         for: a sheet that opens fully has nothing to reveal and covers the
-         screen it was asked to sit in front of. */
-      var current = detents[0];
+      /* Open at the smallest detent: the larger ones are what the drag is
+         for, and a sheet that opens fully has nothing to reveal. A long
+         list is the exception — it opens large and drags down — so a sheet
+         can name the detent it opens at. */
+      var want = parseFloat(sheet.getAttribute('data-detent-open'));
+      var current = detents.indexOf(want) > -1 ? want : detents[0];
       var setH = function (frac) {
         current = frac;
         sheet.style.height = (frac * 100) + '%';
@@ -7630,7 +7667,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     if (S.sheet === 'mic') {
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
         '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="mic-title" ' +
-          'data-detents="0.45 0.9" data-testid="sheet-mic">' +
+          'data-detents="0.45 0.88" data-testid="sheet-mic">' +
           '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
           '<div class="sheet__head"><h2 class="t-headline grow" id="mic-title">Listening</h2>' +
             '<button class="iconbtn" type="button" data-action="close" aria-label="Stop" data-testid="mic-close">' +
@@ -7651,7 +7688,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     if (S.sheet === 'cam') {
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
         '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="cam-title" ' +
-          'data-detents="0.6 0.95" data-testid="sheet-cam">' +
+          'data-detents="0.6 0.88" data-testid="sheet-cam">' +
           '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
           '<div class="sheet__head"><h2 class="t-headline grow" id="cam-title">What is on the plate</h2>' +
             '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="cam-close">' +
@@ -7993,14 +8030,15 @@ DEMO.define("coach", function (document, window, location, fetch) {
       : S.view === 'plan' ? 'THIS WEEK' : 'WHAT COACH CAN SEE';
     return '' +
       '<header data-testid="coach-header">' +
-      '<div class="hdr">' +
+      '<div class="hdr hdr--large" data-large-title=".body" data-scroll-edge=".body">' +
         '<div class="hdr__title stack stack--1">' +
           '<span class="t-label">' + eyebrow + '</span>' +
-          '<h1 class="t-title">Coach</h1>' +
+          '<h1 class="hdr__title-large" data-title-large>Coach</h1>' +
         '</div>' + action +
+        '<span class="hdr__title-small" data-title-small aria-hidden="true">Coach</span>' +
       '</div>' +
       '<div class="viewbar">' +
-        '<div class="seg seg--tall" role="tablist" aria-label="Coach views" data-testid="view-switch">' +
+        '<div class="seg" role="tablist" aria-label="Coach views" data-testid="view-switch">' +
           VIEWS.map(function (v) {
             return '<button class="seg__item" role="tab" id="tab-' + v[0] + '" aria-selected="' + (S.view === v[0]) +
               '" aria-controls="panel-' + v[0] + '" data-act="view" data-view="' + v[0] + '" data-testid="seg-' + v[0] + '">' + v[1] + '</button>';
@@ -8015,7 +8053,7 @@ DEMO.define("coach", function (document, window, location, fetch) {
       ['home', 'Home', 'lift'], ['train', 'Train', 'lift'], ['fuel', 'Fuel', 'fuel'],
       ['coach', 'Coach', 'coach'], ['profile', 'Profile', 'person']
     ];
-    return '<nav class="tabbar" aria-label="Sections">' + items.map(function (t) {
+    return '<nav class="tabbar" aria-label="Sections" data-minimize=".body">' + items.map(function (t) {
       var cur = t[0] === 'coach' ? ' aria-current="page"' : '';
       var glyph = t[0] === 'home'
         ? '<path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4v-5H9v5H5a1 1 0 0 1-1-1z"/>'
@@ -8623,6 +8661,8 @@ DEMO.define("coach", function (document, window, location, fetch) {
         '</main>' +
         '<footer>' + foot + tabbar() + '</footer>' + overlays() +
       '</div>');
+
+    if (window.LKChrome) LKChrome.init(phone);
 
     if (S.view === 'chat' && S.chat.status !== 'empty') {
       var scroll = phone.querySelector('.body');
@@ -9912,7 +9952,7 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     }
     return '<div class="scrim" data-testid="scrim" data-action="close-modal"></div>' +
       '<div class="sheet" role="dialog" aria-modal="true" aria-label="Alternatives for ' + esc(s.role) + '" data-testid="swap-sheet">' +
-        '<div class="sheet__grab"></div>' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
         '<div class="sheet__head">' +
           '<div><div class="t-section">' + esc(s.role) + '</div>' +
           '<div class="t-meta">' + esc(day.name) + ' · slot ' + idx + ' of ' + day.slots.length + '</div></div>' +
@@ -9936,8 +9976,8 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     });
     var day = S.manual.days.filter(function (d) { return d.id === m.id; })[0];
     return '<div class="scrim" data-testid="scrim" data-action="close-modal"></div>' +
-      '<div class="sheet" role="dialog" aria-modal="true" aria-label="Add an exercise" data-testid="pick-sheet">' +
-        '<div class="sheet__grab"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-label="Add an exercise" data-testid="pick-sheet" data-detents="0.55 0.88" data-detent-open="0.88">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
         '<div class="sheet__head">' +
           '<div><div class="t-section">Add to ' + esc(day ? day.name : '') + '</div>' +
           '<div class="t-meta">' + list.length + ' exercises</div></div>' +
@@ -14873,7 +14913,14 @@ DEMO.define("shopping", function (document, window, location, fetch) {
      screen re-renders from it, so a tap that looks like it worked did.
      --------------------------------------------------------------- */
   var ACT = {
-    panel: function (el) { S.panel = el.dataset.panel; body.scrollTop = 0; },
+    /* Switching panels starts at the top, because it is a different list.
+       Tapping the panel you are already on is not a switch, and resetting
+       the scroll there throws away the place somebody had scrolled to. */
+    panel: function (el) {
+      if (el.dataset.panel === S.panel) return;
+      S.panel = el.dataset.panel;
+      body.scrollTop = 0;
+    },
     hist:  function (el) { S.histFilter = el.dataset.f; },
 
     pick: function (el) {
@@ -16342,8 +16389,8 @@ DEMO.define("progress", function (document, window, location, fetch) {
     var days = rangeDays();
     return '' +
       '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
-      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" data-testid="lift-sheet">' +
-        '<div class="sheet__grab"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" data-testid="lift-sheet" data-detents="0.55 0.88" data-detent-open="0.88">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
         '<div class="sheet__head">' +
           '<h2 class="t-section" id="sheet-title">Choose a lift</h2>' +
           '<button class="iconbtn" data-action="close-sheet" data-testid="sheet-close" aria-label="Close lift picker">' +
