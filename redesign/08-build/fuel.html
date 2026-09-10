@@ -53,6 +53,11 @@
 
       <div id="overlay"></div>
 
+      <!-- The accessory shelf. A session that is running is visible from
+           whichever tab you wandered to, which is the whole reason the shelf
+           exists rather than a badge on the Train tab. -->
+      <div id="shelf-slot"></div>
+
       <nav class="tabbar" aria-label="Sections" data-minimize="#body">
         <button class="tabbar__item" type="button" data-testid="tab-home">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4v-5H9v5H5a1 1 0 0 1-1-1z"/></svg>
@@ -135,6 +140,23 @@
   };
 
   var S = { state: 'populated', sheet: null, listening: false };
+
+  /* The same strip Home shows, from the same facts. It is here because
+     eating during or straight after a session is exactly when somebody
+     leaves the workout screen, and losing the way back is what turns one
+     logged meal into an abandoned session. */
+  function shelfHTML() {
+    if (S.state !== 'live') return '';
+    return '<button class="shelf" type="button" data-minimize data-action="resume" ' +
+        'data-testid="shelf-resume" aria-label="Return to Push A, 4 of 7 exercises done, 38 minutes elapsed">' +
+      '<span class="shelf__live" aria-hidden="true"></span>' +
+      '<span class="shelf__main">' +
+        '<span class="shelf__title">Push A</span>' +
+        '<span class="shelf__sub">4 of 7 &middot; 38:12</span>' +
+      '</span>' +
+      '<span class="shelf__action t-body-em" aria-hidden="true">Resume</span>' +
+    '</button>';
+  }
 
   /* ---------------------------------------------------------------
      Header
@@ -305,6 +327,7 @@
   };
   VIEWS['first-weeks'] = VIEWS.populated;
   VIEWS.hidden = VIEWS.populated;
+  VIEWS.live = VIEWS.populated;
 
   VIEWS.empty = function () {
     return '<div>' + hero() + logAction() + '</div>' +
@@ -405,6 +428,7 @@
     LKPatch(hdr, headerHTML());
     LKPatch(body, (VIEWS[S.state] || VIEWS.populated)());
     LKPatch(overlay, sheetHTML());
+    LKPatch(document.getElementById('shelf-slot'), shelfHTML());
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.state === S.state));
     });
@@ -425,7 +449,8 @@
   });
 
   var STATES = [
-    ['populated', 'Populated'], ['first-weeks', 'First two weeks'],
+    ['populated', 'Populated'], ['live', 'Session running'],
+    ['first-weeks', 'First two weeks'],
     ['hidden', 'Numbers hidden'], ['empty', 'Empty'],
     ['loading', 'Loading'], ['error', 'Error']
   ];

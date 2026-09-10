@@ -36,12 +36,12 @@ media-retry             open                    retry                   save-cus
 try                     undo
 ```
 
-**fuel.html** — 7
+**fuel.html** — 8
 
 ```
 ' + c[0] +
           '  cam                     close                   meal                    meals
-mic                     retry
+mic                     resume                  retry
 ```
 
 **home.html** — 1
@@ -131,7 +131,7 @@ The selectors every test and every audit script addresses.
 |---|---|
 | `coach.html` | 90 |
 | `exercise-library.html` | 50 |
-| `fuel.html` | 37 |
+| `fuel.html` | 38 |
 | `home.html` | 20 |
 | `mockup-bodymap.html` | 2 |
 | `onboarding.html` | 65 |
@@ -159,7 +159,7 @@ five columns after them are.
 |---|---|---|---|---|---|---|
 | `coach.html` | 1386 | 5 | 44 | 51 | 3 | 90 |
 | `exercise-library.html` | 1172 | 6 | 22 | 31 | 4 | 50 |
-| `fuel.html` | 455 | 4 | 7 | 21 | 0 | 37 |
+| `fuel.html` | 480 | 4 | 8 | 22 | 0 | 38 |
 | `home.html` | 445 | 2 | 1 | 17 | 0 | 20 |
 | `mockup-bodymap.html` | 676 | 3 | 2 | 5 | 1 | 2 |
 | `onboarding.html` | 1117 | 10 | 0 | 31 | 5 | 65 |
@@ -171,4 +171,4 @@ five columns after them are.
 | `split-builder.html` | 1108 | 10 | 28 | 36 | 4 | 68 |
 | `train.html` | 879 | 5 | 16 | 26 | 1 | 46 |
 | `workout-log.html` | 1065 | 6 | 38 | 49 | 5 | 91 |
-| **total** | **12562** | **72** | **225** | **401** | **43** | **711** |
+| **total** | **12587** | **72** | **226** | **402** | **43** | **712** |
