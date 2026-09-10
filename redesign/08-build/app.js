@@ -212,7 +212,23 @@
     if (target && (target.disabled ||
                    target.getAttribute('aria-disabled') === 'true' ||
                    target.getAttribute('tabindex') === '-1')) {
+      /* A control that disabled itself while it works is still WHERE the
+         reader is, even though it can no longer hold focus. Jumping to the
+         next control in the document threw them 100px down the settings list
+         to "Weight unit", permanently. Hold the region the control sits in
+         instead -- it usually carries the status line that says what is
+         happening -- and let the reader Tab on from there. */
+      var region = target.closest(
+        '.row, .card, .card__foot, .actionbar, .sheet__foot, .sess, .seg, li') || null;
       target = null;
+      if (region && container.contains(region)) {
+        try {
+          region.setAttribute('data-lk-focus-holder', '');
+          if (!region.hasAttribute('tabindex')) region.tabIndex = -1;
+          region.focus({ preventScroll: true });
+        } catch (e) {}
+        return;
+      }
     }
     /* The control removed itself. A row's delete button, an accepted
        suggestion, a chip that filtered itself away: there is no node to go

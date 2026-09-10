@@ -104,7 +104,11 @@ const MANIFEST = {
     /* The session shelf exists so a running session is not lost, and it was
        the one control on Home and Fuel that did nothing at all. */
     { from: 'home', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
-    { from: 'fuel', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' }
+    { from: 'fuel', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    /* Coach's "open this lift in Progress", and Train's session-picker day.
+       Both toasted a sentence describing what a working button would do. */
+    { from: 'coach', selector: '[data-act="target"]', to: 'progress', mode: 'push' },
+    { from: 'train', selector: '[data-action="start-day"]', to: 'workout-log', mode: 'push' }
   ],
 
   /* Where a screen keeps its own state switcher. Harvested for the demo-level
@@ -451,8 +455,10 @@ const RUNTIME = String.raw`
 
   function tabOf(id) { for (var i = 0; i < TABS.length; i++) if (TABS[i].id === id) return TABS[i]; return null; }
 
-  function parseHash() {
-    var raw = (location.hash || '').replace(/^#\/?/, '');
+  /* Takes a hash so the Back label can parse a route off the trail, not only
+     the one in the address bar. */
+  function parseHash(h) {
+    var raw = (h === undefined ? (location.hash || '') : (h || '')).replace(/^#\/?/, '');
     var parts = raw.split('/').filter(Boolean);
     var base = tabOf(parts[0]) ? parts[0] : TABS[0].id;
     var top = parts[1] && screens[parts[1]] ? parts[1] : null;
@@ -506,9 +512,15 @@ const RUNTIME = String.raw`
 
     var bar = document.getElementById('demo-back');
     if (route.top) {
-      /* Named for where you actually came from, since that is where it goes. */
-      var fromLabel = (prevRoute && (prevRoute.top !== route.top || prevRoute.base !== route.base))
-        ? labelOfRoute(prevRoute)
+      /* Named for where Back actually goes, which is the top of the trail --
+         the route this document last navigated AWAY from and would return to.
+
+         prevRoute is not that. It is the previous render, and after a Back
+         the previous render is the screen you just left, which is FORWARD:
+         standing on the workout log after log -> review -> back, the button
+         read "Back to Review" and went to Train. */
+      var fromLabel = trail.length
+        ? labelOfRoute(parseHash(trail[trail.length - 1]))
         : (tabOf(route.base) || {}).label || route.base;
       bar.hidden = false;
       bar.querySelector('.demo-back__label').textContent = 'Back to ' + fromLabel;
