@@ -405,6 +405,16 @@
 
   function answerCard() {
     var days = rangeDays(), s = summary(days);
+    /* summary() leaves from and best null when no lift has two points in the
+       window, and both dayLabel(null) and s.best.name threw on that. */
+    if (!s.from || !s.best) {
+      return '<div class="card mt-3" data-testid="card-answer" data-up="0" data-tracked="' + s.tracked + '">' +
+        '<div class="t-label">Last ' + days + ' days</div>' +
+        '<h2 class="t-title mt-2">Not enough to compare yet</h2>' +
+        '<p class="t-detail mt-2">A trend needs two sessions of the same lift inside the range. ' +
+          'Widen it above, or log one more.</p>' +
+      '</div>';
+    }
     var from = dayLabel(s.from);
     /* One sentence shape in every case: the count is the answer, and a
        reader should not have to tell two phrasings apart. */
@@ -422,6 +432,17 @@
     var days = rangeDays();
     var lift = liftById(S.liftId);
     var pts = ptsIn(lift, days);
+    /* A lift with nothing inside the range is not an error, it is an answer.
+       The three routines that read pts[0] and pts[length-1] threw on it,
+       which is the whole card gone rather than the one figure it cannot
+       give. */
+    if (!pts.length) {
+      return '<div class="card mt-3" data-testid="card-trend">' +
+        '<div class="t-label">' + esc(lift.name) + '</div>' +
+        '<p class="t-detail mt-2">Nothing logged for this lift in the last ' + days +
+          ' days. Widen the range above, or it is waiting for its next session.</p>' +
+      '</div>';
+    }
     var cur = pts[pts.length - 1];
     var delta = cur[1] - pts[0][1];
     var trendClass = delta > 0 ? ' trend-up' : delta < 0 ? ' trend-down' : '';
@@ -716,6 +737,7 @@
               var p = ptsIn(l, days);
               var on = l.id === S.liftId;
               var d = p.length > 1 ? p[p.length - 1][1] - p[0][1] : 0;
+              var latest = p.length ? p[p.length - 1][1] : null;
               return '<button class="row' + (on ? ' row--selected' : '') + '" role="radio" aria-checked="' + on +
                 '" data-action="pick-lift" data-id="' + l.id + '" data-testid="sheet-lift-' + l.id + '">' +
                 '<span class="ico-well">' + ICO.lift + '</span>' +
@@ -729,8 +751,10 @@
                    same slot, so the same lift read 231 here and 220 there
                    with nothing to tell a person which was their record. */
                 '<span class="row__value stack" style="text-align: right">' +
-                  '<span class="num">' + kg(p[p.length - 1][1]) + '</span>' +
-                  '<span class="t-caption-2 quiet">est. 1RM</span>' +
+                  (latest === null
+                    ? '<span class="quiet">&mdash;</span>'
+                    : '<span class="num">' + kg(latest) + '</span>' +
+                      '<span class="t-caption-2 quiet">est. 1RM</span>') +
                 '</span>' +
               '</button>';
             }).join('') +

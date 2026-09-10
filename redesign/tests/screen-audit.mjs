@@ -141,8 +141,25 @@ for (const file of files) {
           if (b.left - a.right < 4) touching.push((el.dataset.testid || el.className) + ' | ' + (nx.dataset.testid || nx.className));
         });
 
+        /* An ARIA relationship that points at an id which is not in the
+           document is reported to a screen reader as a broken reference, not
+           as an absent one. Coach rendered three tabs and one panel, so two
+           aria-controls always dangled. */
+        const dangling = [];
+        for (const attr of ['aria-controls', 'aria-labelledby', 'aria-describedby', 'aria-owns']) {
+          document.querySelectorAll(`[${attr}]`).forEach(el => {
+            for (const id of el.getAttribute(attr).split(/\s+/).filter(Boolean))
+              if (!document.getElementById(id) && !el.getRootNode().querySelector?.(`#${CSS.escape(id)}`))
+                dangling.push((el.dataset.testid || el.tagName) + ' ' + attr + ' -> ' + id);
+          });
+        }
+        document.querySelectorAll('label[for]').forEach(el => {
+          const id = el.getAttribute('for');
+          if (id && !document.getElementById(id)) dangling.push('label for -> ' + id);
+        });
+
         return {
-          unknown: [...unknown], targets, small, touching,
+          unknown: [...unknown], targets, small, touching, dangling,
           overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
           /* Not every screen gives its scroller an id: coach renders the
              whole screen from JS and identifies its body by class. Checking
@@ -169,6 +186,7 @@ for (const file of files) {
       ok(m.unknown.length === 0, tag + ' — every class is defined', m.unknown.join(', '));
       ok(m.small.length === 0, tag + ' — targets >= 44px', m.small.slice(0, 3).join(', '));
       ok(m.touching.length === 0, tag + ' — adjacent controls are separated', m.touching.slice(0, 3).join(' / '));
+      ok(m.dangling.length === 0, tag + ' — every aria reference resolves', m.dangling.slice(0, 3).join(' / '));
       ok(a.length === 0, tag + ' — axe clean', a.join(', '));
       ok(!m.overflow, tag + ' — no sideways overflow');
       ok(!m.empty, tag + ' — renders content or a skeleton');
