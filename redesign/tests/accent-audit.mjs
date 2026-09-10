@@ -79,10 +79,18 @@ for (const state of (states.length ? states : [{ i: -1, label: 'default' }])) {
     };
     const acc = new Set(want.map(hex));
     const fills = [], inks = [];
-    document.querySelectorAll('*').forEach(el => {
+    /* The surface is the topmost thing on screen. An open sheet is its own
+       surface -- §12.4 says one tint per surface, not one per screen -- so
+       while one is up, the screen behind it is not what is being looked at
+       and its primary is not competing with the sheet's. */
+    const surface = document.querySelector('.dialog') || document.querySelector('.sheet') || document;
+    surface.querySelectorAll('*').forEach(el => {
       if (el.closest('.dev')) return;
       const b = el.getBoundingClientRect();
-      if (b.width < 6 || b.height < 6) return;
+      /* 300px squared, the design review's own floor. Below it an object is
+         an indicator, not a fill: an 8x8 live dot does not compete with a
+         329x44 button and counting it as an equal says nothing useful. */
+      if (b.width * b.height < 300) return;
       const s = getComputedStyle(el);
       const name = (el.dataset.testid ||
         (typeof el.className === 'string' ? el.className : el.className.baseVal) ||

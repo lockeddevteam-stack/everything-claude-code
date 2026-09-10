@@ -36,13 +36,14 @@ media-retry             open                    retry                   save-cus
 try                     undo
 ```
 
-**fuel.html** — 11
+**fuel.html** — 18
 
 ```
 ' + c[0] +
-          '  cam                     close                   meal                    meals
-mic                     resume                  retry                   supp                    water-add
-water-sub
+          '  cam                     cam-log                 cam-oil                 close
+log-often               meal                    meal-delete             meal-portion            meals
+mic                     mic-log                 resume                  retry                   supp
+undo                    water-add               water-sub
 ```
 
 **home.html** — 1
@@ -57,19 +58,20 @@ resume
 retry                   settings                signup                  start
 ```
 
-**progress.html** — 10
+**progress.html** — 15
 
 ```
-close-sheet             log-record              open-goals              open-picker             open-weight
-pick-lift               range                   retry                   show-cached             start-workout
+add-goal                close-sheet             dismiss-toast           log-record              log-weight
+open-goals              open-picker             open-weight             pick-lift               range
+retry                   save-goal               save-record             show-cached             start-workout
 ```
 
-**settings.html** — 14
+**settings.html** — 15
 
 ```
-' + action + '          body-set                close-dialog            close-sheet             close-toast
-confirm                 create-account          pick                    save-body               save-name
-sheet                   sign-in                 sync                    toggle
+' + action + '          back                    body-set                close-dialog            close-sheet
+close-toast             confirm                 create-account          pick                    save-body
+save-name               sheet                   sign-in                 sync                    toggle
 ```
 
 **shopping.html** — 43
@@ -132,13 +134,13 @@ The selectors every test and every audit script addresses.
 | `home.html` | 20 |
 | `onboarding.html` | 65 |
 | `profile.html` | 22 |
-| `progress.html` | 51 |
-| `review.html` | 45 |
+| `progress.html` | 61 |
+| `review.html` | 46 |
 | `settings.html` | 30 |
-| `shopping.html` | 115 |
+| `shopping.html` | 116 |
 | `split-builder.html` | 68 |
 | `train.html` | 46 |
-| `workout-log.html` | 93 |
+| `workout-log.html` | 94 |
 
 ## Storage keys — 1
 
@@ -154,16 +156,16 @@ five columns after them are.
 | Screen | Lines | Listeners | Actions | Buttons | Inputs | testids |
 |---|---|---|---|---|---|---|
 | `coach.html` | 1407 | 5 | 44 | 51 | 3 | 90 |
-| `exercise-library.html` | 1186 | 6 | 22 | 31 | 4 | 50 |
-| `fuel.html` | 662 | 4 | 11 | 34 | 0 | 57 |
+| `exercise-library.html` | 1189 | 6 | 22 | 31 | 4 | 50 |
+| `fuel.html` | 813 | 4 | 18 | 33 | 0 | 57 |
 | `home.html` | 445 | 2 | 1 | 17 | 0 | 20 |
 | `onboarding.html` | 1133 | 10 | 0 | 31 | 5 | 65 |
 | `profile.html` | 365 | 3 | 4 | 12 | 0 | 22 |
-| `progress.html` | 898 | 5 | 10 | 24 | 3 | 51 |
-| `review.html` | 975 | 4 | 0 | 23 | 0 | 45 |
-| `settings.html` | 976 | 4 | 14 | 23 | 4 | 30 |
-| `shopping.html` | 1493 | 5 | 43 | 60 | 16 | 115 |
-| `split-builder.html` | 1121 | 10 | 28 | 36 | 4 | 68 |
+| `progress.html` | 1029 | 5 | 15 | 26 | 6 | 61 |
+| `review.html` | 996 | 4 | 0 | 23 | 0 | 46 |
+| `settings.html` | 982 | 4 | 15 | 23 | 4 | 30 |
+| `shopping.html` | 1522 | 5 | 43 | 60 | 16 | 116 |
+| `split-builder.html` | 1156 | 11 | 28 | 36 | 4 | 68 |
 | `train.html` | 879 | 5 | 16 | 26 | 1 | 46 |
-| `workout-log.html` | 1093 | 6 | 38 | 50 | 5 | 93 |
-| **total** | **12633** | **69** | **231** | **418** | **45** | **752** |
+| `workout-log.html` | 1156 | 6 | 38 | 50 | 5 | 94 |
+| **total** | **13072** | **70** | **244** | **419** | **48** | **765** |
