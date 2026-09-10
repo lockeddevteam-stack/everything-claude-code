@@ -702,50 +702,83 @@
      the list carries what is missing rather than what is wanted.
      --------------------------------------------------------------- */
 
+  /* The same shape as a list row: the row says what it is, and everything
+     you can do to it is behind the row. The shipped pantry put a tick, a
+     star, a cart, a cross and three badges on every line, and the tick was
+     green for OUT OF STOCK while the same green tick two panels away meant
+     PICKED UP. One glyph, two opposite meanings, is worse than a longer tap
+     path. */
   function pantryRow(it) {
-    var editing = S.editInterval === it.id;
+    var bits = [it.qty + ' left'];
+    if (it.store) bits.push(it.store);
+    if (it.staple) bits.push('restocks every ' + it.every + ' days');
     return '<div class="item' + (it.empty ? ' item--done' : '') + '" data-testid="pan-' + it.id + '">' +
-      '<button class="tick" type="button" aria-pressed="' + it.empty + '" data-action="pan-empty" data-id="' + it.id +
-        '" aria-label="' + (it.empty ? 'Mark ' + esc(it.name) + ' as restocked' : 'Mark ' + esc(it.name) + ' as out of stock') + '">' +
-        '<span class="tick__box">' + (it.empty ? ICO.tick : '') + '</span></button>' +
-      '<span class="item__main">' +
+      '<button class="item__main" type="button" data-action="pan-open" data-id="' + it.id +
+        '" data-testid="pan-open-' + it.id + '" style="text-align: left; min-height: var(--tap)">' +
         '<span class="item__name">' + esc(it.name) + '</span>' +
-        '<span class="item__stores">' +
-          '<span class="badge">' + it.qty + ' left</span>' +
-          (it.store ? '<span class="badge">' + esc(it.store) + '</span>' : '') +
-          (it.empty ? '<span class="badge badge--est">On the list</span>' : '') +
-          (it.staple && !editing
-            ? '<button class="storechip" type="button" data-action="pan-interval" data-id="' + it.id +
-              '" data-testid="every-' + it.id + '">every ' + it.every + ' days</button>'
-            : '') +
-        '</span>' +
-        (editing
-          ? '<span class="hstack hstack--2 mt-2">' +
-              '<label class="vis-hidden" for="iv-' + it.id + '">Restock interval in days</label>' +
-              '<input class="input num" id="iv-' + it.id + '" type="number" min="1" max="365" step="1" ' +
-                'inputmode="numeric" value="' + it.every + '" style="width: 96px" data-testid="iv-' + it.id + '">' +
-              '<button class="btn btn--secondary" type="button" data-action="pan-interval-save" data-id="' + it.id +
-                '" data-testid="iv-save-' + it.id + '"><span class="btn__label">Set</span></button>' +
-              (S.intervalError === it.id
-                ? '<span class="field__error">Between 1 and 365 days.</span>' : '') +
-            '</span>'
-          : '') +
-      '</span>' +
-      '<button class="iconbtn" type="button" aria-pressed="' + it.staple + '" data-action="pan-staple" data-id="' + it.id +
-        '" aria-label="' + (it.staple ? 'Stop restocking ' + esc(it.name) + ' automatically' : 'Restock ' + esc(it.name) + ' automatically') +
-        '" data-testid="staple-' + it.id + '">' +
-        '<svg class="ico" viewBox="0 0 24 24" fill="' + (it.staple ? 'currentColor' : 'none') +
-          '" stroke="currentColor" stroke-linejoin="round" aria-hidden="true"><path d="m12 4 2.4 5 5.6.7-4 3.9 1 5.4-5-2.7-5 2.7 1-5.4-4-3.9 5.6-.7z"/></svg>' +
+        '<span class="row__sub">' + esc(bits.join(' \u00b7 ')) + '</span>' +
       '</button>' +
-      (it.empty ? '' :
-        '<button class="iconbtn" type="button" data-action="pan-to-list" data-id="' + it.id +
-          '" aria-label="Add ' + esc(it.name) + ' to the shopping list" data-testid="tolist-' + it.id + '">' +
-          ICO.cart + '</button>') +
-      '<button class="iconbtn iconbtn--danger-quiet" type="button" data-action="pan-remove" data-id="' + it.id +
-        '" aria-label="Remove ' + esc(it.name) + ' from the pantry" data-testid="pan-remove-' + it.id + '">' +
-        '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
-      '</button>' +
+      (it.empty ? '<span class="badge badge--est" data-testid="out-' + it.id + '">Out</span>' : '') +
+      '<span class="row__chev" aria-hidden="true">' + ICO.chev + '</span>' +
     '</div>';
+  }
+
+  /* The pantry item's own sheet. Five things, each one a full row, none of
+     them a 32px glyph competing with four others. */
+  function pantrySheet(it) {
+    return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pn-title" ' +
+        'data-detents="0.62 0.88" data-testid="sheet-pantry">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+        '<div class="sheet__head"><h2 class="t-headline grow" id="pn-title">' + esc(it.name) + '</h2>' +
+          '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="pn-close">' +
+            '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+          '</button></div>' +
+        '<div class="sheet__body">' +
+          '<p class="t-detail num">' + it.qty + ' left' + (it.store ? ' \u00b7 last bought at ' + esc(it.store) : '') + '</p>' +
+          '<div class="card card--flush mt-3">' +
+            '<button class="row" type="button" data-action="pan-empty" data-id="' + it.id + '" data-testid="pn-empty">' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + (it.empty ? 'I have restocked it' : 'I have run out') + '</span>' +
+                '<span class="row__sub">' + (it.empty
+                  ? 'Takes it off the shopping list'
+                  : 'Adds it to the shopping list straight away') + '</span>' +
+              '</span></button>' +
+            '<button class="row" type="button" data-action="pan-staple" data-id="' + it.id + '" data-testid="pn-staple">' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + (it.staple ? 'Stop restocking it' : 'Restock it on a schedule') + '</span>' +
+                '<span class="row__sub">' + (it.staple
+                  ? 'Currently rejoins the list every ' + it.every + ' days'
+                  : 'It rejoins the list on its own, before you run out') + '</span>' +
+              '</span></button>' +
+            (it.staple
+              ? '<div class="row row--static">' +
+                  '<span class="row__main stack">' +
+                    '<span class="row__title">How often</span>' +
+                    '<span class="row__sub">1 to 365</span>' +
+                  '</span>' +
+                  '<label class="vis-hidden" for="iv-' + it.id + '">Restock interval in days</label>' +
+                  '<input class="input num" id="iv-' + it.id + '" type="number" min="1" max="365" step="1" ' +
+                    'inputmode="numeric" value="' + it.every + '" style="width: 88px" data-testid="iv-' + it.id + '">' +
+                  '<button class="btn btn--secondary" type="button" data-action="pan-interval-save" data-id="' + it.id +
+                    '" data-testid="iv-save-' + it.id + '"><span class="btn__label">Set</span></button>' +
+                '</div>' +
+                (S.intervalError === it.id
+                  ? '<p class="field__error" style="padding: 0 var(--page-x) var(--sp-3)" data-testid="iv-error">Between 1 and 365 days.</p>' : '')
+              : '') +
+            (it.empty ? '' :
+              '<button class="row" type="button" data-action="pan-to-list" data-id="' + it.id + '" data-testid="pn-to-list">' +
+                '<span class="row__main stack">' +
+                  '<span class="row__title">Add it to the list anyway</span>' +
+                  '<span class="row__sub">For a top-up, without saying you ran out</span>' +
+                '</span></button>') +
+          '</div>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--danger btn--block" type="button" data-action="pan-remove" data-id="' + it.id +
+            '" data-testid="pn-remove"><span class="btn__label">Remove from the pantry</span></button>' +
+        '</div>' +
+      '</div>';
   }
 
   function panelPantry() {
@@ -759,7 +792,16 @@
             out.map(function (i) { return esc(i.name); }).join(', ') +
             '. Already added to the list.</span></div>'
         : '') +
-      '<div class="card' + (out.length ? ' mt-3' : '') + '">' +
+      '<div class="chiprow' + (out.length ? ' mt-4' : '') + '">' +
+        '<button class="chip" type="button" aria-pressed="' + !S.staplesOnly + '" data-action="pan-filter" data-f="all" data-testid="pan-all">' +
+          'All ' + PANTRY.length + '</button>' +
+        '<button class="chip" type="button" aria-pressed="' + !!S.staplesOnly + '" data-action="pan-filter" data-f="staples" data-testid="pan-staples">' +
+          'Restocking ' + stapleN() + '</button>' +
+      '</div>' +
+    '</div>';
+
+    var foot = '<div class="section" style="padding: 0 var(--page-x)">' +
+      '<div class="card">' +
         '<h2 class="t-label">Add to the pantry</h2>' +
         '<div class="hstack hstack--3 mt-2">' +
           '<div class="field grow"><label class="vis-hidden" for="pan-name">Item name</label>' +
@@ -770,12 +812,6 @@
         '<button class="btn btn--secondary btn--block mt-3" type="button" data-action="pan-add" data-testid="pan-add">' +
           '<span class="btn__label">Add</span></button>' +
       '</div>' +
-      '<div class="chiprow mt-4">' +
-        '<button class="chip" type="button" aria-pressed="' + !S.staplesOnly + '" data-action="pan-filter" data-f="all" data-testid="pan-all">' +
-          'All ' + PANTRY.length + '</button>' +
-        '<button class="chip" type="button" aria-pressed="' + !!S.staplesOnly + '" data-action="pan-filter" data-f="staples" data-testid="pan-staples">' +
-          'Restocking ' + stapleN() + '</button>' +
-      '</div>' +
     '</div>';
 
     if (!rows.length) {
@@ -783,8 +819,8 @@
         '<p class="empty__title">' + (S.staplesOnly ? 'Nothing restocks itself yet' : 'The pantry is empty') + '</p>' +
         '<p class="empty__body">' + (S.staplesOnly
           ? 'Star any pantry item to have it rejoin your shopping list on its own schedule, so you notice it is low before you run out.'
-          : 'Scan a receipt on the Budget panel to fill this from what you actually bought, or add an item above.') +
-        '</p></div>';
+          : 'Scan a receipt on the Budget panel to fill this from what you actually bought, or add an item below.') +
+        '</p></div>' + foot;
     }
 
     return head + CATS.map(function (c) {
@@ -796,7 +832,7 @@
           '<span class="t-meta num">' + g.length + '</span></div>' +
         g.map(pantryRow).join('') +
       '</div>';
-    }).join('');
+    }).join('') + foot;
   }
 
   /* ---------------------------------------------------------------
@@ -935,6 +971,10 @@
             }).join('') + '</div>' +
           '</div>' +
         '</div>';
+    }
+    if (S.sheet && S.sheet.indexOf('pan:') === 0) {
+      var pit = PANTRY.filter(function (x) { return x.id === S.sheet.slice(4); })[0];
+      return pit ? pantrySheet(pit) : '';
     }
     if (S.sheet && S.sheet.indexOf('item:') === 0) {
       var it = LIST.filter(function (x) { return x.id === S.sheet.slice(5); })[0];
@@ -1102,21 +1142,31 @@
     },
 
     'pan-filter': function (el) { S.staplesOnly = el.dataset.f === 'staples'; },
+    'pan-open': function (el) { S.sheet = 'pan:' + el.dataset.id; S.intervalError = null; },
     'pan-empty': function (el) {
-      PANTRY.forEach(function (i) { if (i.id === el.dataset.id) i.empty = !i.empty; });
+      PANTRY.forEach(function (i) {
+        if (i.id !== el.dataset.id) return;
+        i.empty = !i.empty;
+        var k = LIST.map(function (x) { return x.name.toLowerCase(); }).indexOf(i.name.toLowerCase());
+        /* Running out puts it on the list. Restocking takes it off, because
+           the reason it was on the list has gone. */
+        if (i.empty && k < 0) LIST.push({ id: 'n' + Date.now(), name: i.name, qty: i.qty, unit: 'qty', cat: i.cat, done: false });
+        if (!i.empty && k > -1) LIST.splice(k, 1);
+      });
+      S.sheet = null;
     },
     'pan-staple': function (el) {
       PANTRY.forEach(function (i) { if (i.id === el.dataset.id) i.staple = !i.staple; });
     },
-    'pan-interval': function (el) { S.editInterval = el.dataset.id; S.intervalError = null; },
     'pan-interval-save': function (el) {
       var v = parseInt(document.getElementById('iv-' + el.dataset.id).value, 10);
       if (isNaN(v) || v < 1 || v > 365) { S.intervalError = el.dataset.id; return; }
       PANTRY.forEach(function (i) { if (i.id === el.dataset.id) i.every = v; });
-      S.editInterval = null; S.intervalError = null;
+      S.intervalError = null;
     },
     'pan-to-list': function (el) {
       var it = PANTRY.filter(function (i) { return i.id === el.dataset.id; })[0];
+      S.sheet = null;
       if (!it || LIST.some(function (i) { return i.name.toLowerCase() === it.name.toLowerCase(); })) return;
       LIST.push({ id: 'n' + Date.now(), name: it.name, qty: it.qty, unit: 'qty', cat: it.cat, done: false });
     },
@@ -1130,6 +1180,7 @@
     'pan-remove': function (el) {
       var k = PANTRY.map(function (i) { return i.id; }).indexOf(el.dataset.id);
       if (k > -1) PANTRY.splice(k, 1);
+      S.sheet = null;
     },
 
     'store-toggle': function (el) {

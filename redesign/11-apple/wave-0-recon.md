@@ -251,3 +251,31 @@ Still open, and neither blocks Wave 1:
    target. Say if you want it back.
 2. **The priority order** in section 4. Reorder it if you disagree; I am
    starting at the top of it.
+
+---
+
+## 10. What section 3 said was missing, and where it is now
+
+Recorded here rather than in a changelog, because section 3 is the thing this
+document exists to answer.
+
+| Gap in section 3 | State |
+|---|---|
+| Four missing type sizes, roles not named | Eleven roles, named, with the six old size tokens aliased onto them |
+| Zero squircles | 222 elements smoothed, 65 capsules deliberately left circular |
+| No concentricity helper | Radii are token-only, so a child cannot share its parent's by accident |
+| No springs, one ease wearing a spring's name | Three sampled `linear()` springs with measured overshoot, plus the rAF solver for gestures |
+| Glass: two rules, no system | Tokenised, chrome-only, grouped, with `prefers-reduced-transparency` and `prefers-contrast` fallbacks |
+| Large-title collapse not built | All five tab roots, interpolated with the scroll rather than switched at a threshold |
+| Tab bar minimize not built | All five tab roots, on scroll reversal |
+| Bottom accessory shelf not built | Built. Home and Fuel carry a live session; it leaves and returns with the tab bar |
+| Bottom search not built | Built. The exercise library searches from the bottom on a phone and from the top above 600px |
+| Scroll edge not built | Every screen with a bar content passes under |
+| Sheets: no detents, no grabber | Detents on the two sheets that had content below the fold; grabbers only where a sheet actually moves |
+| Press on `:active`, not touch-down with a spring return | Scale on the way down with no transition, spring on the way back. 51 of 51 kinds of control |
+
+Four screens did not exist and now do: **fuel**, **shopping** (List, Pantry,
+Stores, Budget), **profile**. Every tab is a built screen and the assembler
+has no placeholders left.
+
+The suite that holds all of it: `sh redesign/tests/run-all.sh`.
