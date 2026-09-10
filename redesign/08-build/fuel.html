@@ -114,6 +114,7 @@
     chev: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg>',
     alert: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/></svg>',
     plus: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg>',
+    barcode: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 6v12M7.5 6v12M11 6v9M14.5 6v12M18 6v12M20.5 6v9"/></svg>',
     /* The one row in the list that is not a food. See the comment on the
        closing row for why it is a line icon and the logged meals are not. */
     clock: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>'
@@ -174,9 +175,14 @@
     { icon: '🍝', name: 'Beef mince and pasta', n: 19, kcal: 810, pro: 48, carb: 92, fat: 26 }
   ];
 
-  var S = { state: 'populated', sheet: null, listening: false,
+  /* What the scanner resolved. One product, because a fixture that changes
+     per run makes a screenshot diff meaningless. */
+  var SCAN = { icon: '🥫', name: 'Skyr, plain', code: '5 060 123 456 789',
+               serving: '150 g pot', kcal: 96, pro: 17, carb: 6, fat: 0.3 };
+
+  var S = { state: 'populated', sheet: null, listening: false, scanServings: 1,
             /* The camera sheet's one question. null until it is answered. */
-            camOil: null, toast: null, undo: null };
+            camOil: null, toast: null, undo: null, targetError: null };
 
   /* The same strip Home shows, from the same facts. It is here because
      eating during or straight after a session is exactly when somebody
@@ -264,6 +270,8 @@
      because voice and camera are the same job done two ways. */
   function logAction() {
     return '<div class="fuel-log" role="group" aria-label="Log what you ate">' +
+      '<button class="fuel-log__half" type="button" data-action="scan" data-testid="log-scan">' +
+        ICO.barcode + '<span class="btn__label">Scan</span></button>' +
       '<button class="fuel-log__half" type="button" data-action="mic" data-testid="log-mic">' +
         ICO.mic + '<span class="t-headline">Say it</span>' +
       '</button>' +
@@ -287,7 +295,12 @@
           '</div>';
         }).join('') + '</div>';
     }
-    return '<div class="card mt-4" data-testid="macros">' +
+    /* The card is a button. The targets moved with every log and there was no
+       way to set one -- not on this screen and not in Settings -- so the
+       three figures the whole screen is measured against were the only
+       numbers in the app nobody could choose. */
+    return '<button class="card mt-4" type="button" data-action="targets" ' +
+      'data-testid="macros" aria-label="Macro targets, edit">' +
       DAY.macros.map(function (m) {
         var pct = Math.min(100, Math.round(m.have / m.want * 100));
         return '<div class="fuel-macro">' +
@@ -298,7 +311,7 @@
           '<div class="meter meter--quiet mt-2" role="img" aria-label="' + esc(m.name) + ', ' + m.have +
             ' of ' + m.want + ' ' + m.unit + '"><span class="meter__fill" style="width:' + pct + '%"></span></div>' +
         '</div>';
-      }).join('') + '</div>';
+      }).join('') + '</button>';
   }
 
   /* A badge is a claim about where a number came from. Verified means a
@@ -581,6 +594,82 @@
           '</div>' +
         '</div>';
     }
+    /* The barcode path. It is the only way a Verified badge can be earned --
+       the badge was rendering on two seeded rows and nothing in the app could
+       produce one, which made it a decoration rather than a claim.
+
+       A real scanner is a camera permission and a decoder; what a static
+       build can be honest about is the resolve step, which is where the
+       Verified claim actually comes from: a code matched a database row, so
+       the numbers are the manufacturer's own. */
+    if (S.sheet === 'targets') {
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="tg-title" ' +
+          'data-detents="0.5 0.88" data-testid="sheet-targets">' +
+          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="tg-title">Daily targets</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="targets-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<p class="t-detail">Your numbers, not a formula&rsquo;s. Change one and the day is ' +
+              'measured against it from now on.</p>' +
+            '<label class="t-label field__label mt-4" for="tg-kcal">Calories</label>' +
+            '<input class="input num" id="tg-kcal" type="number" min="800" max="8000" step="10" ' +
+              'inputmode="numeric" value="' + DAY.target + '" data-testid="tg-kcal">' +
+            DAY.macros.map(function (m) {
+              return '<label class="t-label field__label mt-3" for="tg-' + m.key + '">' +
+                  esc(m.name) + ', ' + m.unit + '</label>' +
+                '<input class="input num" id="tg-' + m.key + '" type="number" min="0" max="1000" step="5" ' +
+                  'inputmode="numeric" value="' + m.want + '" data-testid="tg-' + m.key + '">';
+            }).join('') +
+            (S.targetError ? '<p class="field__error mt-2" role="alert" data-testid="tg-error">' +
+              esc(S.targetError) + '</p>' : '') +
+          '</div>' +
+          '<div class="sheet__foot">' +
+            '<button class="btn btn--primary btn--block" type="button" data-action="targets-save" ' +
+              'data-testid="targets-save"><span class="btn__label">Save targets</span></button>' +
+          '</div>' +
+        '</div>';
+    }
+    if (S.sheet === 'scan') {
+      var f = SCAN;
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sc-title" ' +
+          'data-testid="sheet-scan">' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="sc-title">Scanned</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="scan-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<div class="hstack hstack--3">' +
+              '<span class="fuel-thumb" aria-hidden="true">' + f.icon + '</span>' +
+              '<span class="stack stack--1 grow">' +
+                '<span class="t-body-em">' + esc(f.name) + '</span>' +
+                '<span class="t-caption-1 quiet num">' + esc(f.code) + '</span>' +
+              '</span>' +
+              badge('verified') +
+            '</div>' +
+            '<p class="t-detail mt-4">A barcode matched a database row, so these are the ' +
+              'manufacturer&rsquo;s own figures. They are only wrong if the portion is.</p>' +
+            '<label class="t-label field__label mt-4" for="scan-servings">Servings</label>' +
+            '<input class="input num" id="scan-servings" type="number" min="0.25" max="10" step="0.25" ' +
+              'inputmode="decimal" value="' + S.scanServings + '" data-testid="scan-servings">' +
+            '<div class="card card--sunken mt-4">' +
+              '<div class="hstack hstack--3"><span class="t-body grow">Energy</span>' +
+                '<span class="t-body-em num" data-testid="scan-kcal">' +
+                  n(Math.round(f.kcal * S.scanServings)) + ' kcal</span></div>' +
+              '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Protein</span>' +
+                '<span class="t-body-em num">' + Math.round(f.pro * S.scanServings) + ' g</span></div>' +
+              '<p class="t-caption-1 quiet mt-2">Per ' + esc(f.serving) + ', times the servings above.</p>' +
+            '</div>' +
+          '</div>' +
+          '<div class="sheet__foot">' +
+            '<button class="btn btn--primary btn--block" type="button" data-action="scan-log" ' +
+              'data-testid="scan-confirm"><span class="btn__label">Log it</span></button>' +
+          '</div>' +
+        '</div>';
+    }
     if (S.sheet === 'mic') {
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
         '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="mic-title" ' +
@@ -659,6 +748,10 @@
     if (!act) return;
     var a = act.getAttribute('data-action');
     if (a === 'mic' || a === 'cam') { S.sheet = a; render(); return; }
+    if (a === 'scan') { S.sheet = 'scan'; S.scanServings = 1; render(); return; }
+    if (a === 'targets') { S.sheet = 'targets'; S.targetError = null; render(); return; }
+    if (a === 'targets-save') { saveTargets(); return; }
+    if (a === 'scan-log') { scanLog(); return; }
     if (a === 'meal') { S.sheet = 'meal:' + act.getAttribute('data-i'); render(); return; }
     if (a === 'meals' || a === 'trends' || a === 'water' || a === 'supps') { S.sheet = a; render(); return; }
     if (a === 'water-add') { DAY.waterMl = Math.min(4000, DAY.waterMl + 250); render(); return; }
@@ -733,6 +826,33 @@
     for (var i = 0; i < DAY.macros.length; i++) {
       if (DAY.macros[i].key === key) { DAY.macros[i].have = Math.max(0, DAY.macros[i].have + by); return; }
     }
+  }
+
+  function saveTargets() {
+    var kcal = parseInt((document.getElementById('tg-kcal') || {}).value, 10);
+    if (isNaN(kcal) || kcal < 800 || kcal > 8000) {
+      S.targetError = 'Calories between 800 and 8,000.';
+      render(); return;
+    }
+    var bad = null;
+    DAY.macros.forEach(function (m) {
+      var v = parseInt((document.getElementById('tg-' + m.key) || {}).value, 10);
+      if (isNaN(v) || v < 0 || v > 1000) { bad = m.name; return; }
+      m.want = v;
+    });
+    if (bad) { S.targetError = bad + ' between 0 and 1,000 ' + 'g.'; render(); return; }
+    DAY.target = kcal;
+    S.sheet = null; S.targetError = null;
+    say('Targets saved. ' + n(kcal) + ' kcal.');
+  }
+
+  function scanLog() {
+    var f = SCAN, k = S.scanServings;
+    addMeal({ icon: f.icon, name: f.name, kcal: Math.round(f.kcal * k),
+              pro: Math.round(f.pro * k), carb: Math.round(f.carb * k),
+              fat: Math.round(f.fat * k), src: 'verified' });
+    S.sheet = null;
+    say(esc(f.name) + ' logged, ' + n(Math.round(f.kcal * k)) + ' kcal. Verified.');
   }
 
   function camLog() {
@@ -819,6 +939,15 @@
       (S.undo ? '<button class="toast__action" type="button" data-action="undo" data-testid="undo">Undo</button>' : '') +
     '</div>';
   }
+
+  /* The servings field re-renders the figures under it as it is typed, and
+     LKPatch keeps the caret. */
+  document.addEventListener('input', function (e) {
+    if (e.target.id !== 'scan-servings') return;
+    var v = parseFloat(e.target.value);
+    S.scanServings = (isNaN(v) || v <= 0) ? 1 : Math.min(10, v);
+    render();
+  });
 
   document.addEventListener('keydown', function (e) {
     /* Same reset as the close action. They disagreed: Escape left S.camOil
