@@ -396,6 +396,20 @@ const RUNTIME = String.raw`
         leaked.push(rec.id + ':' + after[i]);
       }
     }
+
+    /* chrome.js self-inits against the real document on DOMContentLoaded,
+       which here is a page with no screens in it. Six screens call
+       LKChrome.init themselves because they re-render their own chrome; the
+       other seven relied on that self-init and got nothing, so their large
+       title, tab bar minimize, scroll edge and sheet detents were all dead in
+       the demo while working from a file on disk.
+
+       Wired here rather than by adding a call to seven screens: whether a
+       screen's chrome works should not depend on the screen remembering to
+       ask. init is idempotent, so the six that do call it are unaffected. */
+    if (window.LKChrome) {
+      try { window.LKChrome.init(rec.root); } catch (e) { console.error('[demo] chrome ' + rec.id, e); }
+    }
   }
 
   /* ---------------------------------------------------------------

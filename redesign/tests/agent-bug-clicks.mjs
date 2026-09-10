@@ -1,118 +1,113 @@
 import { chromium } from 'playwright';
 import fs from 'fs';
 const DIR = 'file:///home/user/everything-claude-code/redesign/08-build/';
-const SCREENS = process.argv[2] ? [process.argv[2]] : ['coach','exercise-library','fuel','home','onboarding','profile','progress','review','settings','shopping','split-builder','train','workout-log'];
-const BAD = /\bNaN\b|\bundefined\b|\[object Object\]/;
-const SKIP = /^dev-/;
-const b = await chromium.launch();
+const ALL = ['workout-log','coach','exercise-library','shopping','onboarding','split-builder','settings','review','train','progress','fuel','profile','home'];
+const SCREENS = process.argv.slice(2).length ? process.argv.slice(2) : ALL;
+const OUTJ = '/home/user/everything-claude-code/redesign/tests/agent-bug-clicks.json';
 const out = [];
+const DEVSEL = '[data-testid="dev-toggle"], #dev-toggle, #devToggle';
 
-async function openDev(p) {
-  const t = p.locator('[data-testid="dev-toggle"], #dev-toggle, #devToggle');
+async function openDev(p){
   const vis = await p.locator('.dev__item').first().isVisible().catch(()=>false);
-  if (await t.count() && !vis) { await t.first().click(); await p.waitForTimeout(180); }
+  if (!vis) { const t=p.locator(DEVSEL); if (await t.count()) { await t.first().click({timeout:1500}).catch(()=>{}); await p.waitForTimeout(90); } }
 }
-async function setState(p, devTid) {
-  if (!devTid) return;
+async function setState(p, st){
+  if (!st) return;
   await openDev(p);
-  const sel = `.dev__item[data-testid="${devTid}"]`;
-  if (await p.locator(sel).count()) { await p.locator(sel).first().dispatchEvent('click'); await p.waitForTimeout(350); }
-  // close dev menu
-  const t = p.locator('[data-testid="dev-toggle"], #dev-toggle, #devToggle');
-  if (await t.count() && await p.locator('.dev__item').first().isVisible().catch(()=>false)) { await t.first().click().catch(()=>{}); await p.waitForTimeout(120); }
+  await p.locator(`.dev__item[data-testid="${st}"]`).first().dispatchEvent('click',{},{timeout:1500}).catch(()=>{});
+  await p.waitForTimeout(220);
+  if (await p.locator('.dev__item').first().isVisible().catch(()=>false)) { const t=p.locator(DEVSEL); if (await t.count()) { await t.first().click({timeout:1500}).catch(()=>{}); await p.waitForTimeout(60); } }
 }
-const snap = p => p.evaluate(() => ({
-  html: document.body.innerHTML.length + ':' + document.body.innerHTML.slice(0,200000).replace(/\s+/g,' '),
-  txt: document.body.innerText,
-  url: location.href,
-  active: document.activeElement ? (document.activeElement.tagName + '#' + (document.activeElement.dataset?.testid || '')) : 'none',
-  ow: document.scrollingElement.scrollWidth > document.scrollingElement.clientWidth ? document.scrollingElement.scrollWidth+'>'+document.scrollingElement.clientWidth : null,
-  dialogs: [...document.querySelectorAll('.sheet, [role=dialog], .modal, .alert, .scrim, .popover')].filter(e=>e.offsetParent!==null || getComputedStyle(e).display!=='none').map(e=>e.className)
-}));
+const SNAP = `(() => {
+  const se = document.scrollingElement;
+  const h = document.body.innerHTML;
+  let x = 5381; for (let i=0;i<h.length;i++) x = ((x*33) ^ h.charCodeAt(i)) >>> 0;
+  const t = document.body.innerText;
+  const bad = t.match(/\\bNaN\\b|\\bundefined\\b|\\[object Object\\]/);
+  return { hash: h.length+':'+x, url: location.href,
+    active: document.activeElement ? (document.activeElement.tagName+'#'+(document.activeElement.dataset?.testid||'')) : 'none',
+    ow: se.scrollWidth > se.clientWidth ? se.scrollWidth+'>'+se.clientWidth : null,
+    bad: bad ? t.slice(Math.max(0,t.search(/\\bNaN\\b|\\bundefined\\b|\\[object Object\\]/)-60), t.search(/\\bNaN\\b|\\bundefined\\b|\\[object Object\\]/)+60).replace(/\\n/g,' | ') : null,
+    dlg: [...document.querySelectorAll('.sheet,[role=dialog],[role=alertdialog],.modal,.dialog,.alert,.popover,.actionsheet')].filter(e=>e.offsetParent!==null).map(e=>(e.dataset.testid||e.className)) };
+})()`;
+const snap = p => p.evaluate(SNAP);
 
-for (const s of SCREENS) {
-  const ctx = await b.newContext({ viewport:{width:402,height:874} });
-  const page0 = await ctx.newPage();
-  await page0.goto(DIR+s+'.html'); await page0.waitForTimeout(300);
-  await openDev(page0);
-  const states = await page0.$$eval('.dev__item', els => els.map(e=>e.dataset.testid));
-  await page0.close();
-  const stateList = states.length ? states : [null];
-  for (const st of stateList) {
-    const p = await ctx.newPage();
-    const errs = [];
-    p.on('pageerror', e => errs.push('PAGEERROR: '+e.message));
-    p.on('console', m => { if (['error','warning'].includes(m.type())) errs.push(m.type().toUpperCase()+': '+m.text()); });
-    await p.goto(DIR+s+'.html'); await p.waitForTimeout(250);
-    await setState(p, st);
+async function doScreen(ctx, s) {
+  const p = await ctx.newPage();
+  const errs = [];
+  p.on('pageerror', e => errs.push('PAGEERROR: '+e.message));
+  p.on('console', m => { if (['error','warning'].includes(m.type())) errs.push(m.type().toUpperCase()+': '+m.text()); });
+  await p.goto(DIR+s+'.html'); await p.waitForTimeout(150);
+  await openDev(p);
+  let states = await p.$$eval('.dev__item', els => els.map(e=>e.dataset.testid));
+  if (!states.length) states = [null];
+  for (const st of states) {
+    const t0 = Date.now();
+    await p.goto(DIR+s+'.html'); await p.waitForTimeout(100); await setState(p, st);
     const tids = await p.$$eval('[data-testid]', els => els.filter(e => {
       if (/^dev-/.test(e.dataset.testid)) return false;
-      const t = e.tagName;
-      const interactive = t==='BUTTON'||t==='A'||t==='INPUT'||t==='SELECT'||t==='LABEL'||e.hasAttribute('tabindex')||e.getAttribute('role')==='button'||e.getAttribute('role')==='tab'||e.getAttribute('role')==='switch'||e.getAttribute('role')==='checkbox';
-      return interactive && e.offsetParent !== null;
+      const t=e.tagName;
+      const inter = t==='BUTTON'||t==='A'||t==='INPUT'||t==='SELECT'||t==='LABEL'||e.hasAttribute('tabindex')||['button','tab','switch','checkbox','radio','menuitem','link','option'].includes(e.getAttribute('role'));
+      return inter && e.offsetParent !== null;
     }).map(e=>e.dataset.testid));
     const uniq = [...new Set(tids)];
     for (const tid of uniq) {
-      const p2 = await ctx.newPage();
-      const e2 = [];
-      p2.on('pageerror', e => e2.push('PAGEERROR: '+e.message));
-      p2.on('console', m => { if (['error','warning'].includes(m.type())) e2.push(m.type().toUpperCase()+': '+m.text()); });
-      await p2.goto(DIR+s+'.html'); await p2.waitForTimeout(220);
-      await setState(p2, st);
+      await p.goto(DIR+s+'.html'); await p.waitForTimeout(90); await setState(p, st);
       const sel = `[data-testid="${tid}"]`;
-      const loc = p2.locator(sel).first();
-      if (!(await loc.count()) || !(await loc.isVisible().catch(()=>false))) { await p2.close(); continue; }
-      const before = await snap(p2);
-      const ariaBefore = await loc.evaluate(e => ({exp:e.getAttribute('aria-expanded'),pr:e.getAttribute('aria-pressed'),sel:e.getAttribute('aria-selected'),ch:e.getAttribute('aria-checked'),dis:e.disabled}));
-      e2.length = 0;
-      try { await loc.click({ timeout: 2500 }); } catch (err) { out.push({s,st,tid,kind:'CLICK-FAIL',info:String(err).slice(0,150)}); await p2.close(); continue; }
-      await p2.waitForTimeout(450);
-      const after = await snap(p2);
-      let ariaAfter = null;
-      try { ariaAfter = await p2.locator(sel).first().evaluate(e => ({exp:e.getAttribute('aria-expanded'),pr:e.getAttribute('aria-pressed'),sel:e.getAttribute('aria-selected'),ch:e.getAttribute('aria-checked')})); } catch(e){}
+      const loc = p.locator(sel).first();
+      if (!(await loc.count()) || !(await loc.isVisible().catch(()=>false))) continue;
+      const before = await p.evaluate(([S,sel])=>{ const r=eval(S); const e=document.querySelector(sel);
+        r.aria = e?{exp:e.getAttribute('aria-expanded'),pr:e.getAttribute('aria-pressed'),sel:e.getAttribute('aria-selected'),ch:e.getAttribute('aria-checked')}:null; return r; }, [SNAP, sel]);
+      errs.length = 0;
+      try { await loc.click({ timeout: 1500 }); }
+      catch (err) { out.push({s,st,tid,kind:'CLICK-BLOCKED',info:String(err).split('\n')[0].slice(0,120)}); continue; }
+      await p.waitForTimeout(260);
+      const after = await p.evaluate(([S,sel])=>{ const r=eval(S); const e=document.querySelector(sel);
+        r.aria = e?{exp:e.getAttribute('aria-expanded'),pr:e.getAttribute('aria-pressed'),sel:e.getAttribute('aria-selected'),ch:e.getAttribute('aria-checked')}:null; return r; }, [SNAP, sel]);
       const rec = {s,st,tid};
-      if (e2.length) out.push({...rec,kind:'ERROR',info:e2.join(' | ').slice(0,400)});
-      if (before.html === after.html && before.url === after.url) out.push({...rec,kind:'NO-OP'});
-      if (!after.ow !== !before.ow && after.ow) out.push({...rec,kind:'OVERFLOW',info:after.ow});
+      if (errs.length) out.push({...rec,kind:'ERROR',info:errs.join(' | ').slice(0,400)});
+      const changed = before.hash !== after.hash || before.url !== after.url;
+      if (!changed) out.push({...rec,kind:'NO-OP'});
+      if (after.ow && !before.ow) out.push({...rec,kind:'OVERFLOW',info:after.ow});
       if (after.active === 'BODY#' && before.active !== 'BODY#') out.push({...rec,kind:'FOCUS-LOST'});
-      const bm = after.txt.match(BAD);
-      if (bm && !before.txt.match(BAD)) { const i=after.txt.search(BAD); out.push({...rec,kind:'BADTEXT',info:after.txt.slice(Math.max(0,i-70),i+70).replace(/\n/g,' | ')}); }
-      if (ariaAfter && ariaBefore) {
-        for (const k of ['exp','pr','sel','ch']) {
-          if (ariaBefore[k] !== null && ariaBefore[k] === ariaAfter[k] && before.html !== after.html) out.push({...rec,kind:'ARIA-STUCK',info:k+'='+ariaBefore[k]});
+      if (after.bad && !before.bad) out.push({...rec,kind:'BADTEXT',info:after.bad});
+      if (after.aria && before.aria && changed) for (const k of ['exp','pr','sel','ch'])
+        if (before.aria[k] !== null && before.aria[k] === after.aria[k]) out.push({...rec,kind:'ARIA-STUCK',info:k+'='+before.aria[k]});
+      const newD = after.dlg.filter(d=>!before.dlg.includes(d));
+      if (newD.length) {
+        await p.keyboard.press('Escape'); await p.waitForTimeout(240);
+        let cur = await snap(p);
+        const esc = cur.dlg.length < after.dlg.length;
+        let scrimC = null, btnC = null;
+        if (!esc) {
+          const scrim = p.locator('.scrim, .sheet__scrim, .overlay__scrim, [data-testid*="scrim"], [data-scrim]').first();
+          if (await scrim.count() && await scrim.isVisible().catch(()=>false)) {
+            await scrim.click({position:{x:8,y:8},force:true}).catch(()=>{}); await p.waitForTimeout(240);
+            cur = await snap(p); scrimC = cur.dlg.length < after.dlg.length;
+          }
+          if (scrimC !== true) {
+            const cb = p.locator('[data-testid*="close"],[data-testid*="cancel"],[data-testid*="dismiss"],[aria-label^="Close"],[aria-label^="close"]').first();
+            if (await cb.count() && await cb.isVisible().catch(()=>false)) { await cb.click({force:true,timeout:1500}).catch(()=>{}); await p.waitForTimeout(240);
+              cur = await snap(p); btnC = cur.dlg.length < after.dlg.length; }
+          }
         }
+        if (!esc && scrimC!==true && btnC!==true) out.push({...rec,kind:'DIALOG-TRAP',info:newD.join(',')+' esc='+esc+' scrim='+scrimC+' closebtn='+btnC});
+        else if (!esc) out.push({...rec,kind:'ESC-NOOP',info:newD.join(',')+' scrim='+scrimC+' closebtn='+btnC});
       }
-      // dialog trap test
-      const newDialogs = after.dialogs.filter(d=>!before.dialogs.includes(d));
-      if (newDialogs.length) {
-        const dh = after.html;
-        await p2.keyboard.press('Escape'); await p2.waitForTimeout(350);
-        const afterEsc = await snap(p2);
-        const escClosed = afterEsc.dialogs.length < after.dialogs.length;
-        // reopen path: test scrim + close btn on fresh
-        let scrimClosed=null, btnClosed=null;
-        const scrim = p2.locator('.scrim, [data-testid*="scrim"], .sheet__scrim, .overlay__scrim').first();
-        if (!escClosed && await scrim.count() && await scrim.isVisible().catch(()=>false)) {
-          await scrim.click({position:{x:5,y:5},force:true}).catch(()=>{}); await p2.waitForTimeout(350);
-          const a3 = await snap(p2); scrimClosed = a3.dialogs.length < after.dialogs.length;
-        }
-        if (!escClosed && scrimClosed !== true) {
-          const cb = p2.locator('[data-testid*="close"], [data-testid*="cancel"], [data-testid*="dismiss"], [aria-label*="Close"], [aria-label*="close"]').first();
-          if (await cb.count() && await cb.isVisible().catch(()=>false)) { await cb.click({force:true}).catch(()=>{}); await p2.waitForTimeout(350);
-            const a4 = await snap(p2); btnClosed = a4.dialogs.length < after.dialogs.length; }
-        }
-        if (!escClosed && scrimClosed !== true && btnClosed !== true) out.push({...rec,kind:'DIALOG-TRAP',info:'opened '+newDialogs.join(',')+' esc='+escClosed+' scrim='+scrimClosed+' btn='+btnClosed});
-        else if (!escClosed) out.push({...rec,kind:'ESC-NOOP',info:'opened '+newDialogs.join(',')+' (scrim='+scrimClosed+' btn='+btnClosed+')'});
-      }
-      await p2.close();
     }
-    await p.close();
-    console.log('  done', s, st, 'tids', uniq.length, 'findings so far', out.length);
+    fs.writeFileSync(OUTJ+'.tmp', JSON.stringify(out,null,1)); fs.renameSync(OUTJ+'.tmp', OUTJ);
+    console.error('  '+s+' / '+st+' ('+uniq.length+' tids, '+((Date.now()-t0)/1000|0)+'s) findings '+out.length);
   }
-  await ctx.close();
+  await p.close();
 }
-fs.writeFileSync('/home/user/everything-claude-code/redesign/tests/agent-bug-clicks.json', JSON.stringify(out,null,1));
-const by = {};
-for (const o of out) { const k=o.kind; (by[k]=by[k]||[]).push(o); }
-for (const k of Object.keys(by)) { console.log('\n### '+k+' ('+by[k].length+')'); by[k].slice(0,80).forEach(o=>console.log('  ',o.s,'|',o.st,'|',o.tid, o.info?('| '+o.info):'')); }
+
+const b = await chromium.launch();
+const queue = [...SCREENS];
+await Promise.all(Array.from({length:4}, async () => {
+  const ctx = await b.newContext({ viewport:{width:402,height:874} });
+  while (queue.length) { const s = queue.shift(); try { await doScreen(ctx, s); } catch(e){ console.error('SCREEN FAIL', s, String(e).slice(0,200)); } }
+  await ctx.close();
+}));
 await b.close();
+fs.writeFileSync(OUTJ, JSON.stringify(out,null,1));
+console.error('ALLDONE');

@@ -1,0 +1,12 @@
+import { chromium } from 'playwright';
+import { pathToFileURL } from 'url'; import path from 'path';
+const BUILD='/home/user/everything-claude-code/redesign/08-build';
+const S='/tmp/claude-0/-home-user-everything-claude-code/f7fd4e3f-0443-5a8d-a801-04f3354b33c8/scratchpad';
+const br=await chromium.launch();
+const p=await br.newPage({viewport:{width:393,height:852},deviceScaleFactor:3});
+await p.goto(pathToFileURL(path.join(BUILD,'exercise-library.html')).href); await p.waitForTimeout(500);
+await p.evaluate(()=>document.querySelector('[data-testid="row-group-shoulders"]').click());
+await p.waitForTimeout(500);
+const box=await p.evaluate(()=>document.querySelector('[data-testid="search-input"]').closest('.search').getBoundingClientRect().toJSON());
+await p.screenshot({path:S+'/lib-search-crop.png', clip:{x:box.x-4,y:box.y-4,width:box.width+8,height:box.height+8}});
+await br.close();

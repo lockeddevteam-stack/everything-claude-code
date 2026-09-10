@@ -3,7 +3,7 @@ import { pathToFileURL } from 'url';
 const br=await chromium.launch();
 const p=await br.newPage({viewport:{width:390,height:844},deviceScaleFactor:2});
 p.on('pageerror',e=>console.log('PAGEERROR',e.message));
-await p.goto(pathToFileURL('/home/user/everything-claude-code/redesign/08-build/mockup-bodymap.html').href);
+await p.goto(pathToFileURL('/home/user/everything-claude-code/redesign/09-review/lab/bodymap-lab.html').href);
 await p.waitForTimeout(500);
 const view=process.argv[2]||'front', gid=process.argv[3]||'chest';
 if(view==='back'){await p.click('#tab-back');await p.waitForTimeout(600);}

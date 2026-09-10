@@ -1,0 +1,21 @@
+import { chromium } from 'playwright';
+import { pathToFileURL } from 'url'; import path from 'path';
+const BUILD='/home/user/everything-claude-code/redesign/08-build';
+const S='/tmp/claude-0/-home-user-everything-claude-code/f7fd4e3f-0443-5a8d-a801-04f3354b33c8/scratchpad';
+const br=await chromium.launch();
+const p=await br.newPage({viewport:{width:393,height:852}});
+await p.goto(pathToFileURL(path.join(BUILD,'review.html')).href); await p.waitForTimeout(500);
+await p.evaluate(()=>{const d=document.querySelector('[data-testid="dev-toggle"]'); if(d)d.style.display='none';});
+await p.click('[data-testid="action-save"]'); await p.waitForTimeout(1500);
+await p.screenshot({path:S+'/rev-saved.png'});
+// discard flow
+await p.goto(pathToFileURL(path.join(BUILD,'review.html')).href); await p.waitForTimeout(500);
+await p.evaluate(()=>{const d=document.querySelector('[data-testid="dev-toggle"]'); if(d)d.style.display='none';});
+await p.evaluate(()=>document.querySelector('[data-testid="review-scroll"]').scrollTop=9999); await p.waitForTimeout(300);
+const b=await p.evaluate(()=>document.querySelector('[data-testid="review-scroll"]').scrollTop);
+await p.click('[data-testid="action-discard"]'); await p.waitForTimeout(600);
+console.log('discard armed scroll',b,'->',await p.evaluate(()=>document.querySelector('[data-testid="review-scroll"]').scrollTop));
+await p.screenshot({path:S+'/rev-discard-armed.png'});
+await p.click('[data-testid="action-discard-confirm"]'); await p.waitForTimeout(900);
+await p.screenshot({path:S+'/rev-discarded.png'});
+await br.close();

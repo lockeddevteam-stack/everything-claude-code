@@ -1,0 +1,21 @@
+import { chromium } from 'playwright';
+import { pathToFileURL } from 'url'; import path from 'path';
+const BUILD='/home/user/everything-claude-code/redesign/08-build';
+const S='/tmp/claude-0/-home-user-everything-claude-code/f7fd4e3f-0443-5a8d-a801-04f3354b33c8/scratchpad';
+const br=await chromium.launch();
+const p=await br.newPage({viewport:{width:393,height:852}});
+await p.goto(pathToFileURL(path.join(BUILD,'onboarding.html')).href); await p.waitForTimeout(400);
+await p.evaluate(()=>{const t=document.querySelector('[data-testid="dev-toggle"]'); if(t)t.click();});
+await p.waitForTimeout(300);
+await p.evaluate(()=>document.querySelector('[data-testid="dev-guest-error"]').click());
+await p.waitForTimeout(600);
+await p.evaluate(()=>{const t=document.querySelector('[data-testid="dev-toggle"]'); if(t)t.style.display='none';});
+const info=await p.evaluate(()=>{
+  const sc=[...document.querySelectorAll('*')].filter(x=>x.scrollHeight>x.clientHeight+10&&x.clientHeight>200);
+  return sc.map(x=>({id:x.id||x.className, sh:x.scrollHeight, ch:x.clientHeight}));
+});
+console.log(JSON.stringify(info));
+await p.evaluate(()=>{const sc=[...document.querySelectorAll('*')].filter(x=>x.scrollHeight>x.clientHeight+10&&x.clientHeight>200)[0]; if(sc)sc.scrollTop=sc.scrollHeight;});
+await p.waitForTimeout(400);
+await p.screenshot({path:S+'/onb-guest-error-bottom.png'});
+await br.close();

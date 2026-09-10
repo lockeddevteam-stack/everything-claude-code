@@ -27,12 +27,24 @@ const axe = readFileSync('node_modules/axe-core/axe.min.js', 'utf8');
    page instead looks right and is not: on file:// Chromium throws
    SecurityError on cssRules, so the set comes back empty and the check
    silently accuses every class of being undefined. */
-const KNOWN = new Set();
-for (const css of ['tokens.css', 'components.css']) {
-  const text = readFileSync(path.join(BUILD, css), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+const classesIn = (text, into) => {
+  text = text.replace(/\/\*[\s\S]*?\*\//g, '');
   for (const sel of text.match(/[^{}]+(?=\{)/g) || [])
-    for (const c of sel.match(/\.[A-Za-z0-9_-]+/g) || []) KNOWN.add(c.slice(1));
-}
+    for (const c of sel.match(/\.[A-Za-z0-9_-]+/g) || []) into.add(c.slice(1));
+};
+const SHARED = new Set();
+for (const css of ['tokens.css', 'components.css']) classesIn(readFileSync(path.join(BUILD, css), 'utf8'), SHARED);
+
+/* A screen may also carry its own <style>. Onboarding is a standalone flow
+   with a device frame the other screens have no use for, and checking only
+   the two shared sheets accused every one of its own classes of being
+   undefined -- 78 failures, none of them real. */
+const knownFor = file => {
+  const own = new Set(SHARED);
+  const html = readFileSync(path.join(BUILD, file), 'utf8');
+  for (const m of html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)) classesIn(m[1], own);
+  return own;
+};
 const files = process.argv.slice(2);
 if (!files.length) { console.error('give at least one screen'); process.exit(2); }
 
@@ -47,39 +59,49 @@ for (const file of files) {
   const url = pathToFileURL(path.join(BUILD, file)).href;
 
   /* States come from the screen's own dev menu, so this never drifts from
-     what the screen actually supports. */
+     what the screen supports. Driven by clicking, not by reading an
+     attribute: three screens name their states with something other than
+     data-state, and reading one attribute silently audited those screens in
+     one state each while reporting a pass. */
   const probe = await br.newPage({ viewport: { width: 393, height: 852 } });
   await probe.goto(url);
-  /* Not every screen sets __ready. Wait for it where it exists and fall back
-     to a settle, rather than failing a screen for not having a flag. */
   await probe.waitForFunction(() => window.__ready === true, null, { timeout: 2000 }).catch(() => {});
-  await probe.waitForTimeout(400);
-  const states = await probe.evaluate(() =>
-    [...document.querySelectorAll('.dev__item')].map(b => b.dataset.state).filter(Boolean));
+  await probe.waitForTimeout(600);
+  const states = await probe.evaluate(() => {
+    document.querySelector('[data-testid="dev-toggle"], [data-testid="dev-open"]')?.click();
+    return [...document.querySelectorAll('.dev__item, .dev-list button, [data-testid="dev-list"] button')]
+      .map((b, i) => ({ i, label: (b.dataset.state || b.textContent.trim() || 'state ' + i).slice(0, 34) }));
+  });
   await probe.close();
-  console.log(`\n=== ${file} — ${states.length} states x 2 themes ===`);
+  console.log(`\n=== ${file} — ${states.length || 1} states x 2 themes ===`);
 
   for (const theme of ['dark', 'light']) {
-    for (const state of states) {
-      const tag = `${file} ${state} ${theme}`;
+    for (const state of (states.length ? states : [{ i: -1, label: 'default' }])) {
+      const tag = `${file} ${state.label} ${theme}`;
       const ctx = await br.newContext({ viewport: { width: 393, height: 852 } });
       const p = await ctx.newPage();
       const errs = [];
       p.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') errs.push(m.text()); });
       p.on('pageerror', e => errs.push('pageerror: ' + e.message));
       await p.addInitScript(t => { try { localStorage.setItem('lk_theme', t); } catch (e) {} }, theme);
-      await p.goto(url + '?state=' + state);
+      await p.goto(url);
       await p.waitForFunction(() => window.__ready === true, null, { timeout: 2000 }).catch(() => {});
       await p.waitForTimeout(450);
-      /* A screen that does not read ?state gets driven through its own dev
-         menu instead, which is the control a person would use. */
-      await p.evaluate(s => {
-        const scr = document.getElementById('screen');
-        if (scr && scr.getAttribute('data-state') === s) return;
-        const b = document.querySelector(`.dev__item[data-state="${s}"]`);
-        if (b) b.click();
-      }, state);
-      await p.waitForTimeout(350);
+      /* Driven through the screen's own state switcher, which is the control
+         a person would use, then closed so it is not part of what is audited. */
+      if (state.i >= 0) {
+        await p.evaluate(i => {
+          document.querySelector('[data-testid="dev-toggle"], [data-testid="dev-open"]')?.click();
+          const list = [...document.querySelectorAll('.dev__item, .dev-list button, [data-testid="dev-list"] button')];
+          list[i]?.click();
+          const menu = document.querySelector('[data-testid="dev-menu"], [data-testid="dev-panel"]');
+          if (menu && !menu.hidden) {
+            document.querySelector('[data-testid="dev-close"]')?.click();
+            menu.hidden = true;
+          }
+        }, state.i);
+        await p.waitForTimeout(420);
+      }
 
       const m = await p.evaluate((knownList) => {
         /* A class in the markup that no stylesheet defines styles nothing.
@@ -122,9 +144,12 @@ for (const file of files) {
         return {
           unknown: [...unknown], targets, small, touching,
           overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
-          empty: !document.getElementById('body')?.textContent.trim()
+          /* Not every screen gives its scroller an id: coach renders the
+             whole screen from JS and identifies its body by class. Checking
+             one id reported "no content" on seventeen states that had it. */
+          empty: !(document.getElementById('body') || document.querySelector('.body'))?.textContent.trim()
         };
-      }, [...KNOWN]);
+      }, [...knownFor(file)]);
 
       /* Snapshot the console before axe runs. axe preloads stylesheets by
          XHR, which on file:// is a CORS error every time and has nothing to

@@ -5,7 +5,7 @@ import { chromium } from 'playwright';
 import { readFileSync } from 'fs';
 import { pathToFileURL } from 'url';
 const axe = readFileSync('node_modules/axe-core/axe.min.js', 'utf8');
-const URL = pathToFileURL('/home/user/everything-claude-code/redesign/08-build/mockup-bodymap.html').href;
+const URL = pathToFileURL('/home/user/everything-claude-code/redesign/09-review/lab/bodymap-lab.html').href;
 
 /* Four muscles cannot reach the app's 44px rule on a whole-body figure at
    390px, and no amount of margin fixes them: a deltoid is a crescent with the

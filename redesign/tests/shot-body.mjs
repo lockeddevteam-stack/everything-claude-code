@@ -4,7 +4,7 @@ const br=await chromium.launch();
 const p=await br.newPage({viewport:{width:390,height:844},deviceScaleFactor:2});
 p.on('pageerror',e=>console.log('PAGEERROR',e.message));
 p.on('console',m=>{if(m.type()==='error')console.log('ERR',m.text());});
-await p.goto(pathToFileURL('/home/user/everything-claude-code/redesign/08-build/mockup-bodymap.html').href);
+await p.goto(pathToFileURL('/home/user/everything-claude-code/redesign/09-review/lab/bodymap-lab.html').href);
 await p.waitForTimeout(600);
 await p.screenshot({path:'/tmp/body-front.png'});
 await p.click('#tab-back'); await p.waitForTimeout(700);

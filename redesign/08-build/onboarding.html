@@ -251,7 +251,7 @@
           </button>
           <h1 class="hdr__title t-section" tabindex="-1" data-testid="guest-warning-title">Guest mode</h1>
         </header>
-        <div class="body body--flush fill" role="main" tabindex="0" data-testid="guest-scroll" aria-label="Guest mode details">
+        <div class="body body--flush fill" role="region" tabindex="0" data-testid="guest-scroll" aria-label="Guest mode details">
           <div class="pane">
             <div id="guest-banner" aria-live="polite"></div>
             <h2 class="t-title">Guest mode keeps nothing safe.</h2>
@@ -366,7 +366,7 @@
         <header class="hdr">
           <h1 class="hdr__title t-section" tabindex="-1" data-testid="overview-title">Today</h1>
         </header>
-        <div class="body body--flush fill" role="main" tabindex="0" data-testid="overview-scroll" aria-label="Today's plan">
+        <div class="body body--flush fill" role="region" tabindex="0" data-testid="overview-scroll" aria-label="Today's plan">
           <div class="pane" id="overview-body"></div>
         </div>
         <div class="footer" id="overview-footer"></div>
@@ -819,17 +819,33 @@
     $('[data-testid="setup-skip"]').textContent = last ? 'Skip and go to the app' : 'Skip this step';
     if (S.variant === 'busy') setBusy('setup-continue', true, 'Saving');
 
-    if (step.kind === 'text') {
-      $('#setup-name').addEventListener('input', function (e) { S.answers.name = e.target.value; });
-    } else {
-      $$('[data-choice]', $('#setup-step')).forEach(function (b) {
-        b.addEventListener('click', function () {
-          S.answers[step.id] = b.dataset.choice;
-          renderSetup();
-        });
-      });
-    }
   }
+
+  /* Bound once, on the step container, rather than per control after every
+     render. LKPatch morphs: a keyed button survives the patch, so binding to
+     it inside the render meant every click added another listener to the same
+     element AND re-ran the render, which added another. Instrumented, one
+     button went from 1 listener to 32 in five taps -- and each of those
+     listeners called renderSetup, so the fifth tap ran the render 32 times.
+
+     A delegated listener on the container cannot stack: the container is
+     bound once, before any render, and the handler reads which control was
+     hit at the time of the event. */
+  (function bindSetupOnce() {
+    var host = $('#setup-step');
+    if (!host) return;
+    host.addEventListener('input', function (e) {
+      if (e.target && e.target.id === 'setup-name') S.answers.name = e.target.value;
+    });
+    host.addEventListener('click', function (e) {
+      var b = e.target.closest && e.target.closest('[data-choice]');
+      if (!b) return;
+      var step = STEPS[Math.max(0, Math.min(S.step, STEPS.length - 1))];
+      if (!step) return;
+      S.answers[step.id] = b.dataset.choice;
+      renderSetup();
+    });
+  })();
 
   function countAnswers() {
     return Object.keys(S.answers).filter(function (k) { return S.answers[k]; }).length;

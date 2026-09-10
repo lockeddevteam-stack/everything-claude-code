@@ -1,0 +1,25 @@
+import { chromium } from 'playwright';
+import { pathToFileURL } from 'url'; import path from 'path';
+const BUILD='/home/user/everything-claude-code/redesign/08-build';
+const S='/tmp/claude-0/-home-user-everything-claude-code/f7fd4e3f-0443-5a8d-a801-04f3354b33c8/scratchpad';
+const br=await chromium.launch();
+const p=await br.newPage({viewport:{width:393,height:852}});
+await p.goto(pathToFileURL(path.join(BUILD,'coach.html')).href); await p.waitForTimeout(500);
+await p.evaluate(()=>{const d=document.querySelector('[data-testid="dev-toggle"]'); if(d)d.style.display='none';});
+await p.click('[data-testid="seg-plan"]').catch(()=>p.click('text=Plan'));
+await p.waitForTimeout(600);
+await p.screenshot({path:S+'/coach-plan.png'});
+await p.evaluate(()=>{const e=[...document.querySelectorAll('*')].filter(x=>x.scrollHeight>x.clientHeight+20&&x.clientHeight>300)[0]; if(e)e.scrollTop=e.scrollHeight;});
+await p.waitForTimeout(400);
+await p.screenshot({path:S+'/coach-plan-bottom.png'});
+await p.click('[data-testid="plan-delete"]'); await p.waitForTimeout(600);
+await p.screenshot({path:S+'/coach-delete-dialog.png'});
+console.log('focused:', await p.evaluate(()=>document.activeElement.dataset.testid||document.activeElement.tagName));
+await p.click('[data-testid="delete-confirm"]'); await p.waitForTimeout(800);
+await p.screenshot({path:S+'/coach-deleted.png'});
+// setup tab
+await p.goto(pathToFileURL(path.join(BUILD,'coach.html')).href); await p.waitForTimeout(500);
+await p.evaluate(()=>{const d=document.querySelector('[data-testid="dev-toggle"]'); if(d)d.style.display='none';});
+await p.click('text=Setup'); await p.waitForTimeout(600);
+await p.screenshot({path:S+'/coach-setup.png'});
+await br.close();

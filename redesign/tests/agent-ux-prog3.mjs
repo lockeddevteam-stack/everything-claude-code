@@ -1,0 +1,15 @@
+import { chromium } from 'playwright';
+import { pathToFileURL } from 'url'; import path from 'path';
+const BUILD='/home/user/everything-claude-code/redesign/08-build';
+const br=await chromium.launch();
+const p=await br.newPage({viewport:{width:393,height:852}});
+await p.goto(pathToFileURL(path.join(BUILD,'progress.html')).href); await p.waitForTimeout(500);
+const read=async()=>{ await p.click('[data-testid="choose-lift"]'); await p.waitForTimeout(500);
+  const v=await p.evaluate(()=>({sheet:[...document.querySelectorAll('.sheet .row')].slice(0,4).map(r=>r.textContent.replace(/\s+/g,' ').trim())}));
+  await p.click('[data-testid="sheet-close"]'); await p.waitForTimeout(400); return v;};
+console.log('12w', JSON.stringify(await read()));
+await p.click('[data-testid="range-4w"]'); await p.waitForTimeout(600);
+console.log('4w ', JSON.stringify(await read()));
+const recs=await p.evaluate(()=>[...document.querySelectorAll('[data-testid^="record-"]')].slice(0,4).map(r=>r.textContent.replace(/\s+/g,' ').trim()));
+console.log('records', JSON.stringify(recs));
+await br.close();

@@ -71,6 +71,27 @@ const fuelText = await page.evaluate(() => {
   const r = document.querySelector('#demo-screen-fuel').shadowRoot;
   return r.querySelector('[data-testid="hero-value"]').textContent.trim();
 });
+/* Chrome is a shared script that self-inits against the real document, which
+   in here is a page with no screens in it. Seven screens carried the markup
+   and none of the behaviour until the demo wired it per shadow root, and
+   nothing failed while that was true: the screens rendered, they just did not
+   move. */
+const chrome = await page.evaluate(() => {
+  const out = [];
+  for (const h of document.querySelectorAll('.demo-screen')) {
+    const r = h.shadowRoot;
+    if (!r) continue;
+    for (const [sel, mark] of [['[data-large-title]', '__lk_title'],
+                               ['.tabbar[data-minimize]', '__lk_minimize'],
+                               ['[data-scroll-edge]', '__lk_edge']]) {
+      const el = r.querySelector(sel);
+      if (el && !el[mark]) out.push(h.dataset.screen + ' ' + sel);
+    }
+  }
+  return out;
+});
+ok(chrome.length === 0, 'every screen with chrome markup has chrome behaviour', chrome.join(', '));
+
 // Every tab is a built screen now: the profile tab must show the record it
 // is for, not a stand-in.
 const profText = await page.evaluate(() => {

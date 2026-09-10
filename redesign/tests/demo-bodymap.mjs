@@ -37,6 +37,23 @@ const shown = await inRoot(function () {
 });
 console.log('figure drawn in the demo:', shown);
 
+/* The figure being present is not the figure being drawn. bodymap.js writes
+   its hue rules into a <style>, and it used to write them into the top
+   document — where a shadow root never sees them, so every muscle fell back
+   to an inherited fill and the whole body rendered solid black while this
+   test reported it present and clickable. */
+const paint = await inRoot(function () {
+  const e = root.querySelector('[data-testid="bodymap"] .mg--chest .mg__gnd');
+  return {
+    fill: e ? getComputedStyle(e).fill : null,
+    hues: !!root.querySelector('#lk-anat-hues')
+  };
+});
+const black = !paint.fill || /rgb\(0, ?0, ?0\)|^none$/.test(paint.fill);
+console.log('hue stylesheet reached the shadow root:', paint.hues);
+console.log('the pectoral is painted:', !black, '-', paint.fill);
+if (black || !paint.hues) { console.log('\nFAIL: the body map is not drawn in the demo'); process.exitCode = 1; }
+
 const box = await inRoot(function () {
   const e = root.querySelector('[data-testid="bodymap"] .mg--chest .mg__gnd');
   if (!e) return null;

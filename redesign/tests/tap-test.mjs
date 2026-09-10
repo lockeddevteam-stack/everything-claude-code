@@ -5,7 +5,7 @@ import { pathToFileURL } from 'url';
 const br = await chromium.launch();
 const p = await br.newPage({ viewport: { width: 390, height: 844 } });
 p.on('pageerror', e => console.log('PAGEERROR', e.message));
-const URL = pathToFileURL('/home/user/everything-claude-code/redesign/08-build/mockup-bodymap.html').href;
+const URL = pathToFileURL('/home/user/everything-claude-code/redesign/09-review/lab/bodymap-lab.html').href;
 const reset = async view => {
   await p.goto(URL);
   await p.waitForTimeout(400);

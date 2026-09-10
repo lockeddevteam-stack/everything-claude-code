@@ -115,8 +115,20 @@
   /* The per-group fill rules, generated from the palette so the twelve hues
      are declared once, in tokens.css, and nowhere else. Written once per
      document, however many maps that document holds. */
-  function installHues(doc, order) {
-    if (doc.getElementById('lk-anat-hues')) return;
+  /* The hue rules go into the root the map is actually IN, not into the top
+     document. In the assembled demo every screen lives in its own shadow
+     root: a stylesheet appended to document.head never reaches the map, so
+     .mg__gnd fell back to its inherited fill and the whole figure rendered
+     solid black. getElementById is a document-level lookup for the same
+     reason, so it also had to go: it found the top document's copy and
+     returned early for every shadow root after the first.
+
+     `root` is the shadow root when there is one and the document otherwise,
+     which is what both `appendChild` and the duplicate guard need. */
+  function installHues(host, doc, order) {
+    var root = host.getRootNode ? host.getRootNode() : doc;
+    if (!root || root.nodeType !== 11) root = doc;         /* 11 = DOCUMENT_FRAGMENT */
+    if (root.querySelector('#lk-anat-hues')) return;
     var style = doc.createElement('style');
     style.id = 'lk-anat-hues';
     style.textContent = order.map(function (gid) {
@@ -129,7 +141,7 @@
              '.lab--' + gid + ' { color: ' + v + '; }\n' +
              '.pick__dot--' + gid + ' { background: ' + v + '; }';
     }).join('\n');
-    (doc.head || doc.documentElement).appendChild(style);
+    (root.head || root).appendChild(style);
   }
 
   /* Which of a group's sub-regions are real on this figure.
@@ -297,7 +309,7 @@
     var doc = host.ownerDocument || document;
     var GROUPS = opts.groups || {};
     var ORDER = opts.order || Object.keys(GROUPS);
-    installHues(doc, ORDER);
+    installHues(host, doc, ORDER);
 
     var mk = function (t, a) { return el(t, a, doc); };
     var interactive = opts.interactive !== false;

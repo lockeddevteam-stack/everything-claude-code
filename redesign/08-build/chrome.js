@@ -80,6 +80,16 @@
       var expanded = 0;
 
       onScrollFrame(scroller, function (y) {
+        /* The attribute is read every frame, not once at bind time. A screen
+           that pushes a sub-view removes data-large-title to get a plain 17px
+           bar back, and the listener bound for the tab view would otherwise
+           keep forcing the collapsed geometry on it forever. */
+        if (!bar.hasAttribute('data-large-title')) {
+          bar.style.height = '';
+          bar.removeAttribute('data-collapsed');
+          expanded = 0;
+          return;
+        }
         var t = Math.min(1, Math.max(0, y / TRAVEL));
         if (!expanded && t === 0) expanded = bar.offsetHeight;
         if (expanded) {
@@ -246,6 +256,32 @@
     initTabBar(root);
     initScrollEdge(root);
     initSheets(root);
+    watchSheets(root);
+  }
+
+  /* Sheets are rendered when they open, so the ones that exist at init are
+     the ones a screen happens to have left in the DOM. Watching for them is
+     the difference between a grabber that promises a drag and a grabber that
+     performs one: progress and split-builder both rendered the pill and had
+     no code behind it, because their sheets are built on demand and neither
+     screen calls init again afterwards. */
+  function watchSheets(root) {
+    if (root.__lk_sheetwatch || typeof MutationObserver !== 'function') return;
+    var pending = false;
+    var obs = new MutationObserver(function () {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(function () { pending = false; initSheets(root); });
+    });
+    /* The demo hands screens a scoped document PROXY rather than a document,
+       and observe() rejects anything that is not a real Node. That is not a
+       failure worth throwing over: a screen that renders through a proxy is
+       one that re-renders its own chrome, so it calls init again itself and
+       has no use for the observer. The observer is for screens that build a
+       sheet once and never init again. */
+    try { obs.observe(root, { childList: true, subtree: true }); }
+    catch (e) { return; }
+    root.__lk_sheetwatch = true;
   }
 
   global.LKChrome = { init: init };

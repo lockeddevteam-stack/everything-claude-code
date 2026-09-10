@@ -320,6 +320,17 @@
   --anat-glutes: #0CC37F;    /* spring      /   so they sit furthest apart */
 
 
+  /* Identity hues. The same twelve, referred to by number where the thing
+     being coloured is not a muscle — a store, a source, a series on a chart.
+     Aliases rather than new values: two palettes are two things to keep
+     apart in two themes. */
+  --id-1: var(--anat-chest);
+  --id-2: var(--anat-back);
+  --id-3: var(--anat-shoulders);
+  --id-4: var(--anat-abs);
+  --id-5: var(--anat-quads);
+  --id-6: var(--anat-biceps);
+
   /* Body ground and the deselected state. --anat-muted is 3.18:1 on
      --bg, so an unselected but still interactive region keeps a 3:1
      boundary (WCAG 1.4.11); --anat-silhouette is the inert body
@@ -957,7 +968,6 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
   box-shadow: var(--shadow-raised);
   transition: transform var(--dur-fast) var(--spring-snappy);
 }
-.switch[aria-checked="true"] .switch__track { background: var(--accent); }
 .switch[aria-checked="true"] .switch__knob { transform: translateX(20px); }
 
 /* ===============================================================
@@ -2317,7 +2327,8 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
 
 .btn, .chip, .row, .opt, .tabbar__item, .seg__item, .iconbtn,
 .hdr__back, .hdr__action, .pad__key,
-.pick, .storechip, .tick, .fuel-log__half, .shelf, .item__main {
+.pick, .storechip, .tick, .fuel-log__half, .shelf, .item__main,
+.switch, .exc__main, .toast__action {
   /* The spring runs on the way back up, so the release is what wobbles.
      Going down is immediate, because a press that eases in feels late. */
   transition: transform var(--dur-slow) var(--spring-bouncy),
@@ -2327,14 +2338,15 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
 
 .btn:active, .chip:active, .opt:active, .seg__item:active,
 .iconbtn:active, .hdr__back:active, .hdr__action:active, .pad__key:active,
-.pick:active, .storechip:active, .tick:active, .fuel-log__half:active {
+.pick:active, .storechip:active, .tick:active, .fuel-log__half:active,
+.switch:active, .toast__action:active {
   transform: scale(0.96);
   transition-duration: 0s;
 }
 
 /* A full-width row scales less: 0.96 on something 361px wide is a visible
    jump at the edges, where the same figure on a 44px button is a nudge. */
-.row:active, .shelf:active, .item__main:active { transform: scale(0.99); transition-duration: 0s; }
+.row:active, .shelf:active, .item__main:active, .exc__main:active { transform: scale(0.99); transition-duration: 0s; }
 /* A pick that is already on the list is not a control and does not press. */
 .pick[aria-disabled="true"]:active { transform: none; }
 
@@ -2345,13 +2357,15 @@ h1, h2, h3, h4, p { margin: 0; font: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .btn, .chip, .row, .opt, .tabbar__item, .seg__item, .iconbtn,
   .hdr__back, .hdr__action, .pad__key,
-  .pick, .storechip, .tick, .fuel-log__half, .shelf, .item__main {
+  .pick, .storechip, .tick, .fuel-log__half, .shelf, .item__main,
+  .switch, .exc__main, .toast__action {
     transition: background-color var(--dur-fast) var(--ease);
   }
   .btn:active, .chip:active, .row:active, .opt:active, .seg__item:active,
   .iconbtn:active, .hdr__back:active, .hdr__action:active, .pad__key:active,
   .pick:active, .storechip:active, .tick:active, .fuel-log__half:active,
-  .shelf:active, .item__main:active { transform: none; }
+  .shelf:active, .item__main:active, .switch:active, .exc__main:active,
+  .toast__action:active { transform: none; }
 }
 
 /* ===============================================================
@@ -2831,6 +2845,7 @@ button.shelf:active { background: var(--fill-press); }
   font-variant-numeric: tabular-nums;
 }
 .badge-face--locked { background: var(--fill); color: var(--text-tertiary); }
+
 
 </style>
 <style id="demo-chrome-css">
@@ -3674,6 +3689,16 @@ button.shelf:active { background: var(--fill-press); }
       var expanded = 0;
 
       onScrollFrame(scroller, function (y) {
+        /* The attribute is read every frame, not once at bind time. A screen
+           that pushes a sub-view removes data-large-title to get a plain 17px
+           bar back, and the listener bound for the tab view would otherwise
+           keep forcing the collapsed geometry on it forever. */
+        if (!bar.hasAttribute('data-large-title')) {
+          bar.style.height = '';
+          bar.removeAttribute('data-collapsed');
+          expanded = 0;
+          return;
+        }
         var t = Math.min(1, Math.max(0, y / TRAVEL));
         if (!expanded && t === 0) expanded = bar.offsetHeight;
         if (expanded) {
@@ -3840,6 +3865,32 @@ button.shelf:active { background: var(--fill-press); }
     initTabBar(root);
     initScrollEdge(root);
     initSheets(root);
+    watchSheets(root);
+  }
+
+  /* Sheets are rendered when they open, so the ones that exist at init are
+     the ones a screen happens to have left in the DOM. Watching for them is
+     the difference between a grabber that promises a drag and a grabber that
+     performs one: progress and split-builder both rendered the pill and had
+     no code behind it, because their sheets are built on demand and neither
+     screen calls init again afterwards. */
+  function watchSheets(root) {
+    if (root.__lk_sheetwatch || typeof MutationObserver !== 'function') return;
+    var pending = false;
+    var obs = new MutationObserver(function () {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(function () { pending = false; initSheets(root); });
+    });
+    /* The demo hands screens a scoped document PROXY rather than a document,
+       and observe() rejects anything that is not a real Node. That is not a
+       failure worth throwing over: a screen that renders through a proxy is
+       one that re-renders its own chrome, so it calls init again itself and
+       has no use for the observer. The observer is for screens that build a
+       sheet once and never init again. */
+    try { obs.observe(root, { childList: true, subtree: true }); }
+    catch (e) { return; }
+    root.__lk_sheetwatch = true;
   }
 
   global.LKChrome = { init: init };
@@ -4015,8 +4066,20 @@ button.shelf:active { background: var(--fill-press); }
   /* The per-group fill rules, generated from the palette so the twelve hues
      are declared once, in tokens.css, and nowhere else. Written once per
      document, however many maps that document holds. */
-  function installHues(doc, order) {
-    if (doc.getElementById('lk-anat-hues')) return;
+  /* The hue rules go into the root the map is actually IN, not into the top
+     document. In the assembled demo every screen lives in its own shadow
+     root: a stylesheet appended to document.head never reaches the map, so
+     .mg__gnd fell back to its inherited fill and the whole figure rendered
+     solid black. getElementById is a document-level lookup for the same
+     reason, so it also had to go: it found the top document's copy and
+     returned early for every shadow root after the first.
+
+     `root` is the shadow root when there is one and the document otherwise,
+     which is what both `appendChild` and the duplicate guard need. */
+  function installHues(host, doc, order) {
+    var root = host.getRootNode ? host.getRootNode() : doc;
+    if (!root || root.nodeType !== 11) root = doc;         /* 11 = DOCUMENT_FRAGMENT */
+    if (root.querySelector('#lk-anat-hues')) return;
     var style = doc.createElement('style');
     style.id = 'lk-anat-hues';
     style.textContent = order.map(function (gid) {
@@ -4029,7 +4092,7 @@ button.shelf:active { background: var(--fill-press); }
              '.lab--' + gid + ' { color: ' + v + '; }\n' +
              '.pick__dot--' + gid + ' { background: ' + v + '; }';
     }).join('\n');
-    (doc.head || doc.documentElement).appendChild(style);
+    (root.head || root).appendChild(style);
   }
 
   /* Which of a group's sub-regions are real on this figure.
@@ -4197,7 +4260,7 @@ button.shelf:active { background: var(--fill-press); }
     var doc = host.ownerDocument || document;
     var GROUPS = opts.groups || {};
     var ORDER = opts.order || Object.keys(GROUPS);
-    installHues(doc, ORDER);
+    installHues(host, doc, ORDER);
 
     var mk = function (t, a) { return el(t, a, doc); };
     var interactive = opts.interactive !== false;
@@ -6059,6 +6122,20 @@ window.__DEMO_CFG__ = {"tabs":[{"id":"home","label":"Home","screen":"home"},{"id
       if (before.indexOf(after[i]) === -1 && after[i].indexOf('__DEMO') !== 0) {
         leaked.push(rec.id + ':' + after[i]);
       }
+    }
+
+    /* chrome.js self-inits against the real document on DOMContentLoaded,
+       which here is a page with no screens in it. Six screens call
+       LKChrome.init themselves because they re-render their own chrome; the
+       other seven relied on that self-init and got nothing, so their large
+       title, tab bar minimize, scroll edge and sheet detents were all dead in
+       the demo while working from a file on disk.
+
+       Wired here rather than by adding a call to seven screens: whether a
+       screen's chrome works should not depend on the screen remembering to
+       ask. init is idempotent, so the six that do call it are unaffected. */
+    if (window.LKChrome) {
+      try { window.LKChrome.init(rec.root); } catch (e) { console.error('[demo] chrome ' + rec.id, e); }
     }
   }
 
@@ -11930,17 +12007,33 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
     $('[data-testid="setup-skip"]').textContent = last ? 'Skip and go to the app' : 'Skip this step';
     if (S.variant === 'busy') setBusy('setup-continue', true, 'Saving');
 
-    if (step.kind === 'text') {
-      $('#setup-name').addEventListener('input', function (e) { S.answers.name = e.target.value; });
-    } else {
-      $$('[data-choice]', $('#setup-step')).forEach(function (b) {
-        b.addEventListener('click', function () {
-          S.answers[step.id] = b.dataset.choice;
-          renderSetup();
-        });
-      });
-    }
   }
+
+  /* Bound once, on the step container, rather than per control after every
+     render. LKPatch morphs: a keyed button survives the patch, so binding to
+     it inside the render meant every click added another listener to the same
+     element AND re-ran the render, which added another. Instrumented, one
+     button went from 1 listener to 32 in five taps -- and each of those
+     listeners called renderSetup, so the fifth tap ran the render 32 times.
+
+     A delegated listener on the container cannot stack: the container is
+     bound once, before any render, and the handler reads which control was
+     hit at the time of the event. */
+  (function bindSetupOnce() {
+    var host = $('#setup-step');
+    if (!host) return;
+    host.addEventListener('input', function (e) {
+      if (e.target && e.target.id === 'setup-name') S.answers.name = e.target.value;
+    });
+    host.addEventListener('click', function (e) {
+      var b = e.target.closest && e.target.closest('[data-choice]');
+      if (!b) return;
+      var step = STEPS[Math.max(0, Math.min(S.step, STEPS.length - 1))];
+      if (!step) return;
+      S.answers[step.id] = b.dataset.choice;
+      renderSetup();
+    });
+  })();
 
   function countAnswers() {
     return Object.keys(S.answers).filter(function (k) { return S.answers[k]; }).length;
@@ -14070,9 +14163,9 @@ DEMO.define("shopping", function (document, window, location, fetch) {
   ];
 
   var STORES = [
-    { id: 'wal', name: 'Walmart',      hue: 'var(--anat-1)' },
-    { id: 'tgt', name: 'Target',       hue: 'var(--anat-4)' },
-    { id: 'cos', name: 'Costco',       hue: 'var(--anat-7)' }
+    { id: 'wal', name: 'Walmart',      hue: 'var(--id-1)' },
+    { id: 'tgt', name: 'Target',       hue: 'var(--id-4)' },
+    { id: 'cos', name: 'Costco',       hue: 'var(--id-2)' }
   ];
 
   var UNITS = ['qty', 'kg', 'g', 'lb', 'oz', 'cup', 'tbsp', 'tsp'];
@@ -14159,9 +14252,9 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     { name: 'Safeway',       host: 'safeway.com',           about: 'large supermarket chain' }
   ];
   var MYSTORES = [
-    { id: 's1', name: 'Walmart', host: 'walmart.com', about: 'large general merchandise and grocery retailer', hue: 'var(--anat-1)', on: true },
-    { id: 's2', name: 'Target',  host: 'target.com',  about: 'general merchandise and grocery retailer',        hue: 'var(--anat-4)', on: true },
-    { id: 's3', name: 'Costco',  host: 'costco.com',  about: 'warehouse club, bulk items',                      hue: 'var(--anat-7)', on: false }
+    { id: 's1', name: 'Walmart', host: 'walmart.com', about: 'large general merchandise and grocery retailer', hue: 'var(--id-1)', on: true },
+    { id: 's2', name: 'Target',  host: 'target.com',  about: 'general merchandise and grocery retailer',        hue: 'var(--id-4)', on: true },
+    { id: 's3', name: 'Costco',  host: 'costco.com',  about: 'warehouse club, bulk items',                      hue: 'var(--id-2)', on: false }
   ];
 
   var PANELS = [
@@ -14611,50 +14704,83 @@ DEMO.define("shopping", function (document, window, location, fetch) {
      the list carries what is missing rather than what is wanted.
      --------------------------------------------------------------- */
 
+  /* The same shape as a list row: the row says what it is, and everything
+     you can do to it is behind the row. The shipped pantry put a tick, a
+     star, a cart, a cross and three badges on every line, and the tick was
+     green for OUT OF STOCK while the same green tick two panels away meant
+     PICKED UP. One glyph, two opposite meanings, is worse than a longer tap
+     path. */
   function pantryRow(it) {
-    var editing = S.editInterval === it.id;
+    var bits = [it.qty + ' left'];
+    if (it.store) bits.push(it.store);
+    if (it.staple) bits.push('restocks every ' + it.every + ' days');
     return '<div class="item' + (it.empty ? ' item--done' : '') + '" data-testid="pan-' + it.id + '">' +
-      '<button class="tick" type="button" aria-pressed="' + it.empty + '" data-action="pan-empty" data-id="' + it.id +
-        '" aria-label="' + (it.empty ? 'Mark ' + esc(it.name) + ' as restocked' : 'Mark ' + esc(it.name) + ' as out of stock') + '">' +
-        '<span class="tick__box">' + (it.empty ? ICO.tick : '') + '</span></button>' +
-      '<span class="item__main">' +
+      '<button class="item__main" type="button" data-action="pan-open" data-id="' + it.id +
+        '" data-testid="pan-open-' + it.id + '" style="text-align: left; min-height: var(--tap)">' +
         '<span class="item__name">' + esc(it.name) + '</span>' +
-        '<span class="item__stores">' +
-          '<span class="badge">' + it.qty + ' left</span>' +
-          (it.store ? '<span class="badge">' + esc(it.store) + '</span>' : '') +
-          (it.empty ? '<span class="badge badge--est">On the list</span>' : '') +
-          (it.staple && !editing
-            ? '<button class="storechip" type="button" data-action="pan-interval" data-id="' + it.id +
-              '" data-testid="every-' + it.id + '">every ' + it.every + ' days</button>'
-            : '') +
-        '</span>' +
-        (editing
-          ? '<span class="hstack hstack--2 mt-2">' +
-              '<label class="vis-hidden" for="iv-' + it.id + '">Restock interval in days</label>' +
-              '<input class="input num" id="iv-' + it.id + '" type="number" min="1" max="365" step="1" ' +
-                'inputmode="numeric" value="' + it.every + '" style="width: 96px" data-testid="iv-' + it.id + '">' +
-              '<button class="btn btn--secondary" type="button" data-action="pan-interval-save" data-id="' + it.id +
-                '" data-testid="iv-save-' + it.id + '"><span class="btn__label">Set</span></button>' +
-              (S.intervalError === it.id
-                ? '<span class="field__error">Between 1 and 365 days.</span>' : '') +
-            '</span>'
-          : '') +
-      '</span>' +
-      '<button class="iconbtn" type="button" aria-pressed="' + it.staple + '" data-action="pan-staple" data-id="' + it.id +
-        '" aria-label="' + (it.staple ? 'Stop restocking ' + esc(it.name) + ' automatically' : 'Restock ' + esc(it.name) + ' automatically') +
-        '" data-testid="staple-' + it.id + '">' +
-        '<svg class="ico" viewBox="0 0 24 24" fill="' + (it.staple ? 'currentColor' : 'none') +
-          '" stroke="currentColor" stroke-linejoin="round" aria-hidden="true"><path d="m12 4 2.4 5 5.6.7-4 3.9 1 5.4-5-2.7-5 2.7 1-5.4-4-3.9 5.6-.7z"/></svg>' +
+        '<span class="row__sub">' + esc(bits.join(' \u00b7 ')) + '</span>' +
       '</button>' +
-      (it.empty ? '' :
-        '<button class="iconbtn" type="button" data-action="pan-to-list" data-id="' + it.id +
-          '" aria-label="Add ' + esc(it.name) + ' to the shopping list" data-testid="tolist-' + it.id + '">' +
-          ICO.cart + '</button>') +
-      '<button class="iconbtn iconbtn--danger-quiet" type="button" data-action="pan-remove" data-id="' + it.id +
-        '" aria-label="Remove ' + esc(it.name) + ' from the pantry" data-testid="pan-remove-' + it.id + '">' +
-        '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
-      '</button>' +
+      (it.empty ? '<span class="badge badge--est" data-testid="out-' + it.id + '">Out</span>' : '') +
+      '<span class="row__chev" aria-hidden="true">' + ICO.chev + '</span>' +
     '</div>';
+  }
+
+  /* The pantry item's own sheet. Five things, each one a full row, none of
+     them a 32px glyph competing with four others. */
+  function pantrySheet(it) {
+    return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pn-title" ' +
+        'data-detents="0.62 0.88" data-testid="sheet-pantry">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+        '<div class="sheet__head"><h2 class="t-headline grow" id="pn-title">' + esc(it.name) + '</h2>' +
+          '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="pn-close">' +
+            '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+          '</button></div>' +
+        '<div class="sheet__body">' +
+          '<p class="t-detail num">' + it.qty + ' left' + (it.store ? ' \u00b7 last bought at ' + esc(it.store) : '') + '</p>' +
+          '<div class="card card--flush mt-3">' +
+            '<button class="row" type="button" data-action="pan-empty" data-id="' + it.id + '" data-testid="pn-empty">' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + (it.empty ? 'I have restocked it' : 'I have run out') + '</span>' +
+                '<span class="row__sub">' + (it.empty
+                  ? 'Takes it off the shopping list'
+                  : 'Adds it to the shopping list straight away') + '</span>' +
+              '</span></button>' +
+            '<button class="row" type="button" data-action="pan-staple" data-id="' + it.id + '" data-testid="pn-staple">' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + (it.staple ? 'Stop restocking it' : 'Restock it on a schedule') + '</span>' +
+                '<span class="row__sub">' + (it.staple
+                  ? 'Currently rejoins the list every ' + it.every + ' days'
+                  : 'It rejoins the list on its own, before you run out') + '</span>' +
+              '</span></button>' +
+            (it.staple
+              ? '<div class="row row--static">' +
+                  '<span class="row__main stack">' +
+                    '<span class="row__title">How often</span>' +
+                    '<span class="row__sub">1 to 365</span>' +
+                  '</span>' +
+                  '<label class="vis-hidden" for="iv-' + it.id + '">Restock interval in days</label>' +
+                  '<input class="input num" id="iv-' + it.id + '" type="number" min="1" max="365" step="1" ' +
+                    'inputmode="numeric" value="' + it.every + '" style="width: 88px" data-testid="iv-' + it.id + '">' +
+                  '<button class="btn btn--secondary" type="button" data-action="pan-interval-save" data-id="' + it.id +
+                    '" data-testid="iv-save-' + it.id + '"><span class="btn__label">Set</span></button>' +
+                '</div>' +
+                (S.intervalError === it.id
+                  ? '<p class="field__error" style="padding: 0 var(--page-x) var(--sp-3)" data-testid="iv-error">Between 1 and 365 days.</p>' : '')
+              : '') +
+            (it.empty ? '' :
+              '<button class="row" type="button" data-action="pan-to-list" data-id="' + it.id + '" data-testid="pn-to-list">' +
+                '<span class="row__main stack">' +
+                  '<span class="row__title">Add it to the list anyway</span>' +
+                  '<span class="row__sub">For a top-up, without saying you ran out</span>' +
+                '</span></button>') +
+          '</div>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--danger btn--block" type="button" data-action="pan-remove" data-id="' + it.id +
+            '" data-testid="pn-remove"><span class="btn__label">Remove from the pantry</span></button>' +
+        '</div>' +
+      '</div>';
   }
 
   function panelPantry() {
@@ -14668,7 +14794,16 @@ DEMO.define("shopping", function (document, window, location, fetch) {
             out.map(function (i) { return esc(i.name); }).join(', ') +
             '. Already added to the list.</span></div>'
         : '') +
-      '<div class="card' + (out.length ? ' mt-3' : '') + '">' +
+      '<div class="chiprow' + (out.length ? ' mt-4' : '') + '">' +
+        '<button class="chip" type="button" aria-pressed="' + !S.staplesOnly + '" data-action="pan-filter" data-f="all" data-testid="pan-all">' +
+          'All ' + PANTRY.length + '</button>' +
+        '<button class="chip" type="button" aria-pressed="' + !!S.staplesOnly + '" data-action="pan-filter" data-f="staples" data-testid="pan-staples">' +
+          'Restocking ' + stapleN() + '</button>' +
+      '</div>' +
+    '</div>';
+
+    var foot = '<div class="section" style="padding: 0 var(--page-x)">' +
+      '<div class="card">' +
         '<h2 class="t-label">Add to the pantry</h2>' +
         '<div class="hstack hstack--3 mt-2">' +
           '<div class="field grow"><label class="vis-hidden" for="pan-name">Item name</label>' +
@@ -14679,12 +14814,6 @@ DEMO.define("shopping", function (document, window, location, fetch) {
         '<button class="btn btn--secondary btn--block mt-3" type="button" data-action="pan-add" data-testid="pan-add">' +
           '<span class="btn__label">Add</span></button>' +
       '</div>' +
-      '<div class="chiprow mt-4">' +
-        '<button class="chip" type="button" aria-pressed="' + !S.staplesOnly + '" data-action="pan-filter" data-f="all" data-testid="pan-all">' +
-          'All ' + PANTRY.length + '</button>' +
-        '<button class="chip" type="button" aria-pressed="' + !!S.staplesOnly + '" data-action="pan-filter" data-f="staples" data-testid="pan-staples">' +
-          'Restocking ' + stapleN() + '</button>' +
-      '</div>' +
     '</div>';
 
     if (!rows.length) {
@@ -14692,8 +14821,8 @@ DEMO.define("shopping", function (document, window, location, fetch) {
         '<p class="empty__title">' + (S.staplesOnly ? 'Nothing restocks itself yet' : 'The pantry is empty') + '</p>' +
         '<p class="empty__body">' + (S.staplesOnly
           ? 'Star any pantry item to have it rejoin your shopping list on its own schedule, so you notice it is low before you run out.'
-          : 'Scan a receipt on the Budget panel to fill this from what you actually bought, or add an item above.') +
-        '</p></div>';
+          : 'Scan a receipt on the Budget panel to fill this from what you actually bought, or add an item below.') +
+        '</p></div>' + foot;
     }
 
     return head + CATS.map(function (c) {
@@ -14705,7 +14834,7 @@ DEMO.define("shopping", function (document, window, location, fetch) {
           '<span class="t-meta num">' + g.length + '</span></div>' +
         g.map(pantryRow).join('') +
       '</div>';
-    }).join('');
+    }).join('') + foot;
   }
 
   /* ---------------------------------------------------------------
@@ -14739,7 +14868,8 @@ DEMO.define("shopping", function (document, window, location, fetch) {
                   esc(s.name.charAt(0)) + '</span>' +
                 '<span class="row__main stack">' +
                   '<span class="row__title">' + esc(s.name) + '</span>' +
-                  '<span class="row__sub">' + esc(s.about || s.host) + '</span>' +
+                  '<span class="row__sub" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">' +
+                    esc(s.about || s.host) + '</span>' +
                 '</span>' +
                 '<button class="switch" type="button" role="switch" aria-checked="' + s.on + '" ' +
                   'data-action="store-toggle" data-id="' + s.id + '" data-testid="toggle-' + s.id +
@@ -14844,6 +14974,10 @@ DEMO.define("shopping", function (document, window, location, fetch) {
             }).join('') + '</div>' +
           '</div>' +
         '</div>';
+    }
+    if (S.sheet && S.sheet.indexOf('pan:') === 0) {
+      var pit = PANTRY.filter(function (x) { return x.id === S.sheet.slice(4); })[0];
+      return pit ? pantrySheet(pit) : '';
     }
     if (S.sheet && S.sheet.indexOf('item:') === 0) {
       var it = LIST.filter(function (x) { return x.id === S.sheet.slice(5); })[0];
@@ -15011,21 +15145,31 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     },
 
     'pan-filter': function (el) { S.staplesOnly = el.dataset.f === 'staples'; },
+    'pan-open': function (el) { S.sheet = 'pan:' + el.dataset.id; S.intervalError = null; },
     'pan-empty': function (el) {
-      PANTRY.forEach(function (i) { if (i.id === el.dataset.id) i.empty = !i.empty; });
+      PANTRY.forEach(function (i) {
+        if (i.id !== el.dataset.id) return;
+        i.empty = !i.empty;
+        var k = LIST.map(function (x) { return x.name.toLowerCase(); }).indexOf(i.name.toLowerCase());
+        /* Running out puts it on the list. Restocking takes it off, because
+           the reason it was on the list has gone. */
+        if (i.empty && k < 0) LIST.push({ id: 'n' + Date.now(), name: i.name, qty: i.qty, unit: 'qty', cat: i.cat, done: false });
+        if (!i.empty && k > -1) LIST.splice(k, 1);
+      });
+      S.sheet = null;
     },
     'pan-staple': function (el) {
       PANTRY.forEach(function (i) { if (i.id === el.dataset.id) i.staple = !i.staple; });
     },
-    'pan-interval': function (el) { S.editInterval = el.dataset.id; S.intervalError = null; },
     'pan-interval-save': function (el) {
       var v = parseInt(document.getElementById('iv-' + el.dataset.id).value, 10);
       if (isNaN(v) || v < 1 || v > 365) { S.intervalError = el.dataset.id; return; }
       PANTRY.forEach(function (i) { if (i.id === el.dataset.id) i.every = v; });
-      S.editInterval = null; S.intervalError = null;
+      S.intervalError = null;
     },
     'pan-to-list': function (el) {
       var it = PANTRY.filter(function (i) { return i.id === el.dataset.id; })[0];
+      S.sheet = null;
       if (!it || LIST.some(function (i) { return i.name.toLowerCase() === it.name.toLowerCase(); })) return;
       LIST.push({ id: 'n' + Date.now(), name: it.name, qty: it.qty, unit: 'qty', cat: it.cat, done: false });
     },
@@ -15039,6 +15183,7 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     'pan-remove': function (el) {
       var k = PANTRY.map(function (i) { return i.id; }).indexOf(el.dataset.id);
       if (k > -1) PANTRY.splice(k, 1);
+      S.sheet = null;
     },
 
     'store-toggle': function (el) {
@@ -15052,7 +15197,7 @@ DEMO.define("shopping", function (document, window, location, fetch) {
       var p = PRESETS.filter(function (x) { return x.host === el.dataset.host; })[0];
       if (!p) return;
       MYSTORES.push({ id: 's' + Date.now(), name: p.name, host: p.host, about: p.about,
-        hue: 'var(--anat-' + ((MYSTORES.length % 12) + 1) + ')', on: true });
+        hue: 'var(--id-' + ((MYSTORES.length % 6) + 1) + ')', on: true });
     },
     'add-custom': function () {
       var n = document.getElementById('cs-name').value.trim();
@@ -15060,7 +15205,7 @@ DEMO.define("shopping", function (document, window, location, fetch) {
       if (!n || !u) return;
       MYSTORES.push({ id: 's' + Date.now(), name: n, host: u.replace(/^https?:\/\//, ''),
         about: document.getElementById('cs-about').value.trim(),
-        hue: 'var(--anat-' + ((MYSTORES.length % 12) + 1) + ')', on: true });
+        hue: 'var(--id-' + ((MYSTORES.length % 6) + 1) + ')', on: true });
     },
 
     close: function () { S.sheet = null; },

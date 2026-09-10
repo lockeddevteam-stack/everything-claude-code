@@ -1,0 +1,13 @@
+import { chromium } from 'playwright';
+import { pathToFileURL } from 'url'; import path from 'path';
+const BUILD='/home/user/everything-claude-code/redesign/08-build';
+const S='/tmp/claude-0/-home-user-everything-claude-code/f7fd4e3f-0443-5a8d-a801-04f3354b33c8/scratchpad';
+const br=await chromium.launch();
+const p=await br.newPage({viewport:{width:393,height:852}});
+await p.goto(pathToFileURL(path.join(BUILD,'progress.html')).href); await p.waitForTimeout(500);
+await p.evaluate(()=>{const d=document.querySelector('[data-testid="dev-toggle"]'); if(d)d.style.display='none';});
+await p.click('[data-testid="choose-lift"]'); await p.waitForTimeout(700);
+await p.screenshot({path:S+'/prog-choose.png'});
+const items=await p.evaluate(()=>[...document.querySelectorAll('.sheet button[data-testid]')].map(b=>b.dataset.testid).slice(0,8));
+console.log('sheet items',items);
+await br.close();

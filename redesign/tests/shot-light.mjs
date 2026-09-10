@@ -4,7 +4,7 @@ const br=await chromium.launch();
 const ctx=await br.newContext({viewport:{width:390,height:844},deviceScaleFactor:2});
 await ctx.addInitScript(()=>{try{localStorage.setItem('lk_theme','light')}catch(e){}});
 const p=await ctx.newPage();
-await p.goto(pathToFileURL('/home/user/everything-claude-code/redesign/08-build/mockup-bodymap.html').href);
+await p.goto(pathToFileURL('/home/user/everything-claude-code/redesign/09-review/lab/bodymap-lab.html').href);
 await p.waitForTimeout(600);
 await p.screenshot({path:'/tmp/body-light.png'});
 await br.close();
