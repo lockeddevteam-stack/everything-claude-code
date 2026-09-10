@@ -71,6 +71,9 @@ const MANIFEST = {
     'workout-log': { parent: 'train' },
     shopping: { parent: 'fuel', backSelector: '[data-testid="back"]' },
     review: { parent: 'train', backSelector: '[data-testid="action-back"]' },
+    /* Every history row on Train points here. It was in the shipped app and
+       the rebuild dropped it without a note; the rows pointed at nothing. */
+    'workout-detail': { parent: 'train', backSelector: '[data-testid="back"]' },
     /* Progress lives under Home. It was reachable only through the demo
        index, which pushes; the one tap that led to it from a screen was
        declared as a tab and there is no Progress tab, so it wrote a route
@@ -108,7 +111,10 @@ const MANIFEST = {
     /* Coach's "open this lift in Progress", and Train's session-picker day.
        Both toasted a sentence describing what a working button would do. */
     { from: 'coach', selector: '[data-act="target"]', to: 'progress', mode: 'push' },
-    { from: 'train', selector: '[data-action="start-day"]', to: 'workout-log', mode: 'push' }
+    { from: 'train', selector: '[data-action="start-day"]', to: 'workout-log', mode: 'push' },
+    { from: 'train', selector: '[data-action="open-session"]', to: 'workout-detail', mode: 'push' },
+    { from: 'workout-detail', selector: '[data-testid="detail-repeat"]', to: 'workout-log', mode: 'push' },
+    { from: 'workout-detail', selector: '[data-testid="detail-edit"]', to: 'workout-log', mode: 'push' }
   ],
 
   /* Where a screen keeps its own state switcher. Harvested for the demo-level

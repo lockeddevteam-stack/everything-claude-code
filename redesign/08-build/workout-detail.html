@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — Workout detail</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<script src="theme.js"></script>
+<script src="app.js"></script>
+<script src="chrome.js"></script>
+</head>
+<body>
+<!--
+  WORKOUT DETAIL — a session that already happened.
+
+  WHY IT EXISTS. Every history row on Train points here, and for a while
+  nothing was behind them: the row said "A past session opens its own detail
+  screen, which is not in this build yet", which was honest and useless. The
+  shipped app had this screen and a feature audit found it dropped with no
+  note anywhere saying so.
+
+  WHAT IT IS NOT. It is not Review. Review is the five seconds after the last
+  set, when the lifter is tired and wants to be done, and it is about
+  deciding: save, discard, carry the change into the split. This screen is
+  read cold, days later, by somebody asking a question — what did I do, was
+  it heavier than last time, what did I write down. So it leads with the sets
+  rather than with a verdict, and its actions are edit, repeat and delete
+  rather than save and discard.
+
+  THE NOTE. The shipped app let a lifter write on a session and on individual
+  exercises, and the rebuild had lost both the writer and the reader. The note
+  is here, it is editable, and it is the only free text in the build that is
+  not a message to a coach.
+
+  REPEAT, NOT CONVERT. The original offered "Convert to split", which makes a
+  whole training split out of one day. That is a bigger claim than one session
+  supports and it belongs in the split builder, which can already do it. What
+  a person actually wants from a past session is to do it again, so the action
+  is Repeat, and it starts a workout preloaded with these exercises.
+
+  DELETE IS UNDOABLE, not confirmed twice. The row is gone from the list
+  immediately and comes back for six seconds. A confirm dialog asks a question
+  the person answered by pressing a red button.
+-->
+
+<div class="stage">
+  <div class="phone">
+    <div class="screen" id="screen" data-testid="screen-workout-detail">
+
+      <header class="hdr" data-scroll-edge="#body" id="hdr"></header>
+
+      <main class="body" id="body" data-testid="detail-scroll" tabindex="-1"></main>
+
+      <div id="overlay" data-testid="overlay"></div>
+
+    </div>
+  </div>
+</div>
+
+<div class="dev">
+  <button class="dev__toggle" id="dev-toggle" aria-expanded="false" aria-controls="dev-menu" data-testid="dev-toggle">State</button>
+  <div class="dev__menu" id="dev-menu" hidden data-testid="dev-menu"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  function svg(d, cls) {
+    return '<svg class="ico' + (cls || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + d + '</svg>';
+  }
+  var ICO = {
+    back:  svg('<path d="m15 5-7 7 7 7"/>'),
+    lift:  svg('<path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/>'),
+    cardio: svg('<path d="M4 13h4l2-6 3 12 2-8h5"/>'),
+    trophy: svg('<path d="M7 4h10v4a5 5 0 0 1-10 0zM9 20h6M12 13v7M5 5h2M17 5h2"/>'),
+    repeat: svg('<path d="M4 10a6 6 0 0 1 6-6h7M17 4l-3-3M17 4l-3 3M20 14a6 6 0 0 1-6 6H7M7 20l3 3M7 20l3-3"/>'),
+    edit:  svg('<path d="M4 20h4l10-10-4-4L4 16z"/>'),
+    close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+    alert: svg('<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/>')
+  };
+
+  function esc(t) {
+    return String(t).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function n(v) { return '<span class="num">' + v + '</span>'; }
+  function group(v) { return v.toLocaleString('en-US'); }
+
+  var TODAY = '2026-09-09';
+  var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function ms(iso) { var p = iso.split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]); }
+  function daysAgo(iso) { return Math.round((ms(TODAY) - ms(iso)) / 86400000); }
+  function absDate(iso) { var p = iso.split('-'); return MON[+p[1] - 1] + ' ' + (+p[2]); }
+  function relDate(iso) {
+    var d = daysAgo(iso);
+    if (d === 0) return 'Today';
+    if (d === 1) return 'Yesterday';
+    if (d < 7) return d + ' days ago';
+    return absDate(iso);
+  }
+  function longDate(iso) {
+    var p = iso.split('-');
+    var DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    var d = new Date(ms(iso));
+    return DAYS[d.getUTCDay()] + ', ' + MON[+p[1] - 1] + ' ' + (+p[2]);
+  }
+  function mins(m) { return m + ' min'; }
+
+  /* ---------------------------------------------------------------
+     The session. One fixture, so the same screen renders the same way
+     every run and a screenshot diff means something. Sets carry what
+     they were LAST time as well as what they were, because "was it
+     heavier" is the question this screen is opened to answer.
+     --------------------------------------------------------------- */
+  var SESSION = {
+    id: 'w_1788618300000',
+    kind: 'lift',
+    name: 'PPL &middot; Pull',
+    date: '2026-09-05',
+    min: 51,
+    note: 'Left elbow tight on the first two sets of rows. Warmed up longer and it settled.',
+    feel: { energy: 4, pump: 4, strength: 3, sleep: 3, stress: 2 },
+    exercises: [
+      { name: 'Barbell Row', muscle: 'Mid Back', note: '', sets: [
+        { kg: 60, reps: 10, rir: 3, warm: true },
+        { kg: 82.5, reps: 8, rir: 2, prev: '80 x 8' },
+        { kg: 82.5, reps: 8, rir: 1, prev: '80 x 8' },
+        { kg: 82.5, reps: 7, rir: 1, prev: '80 x 7' }
+      ] },
+      { name: 'Lat Pulldown', muscle: 'Lats', note: 'Wide grip', sets: [
+        { kg: 65, reps: 10, rir: 2, prev: '62.5 x 10' },
+        { kg: 65, reps: 10, rir: 2, prev: '62.5 x 9' },
+        { kg: 65, reps: 9, rir: 1, prev: '62.5 x 9' }
+      ] },
+      { name: 'Seated Cable Row', muscle: 'Mid Back', note: '', sets: [
+        { kg: 57.5, reps: 12, rir: 2, prev: '57.5 x 11' },
+        { kg: 57.5, reps: 11, rir: 1, prev: '57.5 x 11' },
+        { kg: 57.5, reps: 10, rir: 1, prev: '57.5 x 10' }
+      ] },
+      { name: 'Face Pull', muscle: 'Rear Delt', note: '', sets: [
+        { kg: 29.3, reps: 20, rir: 2, prev: '28.5 x 19', pr: true },
+        { kg: 29.3, reps: 18, rir: 1, prev: '28.5 x 18' }
+      ] },
+      { name: 'Barbell Curl', muscle: 'Biceps', note: '', sets: [
+        { kg: 30, reps: 10, rir: 2, prev: '30 x 10' },
+        { kg: 30, reps: 9, rir: 1, prev: '30 x 9' },
+        { kg: 30, reps: 8, rir: 0, prev: '30 x 8' }
+      ] }
+    ]
+  };
+
+  var CARDIO = {
+    id: 'w_1788678900000', kind: 'cardio', name: 'Treadmill run',
+    date: '2026-09-06', min: 30, km: 5.2, cal: 340, note: '', feel: null, exercises: []
+  };
+
+  var FEEL_LABELS = [['energy','Energy'],['pump','Pump'],['strength','Strength'],['sleep','Sleep'],['stress','Stress']];
+
+  var S = {
+    state: 'populated',
+    w: null,          /* the session being shown */
+    editingNote: false,
+    noteDraft: '',
+    deleted: false,
+    toast: null,
+    undo: null
+  };
+
+  function workingSets(w) {
+    return w.exercises.reduce(function (a, e) {
+      return a + e.sets.filter(function (s) { return !s.warm; }).length;
+    }, 0);
+  }
+  function volume(w) {
+    return w.exercises.reduce(function (a, e) {
+      return a + e.sets.filter(function (s) { return !s.warm; })
+        .reduce(function (b, s) { return b + s.kg * s.reps; }, 0);
+    }, 0);
+  }
+  function prCount(w) {
+    return w.exercises.reduce(function (a, e) {
+      return a + e.sets.filter(function (s) { return s.pr; }).length;
+    }, 0);
+  }
+
+  /* ---------------------------------------------------------------
+     Pieces
+     --------------------------------------------------------------- */
+  function headerHTML() {
+    var w = S.w;
+    return '' +
+      '<button class="hdr__back" type="button" data-act="back" data-testid="back" aria-label="Back to Train">' +
+        ICO.back + '</button>' +
+      '<div class="hdr__title stack stack--1">' +
+        '<span class="t-meta" data-testid="detail-date">' + longDate(w.date).toUpperCase() + '</span>' +
+        '<h1 class="t-title" data-testid="detail-name">' + w.name + '</h1>' +
+      '</div>';
+  }
+
+  function totals() {
+    var w = S.w;
+    var parts = w.kind === 'lift'
+      ? [n(workingSets(w)) + ' working sets', n(group(Math.round(volume(w)))) + ' kg', mins(w.min)]
+      : [mins(w.min), w.km != null ? n(w.km) + ' km' : null, w.cal != null ? n(w.cal) + ' cal' : null];
+    return '<p class="t-detail mt-3" data-testid="detail-totals">' +
+      parts.filter(Boolean).join(' &middot; ') + ' &middot; ' + relDate(w.date) + '</p>';
+  }
+
+  function prBanner() {
+    var c = prCount(S.w);
+    if (!c) return '';
+    return '<div class="card mt-4" data-testid="detail-pr">' +
+      '<div class="hstack hstack--3">' +
+        '<span class="ico-well">' + ICO.trophy + '</span>' +
+        '<span class="stack stack--1 grow">' +
+          '<span><span class="badge badge--success">Personal record</span></span>' +
+          '<span class="t-section">' + c + (c === 1 ? ' set' : ' sets') + ' beat what came before</span>' +
+        '</span>' +
+      '</div></div>';
+  }
+
+  function setRow(s, i, exIdx) {
+    var label = s.warm ? 'W' : String(i);
+    return '<div class="setgrid" data-testid="dset-' + exIdx + '-' + i + '">' +
+        '<span class="setgrid__n' + (s.warm ? ' setgrid__n--warm' : '') + '">' + label + '</span>' +
+        '<span class="setgrid__n" style="text-align:left">' + n(s.kg) + ' kg</span>' +
+        '<span class="setgrid__n" style="text-align:left">' + n(s.reps) + ' reps</span>' +
+        '<span class="setgrid__n">' + (s.rir != null ? n(s.rir) + ' RIR' : '') + '</span>' +
+        '<span class="setgrid__n">' + (s.pr ? '<span class="badge badge--success">PR</span>' : '') + '</span>' +
+      '</div>' +
+      /* Indented to the KG column, so "was" reads as a footnote to the row
+         above it rather than as a new row starting at the margin. */
+      (s.prev ? '<p class="t-caption-1 quiet" style="padding: 0 0 var(--sp-2) calc(var(--sp-5) + var(--sp-2))">Was ' +
+        esc(s.prev) + '</p>' : '');
+  }
+
+  function exerciseCard(e, i) {
+    return '<div class="exc mt-3" data-testid="dex-' + i + '">' +
+        '<div class="exc__head">' +
+          '<span class="stack stack--1 grow">' +
+            '<span class="t-section">' + esc(e.name) + '</span>' +
+            '<span class="t-detail quiet">' + esc(e.muscle) +
+              (e.note ? ' &middot; ' + esc(e.note) : '') + '</span>' +
+          '</span>' +
+        '</div>' +
+        '<div class="sets">' +
+          '<div class="setgrid">' +
+            '<span class="setgrid__head setgrid__head--n">#</span>' +
+            '<span class="setgrid__head" style="text-align:left">KG</span>' +
+            '<span class="setgrid__head" style="text-align:left">REPS</span>' +
+            '<span class="setgrid__head">RIR</span>' +
+            '<span class="setgrid__head"></span>' +
+          '</div>' +
+          e.sets.map(function (s, k) {
+            return setRow(s, s.warm ? 0 : e.sets.slice(0, k).filter(function (x) { return !x.warm; }).length + 1, i);
+          }).join('') +
+        '</div>' +
+      '</div>';
+  }
+
+  function feelCard() {
+    var f = S.w.feel;
+    if (!f) return '';
+    return '<div class="section mt-5">' +
+      '<div class="section__head"><h2 class="t-label">How it felt</h2></div>' +
+      '<div class="card"><div class="chiprow">' +
+        FEEL_LABELS.map(function (p) {
+          return '<span class="chip" data-testid="feel-' + p[0] + '">' + p[1] + ' ' + n(f[p[0]]) + '</span>';
+        }).join('') +
+      '</div>' +
+      '<p class="t-caption-1 quiet mt-3">Recorded when the session was saved. One to five.</p>' +
+      '</div></div>';
+  }
+
+  function noteCard() {
+    var w = S.w;
+    if (S.editingNote) {
+      return '<div class="section mt-5">' +
+        '<div class="section__head"><h2 class="t-label">Note</h2></div>' +
+        '<div class="card">' +
+          '<label class="vis-hidden" for="note-field">Session note</label>' +
+          '<textarea class="input" id="note-field" rows="4" data-testid="note-field" ' +
+            'placeholder="What is worth remembering about this one?">' + esc(S.noteDraft) + '</textarea>' +
+          '<div class="hstack hstack--2 mt-3">' +
+            '<button class="btn btn--primary grow" type="button" data-act="note-save" data-testid="note-save">' +
+              '<span class="btn__label">Save note</span></button>' +
+            '<button class="btn btn--secondary" type="button" data-act="note-cancel" data-testid="note-cancel">' +
+              '<span class="btn__label">Cancel</span></button>' +
+          '</div>' +
+        '</div></div>';
+    }
+    return '<div class="section mt-5">' +
+      '<div class="section__head"><h2 class="t-label">Note</h2></div>' +
+      '<button class="card" type="button" data-act="note-edit" data-testid="note-edit" ' +
+        'aria-label="' + (w.note ? 'Edit the note' : 'Add a note') + '">' +
+        (w.note
+          ? '<p class="t-body" data-testid="note-text">' + esc(w.note) + '</p>' +
+            '<p class="t-caption-1 quiet mt-2">Tap to edit.</p>'
+          : '<p class="t-body quiet" data-testid="note-text">Nothing written down.</p>' +
+            '<p class="t-caption-1 quiet mt-2">Tap to add a note. It is the only thing here ' +
+              'the app cannot work out for itself.</p>') +
+      '</button></div>';
+  }
+
+  function actions() {
+    return '<div class="section mt-5">' +
+      '<div class="stack stack--2">' +
+        '<button class="btn btn--primary btn--block" type="button" data-act="repeat" data-testid="detail-repeat">' +
+          ICO.repeat + '<span class="btn__label">Do this session again</span></button>' +
+        '<button class="btn btn--secondary btn--block" type="button" data-act="edit" data-testid="detail-edit">' +
+          ICO.edit + '<span class="btn__label">Edit the sets</span></button>' +
+        '<button class="btn btn--danger btn--block" type="button" data-act="delete" data-testid="detail-delete">' +
+          '<span class="btn__label">Delete this session</span></button>' +
+      '</div>' +
+      '<p class="t-caption-1 quiet mt-3">Deleting takes it out of your history, your records and ' +
+        'your charts. You get six seconds to change your mind.</p>' +
+    '</div>';
+  }
+
+  var VIEWS = {};
+  VIEWS.populated = function () {
+    return totals() + prBanner() +
+      '<div class="section mt-4"><div class="section__head"><h2 class="t-label">What you did</h2>' +
+        '<span class="t-meta num">' + S.w.exercises.length + '</span></div>' +
+        S.w.exercises.map(exerciseCard).join('') +
+      '</div>' +
+      feelCard() + noteCard() + actions();
+  };
+
+  VIEWS.cardio = function () {
+    return totals() +
+      '<div class="card mt-4" data-testid="detail-cardio">' +
+        '<div class="hstack hstack--3">' +
+          '<span class="ico-well">' + ICO.cardio + '</span>' +
+          '<span class="stack stack--1 grow">' +
+            '<span class="t-section">' + esc(S.w.name) + '</span>' +
+            '<span class="t-detail quiet">Logged by hand, so there is no split or route to show.</span>' +
+          '</span>' +
+        '</div></div>' +
+      noteCard() + actions();
+  };
+
+  VIEWS.deleted = function () {
+    return '<div class="empty mt-5" data-testid="detail-deleted">' +
+        '<p class="empty__title">Session deleted</p>' +
+        '<p class="empty__body">It is out of your history, your records and your charts. ' +
+          'If that was a mistake, the undo below is live for a few seconds.</p>' +
+        '<button class="btn btn--secondary mt-2" type="button" data-act="back" data-testid="deleted-back">' +
+          '<span class="btn__label">Back to Train</span></button>' +
+      '</div>';
+  };
+
+  VIEWS.loading = function () {
+    return '<div class="mt-4" role="status" aria-busy="true" aria-label="Loading the session">' +
+      '<div class="skel" style="height: var(--sp-3); width: 60%"></div>' +
+      '<div class="card mt-4">' +
+        '<div class="skel" style="height: var(--sp-5); width: 50%"></div>' +
+        '<div class="skel mt-3" style="height: var(--sp-3); width: 100%"></div>' +
+        '<div class="skel mt-2" style="height: var(--sp-3); width: 80%"></div>' +
+      '</div>' +
+      '<div class="card mt-3">' +
+        '<div class="skel" style="height: var(--sp-5); width: 40%"></div>' +
+        '<div class="skel mt-3" style="height: var(--sp-3); width: 100%"></div>' +
+        '<div class="skel mt-2" style="height: var(--sp-3); width: 70%"></div>' +
+      '</div>' +
+    '</div>';
+  };
+
+  VIEWS.error = function () {
+    return '<div class="banner banner--error mt-4" role="alert" data-testid="detail-error">' +
+        ICO.alert +
+        '<span><strong>Could not open this session</strong>It is on this phone; the app ' +
+          'could not read it just now. Nothing has been changed or lost.</span>' +
+      '</div>' +
+      '<button class="btn btn--primary btn--block mt-3" type="button" data-act="retry" data-testid="detail-retry">' +
+        '<span class="btn__label">Try again</span></button>';
+  };
+
+  /* ---------------------------------------------------------------
+     Paint
+     --------------------------------------------------------------- */
+  var hdr = document.getElementById('hdr');
+  var body = document.getElementById('body');
+  var overlay = document.getElementById('overlay');
+  var screen = document.getElementById('screen');
+  var toastTimer = null;
+
+  function toastHTML() {
+    if (!S.toast) return '';
+    return '<div class="toast" role="status" data-testid="toast">' +
+      '<span class="toast__body">' + esc(S.toast) + '</span>' +
+      (S.undo ? '<button class="toast__action" type="button" data-act="undo" data-testid="undo">Undo</button>' : '') +
+    '</div>';
+  }
+
+  function render() {
+    screen.setAttribute('data-state', S.state);
+    LKPatch(hdr, headerHTML());
+    LKPatch(body, (VIEWS[S.state] || VIEWS.populated)());
+    LKPatch(overlay, toastHTML());
+    Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.state === S.state));
+    });
+    if (window.LKChrome) LKChrome.init(document);
+    clearTimeout(toastTimer);
+    if (S.toast) toastTimer = setTimeout(function () { S.toast = null; S.undo = null; render(); }, 6000);
+  }
+
+  function say(msg, undo) {
+    S.toast = msg;
+    S.undo = undo || null;
+    render();
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest ? e.target.closest('[data-act]') : null;
+    if (!t) return;
+    var a = t.getAttribute('data-act');
+
+    /* These leave the screen. In the demo the router takes the click first;
+       each destination is declared in MANIFEST.nav. */
+    if (a === 'back') { location.href = 'train.html'; return; }
+    if (a === 'repeat') { location.href = 'workout-log.html'; return; }
+    if (a === 'edit') { location.href = 'workout-log.html'; return; }
+
+    if (a === 'note-edit') {
+      S.editingNote = true;
+      S.noteDraft = S.w.note;
+      render();
+      var f = document.getElementById('note-field');
+      if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); }
+      return;
+    }
+    if (a === 'note-cancel') { S.editingNote = false; render(); focusIn('note-edit'); return; }
+    if (a === 'note-save') {
+      var fld = document.getElementById('note-field');
+      S.w.note = fld ? fld.value.trim() : S.w.note;
+      S.editingNote = false;
+      render();
+      focusIn('note-edit');
+      say(S.w.note ? 'Note saved.' : 'Note cleared.');
+      return;
+    }
+    if (a === 'delete') {
+      var was = S.state;
+      S.state = 'deleted';
+      S.deleted = true;
+      render();
+      say('Session deleted.', function () {
+        S.state = was; S.deleted = false;
+      });
+      return;
+    }
+    if (a === 'undo') {
+      if (S.undo) S.undo();
+      S.undo = null; S.toast = null;
+      render();
+      return;
+    }
+    if (a === 'retry') {
+      S.state = 'loading'; render();
+      setTimeout(function () { S.state = 'populated'; render(); }, 700);
+      return;
+    }
+  });
+
+  function focusIn(testid) {
+    var el = document.querySelector('[data-testid="' + testid + '"]');
+    if (el) el.focus();
+  }
+
+  /* ---- dev states -------------------------------------------------- */
+  var STATES = [
+    ['populated', 'Lifting session'],
+    ['cardio', 'Cardio session'],
+    ['deleted', 'Deleted'],
+    ['loading', 'Loading'],
+    ['error', 'Error']
+  ];
+  var menu = document.getElementById('dev-menu');
+  var toggle = document.getElementById('dev-toggle');
+  LKPatch(menu, STATES.map(function (s) {
+    return '<button class="dev__item" data-state="' + s[0] + '" aria-pressed="false" data-testid="dev-state-' + s[0] + '">' + s[1] + '</button>';
+  }).join(''));
+  toggle.addEventListener('click', function () {
+    var open = menu.hidden;
+    menu.hidden = !open;
+    this.setAttribute('aria-expanded', String(open));
+  });
+  menu.addEventListener('click', function (e) {
+    var b = e.target.closest('.dev__item');
+    if (!b) return;
+    S.state = b.dataset.state;
+    /* A fresh session per state, so a note written in one does not appear
+       in the next. */
+    S.w = b.dataset.state === 'cardio' ? clone(CARDIO) : clone(SESSION);
+    S.editingNote = false; S.toast = null; S.undo = null;
+    render();
+  });
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+
+  S.w = clone(SESSION);
+  var q = new URLSearchParams(location.search);
+  if (q.get('state') && VIEWS[q.get('state')]) {
+    S.state = q.get('state');
+    if (S.state === 'cardio') S.w = clone(CARDIO);
+  }
+  render();
+  requestAnimationFrame(function () { window.__ready = true; });
+})();
+</script>
+</body>
+</html>
