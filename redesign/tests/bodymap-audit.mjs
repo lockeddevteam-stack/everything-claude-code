@@ -7,7 +7,13 @@ import { pathToFileURL } from 'url';
 const axe = readFileSync('node_modules/axe-core/axe.min.js', 'utf8');
 const URL = pathToFileURL('/home/user/everything-claude-code/redesign/09-review/lab/bodymap-lab.html').href;
 
-/* Four muscles cannot reach the app's 44px rule on a whole-body figure at
+/* Reach is measured against the frame, not the window. It used to read
+   window.innerWidth clamped to 430, and above the phone breakpoint .phone is
+   a fixed 393px inside a window of any size — so on a desktop every muscle
+   measured 9% wider than it rendered and the thin ones got a SMALLER target
+   than the rule promises. The widths must now be identical at both widths.
+
+   Four muscles cannot reach the app's 44px rule on a whole-body figure at
    390px, and no amount of margin fixes them: a deltoid is a crescent with the
    pectoral on one side and the biceps on the other, and the trapezius above
    the collarbone is a sliver. The measured inscribed circle for each is below,
@@ -200,5 +206,23 @@ for (const theme of ['dark', 'light']) {
   check(errs.length === 0, `${theme}: console clean`, errs.join(' | ') || '0 messages');
   await ctx.close();
 }
+/* --- the frame, not the window ------------------------------------------ */
+{
+  const widths = [];
+  for (const w of [393, 1440]) {
+    const q = await br.newPage({ viewport: { width: w, height: 900 } });
+    await q.goto(URL);
+    await q.waitForTimeout(800);
+    widths.push(await q.evaluate(() =>
+      [...document.querySelectorAll('path[stroke-width]')]
+        .map(e => +e.getAttribute('stroke-width'))
+        .filter(Boolean).sort((a, b) => a - b).join(',')));
+    await q.close();
+  }
+  check(widths[0] === widths[1] && widths[0].length > 0,
+     'reach is measured from the frame, not the window',
+     widths[0] === widths[1] ? 'identical at 393 and 1440' : 'phone ' + widths[0].slice(0, 40) + ' / desktop ' + widths[1].slice(0, 40));
+}
+
 await br.close();
 console.log(fails === 0 ? '\nbody map: all checks passed' : `\nbody map: ${fails} checks failed`);

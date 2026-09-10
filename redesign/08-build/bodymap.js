@@ -81,14 +81,26 @@
      target, and the one a finger near it was aiming at -- wins. */
   var MIN_HIT = 44;
   /* How wide a viewBox unit is on screen. The frame is 240 units across and
-     renders at roughly the screen width, so a unit is worth rather more than
-     a CSS pixel. Reach is baked in at build time and the figure is a fixed
-     fraction of the viewport, so this is a constant rather than a measurement
-     of a element that may not be in the document yet. */
+     renders at the width of the frame it is IN, which is the thing that was
+     wrong here: it read window.innerWidth, and above the phone breakpoint
+     .phone is a fixed 393px inside whatever the window happens to be. On a
+     desktop window the clamp returned 430/240 = 1.79 where the truth is
+     393/240 = 1.64, so every muscle measured 9% wider than it rendered, the
+     shortfall came out too small, and the thin ones ended up with a target
+     UNDER the 44px this file exists to guarantee.
+
+     It measures the host now, and falls back to the window only when the
+     host is not in the document yet. */
   var FRAME_UNITS = 240;
-  function unitPx() {
-    var w = global.innerWidth || 390;
-    return Math.min(w, 430) / FRAME_UNITS;
+  function unitPx(host) {
+    var w = 0;
+    if (host && host.getBoundingClientRect) w = host.getBoundingClientRect().width;
+    if (!w) {
+      var frame = host && host.closest && host.closest('.phone');
+      if (frame) w = frame.getBoundingClientRect().width;
+    }
+    if (!w) w = Math.min(global.innerWidth || 390, 430);
+    return w / FRAME_UNITS;
   }
   /* How much stroke a group needs, in CSS pixels, to bring its thinnest
      belly up to 44. The group's own bounding box is no use here, because a
@@ -99,10 +111,10 @@
      a stroke of d. It is capped at 44, past which a margin says more about the empty space
      around a muscle than about the muscle. The exact-shape layer above keeps
      a margin from ever taking a tap that landed on another muscle. */
-  function reachOf(view, gid) {
+  function reachOf(view, gid, host) {
     var t = THIN[view] && THIN[view][gid];
     if (!t) return 0;
-    var thin = t * unitPx() * FIT[view].s;
+    var thin = t * unitPx(host) * FIT[view].s;
     return Math.max(0, Math.min(MIN_HIT - thin, 44));
   }
 
@@ -269,14 +281,14 @@
        and the tap handler reads that id rather than the group element.
        Largest reach first, so the thinnest muscle ends up on top. */
     var reach = ORDER.filter(function (gid) {
-      return art.groups[gid] && reachOf(view, gid) > 0;
-    }).sort(function (x, y) { return reachOf(view, y) - reachOf(view, x); });
+      return art.groups[gid] && reachOf(view, gid, api.frame) > 0;
+    }).sort(function (x, y) { return reachOf(view, y, api.frame) - reachOf(view, x, api.frame); });
 
     var reachLayer = api.el('g', { class: 'reach', transform: fit, 'aria-hidden': 'true' });
     reach.forEach(function (gid) {
       art.groups[gid].forEach(function (d) {
         reachLayer.appendChild(api.el('path', { d: d, class: 'hit', 'data-g': gid,
-          'stroke-width': Math.round(reachOf(view, gid) * 10) / 10 }));
+          'stroke-width': Math.round(reachOf(view, gid, api.frame) * 10) / 10 }));
       });
     });
     host.appendChild(reachLayer);
@@ -340,6 +352,10 @@
 
     var api = {
       element: svg, svg: svg, defs: defs, cam: cam, views: views, doc: doc,
+      /* The element the map was mounted into. Reach is measured against the
+         frame this renders in, not against the window: above the phone
+         breakpoint .phone is a fixed 393px inside a window of any width. */
+      frame: host,
       uid: ++nextUid, el: mk, interactive: interactive,
       view: startView, selected: null,
       groups: GROUPS, order: ORDER,
