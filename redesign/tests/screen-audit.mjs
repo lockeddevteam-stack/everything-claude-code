@@ -48,7 +48,18 @@ const knownFor = file => {
 const files = process.argv.slice(2);
 if (!files.length) { console.error('give at least one screen'); process.exit(2); }
 
-const br = await chromium.launch();
+/* The browser is recycled every so often. A screen with seventeen states
+   times two themes is thirty-four contexts in one session, and on the longest
+   screens Chromium was closing the target mid-run and taking the whole suite
+   with it — after every check before it had passed. */
+let br = await chromium.launch();
+let sinceLaunch = 0;
+const freshBrowser = async () => {
+  if (sinceLaunch < 16) return;
+  await br.close().catch(() => {});
+  br = await chromium.launch();
+  sinceLaunch = 0;
+};
 let fails = 0;
 const ok = (pass, name, detail) => {
   if (!pass) fails++;
@@ -78,6 +89,8 @@ for (const file of files) {
   for (const theme of ['dark', 'light']) {
     for (const state of (states.length ? states : [{ i: -1, label: 'default' }])) {
       const tag = `${file} ${state.label} ${theme}`;
+      await freshBrowser();
+      sinceLaunch++;
       const ctx = await br.newContext({ viewport: { width: 393, height: 852 } });
       const p = await ctx.newPage();
       const errs = [];
