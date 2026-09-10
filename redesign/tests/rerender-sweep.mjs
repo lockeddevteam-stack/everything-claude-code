@@ -89,7 +89,14 @@ for (const theme of ['dark', 'light']) {
       await page.waitForTimeout(300);
       const overlay = await page.evaluate(() =>
         !!document.querySelector('.sheet, .dialog, .scrim'));
-      if (!overlay) {
+      /* A control that removes itself cannot be clicked twice, and clicking
+         twice is the whole method: the second press lands on whatever took
+         its place. workout-detail's "Save note" closes the editor it lives
+         in, so the second click hit "Edit note" and the sweep reported that
+         focus and the caret had moved -- which they had, correctly. */
+      let gone = false;
+      try { gone = !(await c.count()) || !(await c.isVisible()); } catch (e) { gone = true; }
+      if (!overlay && !gone) {
         /* The handle is taken NOW, not re-resolved later. The click
            re-renders, LKPatch replaces nodes, and the nth() that matched a
            moment ago can match nothing at all -- which timed out at 30s
