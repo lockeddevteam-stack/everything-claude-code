@@ -5,13 +5,7 @@ diff rather than a claim. Regenerate with `python3 11-apple/gen-manifest.py`.
 
 **Rule: nothing here may disappear.** The Apple pass is a skin and motion pass.
 A vanished action, a dropped testid, a storage key that stops being written -
-any one of those blocks the wave that caused it. Growth is not a violation and
-is reported rather than failed; a column going down, or a screen vanishing, is.
-
-`mockup-bodymap.html` was in an earlier baseline and is not a screen: it is a
-harness for driving the body map on its own, and it now lives in
-`09-review/lab/` where the assembler and this generator cannot mistake it for
-one. It carried nothing that ships.
+any one of those blocks the wave that caused it.
 
 ## Actions per screen
 
@@ -159,17 +153,17 @@ five columns after them are.
 
 | Screen | Lines | Listeners | Actions | Buttons | Inputs | testids |
 |---|---|---|---|---|---|---|
-| `coach.html` | 1401 | 5 | 44 | 51 | 3 | 90 |
-| `exercise-library.html` | 1180 | 6 | 22 | 31 | 4 | 50 |
+| `coach.html` | 1407 | 5 | 44 | 51 | 3 | 90 |
+| `exercise-library.html` | 1186 | 6 | 22 | 31 | 4 | 50 |
 | `fuel.html` | 662 | 4 | 11 | 34 | 0 | 57 |
 | `home.html` | 445 | 2 | 1 | 17 | 0 | 20 |
 | `onboarding.html` | 1133 | 10 | 0 | 31 | 5 | 65 |
 | `profile.html` | 365 | 3 | 4 | 12 | 0 | 22 |
-| `progress.html` | 874 | 5 | 10 | 24 | 3 | 51 |
+| `progress.html` | 898 | 5 | 10 | 24 | 3 | 51 |
 | `review.html` | 975 | 4 | 0 | 23 | 0 | 45 |
 | `settings.html` | 976 | 4 | 14 | 23 | 4 | 30 |
-| `shopping.html` | 1481 | 5 | 43 | 60 | 16 | 115 |
+| `shopping.html` | 1493 | 5 | 43 | 60 | 16 | 115 |
 | `split-builder.html` | 1121 | 10 | 28 | 36 | 4 | 68 |
 | `train.html` | 879 | 5 | 16 | 26 | 1 | 46 |
 | `workout-log.html` | 1093 | 6 | 38 | 50 | 5 | 93 |
-| **total** | **12585** | **69** | **231** | **418** | **45** | **752** |
+| **total** | **12633** | **69** | **231** | **418** | **45** | **752** |

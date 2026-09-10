@@ -55,7 +55,7 @@ if (!files.length) { console.error('give at least one screen'); process.exit(2);
 let br = await chromium.launch();
 let sinceLaunch = 0;
 const freshBrowser = async () => {
-  if (sinceLaunch < 16) return;
+  if (sinceLaunch < 8) return;
   await br.close().catch(() => {});
   br = await chromium.launch();
   sinceLaunch = 0;
@@ -91,7 +91,9 @@ for (const file of files) {
       const tag = `${file} ${state.label} ${theme}`;
       await freshBrowser();
       sinceLaunch++;
-      const ctx = await br.newContext({ viewport: { width: 393, height: 852 } });
+      let ctx;
+      try {
+      ctx = await br.newContext({ viewport: { width: 393, height: 852 } });
       const p = await ctx.newPage();
       const errs = [];
       p.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') errs.push(m.text()); });
@@ -219,6 +221,14 @@ for (const file of files) {
       ok(!m.overflow, tag + ' — no sideways overflow');
       ok(!m.empty, tag + ' — renders content or a skeleton');
       await ctx.close();
+      } catch (e) {
+        /* A browser that dies mid-run is one failure, not the end of the
+           suite: every check before it passed and every check after it still
+           has to run. */
+        ok(false, tag + ' — the page survived the audit', String(e.message).slice(0, 90));
+        await ctx?.close().catch(() => {});
+        sinceLaunch = 99;
+      }
     }
   }
 }
