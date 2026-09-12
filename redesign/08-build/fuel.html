@@ -265,6 +265,55 @@
 
   var GOAL_OFFSET = { cut: -400, maintain: 0, build: 250 };
 
+  /* One place the figures a target is computed from actually live. They were
+     spread across lk_profile, a constant inside a formula, and nothing at
+     all. lk_profile still owns weight, height, age, sex and goal, because
+     Settings and Progress write those; lk_fuelProfile carries what only this
+     screen knows. */
+  function fuelProfile() {
+    var fp = stored('lk_fuelProfile', {}) || {};
+    return {
+      weightKg: PROFILE.weightKg || 70,
+      heightCm: PROFILE.heightCm || 170,
+      age: PROFILE.age || 30,
+      sex: PROFILE.sex === 'male' ? 'male' : 'female',
+      goal: goalKey(),
+      activity: activityKey(),
+      macroMode: fp.macroMode === 'custom' ? 'custom' : 'auto',
+      diet: fp.diet || '',
+      allergy: fp.allergy || '',
+      flOz: !!fp.flOz
+    };
+  }
+
+  function ftIn(cm) {
+    var inches = Math.round(cm / 2.54);
+    return Math.floor(inches / 12) + '\u2032 ' + (inches % 12) + '\u2033';
+  }
+
+  /* Protein first, fat second, carbs with what is left. Protein at 2 g per
+     kilo because that is the figure the evidence keeps landing on for
+     somebody lifting; fat at 25% of calories, which is a floor rather than a
+     target; carbs are the remainder, because they are what a body uses to
+     train and there is no reason to cap them below what is left over. */
+  function calcMacros(fp) {
+    var bmr = 10 * fp.weightKg + 6.25 * fp.heightCm - 5 * fp.age +
+      (fp.sex === 'male' ? 5 : -161);
+    var factor = 1.55;
+    ACTIVITY.forEach(function (x) { if (x[0] === fp.activity) factor = x[2]; });
+    var kcal = Math.round((bmr * factor + (GOAL_OFFSET[fp.goal] || 0)) / 10) * 10;
+    var pro = Math.round(fp.weightKg * 2);
+    var fat = Math.round(kcal * 0.25 / 9);
+    var carb = Math.max(0, Math.round((kcal - pro * 4 - fat * 9) / 4));
+    return {
+      kcal: kcal, pro: pro, carb: carb, fat: fat,
+      why: 'Mifflin-St Jeor at \u00d7' + factor + ', ' +
+        (GOAL_OFFSET[fp.goal] >= 0 ? '+' : '\u2212') + Math.abs(GOAL_OFFSET[fp.goal] || 0) +
+        ' kcal for ' + GOAL_WORD[fp.goal] + '. Protein at 2 g a kilo, fat at a quarter of the ' +
+        'calories, carbs with what is left.'
+    };
+  }
+
   /* The two, blended. Seventy per cent measurement to thirty per cent formula:
      the measurement is better but it is noisy, and a week of water weight
      should not move a target by four hundred calories. The move itself is
@@ -748,7 +797,14 @@
         '<span class="t-meta">' + esc(DAY.date) + '</span>' +
         '<h1 class="hdr__title-large" data-title-large>Fuel</h1>' +
       '</div>' +
-      '<span class="hdr__title-small" data-title-small aria-hidden="true">Fuel</span>';
+      '<span class="hdr__title-small" data-title-small aria-hidden="true">Fuel</span>' +
+      /* One header action, the way every other screen has one. Two text
+         buttons side by side in a header have no gap between their hit areas,
+         so the audit is right to reject them and a thumb would be too. Shop
+         is reachable from the More chip and from the plan sheet, which is
+         where somebody is when they want it. */
+      '<button class="hdr__action" type="button" data-action="fuel-profile" ' +
+        'data-testid="hdr-profile">Profile</button>';
   }
 
   /* ---------------------------------------------------------------
@@ -1887,6 +1943,109 @@
        is the sum of real rows rather than a number somebody typed; a free-text
        line is allowed for the things a food table has no row for, and it is
        counted as zero and labelled as counted as zero. */
+    /* Everything on this screen is measured against these. They were spread
+       between lk_profile, a constant inside a formula and nothing at all, so
+       there was no one place to go and correct the figures a target is
+       computed from. */
+    if (S.sheet === 'fuel-profile') {
+      var fp = S.fp || fuelProfile();
+      var macroMode = fp.macroMode || 'auto';
+      var auto = calcMacros(fp);
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="fp-title" ' +
+          'data-detents="0.7 0.94" data-testid="sheet-fuel-profile">' +
+          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="fp-title">What your targets are from</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="fp-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<div class="hstack hstack--3">' +
+              '<div class="grow"><label class="t-label field__label" for="fp-w">Weight</label>' +
+                '<input class="input num" id="fp-w" type="number" min="20" max="400" step="0.1" ' +
+                  'inputmode="decimal" value="' + fp.weightKg + '" data-testid="fp-weight">' +
+                '<p class="t-caption-1 quiet mt-1">kg</p></div>' +
+              '<div class="grow"><label class="t-label field__label" for="fp-h">Height</label>' +
+                '<input class="input num" id="fp-h" type="number" min="100" max="250" step="1" ' +
+                  'inputmode="numeric" value="' + fp.heightCm + '" data-testid="fp-height">' +
+                '<p class="t-caption-1 quiet mt-1">cm \u00b7 ' + ftIn(fp.heightCm) + '</p></div>' +
+              '<div class="grow"><label class="t-label field__label" for="fp-a">Age</label>' +
+                '<input class="input num" id="fp-a" type="number" min="13" max="100" step="1" ' +
+                  'inputmode="numeric" value="' + fp.age + '" data-testid="fp-age">' +
+                '<p class="t-caption-1 quiet mt-1">years</p></div>' +
+            '</div>' +
+            '<h3 class="t-label mt-5">Sex</h3>' +
+            '<p class="t-caption-1 quiet mt-1">The formula uses it, and it is the only thing it ' +
+              'is used for on this screen.</p>' +
+            '<div class="seg seg--lg mt-2" role="radiogroup" aria-label="Sex" data-testid="fp-sex">' +
+              [['female', 'Female'], ['male', 'Male']].map(function (x) {
+                return '<button class="seg__item" type="button" role="radio" ' +
+                  'aria-checked="' + (fp.sex === x[0]) + '" data-action="fp-sex" data-v="' + x[0] + '" ' +
+                  'data-testid="fp-sex-' + x[0] + '">' + x[1] + '</button>';
+              }).join('') + '</div>' +
+            '<h3 class="t-label mt-5">How hard the week is</h3>' +
+            '<div class="card card--flush mt-2">' + ACTIVITY.map(function (x) {
+              return '<button class="opt" type="button" role="radio" aria-checked="' +
+                (fp.activity === x[0]) + '" data-action="fp-act" data-v="' + x[0] + '" ' +
+                'data-testid="fp-act-' + x[0] + '">' +
+                '<span class="opt__mark"><svg class="ico" viewBox="0 0 24 24" fill="none" ' +
+                  'stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" ' +
+                  'aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg></span>' +
+                '<span class="opt__main"><span class="opt__title">' +
+                  x[0].charAt(0).toUpperCase() + x[0].slice(1) + '</span>' +
+                  '<span class="opt__sub">' + esc(x[1]) + ' \u00b7 \u00d7' + x[2] + '</span></span>' +
+              '</button>';
+            }).join('') + '</div>' +
+            '<h3 class="t-label mt-5">Goal</h3>' +
+            '<div class="seg seg--lg mt-2" role="radiogroup" aria-label="Goal" data-testid="fp-goal">' +
+              [['cut', 'Lose fat'], ['maintain', 'Maintain'], ['build', 'Build']].map(function (x) {
+                return '<button class="seg__item" type="button" role="radio" ' +
+                  'aria-checked="' + (fp.goal === x[0]) + '" data-action="fp-goal" data-v="' + x[0] + '" ' +
+                  'data-testid="fp-goal-' + x[0] + '">' + x[1] + '</button>';
+              }).join('') + '</div>' +
+            '<h3 class="t-label mt-5">Macros</h3>' +
+            '<div class="seg seg--lg mt-2" role="radiogroup" aria-label="How macros are set" ' +
+                'data-testid="fp-macromode">' +
+              [['auto', 'Worked out'], ['custom', 'Mine']].map(function (x) {
+                return '<button class="seg__item" type="button" role="radio" ' +
+                  'aria-checked="' + (macroMode === x[0]) + '" data-action="fp-mm" data-v="' + x[0] + '" ' +
+                  'data-testid="fp-mm-' + x[0] + '">' + x[1] + '</button>';
+              }).join('') + '</div>' +
+            (macroMode === 'auto'
+              ? '<div class="card card--sunken mt-3" data-testid="fp-auto">' +
+                  '<div class="hstack hstack--3"><span class="t-body grow">Calories</span>' +
+                    '<span class="t-body-em num">' + n(auto.kcal) + ' kcal</span></div>' +
+                  '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Protein</span>' +
+                    '<span class="t-body-em num">' + n(auto.pro) + ' g</span></div>' +
+                  '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Carbs</span>' +
+                    '<span class="t-body-em num">' + n(auto.carb) + ' g</span></div>' +
+                  '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Fat</span>' +
+                    '<span class="t-body-em num">' + n(auto.fat) + ' g</span></div>' +
+                  '<p class="t-caption-1 quiet mt-2">' + esc(auto.why) + '</p>' +
+                '</div>'
+              : '<p class="t-detail quiet mt-3">Your own figures stand. Change them in Daily ' +
+                'targets; nothing here will move them.</p>') +
+            '<h3 class="t-label mt-5">Anything you do not eat</h3>' +
+            '<label class="t-label field__label mt-2" for="fp-diet">Dietary preferences</label>' +
+            '<input class="input" id="fp-diet" type="text" autocomplete="off" ' +
+              'placeholder="Vegetarian, no pork" value="' + esc(fp.diet || '') + '" ' +
+              'data-testid="fp-diet">' +
+            '<label class="t-label field__label mt-3" for="fp-allergy">Allergies</label>' +
+            '<input class="input" id="fp-allergy" type="text" autocomplete="off" ' +
+              'placeholder="Peanuts, shellfish" value="' + esc(fp.allergy || '') + '" ' +
+              'data-testid="fp-allergy">' +
+            '<p class="t-caption-1 quiet mt-2">Written down and shown beside anything this app ' +
+              'suggests. It is a note to you, not a filter that can be trusted with a real ' +
+              'allergy \u2014 the food table is eight rows and it does not carry ingredients.</p>' +
+          '</div>' +
+          '<div class="sheet__foot">' +
+            '<button class="btn btn--primary btn--block" type="button" data-action="fp-save" ' +
+              'data-testid="fp-save"><span class="btn__label">Save' +
+              (macroMode === 'auto' ? ' and use these targets' : '') + '</span></button>' +
+          '</div>' +
+        '</div>';
+    }
+
     /* The last resort, and every food app needs one. Nothing matched, nothing
        scanned, and the packet is in your hand: type the four numbers off it.
        Add stays disabled until there is a name and a calorie figure, because
@@ -2374,6 +2533,14 @@
       return;
     }
     if (a === 'trend-range') { S.trendRange = +act.getAttribute('data-r'); render(); return; }
+    if (a === 'fuel-profile') { S.fp = fuelProfile(); S.sheet = 'fuel-profile'; render(); return; }
+    if (a === 'fp-sex' || a === 'fp-act' || a === 'fp-goal' || a === 'fp-mm') {
+      readFP();
+      var fpk = { 'fp-sex': 'sex', 'fp-act': 'activity', 'fp-goal': 'goal', 'fp-mm': 'macroMode' }[a];
+      S.fp[fpk] = act.getAttribute('data-v');
+      render(); return;
+    }
+    if (a === 'fp-save') { saveFuelProfile(); return; }
     if (a === 'water-add5') { DAY.waterMl = Math.min(4000, DAY.waterMl + 500); saveDay(); render(); return; }
     if (a === 'water-unit') {
       var fp = stored('lk_fuelProfile', {}) || {};
@@ -2614,6 +2781,65 @@
   /* One weigh-in, written where Progress and Settings read it. The rate on
      the hero and the water target both move with it, which is the point of
      putting the field on this screen at all. */
+  function readFP() {
+    if (!S.fp) S.fp = fuelProfile();
+    var num = function (id, min, max, cur) {
+      var el = document.getElementById(id);
+      if (!el) return cur;
+      var v = parseFloat(el.value);
+      return (isNaN(v) || v < min || v > max) ? cur : v;
+    };
+    S.fp.weightKg = Math.round(num('fp-w', 20, 400, S.fp.weightKg) * 10) / 10;
+    S.fp.heightCm = Math.round(num('fp-h', 100, 250, S.fp.heightCm));
+    S.fp.age = Math.round(num('fp-a', 13, 100, S.fp.age));
+    var d = document.getElementById('fp-diet');
+    var al = document.getElementById('fp-allergy');
+    if (d) S.fp.diet = d.value.slice(0, 120);
+    if (al) S.fp.allergy = al.value.slice(0, 120);
+  }
+
+  /* Weight, height, age, sex and goal go back to lk_profile, because Settings
+     and Progress read them there and a second copy is a second truth. Only
+     what this screen alone knows goes to lk_fuelProfile. */
+  function saveFuelProfile() {
+    readFP();
+    var fp = S.fp;
+    if (ST && persisting()) {
+      ST.patch('lk_profile', { weightKg: fp.weightKg, heightCm: fp.heightCm,
+                               age: fp.age, sex: fp.sex, goal: fp.goal });
+      ST.patch('lk_fuelProfile', { activity: fp.activity, macroMode: fp.macroMode,
+                                   diet: fp.diet, allergy: fp.allergy });
+    }
+    PROFILE.weightKg = fp.weightKg; PROFILE.heightCm = fp.heightCm;
+    PROFILE.age = fp.age; PROFILE.sex = fp.sex; PROFILE.goal = fp.goal;
+    /* A weight typed here is a weigh-in, or the hero would read a rate
+       against a body weight nothing on the chart agrees with. */
+    var log = (WEIGHTLOG || []).slice();
+    var last = log[log.length - 1];
+    if (last && last.date === DAY.iso) last.kg = fp.weightKg;
+    else log.push({ date: DAY.iso, kg: fp.weightKg });
+    WEIGHTLOG = log;
+    if (ST && persisting()) ST.set('lk_weightLog', log);
+
+    var msg = 'Saved.';
+    if (fp.macroMode === 'auto') {
+      var m = calcMacros(fp);
+      DAY.target = m.kcal;
+      DAY.macros[0].want = m.pro; DAY.macros[1].want = m.carb; DAY.macros[2].want = m.fat;
+      saveTargetsTo({ kcal: m.kcal, pro: m.pro, carb: m.carb, fat: m.fat,
+                      waterMl: TARGETS.waterMl });
+      msg = 'Saved. Targets are now ' + n(m.kcal) + ' kcal, ' + n(m.pro) + ' g protein.';
+    }
+    DAY.goal = GOAL_WORD[fp.goal]; DAY.goalKey = fp.goal;
+    DAY.weightKg = fp.weightKg;
+    DAY.rate = weekRate();
+    DAY.waterGoalMl = waterGoal().ml;
+    DAY.waterGoalComputed = waterGoal().computed;
+    S.fp = null; S.sheet = null;
+    render();
+    say(msg);
+  }
+
   function weighIn() {
     var el = document.getElementById('wt-new');
     var v = parseFloat(el ? el.value : '');
