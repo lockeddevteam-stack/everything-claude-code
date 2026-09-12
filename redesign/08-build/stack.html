@@ -498,10 +498,23 @@
     opts = opts || {};
     screen.setAttribute('data-state', S.status === 'ready' ? S.view : S.status);
     title.textContent = TITLES[S.view] || 'Stack';
+    /* The add control belongs to the list, so it leaves with it. Hiding the
+       element that currently has focus drops focus to <body>, which the
+       re-render sweep catches and a keyboard reader feels as the screen
+       losing its place -- so anything focused on a control about to be
+       hidden is moved to where the new view actually starts. */
     var add = document.querySelector('[data-testid="add-cycle"]');
-    if (add) add.hidden = !(S.status === 'ready' && S.view === 'list' && CYCLES.length > 0);
+    var hideAdd = !(S.status === 'ready' && S.view === 'list' && CYCLES.length > 0);
+    var stealing = hideAdd && add && document.activeElement === add;
+    if (add) add.hidden = hideAdd;
     LKPatch(body, bodyHTML());
     LKPatch(overlay, toastHTML());
+    /* After the patch, not before: the landing control belongs to the view
+       being drawn, and querying the old contents finds what is leaving. */
+    if (stealing) {
+      var landing = body.querySelector('input, button, [tabindex]:not([tabindex="-1"])');
+      (landing || body).focus({ preventScroll: true });
+    }
     if (window.LKChrome) LKChrome.init(document);
     if (opts.scrollTop) body.scrollTop = 0;
     Array.prototype.forEach.call(document.querySelectorAll('.dev__item'), function (b) {
