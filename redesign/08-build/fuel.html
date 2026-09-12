@@ -148,6 +148,51 @@
   function stored(key, fb) { return ST ? ST.get(key, fb) : fb; }
 
   var PROFILE = stored('lk_profile', FX.profile || {});
+  /* The day log, keyed by date. Untouched it is the fixture's four days; the
+     moment anything is logged the stored map wins and the fixture is never
+     consulted again. Everything this screen did -- a logged meal, a deleted
+     one, a rescaled portion, a glass of water, a supplement tick, an edited
+     target -- lived in a variable and was gone on reload. */
+  var FUELLOG = stored('lk_fuelLog', null) || cloneDays(NUT.days || {});
+  var TARGETS = stored('lk_fuelTargets', NUT.targets || {});
+
+  function cloneDays(d) {
+    try { return JSON.parse(JSON.stringify(d)); } catch (e) { return {}; }
+  }
+
+  /* Only the two real states write. The dev switcher's empty, loading, error
+     and first-weeks views are a tool for looking at the screen, not a day
+     somebody lived, and logging a meal inside one must not land in the log. */
+  function persisting() { return S.state === 'populated' || S.state === 'hidden'; }
+
+  function saveDay() {
+    if (!ST || !persisting()) return;
+    FUELLOG[DAY.iso] = {
+      date: DAY.iso,
+      meals: DAY.meals.map(function (m) {
+        return { key: m.key || null, icon: m.icon, name: m.name, at: m.at, src: m.src,
+                 kcal: m.kcal, pro: m.pro, carb: m.carb, fat: m.fat,
+                 base: m.base || null, scale: m.scale || 1 };
+      }),
+      eaten: DAY.eaten,
+      pro: DAY.macros[0].have, carb: DAY.macros[1].have, fat: DAY.macros[2].have,
+      waterMl: DAY.waterMl,
+      supps: DAY.supps.map(function (sp) {
+        return { name: sp.name, dose: sp.dose, when: sp.when, taken: sp.taken };
+      })
+    };
+    ST.set('lk_fuelLog', FUELLOG);
+    /* Supplements are one list the whole app reads, so today's ticks go back
+       to the key Stack and Recap read rather than only into the day. */
+    ST.set('lk_supplements', DAY.supps.map(function (sp) {
+      return { name: sp.name, dose: sp.dose, timeOf: sp.when, taken: sp.taken };
+    }));
+  }
+
+  function saveTargetsTo(t) {
+    TARGETS = t;
+    if (ST && persisting()) ST.set('lk_fuelTargets', t);
+  }
   var WEIGHTLOG = stored('lk_weightLog', FX.weightLog || []);
 
   /* The same three words Settings writes. `lean bulk` was a fourth invented
@@ -212,7 +257,7 @@
      stands and the sheet says which it is. */
   function waterGoal() {
     var kg = (weekRate() || {}).kgNow || PROFILE.weightKg || 0;
-    if (!kg) return { ml: (NUT.targets && NUT.targets.waterMl) || 3000, computed: false };
+    if (!kg) return { ml: (TARGETS && TARGETS.waterMl) || 3000, computed: false };
     return { ml: Math.round(kg * 35 / 50) * 50, computed: true };
   }
 
@@ -246,8 +291,8 @@
      edits do not leak into the next. */
   function day() {
     var iso = FX.today;
-    var src = (NUT.days && NUT.days[iso]) || { meals: [], waterMl: 0, supps: [] };
-    var tg = NUT.targets;
+    var src = FUELLOG[iso] || { meals: [], waterMl: 0, supps: [] };
+    var tg = TARGETS;
     var d = {
       iso: iso,
       date: dayLabel(iso),
@@ -262,8 +307,9 @@
         { name: 'Fat', have: 0, want: tg.fat, unit: 'g', key: 'fat' }
       ],
       meals: src.meals.map(function (m) {
-        return { icon: m.icon, name: m.name, at: m.at, pro: m.pro, carb: m.carb,
-                 fat: m.fat, kcal: m.kcal, src: m.src };
+        return { key: m.key || null, icon: m.icon, name: m.name, at: m.at,
+                 pro: m.pro, carb: m.carb, fat: m.fat, kcal: m.kcal, src: m.src,
+                 base: m.base || null, scale: m.scale || 1 };
       }),
       /* Not a target and not a nag: a pattern this person already has. */
       closing: { at: '7:30', pro: 40 },
@@ -297,7 +343,7 @@
      that changes. */
   function frequent() {
     var tally = {};
-    var days = (ST ? ST.get('lk_fuelLog', null) : null) || NUT.days || {};
+    var days = FUELLOG || {};
     Object.keys(days).forEach(function (iso) {
       ((days[iso] || {}).meals || []).forEach(function (m) {
         var k = m.key;
@@ -313,7 +359,7 @@
                kcal: f.kcal, pro: f.pro, carb: f.carb, fat: f.fat };
     });
   }
-  var OFTEN = frequent();
+  var OFTEN = frequent();   /* rebuilt whenever the log changes */
 
   /* Saved recipes. A recipe is a food you assembled yourself: it carries its
      own ingredients and yields a number of servings, so logging one serving
@@ -1222,11 +1268,12 @@
     if (a === 'scan-log') { scanLog(); return; }
     if (a === 'meal') { S.sheet = 'meal:' + act.getAttribute('data-i'); render(); return; }
     if (a === 'meals' || a === 'trends' || a === 'water' || a === 'supps') { S.sheet = a; render(); return; }
-    if (a === 'water-add') { DAY.waterMl = Math.min(4000, DAY.waterMl + 250); render(); return; }
-    if (a === 'water-sub') { DAY.waterMl = Math.max(0, DAY.waterMl - 250); render(); return; }
+    if (a === 'water-add') { DAY.waterMl = Math.min(4000, DAY.waterMl + 250); saveDay(); render(); return; }
+    if (a === 'water-sub') { DAY.waterMl = Math.max(0, DAY.waterMl - 250); saveDay(); render(); return; }
     if (a === 'supp') {
       var k = act.getAttribute('data-i');
       DAY.supps[k].taken = !DAY.supps[k].taken;
+      saveDay();
       render(); return;
     }
     if (a === 'cam-oil') { S.camOil = act.getAttribute('data-oil'); render(); return; }
@@ -1345,6 +1392,8 @@
                      pro: meal.pro || 0, carb: meal.carb || 0, fat: meal.fat || 0,
                      kcal: meal.kcal, src: meal.src || 'estimate' });
     recount(DAY);
+    saveDay();
+    OFTEN = frequent();
   }
 
   function saveTargets() {
@@ -1366,6 +1415,8 @@
     if (bad) { S.targetError = bad + ' between 0 and 1,000 ' + 'g.'; render(); return; }
     want.forEach(function (w) { w[0].want = w[1]; });
     DAY.target = kcal;
+    saveTargetsTo({ kcal: kcal, pro: DAY.macros[0].want, carb: DAY.macros[1].want,
+                    fat: DAY.macros[2].want, waterMl: TARGETS.waterMl });
     S.sheet = null; S.targetError = null;
     say('Targets saved. ' + n(kcal) + ' kcal.');
   }
@@ -1438,6 +1489,7 @@
     });
     m.kcal = Math.round(m.kcal);
     recount(DAY);
+    saveDay();
     /* say() renders. Rendering here as well was two full passes a tap. */
     say(esc(m.name) + ' is now ' + n(m.kcal) + ' kcal.');
   }
@@ -1447,12 +1499,16 @@
     if (!m) return;
     DAY.meals.splice(i, 1);
     recount(DAY);
+    saveDay();
+    OFTEN = frequent();
     S.sheet = null;
     /* Destructive, so it is undoable rather than confirmed: a confirm asks a
        question the person already answered by pressing a red button. */
     say(esc(m.name) + ' removed.', function () {
       DAY.meals.splice(i, 0, m);
       recount(DAY);
+      saveDay();
+      OFTEN = frequent();
     });
   }
 
@@ -1547,6 +1603,7 @@
        switching to Empty after logging a meal showed a day that was not
        empty. A state switch is a fresh screen, so it gets a fresh day. */
     DAY = day();
+    OFTEN = frequent();
     render();
   });
 
