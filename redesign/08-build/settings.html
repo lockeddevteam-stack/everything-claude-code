@@ -771,6 +771,9 @@
   function bodyRow() {
     return navRow('body', 'Body and goal', bodyLine(), 'row-body');
   }
+  function passwordRow() {
+    return navRow('password', 'Change your password', 'Checked on this phone. Nothing is sent', 'row-password');
+  }
 
   /* The one network-shaped action on this screen. Every state it can be in
      is printed, including the one the old build could not show -- and the
@@ -809,7 +812,7 @@
   function accountSection() {
     var card;
     if (S.view === 'signed-in') {
-      card = '<div class="card card--flush">' + identityRow() + bodyRow() + syncRow() + '</div>';
+      card = '<div class="card card--flush">' + identityRow() + bodyRow() + passwordRow() + syncRow() + '</div>';
     } else if (S.view === 'guest') {
       card = '<div class="card card--flush">' +
                '<div class="row row--static">' +
@@ -906,6 +909,17 @@
         switchRow('partials', 'Count partial reps',
           S.partials ? 'Half reps count towards the set' : 'Only full reps count', S.partials, 'switch-partial-reps') +
         navRow('plateKg', 'Round weights to', plate(S.plateKg), 'row-plate-rounding') +
+        /* What the unit switch actually does, said once, where a lifter is
+           deciding whether to touch it. lk_weightStorageUnit is "kg" and
+           every screen converts on the way out, so a history logged in
+           kilograms reads as pounds and is still the same history. */
+        '<div class="row row--static" data-testid="row-storage-unit">' +
+          '<span class="row__main">' +
+            '<span class="row__title">Your logs are stored in kilograms</span>' +
+            '<span class="row__sub">Changing the weight unit converts what you see. It does not relabel it, ' +
+              'and nothing in your history is rewritten.</span>' +
+          '</span>' +
+        '</div>' +
       '</div>');
   }
 
@@ -943,6 +957,97 @@
       '</div>');
   }
 
+  /* NOTIFICATIONS. The permission prompt is a real browser API and this
+     asks for it properly, including the state where the answer was no and
+     only the reader can change it. What a browser cannot do from a page is
+     schedule anything for later: that needs a service worker, and this build
+     ships none. So the preferences are real and stored, the test send is a
+     real notification, and the sentence under them says exactly which half
+     is missing rather than implying a reminder will arrive at 6:30 PM. */
+  function notifCard() {
+    var perm = notifPermission();
+    var head;
+    if (perm === 'unsupported') {
+      head = '<div class="row row--static" data-testid="notif-unsupported">' +
+               '<span class="row__main">' +
+                 '<span class="row__title">Notifications</span>' +
+                 '<span class="row__sub">This browser has none to offer.</span>' +
+               '</span></div>';
+    } else if (perm === 'denied') {
+      /* The blocked state. The app cannot re-ask once a browser has been
+         told no, so the row stops offering and says who can undo it. */
+      head = '<div class="row row--static" data-testid="notif-blocked">' +
+               '<span class="row__main">' +
+                 '<span class="row__title">Notifications are blocked</span>' +
+                 '<span class="row__sub">You turned them off for this app in your browser. ' +
+                   'Only your browser settings can turn them back on.</span>' +
+               '</span></div>';
+    } else if (perm === 'granted') {
+      head = '<div class="row">' +
+               '<span class="row__main">' +
+                 '<span class="row__title" id="lbl-notif">Notifications</span>' +
+                 '<span class="row__sub">' + (S.notifOn
+                   ? 'Allowed by your browser'
+                   : 'Allowed by your browser, switched off here') + '</span>' +
+               '</span>' +
+               '<button class="switch" role="switch" aria-checked="' + S.notifOn + '" ' +
+                 'aria-labelledby="lbl-notif" data-action="notif-master" data-testid="switch-notif">' +
+                 '<span class="switch__track"></span><span class="switch__knob"></span>' +
+               '</button>' +
+             '</div>';
+    } else {
+      head = '<div class="row row--static">' +
+               '<span class="row__main">' +
+                 '<span class="row__title">Notifications</span>' +
+                 '<span class="row__sub">Your browser has not been asked yet.</span>' +
+               '</span>' +
+               '<button class="btn btn--sm btn--secondary" data-action="notif-master" data-testid="notif-ask">' +
+                 '<span class="btn__label">Ask</span></button>' +
+             '</div>';
+    }
+
+    var on = perm === 'granted' && S.notifOn;
+    var types = NOTIF.map(function (r) {
+      return '<div class="row">' +
+               '<span class="row__main">' +
+                 '<span class="row__title" id="lbl-n-' + r[0] + '">' + r[1] + '</span>' +
+                 '<span class="row__sub">' + r[2] + '</span>' +
+               '</span>' +
+               '<button class="switch" role="switch" aria-checked="' + !!S.notif[r[0]] + '" ' +
+                 'aria-labelledby="lbl-n-' + r[0] + '" data-action="notif-toggle" data-key="' + r[0] + '" ' +
+                 'data-name="' + esc(r[1]) + '" data-testid="switch-notif-' + r[0] + '"' +
+                 (on ? '' : ' disabled aria-disabled="true"') + '>' +
+                 '<span class="switch__track"></span><span class="switch__knob"></span>' +
+               '</button>' +
+             '</div>';
+    }).join('');
+
+    var sounds = '<div class="row row--static">' +
+        '<span class="row__main">' +
+          '<span class="row__title" id="lbl-sound">Rest timer sound</span>' +
+          '<span class="row__sub">Tap one to hear it.</span>' +
+          '<span class="hstack hstack--2 mt-2" role="radiogroup" aria-labelledby="lbl-sound">' +
+            SOUNDS.map(function (r) {
+              return '<button class="chip" role="radio" aria-checked="' + (S.restSound === r[0]) + '" ' +
+                'data-action="sound-pick" data-value="' + r[0] + '" data-testid="sound-' + r[0] + '">' +
+                r[1] + '</button>';
+            }).join('') +
+          '</span>' +
+        '</span>' +
+      '</div>';
+
+    var foot = '<div class="card__foot stack stack--2">' +
+        '<button class="btn btn--secondary btn--block" data-action="notif-test" data-testid="notif-test"' +
+          (on ? '' : ' disabled') + '>' +
+          '<span class="btn__label">Send one now</span></button>' +
+        '<p class="t-detail">A notification sent while you are looking at this page is all a page can do. ' +
+          'Sending one later, when the app is closed, needs a service worker, and this build has none: ' +
+          'nothing here is scheduled.</p>' +
+      '</div>';
+
+    return '<div class="card card--flush">' + head + types + sounds + foot + '</div>';
+  }
+
   function remindersSection() {
     return group('Reminders',
       '<div class="card card--flush">' +
@@ -950,7 +1055,7 @@
           S.reminder ? 'On training days only' : 'Off', S.reminder, 'switch-workout-reminder') +
         navRow('reminderAt', 'Reminder time', clock(S.reminderAt), 'row-reminder-time') +
         navRow('checkin', 'Daily check-in', CHECKIN[S.checkin], 'row-checkin') +
-      '</div>');
+      '</div>' + notifCard());
   }
 
   /* =============================================================
@@ -1104,6 +1209,36 @@
       '</div>', 'sheet-body');
   }
 
+  /* A password form with nowhere to send a password. Every rule it can
+     check on the device it checks, in the order a person meets them, and it
+     says plainly that the last step -- the one that needs the account server
+     -- does not happen in this build. The alternative, a form that reports
+     "Password changed", would be the screen lying about the one thing a
+     password form must never lie about. */
+  function passwordSheet() {
+    function field(id, label, testid, help) {
+      return '<label class="field">' +
+               '<span class="field__label t-detail">' + label + '</span>' +
+               '<input class="input" type="password" id="' + id + '" data-testid="' + testid + '" ' +
+                 'autocomplete="off" autocapitalize="off" spellcheck="false">' +
+               (help ? '<span class="field__help">' + help + '</span>' : '') +
+             '</label>';
+    }
+    return sheetShell('Change your password',
+      '<div class="sheet__body stack stack--4">' +
+        field('f-pw-old', 'Current password', 'field-pw-old', '') +
+        field('f-pw-new', 'New password', 'field-pw-new', 'At least 8 characters, and not the one you have now.') +
+        field('f-pw-again', 'New password again', 'field-pw-again', '') +
+        (S.pwError ? '<p class="field__error" role="alert" data-testid="pw-error">' + esc(S.pwError) + '</p>' : '') +
+        '<p class="field__help">This build has no account server. What you type is checked here and goes ' +
+          'nowhere: nothing is saved, nothing is sent, and your password is unchanged.</p>' +
+      '</div>' +
+      '<div class="sheet__foot stack stack--2">' +
+        '<button class="btn btn--secondary btn--block" data-action="save-password" data-testid="save-password">' +
+          '<span class="btn__label">Check it</span></button>' +
+      '</div>', 'sheet-password');
+  }
+
   /* =============================================================
      Confirmations. Every destructive or one-time action names the
      consequence before it happens, and the safe choice is the one
@@ -1175,6 +1310,7 @@
     var ov = '';
     if (S.sheet === 'profile') ov = profileSheet();
     else if (S.sheet === 'body') ov = bodySheet();
+    else if (S.sheet === 'password') ov = passwordSheet();
     else if (S.sheet) ov = optionSheet(S.sheet);
     else if (S.dialog) ov = dialogHTML(S.dialog);
     if (S.toast) ov += toastHTML();
@@ -1277,6 +1413,7 @@
 
     } else if (a === 'close-sheet') {
       var key = S.sheet;
+      S.pwError = null;
       closeOverlay(key === 'profile' ? 'row-identity' : key === 'body' ? 'row-body' : rowFor(key));
 
     } else if (a === 'toggle') {
@@ -1406,7 +1543,7 @@
       unit: 'row-weight-unit', dist: 'row-distance-unit', weekStart: 'row-week-start',
       theme: 'row-appearance', restSec: 'row-rest-length', plateKg: 'row-plate-rounding',
       reminderAt: 'row-reminder-time', checkin: 'row-checkin',
-      profile: 'row-identity', body: 'row-body'
+      profile: 'row-identity', body: 'row-body', password: 'row-password'
     }[key] || 'back';
   }
 

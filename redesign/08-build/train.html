@@ -1288,32 +1288,48 @@
       '</div>';
   }
 
-  /* The 41-tile wall, replaced. What this lifter is likely to log is
-     already a row on the screen behind; here the rest of the
-     catalogue is a ranked list with search as the reducer. */
+  /* The 41-tile wall, replaced. The catalogue is real now and it is all
+     reachable: the sheet opens on the four groups, search reduces every one
+     of them, and the count in the field is the count of the list. It said
+     "Search 41 activities" over a list of nine and showed six of those. */
   function activitySheet() {
     var q = S.query.trim().toLowerCase();
-    var list = CARDIO_ALL.concat(CARDIO_QUICK.map(function (c) {
-      return { id: 'p_' + c.id, name: c.name, min: c.min };
-    }));
-    var shown = q ? list.filter(function (a) { return a.name.toLowerCase().indexOf(q) > -1; })
-                  : CARDIO_ALL.slice(0, 6);
+    var all = allActivities();
+    var body;
+    if (q) {
+      var shown = all.filter(function (a) {
+        return a.name.toLowerCase().indexOf(q) > -1 ||
+               (GNAME_CARDIO[a.g] || '').toLowerCase().indexOf(q) > -1;
+      });
+      body = (shown.length
+        ? '<div class="card card--flush">' + shown.map(activityRow).join('') + '</div>'
+        : '<div class="empty mt-4" data-testid="activity-none">' +
+            '<span class="empty__ico">' + ICO.search + '</span>' +
+            '<h2 class="empty__title">Nothing matches &ldquo;' + esc(S.query) + '&rdquo;</h2>' +
+            '<p class="empty__body">Add it as your own and it joins the list for good.</p>' +
+            '<button class="btn btn--primary" type="button" data-action="new-cardio" data-testid="new-cardio">' +
+              ICO.plus + '<span class="btn__label">Add &ldquo;' + esc(S.query) + '&rdquo;</span></button>' +
+          '</div>') +
+        '<p class="t-meta mt-3" data-testid="activity-count">' + shown.length + ' of ' + catCount() + ' activities</p>';
+    } else {
+      var groups = CARDIO_GROUPS.slice();
+      if (CUSTOM_CARDIO.length) groups = groups.concat([['yours', 'Yours']]);
+      body = groups.map(function (g) {
+        var list = all.filter(function (a) { return a.g === g[0] || (g[0] === 'yours' && a.custom); });
+        if (!list.length) return '';
+        return '<div class="section" style="padding-left:0;padding-right:0">' +
+          '<div class="section__head"><h3 class="t-label">' + g[1] + '</h3>' +
+            '<span class="t-meta num">' + list.length + '</span></div>' +
+          '<div class="card card--flush">' + list.map(activityRow).join('') + '</div>' +
+        '</div>';
+      }).join('') +
+      '<button class="btn btn--secondary btn--block mt-3" type="button" data-action="new-cardio" data-testid="new-cardio">' +
+        ICO.plus + '<span class="btn__label">Add your own activity</span></button>' +
+      '<p class="t-meta mt-3" data-testid="activity-count">All ' + catCount() + ' activities. Type to reduce them.</p>';
+    }
 
-    var rows = shown.map(function (a) {
-      return '' +
-        '<button class="row" type="button" data-action="log-cardio" data-id="' + a.id + '" ' +
-                'data-testid="pick-' + a.id + '" aria-label="Log ' + esc(a.name) + ', ' + a.min + ' minutes">' +
-          '<span class="ico-well">' + ICO.cardio + '</span>' +
-          '<span class="row__main stack">' +
-            '<span class="row__title">' + esc(a.name) + '</span>' +
-            '<span class="row__sub">' + n(a.min) + ' min by default</span>' +
-          '</span>' +
-          '<span class="row__chev">' + ICO.plus + '</span>' +
-        '</button>';
-    }).join('');
-
-    return '' +
-      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="act-title" data-testid="activity-sheet">' +
+    return '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="act-title" data-testid="activity-sheet" ' +
+        'data-detents="0.6 0.94" data-detent-open="0.94">' +
         '<div class="sheet__grab"></div>' +
         '<div class="sheet__head">' +
           '<h2 class="t-section" id="act-title">Log cardio</h2>' +
@@ -1324,18 +1340,113 @@
           '<span class="search__ico" aria-hidden="true">' + ICO.search + '</span>' +
           '<label class="vis-hidden" for="act-q">Search activities</label>' +
           '<input class="input" id="act-q" type="text" autocomplete="off" spellcheck="false" ' +
-                 'placeholder="Search ' + CARDIO_CATALOGUE + ' activities" value="' + esc(S.query) + '" ' +
+                 'placeholder="Search ' + catCount() + ' activities" value="' + esc(S.query) + '" ' +
                  'data-testid="activity-search">' +
         '</div>' +
-        '<div class="sheet__body mt-3">' +
-          (shown.length
-            ? '<div class="card card--flush">' + rows + '</div>'
-            : '<p class="t-detail center mt-4">Nothing matches &ldquo;' + esc(S.query) + '&rdquo;.</p>') +
-          '<p class="t-meta mt-3">' + (q ? shown.length + ' of ' + CARDIO_CATALOGUE + ' activities'
-                                         : 'Your usual three are on the Train screen. Type to reach any of the ' +
-                                           CARDIO_CATALOGUE + '.') + '</p>' +
-        '</div>' +
+        '<div class="sheet__body mt-3">' + body + '</div>' +
       '</div>';
+  }
+  var GNAME_CARDIO = {};
+  CARDIO_GROUPS.forEach(function (g) { GNAME_CARDIO[g[0]] = g[1]; });
+
+  function activityRow(a) {
+    var last = lastCardioFor(a.id);
+    return '' +
+      '<button class="row" type="button" data-action="log-cardio" data-id="' + a.id + '" ' +
+              'data-testid="pick-' + a.id + '" aria-label="Log ' + esc(a.name) + '">' +
+        '<span class="ico-well">' + ICO.cardio + '</span>' +
+        '<span class="row__main stack">' +
+          '<span class="row__title">' + esc(a.name) +
+            (a.custom ? ' <span class="badge">Yours</span>' : '') + '</span>' +
+          '<span class="row__sub">' + n(a.min) + ' min by default &middot; ' + a.met + ' MET' +
+            (last ? ' &middot; last ' + relDate(last.date) : '') + '</span>' +
+        '</span>' +
+        '<span class="row__chev">' + ICO.plus + '</span>' +
+      '</button>';
+  }
+
+  /* Your own activities — F-CARDIO-025. A name and a MET value is all an
+     estimate needs; the MET is offered as four plain efforts rather than a
+     number nobody carries in their head. */
+  function newCardioSheet() {
+    var d = S.newCardio;
+    var EFFORTS = [['Easy, you could hold a conversation', 4], ['Steady, breathing hard', 7],
+                   ['Hard, sentences are short', 9], ['All out', 11.5]];
+    return '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="nc-title" data-testid="newcardio-sheet">' +
+      '<div class="sheet__grab"></div>' +
+      '<div class="sheet__head"><h2 class="t-section grow" id="nc-title">Your own activity</h2>' +
+        '<button class="iconbtn" type="button" data-action="close-sheet" aria-label="Close" ' +
+          'data-testid="newcardio-close">' + ICO.close + '</button></div>' +
+      '<div class="sheet__body">' +
+        '<label class="field"><span class="field__label t-label">Name</span>' +
+          '<input class="input" type="text" value="' + esc(d.name) + '" data-action="nc-name" ' +
+            'data-testid="nc-name" placeholder="Padel with Marco"></label>' +
+        (d.error ? '<p class="field__error" role="alert" data-testid="nc-error">' + esc(d.error) + '</p>' : '') +
+        '<label class="field mt-4"><span class="field__label t-label">Usual duration (min)</span>' +
+          '<input class="input num" type="number" min="1" max="600" value="' + esc(d.min) + '" ' +
+            'data-action="nc-min" data-testid="nc-min"></label>' +
+        '<div class="mt-4"><span class="t-label">How hard it usually is</span>' +
+          '<div class="card card--flush mt-2" role="radiogroup" aria-label="Effort">' + EFFORTS.map(function (e) {
+            return '<button class="opt" type="button" role="radio" aria-checked="' + (d.met === e[1]) + '" ' +
+              'data-action="nc-met" data-v="' + e[1] + '" data-testid="nc-met-' + e[1] + '">' +
+              '<span class="opt__mark">' + ICO.play + '</span>' +
+              '<span class="opt__main"><span class="opt__title">' + esc(e[0]) + '</span>' +
+              '<span class="opt__sub">' + e[1] + ' MET</span></span></button>';
+          }).join('') + '</div></div>' +
+        '<p class="t-caption-1 quiet mt-3">Saved on this phone and added to the catalogue. ' +
+          'The MET value is what the calorie estimate is built on.</p>' +
+      '</div>' +
+      '<div class="sheet__foot">' +
+        '<button class="btn btn--primary btn--block" type="button" data-action="nc-save" data-testid="nc-save">' +
+          '<span class="btn__label">Add it</span></button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  /* FAVOURITES — F-CARDIO-002..005. They are stored setups, so this is where
+     they are read, renamed, reordered and removed. Deleting takes two taps
+     and the second one is the red one; there is no dialog, because a
+     favourite is a shortcut and losing one costs a tap to rebuild. */
+  function favSheet() {
+    var body;
+    if (!FAVS.length) {
+      body = '<div class="empty" data-testid="favs-empty">' +
+        '<span class="empty__ico">' + ICO.star + '</span>' +
+        '<h2 class="empty__title">No favourites yet</h2>' +
+        '<p class="empty__body">Log a cardio session and keep the setup. It comes back here as one tap, ' +
+          'already carrying the duration and everything else you filled in.</p></div>';
+    } else {
+      body = '<div class="card card--flush">' + FAVS.map(function (f, i) {
+        var confirming = S.confirmFav === f.id;
+        return '<div class="row" data-testid="fav-' + f.id + '">' +
+          '<span class="ico-well">' + ICO.star + '</span>' +
+          '<span class="row__main stack">' +
+            '<input class="input" type="text" value="' + esc(f.name) + '" aria-label="Name of favourite" ' +
+              'data-action="fav-rename" data-id="' + f.id + '" data-testid="fav-name-' + f.id + '">' +
+            '<span class="row__sub">' + n(f.min) + ' min' +
+              (f.last ? ' &middot; saved ' + relDate(f.last) : '') + '</span>' +
+          '</span>' +
+          '<button class="iconbtn" type="button" data-action="fav-move" data-dir="-1" data-id="' + f.id + '" ' +
+            (i === 0 ? 'disabled aria-disabled="true" ' : '') + 'aria-label="Move ' + esc(f.name) + ' up" ' +
+            'data-testid="fav-up-' + f.id + '">' + ICO.up + '</button>' +
+          '<button class="iconbtn" type="button" data-action="fav-move" data-dir="1" data-id="' + f.id + '" ' +
+            (i === FAVS.length - 1 ? 'disabled aria-disabled="true" ' : '') + 'aria-label="Move ' + esc(f.name) + ' down" ' +
+            'data-testid="fav-down-' + f.id + '">' + ICO.down + '</button>' +
+          '<button class="iconbtn iconbtn--danger' + (confirming ? '' : '-quiet') + '" type="button" ' +
+            'data-action="fav-delete" data-id="' + f.id + '" data-testid="fav-delete-' + f.id + '" ' +
+            'aria-label="' + (confirming ? 'Confirm removing ' : 'Remove ') + esc(f.name) + '">' +
+            (confirming ? '<span class="btn__label">Remove</span>' : ICO.trash) + '</button>' +
+        '</div>';
+      }).join('') + '</div>' +
+      '<p class="t-meta mt-3">Tap the bin once to arm it, again to remove. Renaming saves as you type.</p>';
+    }
+    return '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="fav-title" data-testid="favs-sheet">' +
+      '<div class="sheet__grab"></div>' +
+      '<div class="sheet__head"><h2 class="t-section grow" id="fav-title">Favourites</h2>' +
+        '<button class="iconbtn" type="button" data-action="close-sheet" aria-label="Close favourites" ' +
+          'data-testid="favs-close">' + ICO.close + '</button></div>' +
+      '<div class="sheet__body">' + body + '</div>' +
+    '</div>';
   }
 
   function overlayHTML() {

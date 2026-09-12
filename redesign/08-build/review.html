@@ -301,7 +301,8 @@
       r.lifts.forEach(function (l) {
         if (rec || l.id !== p.exId || !l.top) return;
         var beats = l.top[0] > p.kg || (l.top[0] === p.kg && l.top[1] > p.reps);
-        if (beats) rec = { lift: l.name, w: l.top[0], r: l.top[1], prevW: p.kg, prevDate: p.date };
+        if (beats) rec = { exId: p.exId, lift: l.name, w: l.top[0], r: l.top[1],
+                           prevW: p.kg, prevDate: p.date };
       });
     });
 
@@ -833,6 +834,16 @@
      Save never scrolls away, so banking the session is one tap from
      the state the screen opens in, whatever the scroll position. */
   function saveBar(opts) {
+    /* Opened from the index or a dev state, there is no workout behind this
+       screen. The button stays -- it is the shape of the screen -- and the
+       line beside it says what it will find to save. */
+    if (!HANDED && !S.saved) {
+      return '<div class="actionbar" role="contentinfo" aria-label="Session actions" data-testid="actionbar">' +
+               '<span class="actionbar__status" data-testid="save-status">Demo session</span>' +
+               '<button class="btn btn--primary" data-testid="action-save">' +
+                 '<span class="btn__label">Save session</span></button>' +
+             '</div>';
+    }
     if (S.saved) {
       return '<div class="actionbar" role="contentinfo" aria-label="Session actions" data-testid="actionbar">' +
                /* tabindex -1 so focus can be MOVED here without the status
@@ -860,7 +871,7 @@
   function full(d) {
     return {
       body: receipt(d) + (d.record ? recordCard(d.record) : '') + compare(d) +
-            splitCard(d) + aiCard(d) + feelSection() + discardSection(d.sets),
+            setsSection(d) + splitCard(d) + aiCard(d) + feelSection() + discardSection(d.sets),
       bar: saveBar({ status: d.record ? 'Record included' : '' }),
       overlay: (S.sheet && d.diffs) ? splitSheet(d) : ''
     };
@@ -1012,6 +1023,71 @@
     DATA.loading = DATA.empty;
   }
 
+  /* ---- saving ------------------------------------------------------
+     SAVING SAVES. "Save session" set a flag, disabled its own button and
+     printed "Saved to history" -- and wrote nothing, anywhere. A finished
+     workout never joined lk_history, so Train's list, Home's counts, the
+     records, and this screen's own "against last time" all carried on as
+     if the session had not happened. It is the one hole that made the whole
+     training loop a demo, and it is written now, through LKStore, under the
+     key every other screen reads.
+     -------------------------------------------------------------------- */
+  var SAVED = null;                 /* the record written, once per session */
+
+  function reflectionOrNull() {
+    var out = null;
+    REFLECT.forEach(function (f) {
+      var v = S.reflection[f[0]];
+      if (v === undefined || v === null) return;
+      if (!out) out = {};
+      out[f[0]] = v;
+    });
+    return out;
+  }
+
+  function saveSession() {
+    if (SAVED) return SAVED;
+    if (!HANDED || !window.LKStore) return null;
+    var rec = {
+      id: 'w_' + Date.now(),
+      kind: 'lift',
+      name: HANDED.title,
+      /* The seed's own field names -- date, min, kg -- because every screen
+         that reads history reads those, and a record written in a second
+         vocabulary is a record only this screen can read. */
+      date: HANDED.dateISO || (window.LKFixtures && LKFixtures.today) || null,
+      min: HANDED.minutes,
+      sets: HANDED.sets,
+      kg: HANDED.volumeKg,
+      exercises: HANDED.exercises || [],
+      note: (S.note || '').trim(),
+      reflection: reflectionOrNull()
+    };
+    LKStore.push('lk_history', rec);
+
+    /* A mark set today becomes the record. Left alone, this screen announced
+       a personal record and the PR vault went on showing the one it beat. */
+    var r = HANDED.record;
+    if (r && r.exId != null) {
+      var prs = LKStore.get('lk_prs', []);
+      if (Array.isArray(prs)) {
+        for (var i = 0; i < prs.length; i++) {
+          if (prs[i].exId === r.exId) {
+            prs[i].kg = r.w; prs[i].reps = r.r; prs[i].date = rec.date;
+            break;
+          }
+        }
+        LKStore.set('lk_prs', prs);
+      }
+    }
+
+    /* The hand-over has been used up. Left in place, reopening this screen
+       would offer to save the same workout again. */
+    LKStore.remove('lk_lastSession');
+    SAVED = rec;
+    return rec;
+  }
+
   function show(view) {
     var v = VIEWS[view] ? view : 'record';
     S = { view: v, saved: false, reflection: {}, note: '', discardArmed: false, ai: 'idle',
@@ -1050,7 +1126,7 @@
   /* One delegated handler. Every control on the screen is in here, so
      there is no path that reaches a control with no behaviour. */
   document.addEventListener('click', function (e) {
-    var el = e.target.closest('[data-testid], [data-feel], [data-pick]');
+    var el = e.target.closest('[data-testid], [data-rate], [data-pick]');
     if (!el) return;
     var id = el.getAttribute('data-testid');
     var d = DATA[S.view] || {};
@@ -1062,16 +1138,27 @@
       paint(true);
       return;
     }
-    if (el.dataset.feel) {
-      S.feel = S.feel === el.dataset.feel ? null : el.dataset.feel;
+    if (el.dataset.rate) {
+      var rk = el.dataset.rate, rv = Number(el.dataset.val);
+      /* Tapping the figure that is already chosen clears it, so an answer
+         given by accident can be taken back rather than only changed. */
+      if (S.reflection[rk] === rv) delete S.reflection[rk];
+      else S.reflection[rk] = rv;
       paint(true);
       return;
     }
     switch (id) {
       case 'action-save':
+        var written = saveSession();
+        if (!written) {
+          /* No workout was handed over, so there is nothing to write. Saying
+             "saved" here is exactly the lie this screen used to tell. */
+          toast('Nothing to save: this screen was opened without a workout, so no record was written.');
+          return;
+        }
         S.saved = true;
         paint(true);
-        toast('Session saved' + (S.feel ? ', marked ' + S.feel : '') + '.');
+        toast('Session saved to your history.');
         /* Saving disables the button it was pressed with, which blurs it and
            drops focus to <body> — so the next Tab restarts at the top of the
            document. It goes to the status the save just produced, which is
@@ -1093,6 +1180,10 @@
       case 'action-discard-cancel':
         S.discardArmed = false; paint(true); return;
       case 'action-discard-confirm':
+        /* Discard has to consume the hand-over as well, or the discarded
+           workout is still sitting there waiting to be reviewed and saved
+           the next time this screen opens. */
+        if (window.LKStore) LKStore.remove('lk_lastSession');
         S.discardArmed = false; paint(true); toast('Session discarded. Nothing was written.'); return;
       case 'ai-ask':
       case 'ai-retry':
