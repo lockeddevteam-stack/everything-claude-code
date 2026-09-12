@@ -247,16 +247,45 @@ const weightLog = JSON.parse(seed.lk_weightLog)
    14 g of fat belonging to no meal on the list. Nothing below is a total.
    Every total is added up from the meals, here, once.
    --------------------------------------------------------------------- */
+/* Each food carries a serving in grams and the four micronutrients a lifter
+   actually reads: fibre, sugar, saturated fat and sodium. The screen showed
+   energy and three macros and nothing else, so a day could hit every macro
+   on 4 g of fibre and 4,800 mg of sodium and the app had no opinion at all.
+
+   `g` is what one serving weighs, which is what makes per-100 g scaling and
+   a grams field possible: a food with no weight cannot be rescaled by weight,
+   only by a vague multiplier. */
 const FOODS = {
-  eggs:     { icon: '\u{1F373}', name: 'Eggs, toast, butter',  kcal: 540, pro: 38, carb: 46, fat: 24 },
-  bowl:     { icon: '\u{1F957}', name: 'Chicken rice bowl',    kcal: 720, pro: 52, carb: 84, fat: 16 },
-  shake:    { icon: '\u{1F964}', name: 'Whey shake, banana',   kcal: 310, pro: 31, carb: 38, fat: 4 },
-  pasta:    { icon: '\u{1F35D}', name: 'Beef mince and pasta', kcal: 810, pro: 48, carb: 92, fat: 26 },
-  chilli:   { icon: '\u{1F372}', name: 'Chilli',               kcal: 530, pro: 41, carb: 38, fat: 18 },
-  cnr:      { icon: '\u{1F35A}', name: 'Chicken and rice',     kcal: 690, pro: 61, carb: 74, fat: 13 },
-  pancakes: { icon: '\u{1F95E}', name: 'Protein pancakes',     kcal: 360, pro: 31, carb: 37, fat: 8 },
-  skyr:     { icon: '\u{1F96B}', name: 'Skyr, plain',          kcal: 96,  pro: 17, carb: 6,  fat: 0.3 }
+  eggs:     { icon: '\u{1F373}', name: 'Eggs, toast, butter',  kcal: 540, pro: 38, carb: 46, fat: 24,
+              g: 260, fibre: 4,   sugar: 5,  satfat: 9,   sodium: 720 },
+  bowl:     { icon: '\u{1F957}', name: 'Chicken rice bowl',    kcal: 720, pro: 52, carb: 84, fat: 16,
+              g: 450, fibre: 6,   sugar: 8,  satfat: 4,   sodium: 980 },
+  shake:    { icon: '\u{1F964}', name: 'Whey shake, banana',   kcal: 310, pro: 31, carb: 38, fat: 4,
+              g: 400, fibre: 3,   sugar: 24, satfat: 1.5, sodium: 210 },
+  pasta:    { icon: '\u{1F35D}', name: 'Beef mince and pasta', kcal: 810, pro: 48, carb: 92, fat: 26,
+              g: 520, fibre: 7,   sugar: 11, satfat: 10,  sodium: 890 },
+  chilli:   { icon: '\u{1F372}', name: 'Chilli',               kcal: 530, pro: 41, carb: 38, fat: 18,
+              g: 400, fibre: 11,  sugar: 9,  satfat: 6,   sodium: 760 },
+  cnr:      { icon: '\u{1F35A}', name: 'Chicken and rice',     kcal: 690, pro: 61, carb: 74, fat: 13,
+              g: 480, fibre: 3,   sugar: 3,  satfat: 3.5, sodium: 640 },
+  pancakes: { icon: '\u{1F95E}', name: 'Protein pancakes',     kcal: 360, pro: 31, carb: 37, fat: 8,
+              g: 220, fibre: 5,   sugar: 7,  satfat: 2,   sodium: 380 },
+  skyr:     { icon: '\u{1F96B}', name: 'Skyr, plain',          kcal: 96,  pro: 17, carb: 6,  fat: 0.3,
+              g: 170, fibre: 0,   sugar: 6,  satfat: 0.1, sodium: 65 }
 };
+
+/* Every food has to carry all of it, or a screen reading a micronutrient
+   gets undefined and prints NaN. */
+for (const [k, f] of Object.entries(FOODS)) {
+  for (const field of ['g', 'fibre', 'sugar', 'satfat', 'sodium']) {
+    if (typeof f[field] !== 'number') throw new Error(k + ' has no ' + field);
+  }
+}
+
+/* Daily reference figures, so a micronutrient panel can say "of what".
+   Fibre and sodium are the UK reference intakes; sugar and saturated fat are
+   the reference maximums, which is why they read as ceilings on screen. */
+const MICRO_REF = { fibre: 30, sugar: 90, satfat: 20, sodium: 2400 };
 
 const TARGETS = { kcal: 2980, pro: 160, carb: 380, fat: 80, waterMl: 3000 };
 
@@ -296,7 +325,8 @@ for (const iso of Object.keys(DAY_LOG)) {
       throw new Error('no slot on ' + k + ' at ' + at);
     }
     return { key: k, icon: f.icon, name: f.name, at, src, slot,
-             kcal: f.kcal, pro: f.pro, carb: f.carb, fat: f.fat };
+             kcal: f.kcal, pro: f.pro, carb: f.carb, fat: f.fat,
+             fibre: f.fibre, sugar: f.sugar, satfat: f.satfat, sodium: f.sodium };
   });
   nutritionDays[iso] = {
     date: iso,
@@ -333,6 +363,7 @@ const trendValues = trendHead.concat(trendTail);
 if (trendValues.length !== 30) throw new Error('trend is ' + trendValues.length + ' days, want 30');
 const nutrition = {
   targets: TARGETS,
+  microRef: MICRO_REF,
   foods: FOODS,
   days: nutritionDays,
   /* Kept for anything still reading a bare array of the last fourteen. */

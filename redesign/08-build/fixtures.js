@@ -4030,6 +4030,12 @@
                 "fat": 80,
                 "waterMl": 3000
           },
+          "microRef": {
+                "fibre": 30,
+                "sugar": 90,
+                "satfat": 20,
+                "sodium": 2400
+          },
           "foods": {
                 "eggs": {
                       "icon": "🍳",
@@ -4037,7 +4043,12 @@
                       "kcal": 540,
                       "pro": 38,
                       "carb": 46,
-                      "fat": 24
+                      "fat": 24,
+                      "g": 260,
+                      "fibre": 4,
+                      "sugar": 5,
+                      "satfat": 9,
+                      "sodium": 720
                 },
                 "bowl": {
                       "icon": "🥗",
@@ -4045,7 +4056,12 @@
                       "kcal": 720,
                       "pro": 52,
                       "carb": 84,
-                      "fat": 16
+                      "fat": 16,
+                      "g": 450,
+                      "fibre": 6,
+                      "sugar": 8,
+                      "satfat": 4,
+                      "sodium": 980
                 },
                 "shake": {
                       "icon": "🥤",
@@ -4053,7 +4069,12 @@
                       "kcal": 310,
                       "pro": 31,
                       "carb": 38,
-                      "fat": 4
+                      "fat": 4,
+                      "g": 400,
+                      "fibre": 3,
+                      "sugar": 24,
+                      "satfat": 1.5,
+                      "sodium": 210
                 },
                 "pasta": {
                       "icon": "🍝",
@@ -4061,7 +4082,12 @@
                       "kcal": 810,
                       "pro": 48,
                       "carb": 92,
-                      "fat": 26
+                      "fat": 26,
+                      "g": 520,
+                      "fibre": 7,
+                      "sugar": 11,
+                      "satfat": 10,
+                      "sodium": 890
                 },
                 "chilli": {
                       "icon": "🍲",
@@ -4069,7 +4095,12 @@
                       "kcal": 530,
                       "pro": 41,
                       "carb": 38,
-                      "fat": 18
+                      "fat": 18,
+                      "g": 400,
+                      "fibre": 11,
+                      "sugar": 9,
+                      "satfat": 6,
+                      "sodium": 760
                 },
                 "cnr": {
                       "icon": "🍚",
@@ -4077,7 +4108,12 @@
                       "kcal": 690,
                       "pro": 61,
                       "carb": 74,
-                      "fat": 13
+                      "fat": 13,
+                      "g": 480,
+                      "fibre": 3,
+                      "sugar": 3,
+                      "satfat": 3.5,
+                      "sodium": 640
                 },
                 "pancakes": {
                       "icon": "🥞",
@@ -4085,7 +4121,12 @@
                       "kcal": 360,
                       "pro": 31,
                       "carb": 37,
-                      "fat": 8
+                      "fat": 8,
+                      "g": 220,
+                      "fibre": 5,
+                      "sugar": 7,
+                      "satfat": 2,
+                      "sodium": 380
                 },
                 "skyr": {
                       "icon": "🥫",
@@ -4093,7 +4134,12 @@
                       "kcal": 96,
                       "pro": 17,
                       "carb": 6,
-                      "fat": 0.3
+                      "fat": 0.3,
+                      "g": 170,
+                      "fibre": 0,
+                      "sugar": 6,
+                      "satfat": 0.1,
+                      "sodium": 65
                 }
           },
           "days": {
@@ -4110,7 +4156,11 @@
                                   "kcal": 540,
                                   "pro": 38,
                                   "carb": 46,
-                                  "fat": 24
+                                  "fat": 24,
+                                  "fibre": 4,
+                                  "sugar": 5,
+                                  "satfat": 9,
+                                  "sodium": 720
                             },
                             {
                                   "key": "bowl",
@@ -4122,7 +4172,11 @@
                                   "kcal": 720,
                                   "pro": 52,
                                   "carb": 84,
-                                  "fat": 16
+                                  "fat": 16,
+                                  "fibre": 6,
+                                  "sugar": 8,
+                                  "satfat": 4,
+                                  "sodium": 980
                             },
                             {
                                   "key": "shake",
@@ -4134,7 +4188,11 @@
                                   "kcal": 310,
                                   "pro": 31,
                                   "carb": 38,
-                                  "fat": 4
+                                  "fat": 4,
+                                  "fibre": 3,
+                                  "sugar": 24,
+                                  "satfat": 1.5,
+                                  "sodium": 210
                             }
                       ],
                       "eaten": 1570,
@@ -4170,7 +4228,11 @@
                                   "kcal": 540,
                                   "pro": 38,
                                   "carb": 46,
-                                  "fat": 24
+                                  "fat": 24,
+                                  "fibre": 4,
+                                  "sugar": 5,
+                                  "satfat": 9,
+                                  "sodium": 720
                             },
                             {
                                   "key": "cnr",
@@ -4182,7 +4244,11 @@
                                   "kcal": 690,
                                   "pro": 61,
                                   "carb": 74,
-                                  "fat": 13
+                                  "fat": 13,
+                                  "fibre": 3,
+                                  "sugar": 3,
+                                  "satfat": 3.5,
+                                  "sodium": 640
                             },
                             {
                                   "key": "pasta",
@@ -4194,7 +4260,11 @@
                                   "kcal": 810,
                                   "pro": 48,
                                   "carb": 92,
-                                  "fat": 26
+                                  "fat": 26,
+                                  "fibre": 7,
+                                  "sugar": 11,
+                                  "satfat": 10,
+                                  "sodium": 890
                             },
                             {
                                   "key": "shake",
@@ -4206,7 +4276,11 @@
                                   "kcal": 310,
                                   "pro": 31,
                                   "carb": 38,
-                                  "fat": 4
+                                  "fat": 4,
+                                  "fibre": 3,
+                                  "sugar": 24,
+                                  "satfat": 1.5,
+                                  "sodium": 210
                             },
                             {
                                   "key": "pancakes",
@@ -4218,7 +4292,11 @@
                                   "kcal": 360,
                                   "pro": 31,
                                   "carb": 37,
-                                  "fat": 8
+                                  "fat": 8,
+                                  "fibre": 5,
+                                  "sugar": 7,
+                                  "satfat": 2,
+                                  "sodium": 380
                             }
                       ],
                       "eaten": 2710,
@@ -4254,7 +4332,11 @@
                                   "kcal": 540,
                                   "pro": 38,
                                   "carb": 46,
-                                  "fat": 24
+                                  "fat": 24,
+                                  "fibre": 4,
+                                  "sugar": 5,
+                                  "satfat": 9,
+                                  "sodium": 720
                             },
                             {
                                   "key": "bowl",
@@ -4266,7 +4348,11 @@
                                   "kcal": 720,
                                   "pro": 52,
                                   "carb": 84,
-                                  "fat": 16
+                                  "fat": 16,
+                                  "fibre": 6,
+                                  "sugar": 8,
+                                  "satfat": 4,
+                                  "sodium": 980
                             },
                             {
                                   "key": "chilli",
@@ -4278,7 +4364,11 @@
                                   "kcal": 530,
                                   "pro": 41,
                                   "carb": 38,
-                                  "fat": 18
+                                  "fat": 18,
+                                  "fibre": 11,
+                                  "sugar": 9,
+                                  "satfat": 6,
+                                  "sodium": 760
                             },
                             {
                                   "key": "shake",
@@ -4290,7 +4380,11 @@
                                   "kcal": 310,
                                   "pro": 31,
                                   "carb": 38,
-                                  "fat": 4
+                                  "fat": 4,
+                                  "fibre": 3,
+                                  "sugar": 24,
+                                  "satfat": 1.5,
+                                  "sodium": 210
                             },
                             {
                                   "key": "pancakes",
@@ -4302,7 +4396,11 @@
                                   "kcal": 360,
                                   "pro": 31,
                                   "carb": 37,
-                                  "fat": 8
+                                  "fat": 8,
+                                  "fibre": 5,
+                                  "sugar": 7,
+                                  "satfat": 2,
+                                  "sodium": 380
                             },
                             {
                                   "key": "skyr",
@@ -4314,7 +4412,11 @@
                                   "kcal": 96,
                                   "pro": 17,
                                   "carb": 6,
-                                  "fat": 0.3
+                                  "fat": 0.3,
+                                  "fibre": 0,
+                                  "sugar": 6,
+                                  "satfat": 0.1,
+                                  "sodium": 65
                             }
                       ],
                       "eaten": 2556,
@@ -4350,7 +4452,11 @@
                                   "kcal": 540,
                                   "pro": 38,
                                   "carb": 46,
-                                  "fat": 24
+                                  "fat": 24,
+                                  "fibre": 4,
+                                  "sugar": 5,
+                                  "satfat": 9,
+                                  "sodium": 720
                             },
                             {
                                   "key": "cnr",
@@ -4362,7 +4468,11 @@
                                   "kcal": 690,
                                   "pro": 61,
                                   "carb": 74,
-                                  "fat": 13
+                                  "fat": 13,
+                                  "fibre": 3,
+                                  "sugar": 3,
+                                  "satfat": 3.5,
+                                  "sodium": 640
                             },
                             {
                                   "key": "chilli",
@@ -4374,7 +4484,11 @@
                                   "kcal": 530,
                                   "pro": 41,
                                   "carb": 38,
-                                  "fat": 18
+                                  "fat": 18,
+                                  "fibre": 11,
+                                  "sugar": 9,
+                                  "satfat": 6,
+                                  "sodium": 760
                             },
                             {
                                   "key": "shake",
@@ -4386,7 +4500,11 @@
                                   "kcal": 310,
                                   "pro": 31,
                                   "carb": 38,
-                                  "fat": 4
+                                  "fat": 4,
+                                  "fibre": 3,
+                                  "sugar": 24,
+                                  "satfat": 1.5,
+                                  "sodium": 210
                             }
                       ],
                       "eaten": 2070,

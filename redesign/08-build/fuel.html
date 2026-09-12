@@ -176,6 +176,7 @@
         return { key: m.key || null, icon: m.icon, name: m.name, at: m.at, src: m.src,
                  slot: m.slot || slotOf(m),
                  kcal: m.kcal, pro: m.pro, carb: m.carb, fat: m.fat,
+                 fibre: m.fibre, sugar: m.sugar, satfat: m.satfat, sodium: m.sodium,
                  base: m.base || null, scale: m.scale || 1 };
       }),
       eaten: DAY.eaten,
@@ -211,6 +212,49 @@
      stamp a clock time and append to one flat list. Breakfast, lunch, dinner
      and a snack are how people actually read a day back: "I had no protein at
      breakfast" is a sentence about a slot, not about 8:05. */
+  /* Fibre, sugar, saturated fat and sodium. The screen showed energy and
+     three macros and nothing else, so a day could hit every macro on 4 g of
+     fibre and 4,800 mg of sodium and the app had no opinion about it at all.
+
+     Two of these are floors and two are ceilings, and they are labelled
+     differently for that reason: 6 g of 30 is a shortfall, 4,100 mg of 2,400
+     is an excess, and one bar style for both would say neither. */
+  var MICROS = [
+    { key: 'fibre',  name: 'Fibre',         unit: 'g',  aim: 'more' },
+    { key: 'sugar',  name: 'Sugar',         unit: 'g',  aim: 'less' },
+    { key: 'satfat', name: 'Saturated fat', unit: 'g',  aim: 'less' },
+    { key: 'sodium', name: 'Sodium',        unit: 'mg', aim: 'less' }
+  ];
+  var MREF = NUT.microRef || { fibre: 30, sugar: 90, satfat: 20, sodium: 2400 };
+
+  function microTotals(meals) {
+    var t = {};
+    MICROS.forEach(function (mi) { t[mi.key] = 0; });
+    (meals || []).forEach(function (m) {
+      MICROS.forEach(function (mi) { t[mi.key] += m[mi.key] || 0; });
+    });
+    MICROS.forEach(function (mi) { t[mi.key] = Math.round(t[mi.key] * 10) / 10; });
+    return t;
+  }
+
+  /* A meal's micros, which only exist where the food it came from had them.
+     A photo estimate and a free-typed entry do not, and the panel says so
+     rather than counting a missing figure as a zero. */
+  function microsFrom(f) {
+    var out = {};
+    var any = false;
+    MICROS.forEach(function (mi) {
+      if (typeof f[mi.key] === 'number') { out[mi.key] = f[mi.key]; any = true; }
+    });
+    return any ? out : null;
+  }
+
+  function withMicros(meal, f) {
+    var mi = f ? microsFrom(f) : null;
+    if (mi) Object.keys(mi).forEach(function (k) { meal[k] = mi[k]; });
+    return meal;
+  }
+
   var SLOTS = [
     ['breakfast', 'Breakfast'], ['lunch', 'Lunch'],
     ['dinner', 'Dinner'], ['snack', 'Snack']
@@ -348,6 +392,7 @@
         return { key: m.key || null, icon: m.icon, name: m.name, at: m.at,
                  slot: slotOf(m),
                  pro: m.pro, carb: m.carb, fat: m.fat, kcal: m.kcal, src: m.src,
+                 fibre: m.fibre, sugar: m.sugar, satfat: m.satfat, sodium: m.sodium,
                  base: m.base || null, scale: m.scale || 1 };
       }),
       /* Not a target and not a nag: a pattern this person already has. */
@@ -872,6 +917,50 @@
       '<span class="row__sub num">' + n(Math.round(t.kcal)) + ' kcal</span></div>';
   }
 
+  /* Folded away by default. Four more bars under the three that matter most
+     would make the top of the screen a dashboard; behind one tap they are
+     there when somebody goes looking, which is what a micronutrient is. */
+  function microPanel() {
+    if (S.state === 'empty') return '';
+    var t = microTotals(DAY.meals);
+    var missing = DAY.meals.filter(function (m) {
+      return typeof m.fibre !== 'number';
+    }).length;
+    if (!S.microOpen) {
+      return '<button class="btn btn--tertiary btn--block mt-2" type="button" data-action="micros" ' +
+        'aria-expanded="false" data-testid="micros-toggle">' +
+        '<span class="btn__label">Fibre, sugar, saturated fat, sodium</span></button>';
+    }
+    return '<button class="btn btn--tertiary btn--block mt-2" type="button" data-action="micros" ' +
+        'aria-expanded="true" data-testid="micros-toggle">' +
+        '<span class="btn__label">Hide fibre, sugar, saturated fat, sodium</span></button>' +
+      '<div class="card mt-2" data-testid="micros">' +
+        MICROS.map(function (mi, i) {
+          var have = t[mi.key], ref = MREF[mi.key] || 1;
+          var pct = Math.min(100, Math.round(have / ref * 100));
+          var overDone = mi.aim === 'less' ? have > ref : have >= ref;
+          return '<div class="fuel-macro' + (i ? ' mt-3' : '') + '">' +
+            '<div class="hstack"><span class="t-subheadline grow">' + esc(mi.name) + '</span>' +
+              '<span class="t-subheadline num">' + n(have) + ' / ' + n(ref) + ' ' + mi.unit + '</span></div>' +
+            '<div class="meter meter--quiet mt-2" role="img" aria-label="' + esc(mi.name) + ', ' +
+                n(have) + ' of ' + n(ref) + ' ' + mi.unit + '">' +
+              '<span class="meter__fill" style="width:' + pct + '%"></span></div>' +
+            '<p class="t-caption-2 quiet mt-1">' +
+              (mi.aim === 'less'
+                ? (overDone ? 'Over the daily reference.' : n(Math.round((ref - have) * 10) / 10) + ' ' + mi.unit + ' before it is.')
+                : (overDone ? 'There for the day.' : n(Math.round((ref - have) * 10) / 10) + ' ' + mi.unit + ' short.')) +
+            '</p>' +
+          '</div>';
+        }).join('') +
+        (missing
+          ? '<p class="t-caption-1 quiet mt-3" data-testid="micros-gap">' + missing +
+            (missing === 1 ? ' meal on today\u2019s list has' : ' meals on today\u2019s list have') +
+            ' no breakdown \u2014 a photo estimate and a typed entry carry energy and macros ' +
+            'only, so these four are under-counted rather than wrong.</p>'
+          : '') +
+      '</div>';
+  }
+
   function today() {
     var groups = slotGroups();
     var rows = groups.map(function (g) {
@@ -957,7 +1046,7 @@
   var VIEWS = {};
 
   VIEWS.populated = function () {
-    return '<div>' + hero() + logAction() + macros() + '</div>' +
+    return '<div>' + hero() + logAction() + macros() + microPanel() + '</div>' +
       today() + '<div>' + chips() + '</div>';
   };
   VIEWS['first-weeks'] = VIEWS.populated;
@@ -1029,6 +1118,17 @@
             '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Fat</span>' +
               '<span class="t-body-em num">' + n(m.fat) + ' g</span></div>' +
           '</div>' +
+          (typeof m.fibre === 'number'
+            ? '<h3 class="t-label mt-5">And in it</h3>' +
+              '<div class="card card--sunken mt-2" data-testid="meal-micros">' +
+                MICROS.map(function (mi, mj) {
+                  return '<div class="hstack hstack--3' + (mj ? ' mt-2' : '') + '">' +
+                    '<span class="t-body grow">' + esc(mi.name) + '</span>' +
+                    '<span class="t-body-em num">' + n(m[mi.key] || 0) + ' ' + mi.unit + '</span></div>';
+                }).join('') +
+              '</div>'
+            : '<p class="t-detail quiet mt-4" data-testid="meal-micros-none">No fibre, sugar, ' +
+              'saturated fat or sodium on this one: it did not come from a row that carries them.</p>') +
           '<h3 class="t-label mt-5">Part of the day</h3>' +
           slotPicker(slotOf(m), 'move-slot', 'meal-slot') +
           '<h3 class="t-label mt-5">Where these numbers came from</h3>' +
@@ -1714,6 +1814,7 @@
       return;
     }
     if (a === 'trend-range') { S.trendRange = +act.getAttribute('data-r'); render(); return; }
+    if (a === 'micros') { S.microOpen = !S.microOpen; render(); return; }
     if (a === 'pick-slot') { S.logSlot = act.getAttribute('data-slot'); render(); return; }
     if (a === 'move-slot') {
       /* The open sheet is 'meal:<index>', so the meal being moved is the one
@@ -1858,7 +1959,9 @@
                      at: meal.at || nowLabel(),
                      slot: meal.slot || slotForNow(),
                      pro: meal.pro || 0, carb: meal.carb || 0, fat: meal.fat || 0,
-                     kcal: meal.kcal, src: meal.src || 'estimate' });
+                     kcal: meal.kcal, src: meal.src || 'estimate',
+                     fibre: meal.fibre, sugar: meal.sugar,
+                     satfat: meal.satfat, sodium: meal.sodium });
     recount(DAY);
     saveDay();
     OFTEN = frequent();
@@ -1986,6 +2089,9 @@
     if (!m || !f) return;
     if (!m.base) {
       m.base = { kcal: m.kcal || 0, pro: m.pro || 0, carb: m.carb || 0, fat: m.fat || 0 };
+      MICROS.forEach(function (mi) {
+        if (typeof m[mi.key] === 'number') m.base[mi.key] = m[mi.key];
+      });
       m.scale = 1;
     }
     m.scale = Math.round(m.scale * f * 1000) / 1000;
@@ -1994,6 +2100,11 @@
     if (m.scale > 10) m.scale = 10;
     ['kcal', 'pro', 'carb', 'fat'].forEach(function (k) {
       m[k] = Math.round(m.base[k] * m.scale * 10) / 10;
+    });
+    MICROS.forEach(function (mi) {
+      if (typeof m.base[mi.key] === 'number') {
+        m[mi.key] = Math.round(m.base[mi.key] * m.scale * 10) / 10;
+      }
     });
     m.kcal = Math.round(m.kcal);
     recount(DAY);
