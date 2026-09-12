@@ -10119,6 +10119,127 @@ button.shelf:active { background: var(--fill-press); }
 })(typeof window !== 'undefined' ? window : this);
 
 </script>
+<script>
+/* units.js — inlined verbatim from 08-build/units.js */
+/* LOCKED — one weight unit, for the whole app.
+
+   Settings offers "Weight unit — Kilograms or Pounds", with the subtitle
+   "Weights and body weight show as lb". It converted Settings' own rows and
+   nothing else: Home, Train, Profile, Progress, Recap, Review, Coach and
+   workout-detail all printed kg whatever the setting said, and the choice was
+   never written down, so it did not survive a reload either. The workout log
+   had a second, independent switch that converted its own screen correctly
+   and toasted "Showing lb everywhere" while changing nothing anywhere else.
+
+   So the unit lives here, in lk_profile.useKg, and every screen that prints a
+   weight asks this file what to print. There is one switch, one stored
+   answer, and one conversion.
+
+   THE MODEL IS ALWAYS KILOGRAMS. Nothing stored is ever converted; conversion
+   happens on the way to the screen and never on the way back into the data.
+   That is what makes switching units reversible: the history does not change,
+   only the reading of it.
+
+   ROUNDING. Pounds to one decimal, because 72.5 kg is 159.8 lb and a whole
+   number there loses a plate. Kilograms keep whatever precision they were
+   given. A total is summed in kilograms and converted once, EXCEPT where a
+   screen shows the rows it is made of -- there the rows are converted first
+   and summed as displayed, so a header equals the rows under it.
+
+   localStorage throws in private mode and on some file:// origins. Every
+   access is guarded and the failure mode is kilograms, which is the model. */
+(function (g) {
+  'use strict';
+
+  var KEY = 'lk_profile';
+  var LB_PER_KG = 2.20462;
+  var listeners = [];
+
+  function profile() {
+    var raw;
+    try { raw = g.localStorage.getItem(KEY); } catch (e) { return null; }
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch (e) { return null; }
+  }
+
+  function fallback() {
+    var fx = g.LKFixtures && g.LKFixtures.profile;
+    return fx && fx.useKg !== undefined ? fx.useKg !== false : true;
+  }
+
+  var API = {
+    key: KEY,
+    lbPerKg: LB_PER_KG,
+
+    /* true for kilograms, false for pounds. */
+    useKg: function () {
+      var p = profile();
+      if (p && p.useKg !== undefined) return p.useKg !== false;
+      return fallback();
+    },
+
+    set: function (useKg) {
+      var p = profile() || (g.LKFixtures && g.LKFixtures.profile
+        ? JSON.parse(JSON.stringify(g.LKFixtures.profile)) : {});
+      p.useKg = !!useKg;
+      try { g.localStorage.setItem(KEY, JSON.stringify(p)); } catch (e) {}
+      for (var i = 0; i < listeners.length; i++) {
+        try { listeners[i](API.useKg()); } catch (e) {}
+      }
+      return API.useKg();
+    },
+
+    onChange: function (fn) {
+      if (typeof fn === 'function') listeners.push(fn);
+      /* Another tab, or another screen in the same demo page. */
+      return fn;
+    },
+
+    label: function () { return API.useKg() ? 'kg' : 'lb'; },
+
+    /* A number of kilograms, as the number this app would show. */
+    v: function (kg) {
+      if (kg === null || kg === undefined || isNaN(kg)) return kg;
+      if (API.useKg()) return kg;
+      return Math.round(kg * LB_PER_KG * 10) / 10;
+    },
+
+    /* The same, rounded to whole units -- for totals, where a tenth of a
+       pound on a four-thousand-pound figure is noise. */
+    vRound: function (kg) {
+      var x = API.v(kg);
+      return x === null || x === undefined || isNaN(x) ? x : Math.round(x);
+    },
+
+    /* "1,234 kg". `d` is decimal places; omit it for "as given". */
+    fmt: function (kg, d) {
+      var x = API.v(kg);
+      if (x === null || x === undefined || isNaN(x)) return '';
+      var n = d === undefined ? x : Number(x.toFixed(d));
+      return n.toLocaleString('en-GB') + ' ' + API.label();
+    },
+
+    /* A total, converted once and rounded to a whole unit. */
+    fmtTotal: function (kg) {
+      var x = API.vRound(kg);
+      if (x === null || x === undefined || isNaN(x)) return '';
+      return x.toLocaleString('en-GB') + ' ' + API.label();
+    }
+  };
+
+  if (g.addEventListener) {
+    g.addEventListener('storage', function (e) {
+      if (e.key !== KEY) return;
+      for (var i = 0; i < listeners.length; i++) {
+        try { listeners[i](API.useKg()); } catch (err) {}
+      }
+    });
+  }
+
+  g.LKUnits = API;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
 </head>
 <body>
 
@@ -12623,7 +12744,10 @@ DEMO.define("home", function (document, window, location, fetch) {
   /* ---- formatting ------------------------------------------------- */
   var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   function n(v) { return '<span class="num">' + v + '</span>'; }
-  function kg(v) { return n(v.toLocaleString('en-US')) + ' kg'; }
+  /* One unit, from lk_profile.useKg, through LKUnits. This printed kg
+     whatever Settings said, which is the relabel-without-convert defect
+     Settings itself claims to have fixed. */
+  function kg(v) { return n(LKUnits.fmtTotal(v)); }
   /* Relative inside a week, absolute after it. Never a sentinel. */
   function when(daysAgo, dateISO) {
     if (daysAgo === 0) return 'today';
@@ -13220,7 +13344,7 @@ DEMO.define("train", function (document, window, location, fetch) {
        three-part line printed "undefined km, undefined cal" for it. An
        absent figure is absent, not zero and not a word. */
     var parts = w.kind === 'lift'
-      ? [n(w.min) + ' min', n(w.sets) + ' sets', n(group(w.kg)) + ' kg']
+      ? [n(w.min) + ' min', n(w.sets) + ' sets', n(LKUnits.fmtTotal(w.kg))]
       : [n(w.min) + ' min',
          w.km != null ? n(w.km) + ' km' : null,
          w.cal != null ? n(w.cal) + ' kcal' : null];
@@ -13539,7 +13663,7 @@ DEMO.define("train", function (document, window, location, fetch) {
       out.push(
         '<section class="section">' +
           '<div class="section__head"><h2 class="t-label">' + month + '</h2>' +
-            '<span class="t-meta num">' + buf.length + ' sessions</span></div>' +
+            '<span class="t-meta num">' + buf.length + (buf.length === 1 ? ' session' : ' sessions') + '</span></div>' +
           '<div class="card card--flush">' + buf.join('') + '</div>' +
         '</section>');
       buf = [];
@@ -15692,15 +15816,15 @@ DEMO.define("coach", function (document, window, location, fetch) {
     var pr = progress(t);
     var sub, basis, right = '', bar = '';
     if (state === 'future') {
-      sub = 'Target ' + n(fmt(t.value)) + ' kg';
+      sub = 'Target ' + n(fmt(LKUnits.v(t.value))) + ' ' + LKUnits.label();
       basis = 'Starts week ' + t.weekStart;
       right = '<span class="t-meta">Not started</span>';
     } else if (!pr.has) {
-      sub = 'Target ' + n(fmt(t.value)) + ' kg';
+      sub = 'Target ' + n(fmt(LKUnits.v(t.value))) + ' ' + LKUnits.label();
       basis = 'No set of ' + pr.reps + '+ logged yet';
       right = '<span class="t-meta">No data</span>';
     } else {
-      sub = n(fmt(pr.now)) + ' of ' + n(fmt(t.value)) + ' kg';
+      sub = n(fmt(LKUnits.v(pr.now))) + ' of ' + n(fmt(LKUnits.v(t.value))) + ' ' + LKUnits.label();
       basis = pr.lift + ' &middot; best set of ' + pr.reps + '+';
       right = pr.met
         ? '<span class="row__value good">Met</span>'
@@ -16886,7 +17010,7 @@ DEMO.define("profile", function (document, window, location, fetch) {
   }
 
   function totals() {
-    var vol = Math.round(ME.volumeKg / 1000);
+    var vol = Math.round(LKUnits.vRound(ME.volumeKg) / 1000);
     return '<div class="card mt-4" data-testid="totals">' +
       '<div class="tiles">' +
         stat('Sessions', n(ME.workouts), '') +
@@ -16894,7 +17018,7 @@ DEMO.define("profile", function (document, window, location, fetch) {
       '</div>' +
       '<div class="tiles mt-4">' +
         stat('Sets',   n(ME.sets), '') +
-        stat('Volume', n(vol) + 'k', ME.useKg ? 'kg' : 'lb') +
+        stat('Volume', n(vol) + 'k', LKUnits.label()) +
       '</div>' +
     '</div>';
   }
@@ -16914,8 +17038,8 @@ DEMO.define("profile", function (document, window, location, fetch) {
             '<span class="row__title">' + esc(r.lift) + '</span>' +
             '<span class="row__sub">' + esc(r.group) + '</span>' +
           '</span>' +
-          '<span class="row__value num">' + r.kg +
-            '<small class="t-caption-2 quiet"> ' + (ME.useKg ? 'kg' : 'lb') + '</small></span>' +
+          '<span class="row__value num">' + LKUnits.v(r.kg) +
+            '<small class="t-caption-2 quiet"> ' + LKUnits.label() + '</small></span>' +
         '</div>';
       }).join('') + '</div>' +
     '</div>';
@@ -20727,7 +20851,10 @@ DEMO.define("settings", function (document, window, location, fetch) {
     name: 'Cesco',
     username: 'cesco',
     email: 'cesco@locked.app',
-    unit: 'kg',
+    /* lk_profile.useKg, through LKUnits. This screen converted its own rows
+       correctly and stored nothing, so the choice reached no other screen and
+       did not survive a reload. */
+    unit: (window.LKUnits && !LKUnits.useKg()) ? 'lb' : 'kg',
     dist: 'km',
     weekStart: 'mon',
     theme: (window.LKTheme ? window.LKTheme.get() : 'dark'),
@@ -21433,6 +21560,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
       /* A unit change confirms itself with both numbers, so the person
          can see the value was converted rather than relabelled. */
       if (key2 === 'unit' && before.unit !== S.unit) {
+        if (window.LKUnits) LKUnits.set(S.unit === 'kg');
         toast(S.unit === 'lb'
           ? 'Weights now show in pounds. Your body weight, ' + round1(before.weightKg) +
             ' kg, is ' + round1(before.weightKg * LB) + ' lb.'
@@ -21637,6 +21765,11 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     return S.unit === 'kg' ? Number(displayValue) : Math.round((Number(displayValue) / LB_PER_KG) * 100) / 100;
   }
   function unitLabel() { return S.unit === 'kg' ? 'kg' : 'lb'; }
+  /* "everywhere" means everywhere. */
+  function setUnit(u) {
+    S.unit = u;
+    if (window.LKUnits) LKUnits.set(u === 'kg');
+  }
   function unitWord() { return S.unit === 'kg' ? 'kilograms' : 'pounds'; }
   function clock(s) {
     var m = Math.floor(s / 60), r = s % 60;
@@ -21664,32 +21797,55 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     };
   }
 
+  /* WHAT YOU LIFTED LAST TIME, from the shared history rather than typed
+     here. Two of these were wrong against the fixture -- a 40 kg bench
+     warm-up where the last Push logged 37.5, and a 24 kg shoulder press
+     where it logged 25, a figure that appears in no session and is not even
+     a multiple of the 2.5 kg step Settings says weights round to. The rows
+     a person decides today's load from have to be the rows they actually
+     lifted. */
+  function lastSetsFor(exId) {
+    var FX = window.LKFixtures;
+    if (!FX || !FX.lastTime) return null;
+    var last = FX.lastTime(exId, FX.today);
+    if (!last) return null;
+    return last.exercise.sets.filter(function (st) { return st.done; });
+  }
+
+  /* One exercise, with `todaysSets` of its own and the rest filled from the
+     last session. Anything beyond what was done last time gets no previous
+     figure rather than a repeated one. */
+  function exFromHistory(id, name, muscle, note, todaysSets, planned) {
+    var prev = lastSetsFor(id) || [];
+    var work = prev.filter(function (st) { return !st.warm; });
+    var warm = prev.filter(function (st) { return st.warm; });
+    var sets = (todaysSets || []).slice();
+    var wi = 0;
+    sets.forEach(function (st) {
+      if (st.warm) { if (warm[0] && st.prevKg === undefined) { st.prevKg = warm[0].kg; st.prevReps = warm[0].reps; } return; }
+      var p = work[wi++];
+      if (p && st.prevKg == null) { st.prevKg = p.kg; st.prevReps = p.reps; }
+    });
+    while (sets.length < (planned || 0)) {
+      var p2 = work[wi++];
+      sets.push(set(null, null, p2 ? { prevKg: p2.kg, prevReps: p2.reps } : {}));
+    }
+    return { id: id, name: name, muscle: muscle, note: note || '', sets: sets };
+  }
+
   function pushDay() {
+    /* The warm-up and the two working sets already logged are today's, and
+       they stay as they are; everything else is last session's figures. */
     return [
-      { id: 111, name: 'Barbell Bench Press', muscle: 'Mid Chest', note: 'Pinkies on rings, feet back', sets: [
+      exFromHistory(111, 'Barbell Bench Press', 'Mid Chest', 'Pinkies on rings, feet back', [
         set(40, 10, { warm: true, done: true, rir: 4 }),
         set(72.5, 8, { done: true }),
-        set(72.5, 7, { done: true }),
-        set(null, null, { prevKg: 72.5, prevReps: 7 })
-      ] },
-      { id: 302, name: 'DB Shoulder Press', muscle: 'Front Delt', sets: [
-        set(null, null, { prevKg: 24, prevReps: 10 }),
-        set(null, null, { prevKg: 24, prevReps: 9 }),
-        set(null, null, { prevKg: 24, prevReps: 8 })
-      ] },
-      { id: 103, name: 'Incline Cable Fly', muscle: 'Upper Chest', sets: [
-        set(null, null, { prevKg: 15, prevReps: 12 }),
-        set(null, null, { prevKg: 15, prevReps: 12 })
-      ] },
-      { id: 311, name: 'Lateral Raise', muscle: 'Side Delt', sets: [
-        set(null, null, { prevKg: 9, prevReps: 15 }),
-        set(null, null, { prevKg: 9, prevReps: 14 }),
-        set(null, null, { prevKg: 9, prevReps: 12 })
-      ] },
-      { id: 411, name: 'Tricep Pushdown', muscle: 'Lateral Head', sets: [
-        set(null, null, { prevKg: 27.5, prevReps: 12 }),
-        set(null, null, { prevKg: 27.5, prevReps: 11 })
-      ] }
+        set(72.5, 7, { done: true })
+      ], 4),
+      exFromHistory(302, 'DB Shoulder Press', 'Front Delt', '', [], 3),
+      exFromHistory(103, 'Incline Cable Fly', 'Upper Chest', '', [], 3),
+      exFromHistory(311, 'Lateral Raise', 'Side Delt', '', [], 3),
+      exFromHistory(411, 'Tricep Pushdown', 'Lateral Head', '', [], 3)
     ];
   }
 
@@ -21699,7 +21855,11 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
   var S = {
     state: 'mid-session',
     name: 'PPL - Push',
-    unit: 'kg',              /* lk_profile.useKg === true */
+    /* lk_profile.useKg, through LKUnits. This screen's switch was its own:
+       it converted this screen correctly and toasted "Showing lb everywhere"
+       while every other screen stayed in kg, and it opened in kg whatever the
+       profile said. There is one setting now, and this switch writes it. */
+    unit: (window.LKUnits && !LKUnits.useKg()) ? 'lb' : 'kg',
     elapsed: 1261,           /* 21:01 */
     exercises: pushDay(),
     blocks: [],
@@ -22609,7 +22769,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
         var key = t.getAttribute('data-key');
         var cur = S.exercises[S.overlayEx];
         if (key === 'info') { S.overlay = 'detail'; break; }
-        if (key === 'unit') { S.unit = S.unit === 'kg' ? 'lb' : 'kg'; S.overlay = null; toast('Showing ' + unitLabel() + ' everywhere.'); break; }
+        if (key === 'unit') { setUnit(S.unit === 'kg' ? 'lb' : 'kg'); S.overlay = null; toast('Showing ' + unitLabel() + ' everywhere.'); break; }
         if (key === 'warmup') {
           cur.sets.unshift(set(cur.sets[0] ? Math.round((cur.sets[0].prevKg || 20) * 0.5 * 2) / 2 : 20, 10, { warm: true, rir: 4 }));
           S.overlay = null; toast('Warm-up set added.'); break;
@@ -22660,7 +22820,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       case 'tools': S.overlay = 'tools'; break;
       case 'tool': {
         var tool = t.getAttribute('data-tool');
-        if (tool === 'unit') { S.unit = S.unit === 'kg' ? 'lb' : 'kg'; S.overlay = null; toast('Showing ' + unitLabel() + ' everywhere.'); }
+        if (tool === 'unit') { setUnit(S.unit === 'kg' ? 'lb' : 'kg'); S.overlay = null; toast('Showing ' + unitLabel() + ' everywhere.'); }
         else S.overlay = tool;
         break;
       }
@@ -22919,7 +23079,6 @@ DEMO.define("shopping", function (document, window, location, fetch) {
   /* Money is formatted in one place. A screen that writes "$" + n.toFixed(2)
      in fourteen places has fourteen chances to disagree with itself. */
   function usd(v) { return '$' + Number(v).toFixed(2); }
-  function usd0(v) { return '$' + Math.round(Number(v)); }
 
   var ICO = {
     chev:  '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg>',
@@ -22937,19 +23096,22 @@ DEMO.define("shopping", function (document, window, location, fetch) {
      --------------------------------------------------------------- */
 
   /* The picks the live app ships, in its order, with its quantities. */
+  /* In the units the rest of the app uses. These were in pounds, ounces and
+     cups while the stored list is in kilos, grams and pieces, so adding a
+     shortcut put a second unit system on the same list. */
   var PICKS = [
-    { icon: '🍗', name: 'Chicken breast', qty: 2,  unit: 'lb' },
-    { icon: '🥚', name: 'Eggs',           qty: 12, unit: 'qty' },
-    { icon: '🥛', name: 'Greek yogurt',   qty: 16, unit: 'oz' },
-    { icon: '🐟', name: 'Salmon',         qty: 1,  unit: 'lb' },
-    { icon: '🥦', name: 'Broccoli',       qty: 2,  unit: 'qty' },
-    { icon: '🍚', name: 'Brown rice',     qty: 2,  unit: 'cup' },
-    { icon: '🍠', name: 'Sweet potato',   qty: 3,  unit: 'qty' },
-    { icon: '🥣', name: 'Oats',           qty: 2,  unit: 'cup' },
-    { icon: '🥑', name: 'Avocado',        qty: 2,  unit: 'qty' },
-    { icon: '🧀', name: 'Cottage cheese', qty: 16, unit: 'oz' },
-    { icon: '🥜', name: 'Almonds',        qty: 4,  unit: 'oz' },
-    { icon: '🥩', name: 'Ground beef',    qty: 1,  unit: 'lb' }
+    { icon: '🍗', name: 'Chicken thighs',  qty: 1,   unit: 'kg' },
+    { icon: '🥚', name: 'Eggs',            qty: 12,  unit: 'pcs' },
+    { icon: '🥛', name: 'Greek yogurt',    qty: 2,   unit: 'tubs' },
+    { icon: '🐟', name: 'Salmon',          qty: 500, unit: 'g' },
+    { icon: '🥦', name: 'Broccoli',        qty: 2,   unit: 'pcs' },
+    { icon: '🍚', name: 'Rice',            qty: 2,   unit: 'kg' },
+    { icon: '🍠', name: 'Sweet potato',    qty: 1,   unit: 'kg' },
+    { icon: '🥣', name: 'Oats',            qty: 1,   unit: 'kg' },
+    { icon: '🥑', name: 'Avocado',         qty: 2,   unit: 'pcs' },
+    { icon: '🧀', name: 'Cottage cheese',  qty: 500, unit: 'g' },
+    { icon: '🥜', name: 'Almonds',         qty: 1,   unit: 'bag' },
+    { icon: '🥩', name: 'Ground beef',     qty: 500, unit: 'g' }
   ];
 
   /* Three meals worth prepping, each one a whole shop rather than an
@@ -22979,77 +23141,68 @@ DEMO.define("shopping", function (document, window, location, fetch) {
 
   var UNITS = ['qty', 'kg', 'g', 'lb', 'oz', 'cup', 'tbsp', 'tsp'];
 
-  var LIST = [
-    { id: 'i1', name: 'Chicken breast', qty: 2,  unit: 'lb',  cat: 'meat',    done: false },
-    { id: 'i2', name: 'Ground beef',    qty: 1,  unit: 'lb',  cat: 'meat',    done: true  },
-    { id: 'i3', name: 'Salmon',         qty: 1,  unit: 'lb',  cat: 'meat',    done: false },
-    { id: 'i4', name: 'Greek yogurt',   qty: 16, unit: 'oz',  cat: 'dairy',   done: false },
-    { id: 'i5', name: 'Cottage cheese', qty: 16, unit: 'oz',  cat: 'dairy',   done: true  },
-    { id: 'i6', name: 'Broccoli',       qty: 2,  unit: 'qty', cat: 'produce', done: false },
-    { id: 'i7', name: 'Spinach',        qty: 1,  unit: 'qty', cat: 'produce', done: false },
-    { id: 'i8', name: 'Avocado',        qty: 2,  unit: 'qty', cat: 'produce', done: false },
-    { id: 'i9', name: 'Brown rice',     qty: 2,  unit: 'cup', cat: 'pantry',  done: false },
-    { id: 'i10', name: 'Oats',          qty: 2,  unit: 'cup', cat: 'pantry',  done: true  },
-    { id: 'i11', name: 'Olive oil',     qty: 1,  unit: 'qty', cat: 'pantry',  done: false },
-    { id: 'i12', name: 'Almonds',       qty: 4,  unit: 'oz',  cat: 'snacks',  done: false }
-  ];
+  /* Everything on this screen is lk_shoppingList, lk_pantryItems,
+     lk_budgetData and lk_myStores, through the shared fixture. It used to be
+     a hand-typed twelve-item list in pounds and ounces, a seven-item pantry
+     and five invented purchases -- a set of data that shared nothing with the
+     ten-item list in kilos and grams every other part of the app is built
+     from, and whose totals no other screen could reproduce. */
+  var FXS = window.LKFixtures || {};
+  var TODAY_MS = Date.UTC(2026, 8, 9);
+  var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var MONS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function whenOf(iso) {
+    var d = new Date(iso);
+    return DOW[d.getUTCDay()] + ', ' + MONS[d.getUTCMonth()] + ' ' + d.getUTCDate();
+  }
+  function agoOf(iso) {
+    return Math.max(0, Math.round((TODAY_MS - Date.parse(iso)) / 86400000));
+  }
 
-  var BUDGET = {
-    weeklyTarget: 120,
-    history: [
-      { id: 'h1', store: 'Costco',  when: 'Sat, Sep 5',  daysAgo: 2,  total: 52.4,  source: 'receipt',
-        items: [{ n: 'Chicken breast', q: 2, p: 18.4 }, { n: 'Eggs', q: 1, p: 6.2 },
-                { n: 'Greek yogurt', q: 2, p: 9.8 }, { n: 'Brown rice', q: 1, p: 8.0 },
-                { n: 'Almonds', q: 1, p: 10.0 }] },
-      { id: 'h2', store: 'Walmart', when: 'Thu, Sep 3',  daysAgo: 4,  total: 21.0,  source: 'manual',
-        items: [{ n: 'Ground beef', q: 1, p: 8.5 }, { n: 'Broccoli', q: 2, p: 4.5 },
-                { n: 'Sweet potato', q: 3, p: 8.0 }] },
-      { id: 'h3', store: 'Target',  when: 'Tue, Sep 1',  daysAgo: 6,  total: 13.0,  source: 'list',
-        items: [{ n: 'Oats', q: 2, p: 7.0 }, { n: 'Olive oil', q: 1, p: 6.0 }] },
-      { id: 'h4', store: 'Costco',  when: 'Sat, Aug 23', daysAgo: 15, total: 61.2, source: 'receipt',
-        items: [{ n: 'Chicken breast', q: 3, p: 27.6 }, { n: 'Salmon', q: 2, p: 21.0 },
-                { n: 'Cottage cheese', q: 2, p: 12.6 }] },
-      { id: 'h5', store: 'Walmart', when: 'Wed, Aug 12', daysAgo: 26, total: 34.8, source: 'manual',
-        items: [{ n: 'Ground beef', q: 2, p: 17.0 }, { n: 'Brown rice', q: 2, p: 9.8 },
-                { n: 'Avocado', q: 4, p: 8.0 }] }
-    ],
-    compare: [
-      { store: 'Costco',  product: 'Chicken breast, 6 lb pack', price: 3.29, note: 'per lb, bulk only' },
-      { store: 'Walmart', product: 'Chicken breast, family pack', price: 3.68, note: '' },
-      { store: 'Target',  product: 'Chicken breast, 2 lb',        price: 4.49, note: '' }
-    ],
-    swaps: [
-      { from: 'Almonds',       to: 'Peanuts',            store: 'Costco',  saves: '$4.10' },
-      { from: 'Greek yogurt',  to: 'Plain yogurt, 32 oz', store: 'Walmart', saves: '$2.35' }
-    ]
-  };
+  var LIST = (FXS.shoppingList || []).map(function (x) {
+    return { id: x.id, name: x.itemName, qty: x.quantity, unit: x.unit,
+             cat: x.category, done: !!x.checked };
+  });
+
+  var BUDGET = (function () {
+    var b = FXS.budget || { weeklyTarget: 0, history: [] };
+    return {
+      weeklyTarget: b.weeklyTarget,
+      history: (b.history || []).map(function (h) {
+        return { id: h.id, store: h.store, when: whenOf(h.date), daysAgo: agoOf(h.date),
+                 total: h.total, source: h.source,
+                 items: (h.items || []).map(function (i) { return { n: i.name, q: i.qty, p: i.price }; }) };
+      }),
+      /* Named against what is actually on the list, so the comparison is
+         about something the reader is buying. */
+      compare: [
+        { store: "Trader Joe's", product: 'Chicken thighs, 1 kg', price: 9.5, note: 'per kg' },
+        { store: 'Safeway',      product: 'Chicken thighs, 1 kg', price: 11.2, note: '' },
+        { store: 'Costco',       product: 'Chicken thighs, 2.5 kg', price: 8.4, note: 'per kg, bulk only' }
+      ],
+      swaps: [
+        { from: 'Salmon',       to: 'Frozen salmon, 500 g', store: 'Safeway',      saves: '$4.40' },
+        { from: 'Greek yogurt', to: 'Plain yogurt, 1 kg',   store: "Trader Joe's", saves: '$2.10' }
+      ]
+    };
+  })();
 
   /* Read once, so a receipt confirm shows the same numbers a person saw when
-     they took the photo. */
-  var RECEIPT = {
-    store: '',
-    total: 52.4,
-    items: [
-      { n: 'Chicken breast', q: 2, p: 18.4 },
-      { n: 'Eggs',           q: 1, p: 6.2 },
-      { n: 'Greek yogurt',   q: 2, p: 9.8 },
-      { n: 'Brown rice',     q: 1, p: 8.0 },
-      { n: 'Almonds',        q: 1, p: 10.0 }
-    ]
-  };
+     they took the photo. The most recent stored receipt, rather than a sixth
+     purchase that exists nowhere. */
+  var RECEIPT = (function () {
+    var r = BUDGET.history.filter(function (h) { return h.source === 'receipt'; })[0] ||
+            BUDGET.history[0] || { total: 0, items: [] };
+    return { store: '', total: r.total, items: r.items.slice() };
+  })();
 
   /* Pantry. What is already in the house, so the list only carries what is
      not. A staple is an item that restocks itself: when its interval elapses
      it rejoins the list without being asked. */
-  var PANTRY = [
-    { id: 'p1', name: 'Chicken breast', qty: 2, cat: 'meat',    store: 'Costco',  staple: true,  every: 7,  empty: false },
-    { id: 'p2', name: 'Eggs',           qty: 12, cat: 'dairy',  store: 'Walmart', staple: true,  every: 10, empty: false },
-    { id: 'p3', name: 'Greek yogurt',   qty: 1, cat: 'dairy',   store: 'Costco',  staple: false, every: 7,  empty: true  },
-    { id: 'p4', name: 'Spinach',        qty: 1, cat: 'produce', store: '',        staple: false, every: 7,  empty: false },
-    { id: 'p5', name: 'Brown rice',     qty: 3, cat: 'pantry',  store: 'Costco',  staple: true,  every: 30, empty: false },
-    { id: 'p6', name: 'Olive oil',      qty: 1, cat: 'pantry',  store: '',        staple: false, every: 7,  empty: true  },
-    { id: 'p7', name: 'Almonds',        qty: 1, cat: 'snacks',  store: 'Target',  staple: false, every: 7,  empty: false }
-  ];
+  var PANTRY = (FXS.pantry || []).map(function (x) {
+    return { id: x.id, name: x.name, qty: x.quantity, cat: x.category, store: x.store || '',
+             staple: !!x.staple, every: x.intervalDays || 7, empty: !!x.empty };
+  });
 
   /* The stores the live app offers, in its order, with its descriptions. */
   var PRESETS = [
@@ -23064,11 +23217,13 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     { name: "Trader Joe's",  host: 'traderjoes.com',        about: 'specialty grocery with unique private-label products' },
     { name: 'Safeway',       host: 'safeway.com',           about: 'large supermarket chain' }
   ];
-  var MYSTORES = [
-    { id: 's1', name: 'Walmart', host: 'walmart.com', about: 'large general merchandise and grocery retailer', hue: 'var(--id-1)', on: true },
-    { id: 's2', name: 'Target',  host: 'target.com',  about: 'general merchandise and grocery retailer',        hue: 'var(--id-4)', on: true },
-    { id: 's3', name: 'Costco',  host: 'costco.com',  about: 'warehouse club, bulk items',                      hue: 'var(--id-2)', on: false }
-  ];
+  /* lk_myStores. Three were invented here; the reader has one. */
+  var HUES = ['var(--id-1)', 'var(--id-4)', 'var(--id-2)', 'var(--id-3)', 'var(--id-5)'];
+  var MYSTORES = (FXS.stores || []).map(function (st, i) {
+    return { id: st.id, name: st.name,
+             host: String(st.url || '').replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''),
+             about: st.description || '', hue: HUES[i % HUES.length], on: st.enabled !== false };
+  });
 
   var PANELS = [
     ['list',   'List'],
@@ -23086,6 +23241,7 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     panel: 'list',
     sheet: null,
     editTarget: false,
+    targetError: null,
     addOpen: false,
     receipt: null,          /* null | 'ok' | 'none' | 'down' */
     histFilter: 'week',
@@ -23112,10 +23268,14 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     }, 0);
   }
   function overBudget() { return BUDGET.weeklyTarget > 0 && weekSpent() > BUDGET.weeklyTarget; }
+  /* The bar is clamped; the FIGURE is not. They were one number, so a week
+     at $180 against a $120 target read "100%" beside "$60.00 over budget" --
+     the one line that could have said how far over said it was exactly on. */
   function budgetPct()  {
     if (!BUDGET.weeklyTarget) return 0;
-    return Math.min(100, weekSpent() / BUDGET.weeklyTarget * 100);
+    return weekSpent() / BUDGET.weeklyTarget * 100;
   }
+  function budgetBarPct() { return Math.min(100, budgetPct()); }
 
   /* ---------------------------------------------------------------
      Segment. Four panels, one control, and the count of what is still to
@@ -23135,12 +23295,21 @@ DEMO.define("shopping", function (document, window, location, fetch) {
   function headerCount() {
     if (S.state !== 'populated') return '';
     if (S.panel === 'list')   return left() + ' to get';
-    if (S.panel === 'pantry') return PANTRY.length + ' in stock';
+    /* In stock means in stock. It counted every pantry row, so the header
+       said "7 in stock" directly above a banner saying two of them were out. */
+    if (S.panel === 'pantry') {
+      var inStock = PANTRY.filter(function (i) { return !i.empty; }).length;
+      var out = PANTRY.length - inStock;
+      return inStock + ' in stock' + (out ? ', ' + out + ' out' : '');
+    }
     if (S.panel === 'stores') return onStores().length + ' of ' + MYSTORES.length + ' on';
     if (!BUDGET.weeklyTarget) return 'No target';
+    /* The same figure as the card. Rounding to whole dollars here put
+       "$72 left" in the header above "$71.50 remaining" on the card, and a
+       reader has no way to tell which of the two is the real number. */
     return overBudget()
-      ? usd0(weekSpent() - BUDGET.weeklyTarget) + ' over'
-      : usd0(BUDGET.weeklyTarget - weekSpent()) + ' left';
+      ? usd(weekSpent() - BUDGET.weeklyTarget) + ' over'
+      : usd(BUDGET.weeklyTarget - weekSpent()) + ' left';
   }
 
   /* ---------------------------------------------------------------
@@ -23318,12 +23487,14 @@ DEMO.define("shopping", function (document, window, location, fetch) {
         '<input class="input num" id="target" type="number" min="0" step="0.01" inputmode="decimal" ' +
           'value="' + BUDGET.weeklyTarget.toFixed(2) + '" data-testid="target-input">' +
         '<p class="field__help">Zero or more. Set it to zero to stop comparing against a target without losing the history.</p>' +
+        (S.targetError ? '<p class="field__error" role="alert" data-testid="target-error">' +
+          esc(S.targetError) + '</p>' : '') +
         '<button class="btn btn--primary btn--block mt-3" type="button" data-action="save-target" data-testid="save-target">' +
           '<span class="btn__label">Save target</span></button>' +
       '</div>';
     }
 
-    var pct = budgetPct(), over = overBudget();
+    var pct = budgetPct(), barPct = budgetBarPct(), over = overBudget();
     var mClass = over ? ' meter--over' : (pct >= 75 ? ' meter--warn' : '');
     return '<div class="card" data-testid="budget-card">' +
       '<div class="section__head"><h2 class="t-label">Weekly budget</h2>' +
@@ -23334,7 +23505,7 @@ DEMO.define("shopping", function (document, window, location, fetch) {
       '</div>' +
       (BUDGET.weeklyTarget
         ? '<div class="meter mt-3' + mClass + '" role="img" aria-label="' + usd(weekSpent()) +
-            ' of ' + usd(BUDGET.weeklyTarget) + ' spent this week"><span class="meter__fill" style="width:' + pct + '%"></span></div>' +
+            ' of ' + usd(BUDGET.weeklyTarget) + ' spent this week"><span class="meter__fill" style="width:' + barPct + '%"></span></div>' +
           '<div class="hstack hstack--3 mt-2">' +
             '<p class="t-detail grow' + (over ? '" style="color: var(--error)' : '') + '">' +
               (over ? usd(weekSpent() - BUDGET.weeklyTarget) + ' over budget'
@@ -23624,10 +23795,29 @@ DEMO.define("shopping", function (document, window, location, fetch) {
 
     var head = '<div style="padding: 0 var(--page-x)">' +
       (out.length
-        ? '<div class="banner banner--warn" data-testid="out-banner">' + ICO.alert +
-            '<span><strong>' + out.length + ' out of stock</strong>' +
-            out.map(function (i) { return esc(i.name); }).join(', ') +
-            '. Already added to the list.</span></div>'
+        /* Whether each one is ON the list, checked rather than asserted. The
+           banner claimed every out-of-stock item had already been added, for
+           items that were not on the list at all -- so the one thing it was
+           there to prompt was the thing it talked you out of. */
+        ? (function () {
+            var on = {};
+            LIST.forEach(function (i) { on[i.name.toLowerCase()] = true; });
+            var added = out.filter(function (i) { return on[i.name.toLowerCase()]; });
+            var missing = out.filter(function (i) { return !on[i.name.toLowerCase()]; });
+            var say = [];
+            if (added.length) say.push(added.map(function (i) { return esc(i.name); }).join(', ') +
+              (added.length === 1 ? ' is' : ' are') + ' already on the list.');
+            if (missing.length) say.push(missing.map(function (i) { return esc(i.name); }).join(', ') +
+              (missing.length === 1 ? ' is' : ' are') + ' not.');
+            return '<div class="banner banner--warn" data-testid="out-banner">' + ICO.alert +
+              '<span><strong>' + out.length + ' out of stock</strong>' + say.join(' ') +
+              (missing.length
+                ? ' <button class="btn btn--tertiary btn--sm" type="button" data-action="pan-add-missing" ' +
+                  'data-testid="pan-add-missing">Add ' + (missing.length === 1 ? 'it' : 'them') +
+                  ' to the list</button>'
+                : '') +
+              '</span></div>';
+          })()
         : '') +
       '<div class="chiprow' + (out.length ? ' mt-4' : '') + '">' +
         '<button class="chip" type="button" aria-pressed="' + !S.staplesOnly + '" data-action="pan-filter" data-f="all" data-testid="pan-all">' +
@@ -24019,7 +24209,15 @@ DEMO.define("shopping", function (document, window, location, fetch) {
       undo = null; S.toast = null;
       if (undoTimer) clearTimeout(undoTimer);
     },
-    'clear-done': function () { S.sheet = 'clear-done'; },
+    'clear-done': function () {
+      /* Nothing to clear is not a dialog. It opened a confirm sheet asking
+         whether to remove zero items. */
+      if (!LIST.filter(function (i) { return i.done; }).length) {
+        S.toast = 'Nothing is ticked off yet.';
+        return;
+      }
+      S.sheet = 'clear-done';
+    },
     'clear-all':  function () { S.sheet = 'clear-all'; },
     'shop-at':    function () { S.sheet = 'shop-at'; },
 
@@ -24123,15 +24321,20 @@ DEMO.define("shopping", function (document, window, location, fetch) {
       undoTimer = setTimeout(function () { S.toast = null; render(); }, 5000);
     },
 
-    'edit-target': function () { S.editTarget = !S.editTarget; },
+    'edit-target': function () { S.editTarget = !S.editTarget; S.targetError = null; },
     'save-target': function () {
       var v = parseFloat(document.getElementById('target').value);
-      if (isNaN(v) || v < 0) return;
-      BUDGET.weeklyTarget = v; S.editTarget = false;
+      /* Says why. A negative or empty target used to return silently: the
+         button did nothing, the form stayed open, and nothing on screen said
+         the save had been refused or what would be accepted. */
+      if (isNaN(v)) { S.targetError = 'Put a number in, or zero for no target.'; return; }
+      if (v < 0) { S.targetError = 'A weekly target cannot be negative. Zero means no target.'; return; }
+      BUDGET.weeklyTarget = v; S.editTarget = false; S.targetError = null;
     },
     /* The form opens clean. The error sentence survived a collapse and a
        reopen, so an untouched form said "What did you buy?" before the
        reader had a chance to buy anything. */
+
     'add-purchase': function () { S.addOpen = !S.addOpen; S.purchaseError = null; },
     /* Writes. It closed the form and wrote nothing, so the history and the
        week's total both stayed exactly where they were. */
@@ -24167,7 +24370,10 @@ DEMO.define("shopping", function (document, window, location, fetch) {
       /* A receipt says what is now in the house, so the pantry hears it too. */
       RECEIPT.items.forEach(function (i) {
         var have = PANTRY.filter(function (x) { return x.name.toLowerCase() === i.n.toLowerCase(); })[0];
-        if (have) { have.qty = i.q; have.empty = false; have.store = store; }
+        /* Adds. It ASSIGNED, so buying two more of something you had three of
+           left you with two: a receipt says what came into the house, not
+           what is in it. */
+        if (have) { have.qty = (have.qty || 0) + i.q; have.empty = false; have.store = store; }
         else PANTRY.push({ id: 'p' + Date.now() + i.n, name: i.n, qty: i.q, cat: categorise(i.n),
                            store: store, staple: false, every: 7, empty: false });
       });
@@ -24196,11 +24402,54 @@ DEMO.define("shopping", function (document, window, location, fetch) {
         i.empty = !i.empty;
         var k = LIST.map(function (x) { return x.name.toLowerCase(); }).indexOf(i.name.toLowerCase());
         /* Running out puts it on the list. Restocking takes it off, because
-           the reason it was on the list has gone. */
-        if (i.empty && k < 0) LIST.push({ id: 'n' + Date.now(), name: i.name, qty: i.qty, unit: 'qty', cat: i.cat, done: false });
-        if (!i.empty && k > -1) LIST.splice(k, 1);
+           the reason it was on the list has gone -- but taking a row off the
+           shopping list is a delete, and it happened silently under a row
+           labelled "I have restocked it". Every other delete on this screen
+           is undoable; so is this one. */
+        if (i.empty && k < 0) {
+          LIST.push({ id: 'n' + Date.now(), name: i.name, qty: i.qty, unit: 'qty', cat: i.cat, done: false });
+          S.sheet = null;
+          offerUndo(i.name + ' added to the list.', function () {
+            i.empty = false;
+            var j = LIST.map(function (x) { return x.name.toLowerCase(); }).indexOf(i.name.toLowerCase());
+            if (j > -1) LIST.splice(j, 1);
+          });
+          return;
+        }
+        if (!i.empty && k > -1) {
+          var gone = LIST.splice(k, 1)[0];
+          S.sheet = null;
+          offerUndo(gone.name + ' taken off the list.', function () {
+            i.empty = true;
+            LIST.splice(k, 0, gone);
+          });
+          return;
+        }
       });
       S.sheet = null;
+    },
+
+    /* Puts the out-of-stock items that are NOT on the list onto it. The
+       banner used to assert they were already there. */
+    'pan-add-missing': function () {
+      var on = {};
+      LIST.forEach(function (i) { on[i.name.toLowerCase()] = true; });
+      var added = [];
+      PANTRY.forEach(function (i) {
+        if (!i.empty || on[i.name.toLowerCase()]) return;
+        var row = { id: 'n' + Date.now() + '-' + added.length, name: i.name, qty: i.qty || 1,
+                    unit: 'qty', cat: i.cat, done: false };
+        LIST.push(row); added.push(row);
+      });
+      if (!added.length) { S.toast = 'They are all on the list already.'; return; }
+      offerUndo(added.length === 1 ? added[0].name + ' added to the list.'
+                                   : added.length + ' items added to the list.',
+        function () {
+          added.forEach(function (row) {
+            var j = LIST.indexOf(row);
+            if (j > -1) LIST.splice(j, 1);
+          });
+        });
     },
     'pan-staple': function (el) {
       PANTRY.forEach(function (i) { if (i.id === el.dataset.id) i.staple = !i.staple; });
@@ -24414,15 +24663,17 @@ DEMO.define("review", function (document, window, location, fetch) {
 
   /* ---- formatting ------------------------------------------------ */
   function n(v) { return '<span class="num">' + v + '</span>'; }
-  function kg(v) { return n(Number(v).toLocaleString('en-US')) + ' kg'; }
+  function kg(v) { return n(LKUnits.fmtTotal(Number(v))); }
   /* A signed figure always prints its sign, so the colour is a second
      carrier of direction and never the only one. */
   function signedKg(v) {
-    if (v === 0) return n('0') + ' kg';
-    return n((v > 0 ? '+' : '−') + Math.abs(v).toLocaleString('en-US')) + ' kg';
+    var u = LKUnits.label();
+    if (v === 0) return n('0') + ' ' + u;
+    var x = LKUnits.vRound(Math.abs(v));
+    return n((v > 0 ? '+' : '\u2212') + x.toLocaleString('en-GB')) + ' ' + u;
   }
   function dir(v) { return v > 0 ? 'up' : (v < 0 ? 'down' : 'flat'); }
-  function set(w, r) { return n(w) + ' kg × ' + n(r); }
+  function set(w, r) { return n(LKUnits.v(w)) + ' ' + LKUnits.label() + ' \u00d7 ' + n(r); }
 
   /* ---- seed --------------------------------------------------------
      Prior column is w_1788458700000 in fixtures/seed-data.json:
@@ -25479,7 +25730,7 @@ DEMO.define("workout-detail", function (document, window, location, fetch) {
   function totals() {
     var w = S.w;
     var parts = w.kind === 'lift'
-      ? [n(workingSets(w)) + ' working sets', n(group(Math.round(volume(w)))) + ' kg', mins(w.min)]
+      ? [n(workingSets(w)) + ' working sets', n(LKUnits.fmtTotal(volume(w))), mins(w.min)]
       : [mins(w.min), w.km != null ? n(w.km) + ' km' : null, w.cal != null ? n(w.cal) + ' kcal' : null];
     return '<p class="t-detail mt-3" data-testid="detail-totals">' +
       parts.filter(Boolean).join(' &middot; ') + ' &middot; ' + relDate(w.date) + '</p>';
@@ -25502,7 +25753,7 @@ DEMO.define("workout-detail", function (document, window, location, fetch) {
     var label = s.warm ? 'W' : String(i);
     return '<div class="setgrid" data-testid="dset-' + exIdx + '-' + i + '">' +
         '<span class="setgrid__n' + (s.warm ? ' setgrid__n--warm' : '') + '">' + label + '</span>' +
-        '<span class="setgrid__n" style="text-align:left">' + n(s.kg) + ' kg</span>' +
+        '<span class="setgrid__n" style="text-align:left">' + n(LKUnits.v(s.kg)) + ' ' + LKUnits.label() + '</span>' +
         '<span class="setgrid__n" style="text-align:left">' + n(s.reps) + ' reps</span>' +
         '<span class="setgrid__n">' + (s.rir != null ? n(s.rir) + ' RIR' : '') + '</span>' +
         '<span class="setgrid__n">' + (s.pr ? '<span class="badge badge--success">PR</span>' : '') + '</span>' +
@@ -26087,9 +26338,12 @@ DEMO.define("cycle", function (document, window, location, fetch) {
   VIEWS.gated = function () {
     return '<div class="empty mt-5" data-testid="cycle-gated">' +
         '<p class="empty__title">Cycle tracking is off</p>' +
-        '<p class="empty__body">It appears when your profile&rsquo;s sex is set to female, because ' +
-          'everything on this screen is worked out from a cycle length and there is nothing to ' +
-          'work from otherwise.</p>' +
+        /* The real gate. The sentence sent the reader to change a profile
+           field that was already correct: this reader's profile says female
+           and her cycle is set up, and what is off is the Settings switch. */
+        '<p class="empty__body">The switch is in Settings, under Cycle tracking. Everything on this ' +
+          'screen is worked out from a cycle length, so it needs a recorded start and a length to ' +
+          'work from; without them there is nothing to show.</p>' +
         '<button class="btn btn--primary mt-2" type="button" data-act="open-settings" data-testid="cycle-open-settings">' +
           '<span class="btn__label">Open Settings</span></button>' +
       '</div>';
@@ -26643,9 +26897,9 @@ DEMO.define("progress", function (document, window, location, fetch) {
     var r = Math.round(v * 10) / 10;
     return (Math.abs(r % 1) < 0.05 ? String(Math.round(r)) : r.toFixed(1));
   }
-  function kg(v) { return n(num1(v)) + ' kg'; }
+  function kg(v) { return n(num1(LKUnits.v(v))) + ' ' + LKUnits.label(); }
   function signed(v) { return (v > 0 ? '+' : v < 0 ? '−' : '') + num1(Math.abs(v)); }
-  function signedKg(v) { return n(signed(v)) + ' kg'; }
+  function signedKg(v) { return n(signed(LKUnits.v(v))) + ' ' + LKUnits.label(); }
 
   /* =============================================================
      Selection maths. Every number on the screen comes from here.
@@ -27649,8 +27903,22 @@ DEMO.define("recap", function (document, window, location, fetch) {
     /* The unit is joined with a non-breaking space and kept inside the
        number, because at hero size "14.4k kg" broke after the figure and
        the card read "14.4" on one line and "k kg" on the next. */
-    if (kg >= 10000) return n((kg / 1000).toFixed(1) + 'k\u00A0kg');
-    return n(kg.toLocaleString('en-GB') + '\u00A0kg');
+    return n(volText(kg));
+  }
+  /* The same figure as plain text, for an accessible name. vol() returns
+     markup, and passing it through esc() put a literal <span class="num">
+     into the volume chart's aria-label, which is what a screen reader then
+     read out. */
+  function volText(kg) {
+    var u = LKUnits.label(), x = LKUnits.vRound(kg);
+    if (x >= 10000) return (x / 1000).toFixed(1) + 'k\u00A0' + u;
+    return x.toLocaleString('en-GB') + '\u00A0' + u;
+  }
+  /* Unabbreviated, for anywhere a reader would compare it with Home, Train
+     or workout-detail -- all of which print 14,363 kg where Recap alone said
+     "14.4k kg" for the same session. */
+  function volExact(kg) {
+    return LKUnits.vRound(kg).toLocaleString('en-GB') + '\u00A0' + LKUnits.label();
   }
 
   /* ---------------------------------------------------------------
@@ -27713,6 +27981,10 @@ DEMO.define("recap", function (document, window, location, fetch) {
   function dowOf(iso) {
     var p = parts(iso);
     return new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay();
+  }
+  function daysBetween(a, b) {
+    var x = parts(a), y = parts(b);
+    return Math.round((Date.UTC(y.y, y.m - 1, y.d) - Date.UTC(x.y, x.m - 1, x.d)) / 86400000);
   }
   function addDays(iso, k) {
     var p = parts(iso);
@@ -27779,7 +28051,7 @@ DEMO.define("recap", function (document, window, location, fetch) {
         '<span class="row__sub">' +
           (h.kind === 'cardio'
             ? n(h.min) + ' min · ' + n(h.km) + ' km · ' + n(h.cal) + ' kcal'
-            : n(h.sets) + ' sets · ' + vol(h.kg) + ' · ' + n(h.min) + ' min') +
+            : n(h.sets) + ' sets · ' + n(volExact(h.kg)) + ' · ' + n(h.min) + ' min') +
         '</span>' +
       '</span>' +
       (showDate ? '<span class="row__value t-meta">' + esc(pretty(h.date).slice(0, 3)) + '</span>' : '') +
@@ -27869,7 +28141,7 @@ DEMO.define("recap", function (document, window, location, fetch) {
       '<div class="row row--static"><span class="row__main stack">' +
         '<span class="row__title">Body weight</span>' +
         '<span class="row__sub">' + esc(pretty(S.day)) + '</span></span>' +
-        '<span class="row__value">' + n(DAY.weightKg) + ' kg</span></div>',
+        '<span class="row__value">' + n(LKUnits.v(DAY.weightKg)) + ' ' + LKUnits.label() + '</span></div>',
       '<div class="row row--static"><span class="row__main stack">' +
         '<span class="row__title">How it felt</span>' +
         '<span class="row__sub">' + esc(DAY.note) + '</span></span>' +
@@ -27898,6 +28170,7 @@ DEMO.define("recap", function (document, window, location, fetch) {
     var delta = prevVol ? Math.round((totalVol - prevVol) / prevVol * 100) : null;
 
     var isThis = a === weekStart(TODAY);
+    var daysSoFar = isThis ? daysBetween(a, TODAY) + 1 : 7;
     var out = '';
 
     out += '<div class="daynav gutter mt-3">' +
@@ -27920,8 +28193,17 @@ DEMO.define("recap", function (document, window, location, fetch) {
     out += head('The week', n(rows.length) + (rows.length === 1 ? ' session' : ' sessions'));
     out += card(
       '<p class="hero num" data-testid="week-volume">' + vol(totalVol) + '</p>' +
+      /* The comparison says when it is not like for like. This week is two
+         days old on a Wednesday and last week is seven, so "-43% on last
+         week" was reading a partial week against a whole one and calling it a
+         fall. The figure stays -- it is the real ratio -- and the sentence
+         beside it says what it is comparing. */
       '<p class="t-detail muted">total volume' +
         (delta === null ? '' : ' · ' + (delta >= 0 ? '+' : '') + n(delta) + '% on last week') + '</p>' +
+      (delta !== null && isThis && daysSoFar < 7
+        ? '<p class="t-detail quiet mt-1">' + n(daysSoFar) +
+          (daysSoFar === 1 ? ' day' : ' days') + ' of this week against a full week.</p>'
+        : '') +
       statRow([[n(totalSets), 'Sets'], [n(totalMin) + ' min', 'Time'],
                [n(lifts.length) + '/' + n(rows.length), 'Lifting']]));
 
@@ -27933,7 +28215,7 @@ DEMO.define("recap", function (document, window, location, fetch) {
       series.push({ l: DOW[dowOf(d)].charAt(0), v: v, d: d });
     }
     out += head('Volume by day');
-    out += card(bars(series, 'Volume by day, ' + vol(totalVol) + ' across the week'));
+    out += card(bars(series, 'Volume by day, ' + volText(totalVol) + ' across the week'));
 
     if (cardio.length) {
       out += head('Cardio', n(cardio.reduce(function (m, h) { return m + h.min; }, 0)) + ' min');
@@ -27947,7 +28229,7 @@ DEMO.define("recap", function (document, window, location, fetch) {
         return '<div class="row row--static"><span class="ico-well">' + ICO.star + '</span>' +
           '<span class="row__main stack"><span class="row__title">' + esc(p.name) + '</span>' +
           '<span class="row__sub">' + esc(pretty(p.date)) + '</span></span>' +
-          '<span class="row__value">' + n(p.kg) + ' kg</span></div>';
+          '<span class="row__value">' + n(LKUnits.v(p.kg)) + ' ' + LKUnits.label() + '</span></div>';
       }));
     }
 

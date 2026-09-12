@@ -11,6 +11,7 @@
 <script src="chrome.js"></script>
 <script src="session.js"></script>
 <script src="fixtures.js"></script>
+<script src="units.js"></script>
 </head>
 <body>
 <!--
@@ -112,8 +113,22 @@
     /* The unit is joined with a non-breaking space and kept inside the
        number, because at hero size "14.4k kg" broke after the figure and
        the card read "14.4" on one line and "k kg" on the next. */
-    if (kg >= 10000) return n((kg / 1000).toFixed(1) + 'k\u00A0kg');
-    return n(kg.toLocaleString('en-GB') + '\u00A0kg');
+    return n(volText(kg));
+  }
+  /* The same figure as plain text, for an accessible name. vol() returns
+     markup, and passing it through esc() put a literal <span class="num">
+     into the volume chart's aria-label, which is what a screen reader then
+     read out. */
+  function volText(kg) {
+    var u = LKUnits.label(), x = LKUnits.vRound(kg);
+    if (x >= 10000) return (x / 1000).toFixed(1) + 'k\u00A0' + u;
+    return x.toLocaleString('en-GB') + '\u00A0' + u;
+  }
+  /* Unabbreviated, for anywhere a reader would compare it with Home, Train
+     or workout-detail -- all of which print 14,363 kg where Recap alone said
+     "14.4k kg" for the same session. */
+  function volExact(kg) {
+    return LKUnits.vRound(kg).toLocaleString('en-GB') + '\u00A0' + LKUnits.label();
   }
 
   /* ---------------------------------------------------------------
@@ -176,6 +191,10 @@
   function dowOf(iso) {
     var p = parts(iso);
     return new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay();
+  }
+  function daysBetween(a, b) {
+    var x = parts(a), y = parts(b);
+    return Math.round((Date.UTC(y.y, y.m - 1, y.d) - Date.UTC(x.y, x.m - 1, x.d)) / 86400000);
   }
   function addDays(iso, k) {
     var p = parts(iso);
@@ -242,7 +261,7 @@
         '<span class="row__sub">' +
           (h.kind === 'cardio'
             ? n(h.min) + ' min · ' + n(h.km) + ' km · ' + n(h.cal) + ' kcal'
-            : n(h.sets) + ' sets · ' + vol(h.kg) + ' · ' + n(h.min) + ' min') +
+            : n(h.sets) + ' sets · ' + n(volExact(h.kg)) + ' · ' + n(h.min) + ' min') +
         '</span>' +
       '</span>' +
       (showDate ? '<span class="row__value t-meta">' + esc(pretty(h.date).slice(0, 3)) + '</span>' : '') +
@@ -332,7 +351,7 @@
       '<div class="row row--static"><span class="row__main stack">' +
         '<span class="row__title">Body weight</span>' +
         '<span class="row__sub">' + esc(pretty(S.day)) + '</span></span>' +
-        '<span class="row__value">' + n(DAY.weightKg) + ' kg</span></div>',
+        '<span class="row__value">' + n(LKUnits.v(DAY.weightKg)) + ' ' + LKUnits.label() + '</span></div>',
       '<div class="row row--static"><span class="row__main stack">' +
         '<span class="row__title">How it felt</span>' +
         '<span class="row__sub">' + esc(DAY.note) + '</span></span>' +
@@ -361,6 +380,7 @@
     var delta = prevVol ? Math.round((totalVol - prevVol) / prevVol * 100) : null;
 
     var isThis = a === weekStart(TODAY);
+    var daysSoFar = isThis ? daysBetween(a, TODAY) + 1 : 7;
     var out = '';
 
     out += '<div class="daynav gutter mt-3">' +
@@ -383,8 +403,17 @@
     out += head('The week', n(rows.length) + (rows.length === 1 ? ' session' : ' sessions'));
     out += card(
       '<p class="hero num" data-testid="week-volume">' + vol(totalVol) + '</p>' +
+      /* The comparison says when it is not like for like. This week is two
+         days old on a Wednesday and last week is seven, so "-43% on last
+         week" was reading a partial week against a whole one and calling it a
+         fall. The figure stays -- it is the real ratio -- and the sentence
+         beside it says what it is comparing. */
       '<p class="t-detail muted">total volume' +
         (delta === null ? '' : ' · ' + (delta >= 0 ? '+' : '') + n(delta) + '% on last week') + '</p>' +
+      (delta !== null && isThis && daysSoFar < 7
+        ? '<p class="t-detail quiet mt-1">' + n(daysSoFar) +
+          (daysSoFar === 1 ? ' day' : ' days') + ' of this week against a full week.</p>'
+        : '') +
       statRow([[n(totalSets), 'Sets'], [n(totalMin) + ' min', 'Time'],
                [n(lifts.length) + '/' + n(rows.length), 'Lifting']]));
 
@@ -396,7 +425,7 @@
       series.push({ l: DOW[dowOf(d)].charAt(0), v: v, d: d });
     }
     out += head('Volume by day');
-    out += card(bars(series, 'Volume by day, ' + vol(totalVol) + ' across the week'));
+    out += card(bars(series, 'Volume by day, ' + volText(totalVol) + ' across the week'));
 
     if (cardio.length) {
       out += head('Cardio', n(cardio.reduce(function (m, h) { return m + h.min; }, 0)) + ' min');
@@ -410,7 +439,7 @@
         return '<div class="row row--static"><span class="ico-well">' + ICO.star + '</span>' +
           '<span class="row__main stack"><span class="row__title">' + esc(p.name) + '</span>' +
           '<span class="row__sub">' + esc(pretty(p.date)) + '</span></span>' +
-          '<span class="row__value">' + n(p.kg) + ' kg</span></div>';
+          '<span class="row__value">' + n(LKUnits.v(p.kg)) + ' ' + LKUnits.label() + '</span></div>';
       }));
     }
 

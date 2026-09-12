@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="components.css">
 <script src="theme.js"></script>
 <script src="fixtures.js"></script>
+<script src="units.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 <script src="session.js"></script>
@@ -120,7 +121,6 @@
   /* Money is formatted in one place. A screen that writes "$" + n.toFixed(2)
      in fourteen places has fourteen chances to disagree with itself. */
   function usd(v) { return '$' + Number(v).toFixed(2); }
-  function usd0(v) { return '$' + Math.round(Number(v)); }
 
   var ICO = {
     chev:  '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg>',
@@ -138,19 +138,22 @@
      --------------------------------------------------------------- */
 
   /* The picks the live app ships, in its order, with its quantities. */
+  /* In the units the rest of the app uses. These were in pounds, ounces and
+     cups while the stored list is in kilos, grams and pieces, so adding a
+     shortcut put a second unit system on the same list. */
   var PICKS = [
-    { icon: '🍗', name: 'Chicken breast', qty: 2,  unit: 'lb' },
-    { icon: '🥚', name: 'Eggs',           qty: 12, unit: 'qty' },
-    { icon: '🥛', name: 'Greek yogurt',   qty: 16, unit: 'oz' },
-    { icon: '🐟', name: 'Salmon',         qty: 1,  unit: 'lb' },
-    { icon: '🥦', name: 'Broccoli',       qty: 2,  unit: 'qty' },
-    { icon: '🍚', name: 'Brown rice',     qty: 2,  unit: 'cup' },
-    { icon: '🍠', name: 'Sweet potato',   qty: 3,  unit: 'qty' },
-    { icon: '🥣', name: 'Oats',           qty: 2,  unit: 'cup' },
-    { icon: '🥑', name: 'Avocado',        qty: 2,  unit: 'qty' },
-    { icon: '🧀', name: 'Cottage cheese', qty: 16, unit: 'oz' },
-    { icon: '🥜', name: 'Almonds',        qty: 4,  unit: 'oz' },
-    { icon: '🥩', name: 'Ground beef',    qty: 1,  unit: 'lb' }
+    { icon: '🍗', name: 'Chicken thighs',  qty: 1,   unit: 'kg' },
+    { icon: '🥚', name: 'Eggs',            qty: 12,  unit: 'pcs' },
+    { icon: '🥛', name: 'Greek yogurt',    qty: 2,   unit: 'tubs' },
+    { icon: '🐟', name: 'Salmon',          qty: 500, unit: 'g' },
+    { icon: '🥦', name: 'Broccoli',        qty: 2,   unit: 'pcs' },
+    { icon: '🍚', name: 'Rice',            qty: 2,   unit: 'kg' },
+    { icon: '🍠', name: 'Sweet potato',    qty: 1,   unit: 'kg' },
+    { icon: '🥣', name: 'Oats',            qty: 1,   unit: 'kg' },
+    { icon: '🥑', name: 'Avocado',         qty: 2,   unit: 'pcs' },
+    { icon: '🧀', name: 'Cottage cheese',  qty: 500, unit: 'g' },
+    { icon: '🥜', name: 'Almonds',         qty: 1,   unit: 'bag' },
+    { icon: '🥩', name: 'Ground beef',     qty: 500, unit: 'g' }
   ];
 
   /* Three meals worth prepping, each one a whole shop rather than an
@@ -180,77 +183,68 @@
 
   var UNITS = ['qty', 'kg', 'g', 'lb', 'oz', 'cup', 'tbsp', 'tsp'];
 
-  var LIST = [
-    { id: 'i1', name: 'Chicken breast', qty: 2,  unit: 'lb',  cat: 'meat',    done: false },
-    { id: 'i2', name: 'Ground beef',    qty: 1,  unit: 'lb',  cat: 'meat',    done: true  },
-    { id: 'i3', name: 'Salmon',         qty: 1,  unit: 'lb',  cat: 'meat',    done: false },
-    { id: 'i4', name: 'Greek yogurt',   qty: 16, unit: 'oz',  cat: 'dairy',   done: false },
-    { id: 'i5', name: 'Cottage cheese', qty: 16, unit: 'oz',  cat: 'dairy',   done: true  },
-    { id: 'i6', name: 'Broccoli',       qty: 2,  unit: 'qty', cat: 'produce', done: false },
-    { id: 'i7', name: 'Spinach',        qty: 1,  unit: 'qty', cat: 'produce', done: false },
-    { id: 'i8', name: 'Avocado',        qty: 2,  unit: 'qty', cat: 'produce', done: false },
-    { id: 'i9', name: 'Brown rice',     qty: 2,  unit: 'cup', cat: 'pantry',  done: false },
-    { id: 'i10', name: 'Oats',          qty: 2,  unit: 'cup', cat: 'pantry',  done: true  },
-    { id: 'i11', name: 'Olive oil',     qty: 1,  unit: 'qty', cat: 'pantry',  done: false },
-    { id: 'i12', name: 'Almonds',       qty: 4,  unit: 'oz',  cat: 'snacks',  done: false }
-  ];
+  /* Everything on this screen is lk_shoppingList, lk_pantryItems,
+     lk_budgetData and lk_myStores, through the shared fixture. It used to be
+     a hand-typed twelve-item list in pounds and ounces, a seven-item pantry
+     and five invented purchases -- a set of data that shared nothing with the
+     ten-item list in kilos and grams every other part of the app is built
+     from, and whose totals no other screen could reproduce. */
+  var FXS = window.LKFixtures || {};
+  var TODAY_MS = Date.UTC(2026, 8, 9);
+  var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var MONS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function whenOf(iso) {
+    var d = new Date(iso);
+    return DOW[d.getUTCDay()] + ', ' + MONS[d.getUTCMonth()] + ' ' + d.getUTCDate();
+  }
+  function agoOf(iso) {
+    return Math.max(0, Math.round((TODAY_MS - Date.parse(iso)) / 86400000));
+  }
 
-  var BUDGET = {
-    weeklyTarget: 120,
-    history: [
-      { id: 'h1', store: 'Costco',  when: 'Sat, Sep 5',  daysAgo: 2,  total: 52.4,  source: 'receipt',
-        items: [{ n: 'Chicken breast', q: 2, p: 18.4 }, { n: 'Eggs', q: 1, p: 6.2 },
-                { n: 'Greek yogurt', q: 2, p: 9.8 }, { n: 'Brown rice', q: 1, p: 8.0 },
-                { n: 'Almonds', q: 1, p: 10.0 }] },
-      { id: 'h2', store: 'Walmart', when: 'Thu, Sep 3',  daysAgo: 4,  total: 21.0,  source: 'manual',
-        items: [{ n: 'Ground beef', q: 1, p: 8.5 }, { n: 'Broccoli', q: 2, p: 4.5 },
-                { n: 'Sweet potato', q: 3, p: 8.0 }] },
-      { id: 'h3', store: 'Target',  when: 'Tue, Sep 1',  daysAgo: 6,  total: 13.0,  source: 'list',
-        items: [{ n: 'Oats', q: 2, p: 7.0 }, { n: 'Olive oil', q: 1, p: 6.0 }] },
-      { id: 'h4', store: 'Costco',  when: 'Sat, Aug 23', daysAgo: 15, total: 61.2, source: 'receipt',
-        items: [{ n: 'Chicken breast', q: 3, p: 27.6 }, { n: 'Salmon', q: 2, p: 21.0 },
-                { n: 'Cottage cheese', q: 2, p: 12.6 }] },
-      { id: 'h5', store: 'Walmart', when: 'Wed, Aug 12', daysAgo: 26, total: 34.8, source: 'manual',
-        items: [{ n: 'Ground beef', q: 2, p: 17.0 }, { n: 'Brown rice', q: 2, p: 9.8 },
-                { n: 'Avocado', q: 4, p: 8.0 }] }
-    ],
-    compare: [
-      { store: 'Costco',  product: 'Chicken breast, 6 lb pack', price: 3.29, note: 'per lb, bulk only' },
-      { store: 'Walmart', product: 'Chicken breast, family pack', price: 3.68, note: '' },
-      { store: 'Target',  product: 'Chicken breast, 2 lb',        price: 4.49, note: '' }
-    ],
-    swaps: [
-      { from: 'Almonds',       to: 'Peanuts',            store: 'Costco',  saves: '$4.10' },
-      { from: 'Greek yogurt',  to: 'Plain yogurt, 32 oz', store: 'Walmart', saves: '$2.35' }
-    ]
-  };
+  var LIST = (FXS.shoppingList || []).map(function (x) {
+    return { id: x.id, name: x.itemName, qty: x.quantity, unit: x.unit,
+             cat: x.category, done: !!x.checked };
+  });
+
+  var BUDGET = (function () {
+    var b = FXS.budget || { weeklyTarget: 0, history: [] };
+    return {
+      weeklyTarget: b.weeklyTarget,
+      history: (b.history || []).map(function (h) {
+        return { id: h.id, store: h.store, when: whenOf(h.date), daysAgo: agoOf(h.date),
+                 total: h.total, source: h.source,
+                 items: (h.items || []).map(function (i) { return { n: i.name, q: i.qty, p: i.price }; }) };
+      }),
+      /* Named against what is actually on the list, so the comparison is
+         about something the reader is buying. */
+      compare: [
+        { store: "Trader Joe's", product: 'Chicken thighs, 1 kg', price: 9.5, note: 'per kg' },
+        { store: 'Safeway',      product: 'Chicken thighs, 1 kg', price: 11.2, note: '' },
+        { store: 'Costco',       product: 'Chicken thighs, 2.5 kg', price: 8.4, note: 'per kg, bulk only' }
+      ],
+      swaps: [
+        { from: 'Salmon',       to: 'Frozen salmon, 500 g', store: 'Safeway',      saves: '$4.40' },
+        { from: 'Greek yogurt', to: 'Plain yogurt, 1 kg',   store: "Trader Joe's", saves: '$2.10' }
+      ]
+    };
+  })();
 
   /* Read once, so a receipt confirm shows the same numbers a person saw when
-     they took the photo. */
-  var RECEIPT = {
-    store: '',
-    total: 52.4,
-    items: [
-      { n: 'Chicken breast', q: 2, p: 18.4 },
-      { n: 'Eggs',           q: 1, p: 6.2 },
-      { n: 'Greek yogurt',   q: 2, p: 9.8 },
-      { n: 'Brown rice',     q: 1, p: 8.0 },
-      { n: 'Almonds',        q: 1, p: 10.0 }
-    ]
-  };
+     they took the photo. The most recent stored receipt, rather than a sixth
+     purchase that exists nowhere. */
+  var RECEIPT = (function () {
+    var r = BUDGET.history.filter(function (h) { return h.source === 'receipt'; })[0] ||
+            BUDGET.history[0] || { total: 0, items: [] };
+    return { store: '', total: r.total, items: r.items.slice() };
+  })();
 
   /* Pantry. What is already in the house, so the list only carries what is
      not. A staple is an item that restocks itself: when its interval elapses
      it rejoins the list without being asked. */
-  var PANTRY = [
-    { id: 'p1', name: 'Chicken breast', qty: 2, cat: 'meat',    store: 'Costco',  staple: true,  every: 7,  empty: false },
-    { id: 'p2', name: 'Eggs',           qty: 12, cat: 'dairy',  store: 'Walmart', staple: true,  every: 10, empty: false },
-    { id: 'p3', name: 'Greek yogurt',   qty: 1, cat: 'dairy',   store: 'Costco',  staple: false, every: 7,  empty: true  },
-    { id: 'p4', name: 'Spinach',        qty: 1, cat: 'produce', store: '',        staple: false, every: 7,  empty: false },
-    { id: 'p5', name: 'Brown rice',     qty: 3, cat: 'pantry',  store: 'Costco',  staple: true,  every: 30, empty: false },
-    { id: 'p6', name: 'Olive oil',      qty: 1, cat: 'pantry',  store: '',        staple: false, every: 7,  empty: true  },
-    { id: 'p7', name: 'Almonds',        qty: 1, cat: 'snacks',  store: 'Target',  staple: false, every: 7,  empty: false }
-  ];
+  var PANTRY = (FXS.pantry || []).map(function (x) {
+    return { id: x.id, name: x.name, qty: x.quantity, cat: x.category, store: x.store || '',
+             staple: !!x.staple, every: x.intervalDays || 7, empty: !!x.empty };
+  });
 
   /* The stores the live app offers, in its order, with its descriptions. */
   var PRESETS = [
@@ -265,11 +259,13 @@
     { name: "Trader Joe's",  host: 'traderjoes.com',        about: 'specialty grocery with unique private-label products' },
     { name: 'Safeway',       host: 'safeway.com',           about: 'large supermarket chain' }
   ];
-  var MYSTORES = [
-    { id: 's1', name: 'Walmart', host: 'walmart.com', about: 'large general merchandise and grocery retailer', hue: 'var(--id-1)', on: true },
-    { id: 's2', name: 'Target',  host: 'target.com',  about: 'general merchandise and grocery retailer',        hue: 'var(--id-4)', on: true },
-    { id: 's3', name: 'Costco',  host: 'costco.com',  about: 'warehouse club, bulk items',                      hue: 'var(--id-2)', on: false }
-  ];
+  /* lk_myStores. Three were invented here; the reader has one. */
+  var HUES = ['var(--id-1)', 'var(--id-4)', 'var(--id-2)', 'var(--id-3)', 'var(--id-5)'];
+  var MYSTORES = (FXS.stores || []).map(function (st, i) {
+    return { id: st.id, name: st.name,
+             host: String(st.url || '').replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''),
+             about: st.description || '', hue: HUES[i % HUES.length], on: st.enabled !== false };
+  });
 
   var PANELS = [
     ['list',   'List'],
@@ -287,6 +283,7 @@
     panel: 'list',
     sheet: null,
     editTarget: false,
+    targetError: null,
     addOpen: false,
     receipt: null,          /* null | 'ok' | 'none' | 'down' */
     histFilter: 'week',
@@ -313,10 +310,14 @@
     }, 0);
   }
   function overBudget() { return BUDGET.weeklyTarget > 0 && weekSpent() > BUDGET.weeklyTarget; }
+  /* The bar is clamped; the FIGURE is not. They were one number, so a week
+     at $180 against a $120 target read "100%" beside "$60.00 over budget" --
+     the one line that could have said how far over said it was exactly on. */
   function budgetPct()  {
     if (!BUDGET.weeklyTarget) return 0;
-    return Math.min(100, weekSpent() / BUDGET.weeklyTarget * 100);
+    return weekSpent() / BUDGET.weeklyTarget * 100;
   }
+  function budgetBarPct() { return Math.min(100, budgetPct()); }
 
   /* ---------------------------------------------------------------
      Segment. Four panels, one control, and the count of what is still to
@@ -336,12 +337,21 @@
   function headerCount() {
     if (S.state !== 'populated') return '';
     if (S.panel === 'list')   return left() + ' to get';
-    if (S.panel === 'pantry') return PANTRY.length + ' in stock';
+    /* In stock means in stock. It counted every pantry row, so the header
+       said "7 in stock" directly above a banner saying two of them were out. */
+    if (S.panel === 'pantry') {
+      var inStock = PANTRY.filter(function (i) { return !i.empty; }).length;
+      var out = PANTRY.length - inStock;
+      return inStock + ' in stock' + (out ? ', ' + out + ' out' : '');
+    }
     if (S.panel === 'stores') return onStores().length + ' of ' + MYSTORES.length + ' on';
     if (!BUDGET.weeklyTarget) return 'No target';
+    /* The same figure as the card. Rounding to whole dollars here put
+       "$72 left" in the header above "$71.50 remaining" on the card, and a
+       reader has no way to tell which of the two is the real number. */
     return overBudget()
-      ? usd0(weekSpent() - BUDGET.weeklyTarget) + ' over'
-      : usd0(BUDGET.weeklyTarget - weekSpent()) + ' left';
+      ? usd(weekSpent() - BUDGET.weeklyTarget) + ' over'
+      : usd(BUDGET.weeklyTarget - weekSpent()) + ' left';
   }
 
   /* ---------------------------------------------------------------
@@ -519,12 +529,14 @@
         '<input class="input num" id="target" type="number" min="0" step="0.01" inputmode="decimal" ' +
           'value="' + BUDGET.weeklyTarget.toFixed(2) + '" data-testid="target-input">' +
         '<p class="field__help">Zero or more. Set it to zero to stop comparing against a target without losing the history.</p>' +
+        (S.targetError ? '<p class="field__error" role="alert" data-testid="target-error">' +
+          esc(S.targetError) + '</p>' : '') +
         '<button class="btn btn--primary btn--block mt-3" type="button" data-action="save-target" data-testid="save-target">' +
           '<span class="btn__label">Save target</span></button>' +
       '</div>';
     }
 
-    var pct = budgetPct(), over = overBudget();
+    var pct = budgetPct(), barPct = budgetBarPct(), over = overBudget();
     var mClass = over ? ' meter--over' : (pct >= 75 ? ' meter--warn' : '');
     return '<div class="card" data-testid="budget-card">' +
       '<div class="section__head"><h2 class="t-label">Weekly budget</h2>' +
@@ -535,7 +547,7 @@
       '</div>' +
       (BUDGET.weeklyTarget
         ? '<div class="meter mt-3' + mClass + '" role="img" aria-label="' + usd(weekSpent()) +
-            ' of ' + usd(BUDGET.weeklyTarget) + ' spent this week"><span class="meter__fill" style="width:' + pct + '%"></span></div>' +
+            ' of ' + usd(BUDGET.weeklyTarget) + ' spent this week"><span class="meter__fill" style="width:' + barPct + '%"></span></div>' +
           '<div class="hstack hstack--3 mt-2">' +
             '<p class="t-detail grow' + (over ? '" style="color: var(--error)' : '') + '">' +
               (over ? usd(weekSpent() - BUDGET.weeklyTarget) + ' over budget'
@@ -825,10 +837,29 @@
 
     var head = '<div style="padding: 0 var(--page-x)">' +
       (out.length
-        ? '<div class="banner banner--warn" data-testid="out-banner">' + ICO.alert +
-            '<span><strong>' + out.length + ' out of stock</strong>' +
-            out.map(function (i) { return esc(i.name); }).join(', ') +
-            '. Already added to the list.</span></div>'
+        /* Whether each one is ON the list, checked rather than asserted. The
+           banner claimed every out-of-stock item had already been added, for
+           items that were not on the list at all -- so the one thing it was
+           there to prompt was the thing it talked you out of. */
+        ? (function () {
+            var on = {};
+            LIST.forEach(function (i) { on[i.name.toLowerCase()] = true; });
+            var added = out.filter(function (i) { return on[i.name.toLowerCase()]; });
+            var missing = out.filter(function (i) { return !on[i.name.toLowerCase()]; });
+            var say = [];
+            if (added.length) say.push(added.map(function (i) { return esc(i.name); }).join(', ') +
+              (added.length === 1 ? ' is' : ' are') + ' already on the list.');
+            if (missing.length) say.push(missing.map(function (i) { return esc(i.name); }).join(', ') +
+              (missing.length === 1 ? ' is' : ' are') + ' not.');
+            return '<div class="banner banner--warn" data-testid="out-banner">' + ICO.alert +
+              '<span><strong>' + out.length + ' out of stock</strong>' + say.join(' ') +
+              (missing.length
+                ? ' <button class="btn btn--tertiary btn--sm" type="button" data-action="pan-add-missing" ' +
+                  'data-testid="pan-add-missing">Add ' + (missing.length === 1 ? 'it' : 'them') +
+                  ' to the list</button>'
+                : '') +
+              '</span></div>';
+          })()
         : '') +
       '<div class="chiprow' + (out.length ? ' mt-4' : '') + '">' +
         '<button class="chip" type="button" aria-pressed="' + !S.staplesOnly + '" data-action="pan-filter" data-f="all" data-testid="pan-all">' +
@@ -1220,7 +1251,15 @@
       undo = null; S.toast = null;
       if (undoTimer) clearTimeout(undoTimer);
     },
-    'clear-done': function () { S.sheet = 'clear-done'; },
+    'clear-done': function () {
+      /* Nothing to clear is not a dialog. It opened a confirm sheet asking
+         whether to remove zero items. */
+      if (!LIST.filter(function (i) { return i.done; }).length) {
+        S.toast = 'Nothing is ticked off yet.';
+        return;
+      }
+      S.sheet = 'clear-done';
+    },
     'clear-all':  function () { S.sheet = 'clear-all'; },
     'shop-at':    function () { S.sheet = 'shop-at'; },
 
@@ -1324,15 +1363,20 @@
       undoTimer = setTimeout(function () { S.toast = null; render(); }, 5000);
     },
 
-    'edit-target': function () { S.editTarget = !S.editTarget; },
+    'edit-target': function () { S.editTarget = !S.editTarget; S.targetError = null; },
     'save-target': function () {
       var v = parseFloat(document.getElementById('target').value);
-      if (isNaN(v) || v < 0) return;
-      BUDGET.weeklyTarget = v; S.editTarget = false;
+      /* Says why. A negative or empty target used to return silently: the
+         button did nothing, the form stayed open, and nothing on screen said
+         the save had been refused or what would be accepted. */
+      if (isNaN(v)) { S.targetError = 'Put a number in, or zero for no target.'; return; }
+      if (v < 0) { S.targetError = 'A weekly target cannot be negative. Zero means no target.'; return; }
+      BUDGET.weeklyTarget = v; S.editTarget = false; S.targetError = null;
     },
     /* The form opens clean. The error sentence survived a collapse and a
        reopen, so an untouched form said "What did you buy?" before the
        reader had a chance to buy anything. */
+
     'add-purchase': function () { S.addOpen = !S.addOpen; S.purchaseError = null; },
     /* Writes. It closed the form and wrote nothing, so the history and the
        week's total both stayed exactly where they were. */
@@ -1368,7 +1412,10 @@
       /* A receipt says what is now in the house, so the pantry hears it too. */
       RECEIPT.items.forEach(function (i) {
         var have = PANTRY.filter(function (x) { return x.name.toLowerCase() === i.n.toLowerCase(); })[0];
-        if (have) { have.qty = i.q; have.empty = false; have.store = store; }
+        /* Adds. It ASSIGNED, so buying two more of something you had three of
+           left you with two: a receipt says what came into the house, not
+           what is in it. */
+        if (have) { have.qty = (have.qty || 0) + i.q; have.empty = false; have.store = store; }
         else PANTRY.push({ id: 'p' + Date.now() + i.n, name: i.n, qty: i.q, cat: categorise(i.n),
                            store: store, staple: false, every: 7, empty: false });
       });
@@ -1397,11 +1444,54 @@
         i.empty = !i.empty;
         var k = LIST.map(function (x) { return x.name.toLowerCase(); }).indexOf(i.name.toLowerCase());
         /* Running out puts it on the list. Restocking takes it off, because
-           the reason it was on the list has gone. */
-        if (i.empty && k < 0) LIST.push({ id: 'n' + Date.now(), name: i.name, qty: i.qty, unit: 'qty', cat: i.cat, done: false });
-        if (!i.empty && k > -1) LIST.splice(k, 1);
+           the reason it was on the list has gone -- but taking a row off the
+           shopping list is a delete, and it happened silently under a row
+           labelled "I have restocked it". Every other delete on this screen
+           is undoable; so is this one. */
+        if (i.empty && k < 0) {
+          LIST.push({ id: 'n' + Date.now(), name: i.name, qty: i.qty, unit: 'qty', cat: i.cat, done: false });
+          S.sheet = null;
+          offerUndo(i.name + ' added to the list.', function () {
+            i.empty = false;
+            var j = LIST.map(function (x) { return x.name.toLowerCase(); }).indexOf(i.name.toLowerCase());
+            if (j > -1) LIST.splice(j, 1);
+          });
+          return;
+        }
+        if (!i.empty && k > -1) {
+          var gone = LIST.splice(k, 1)[0];
+          S.sheet = null;
+          offerUndo(gone.name + ' taken off the list.', function () {
+            i.empty = true;
+            LIST.splice(k, 0, gone);
+          });
+          return;
+        }
       });
       S.sheet = null;
+    },
+
+    /* Puts the out-of-stock items that are NOT on the list onto it. The
+       banner used to assert they were already there. */
+    'pan-add-missing': function () {
+      var on = {};
+      LIST.forEach(function (i) { on[i.name.toLowerCase()] = true; });
+      var added = [];
+      PANTRY.forEach(function (i) {
+        if (!i.empty || on[i.name.toLowerCase()]) return;
+        var row = { id: 'n' + Date.now() + '-' + added.length, name: i.name, qty: i.qty || 1,
+                    unit: 'qty', cat: i.cat, done: false };
+        LIST.push(row); added.push(row);
+      });
+      if (!added.length) { S.toast = 'They are all on the list already.'; return; }
+      offerUndo(added.length === 1 ? added[0].name + ' added to the list.'
+                                   : added.length + ' items added to the list.',
+        function () {
+          added.forEach(function (row) {
+            var j = LIST.indexOf(row);
+            if (j > -1) LIST.splice(j, 1);
+          });
+        });
     },
     'pan-staple': function (el) {
       PANTRY.forEach(function (i) { if (i.id === el.dataset.id) i.staple = !i.staple; });

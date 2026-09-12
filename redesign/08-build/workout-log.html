@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="components.css">
 <script src="theme.js"></script>
 <script src="fixtures.js"></script>
+<script src="units.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 <script src="session.js"></script>
@@ -162,6 +163,11 @@
     return S.unit === 'kg' ? Number(displayValue) : Math.round((Number(displayValue) / LB_PER_KG) * 100) / 100;
   }
   function unitLabel() { return S.unit === 'kg' ? 'kg' : 'lb'; }
+  /* "everywhere" means everywhere. */
+  function setUnit(u) {
+    S.unit = u;
+    if (window.LKUnits) LKUnits.set(u === 'kg');
+  }
   function unitWord() { return S.unit === 'kg' ? 'kilograms' : 'pounds'; }
   function clock(s) {
     var m = Math.floor(s / 60), r = s % 60;
@@ -189,32 +195,55 @@
     };
   }
 
+  /* WHAT YOU LIFTED LAST TIME, from the shared history rather than typed
+     here. Two of these were wrong against the fixture -- a 40 kg bench
+     warm-up where the last Push logged 37.5, and a 24 kg shoulder press
+     where it logged 25, a figure that appears in no session and is not even
+     a multiple of the 2.5 kg step Settings says weights round to. The rows
+     a person decides today's load from have to be the rows they actually
+     lifted. */
+  function lastSetsFor(exId) {
+    var FX = window.LKFixtures;
+    if (!FX || !FX.lastTime) return null;
+    var last = FX.lastTime(exId, FX.today);
+    if (!last) return null;
+    return last.exercise.sets.filter(function (st) { return st.done; });
+  }
+
+  /* One exercise, with `todaysSets` of its own and the rest filled from the
+     last session. Anything beyond what was done last time gets no previous
+     figure rather than a repeated one. */
+  function exFromHistory(id, name, muscle, note, todaysSets, planned) {
+    var prev = lastSetsFor(id) || [];
+    var work = prev.filter(function (st) { return !st.warm; });
+    var warm = prev.filter(function (st) { return st.warm; });
+    var sets = (todaysSets || []).slice();
+    var wi = 0;
+    sets.forEach(function (st) {
+      if (st.warm) { if (warm[0] && st.prevKg === undefined) { st.prevKg = warm[0].kg; st.prevReps = warm[0].reps; } return; }
+      var p = work[wi++];
+      if (p && st.prevKg == null) { st.prevKg = p.kg; st.prevReps = p.reps; }
+    });
+    while (sets.length < (planned || 0)) {
+      var p2 = work[wi++];
+      sets.push(set(null, null, p2 ? { prevKg: p2.kg, prevReps: p2.reps } : {}));
+    }
+    return { id: id, name: name, muscle: muscle, note: note || '', sets: sets };
+  }
+
   function pushDay() {
+    /* The warm-up and the two working sets already logged are today's, and
+       they stay as they are; everything else is last session's figures. */
     return [
-      { id: 111, name: 'Barbell Bench Press', muscle: 'Mid Chest', note: 'Pinkies on rings, feet back', sets: [
+      exFromHistory(111, 'Barbell Bench Press', 'Mid Chest', 'Pinkies on rings, feet back', [
         set(40, 10, { warm: true, done: true, rir: 4 }),
         set(72.5, 8, { done: true }),
-        set(72.5, 7, { done: true }),
-        set(null, null, { prevKg: 72.5, prevReps: 7 })
-      ] },
-      { id: 302, name: 'DB Shoulder Press', muscle: 'Front Delt', sets: [
-        set(null, null, { prevKg: 24, prevReps: 10 }),
-        set(null, null, { prevKg: 24, prevReps: 9 }),
-        set(null, null, { prevKg: 24, prevReps: 8 })
-      ] },
-      { id: 103, name: 'Incline Cable Fly', muscle: 'Upper Chest', sets: [
-        set(null, null, { prevKg: 15, prevReps: 12 }),
-        set(null, null, { prevKg: 15, prevReps: 12 })
-      ] },
-      { id: 311, name: 'Lateral Raise', muscle: 'Side Delt', sets: [
-        set(null, null, { prevKg: 9, prevReps: 15 }),
-        set(null, null, { prevKg: 9, prevReps: 14 }),
-        set(null, null, { prevKg: 9, prevReps: 12 })
-      ] },
-      { id: 411, name: 'Tricep Pushdown', muscle: 'Lateral Head', sets: [
-        set(null, null, { prevKg: 27.5, prevReps: 12 }),
-        set(null, null, { prevKg: 27.5, prevReps: 11 })
-      ] }
+        set(72.5, 7, { done: true })
+      ], 4),
+      exFromHistory(302, 'DB Shoulder Press', 'Front Delt', '', [], 3),
+      exFromHistory(103, 'Incline Cable Fly', 'Upper Chest', '', [], 3),
+      exFromHistory(311, 'Lateral Raise', 'Side Delt', '', [], 3),
+      exFromHistory(411, 'Tricep Pushdown', 'Lateral Head', '', [], 3)
     ];
   }
 
@@ -224,7 +253,11 @@
   var S = {
     state: 'mid-session',
     name: 'PPL - Push',
-    unit: 'kg',              /* lk_profile.useKg === true */
+    /* lk_profile.useKg, through LKUnits. This screen's switch was its own:
+       it converted this screen correctly and toasted "Showing lb everywhere"
+       while every other screen stayed in kg, and it opened in kg whatever the
+       profile said. There is one setting now, and this switch writes it. */
+    unit: (window.LKUnits && !LKUnits.useKg()) ? 'lb' : 'kg',
     elapsed: 1261,           /* 21:01 */
     exercises: pushDay(),
     blocks: [],
@@ -1134,7 +1167,7 @@
         var key = t.getAttribute('data-key');
         var cur = S.exercises[S.overlayEx];
         if (key === 'info') { S.overlay = 'detail'; break; }
-        if (key === 'unit') { S.unit = S.unit === 'kg' ? 'lb' : 'kg'; S.overlay = null; toast('Showing ' + unitLabel() + ' everywhere.'); break; }
+        if (key === 'unit') { setUnit(S.unit === 'kg' ? 'lb' : 'kg'); S.overlay = null; toast('Showing ' + unitLabel() + ' everywhere.'); break; }
         if (key === 'warmup') {
           cur.sets.unshift(set(cur.sets[0] ? Math.round((cur.sets[0].prevKg || 20) * 0.5 * 2) / 2 : 20, 10, { warm: true, rir: 4 }));
           S.overlay = null; toast('Warm-up set added.'); break;
@@ -1185,7 +1218,7 @@
       case 'tools': S.overlay = 'tools'; break;
       case 'tool': {
         var tool = t.getAttribute('data-tool');
-        if (tool === 'unit') { S.unit = S.unit === 'kg' ? 'lb' : 'kg'; S.overlay = null; toast('Showing ' + unitLabel() + ' everywhere.'); }
+        if (tool === 'unit') { setUnit(S.unit === 'kg' ? 'lb' : 'kg'); S.overlay = null; toast('Showing ' + unitLabel() + ' everywhere.'); }
         else S.overlay = tool;
         break;
       }
