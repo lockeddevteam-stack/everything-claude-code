@@ -270,26 +270,33 @@ const TARGETS = { kcal: 2980, pro: 160, carb: 380, fat: 80, waterMl: 3000 };
    assembled; it carries no barcode, so it is 'table'. */
 const DAY_LOG = {
   '2026-09-09': { water: 1750, supps: [true, true], meals: [
-    ['eggs', '8:05', 'table'], ['bowl', '12:40', 'estimate'], ['shake', '3:15', 'verified'] ] },
+    ['eggs', '8:05', 'table', 'breakfast'], ['bowl', '12:40', 'estimate', 'lunch'],
+    ['shake', '3:15', 'verified', 'snack'] ] },
   '2026-09-08': { water: 3100, supps: [true, true], meals: [
-    ['eggs', '8:10', 'table'], ['cnr', '12:30', 'recipe'], ['pasta', '7:20', 'estimate'],
-    ['shake', '4:05', 'verified'], ['pancakes', '9:30', 'recipe'] ] },
+    ['eggs', '8:10', 'table', 'breakfast'], ['cnr', '12:30', 'recipe', 'lunch'],
+    ['pasta', '7:20', 'estimate', 'dinner'], ['shake', '4:05', 'verified', 'snack'],
+    ['pancakes', '9:30', 'recipe', 'snack'] ] },
   '2026-09-07': { water: 2900, supps: [true, false], meals: [
-    ['eggs', '8:00', 'table'], ['bowl', '12:45', 'estimate'], ['chilli', '7:15', 'recipe'],
-    ['shake', '3:40', 'verified'], ['pancakes', '9:45', 'recipe'], ['skyr', '10:30', 'verified'] ] },
+    ['eggs', '8:00', 'table', 'breakfast'], ['bowl', '12:45', 'estimate', 'lunch'],
+    ['chilli', '7:15', 'recipe', 'dinner'], ['shake', '3:40', 'verified', 'snack'],
+    ['pancakes', '9:45', 'recipe', 'snack'], ['skyr', '10:30', 'verified', 'snack'] ] },
   '2026-09-06': { water: 2600, supps: [false, false], meals: [
-    ['eggs', '9:20', 'table'], ['cnr', '1:10', 'recipe'], ['chilli', '7:00', 'recipe'],
-    ['shake', '4:30', 'verified'] ] }
+    ['eggs', '9:20', 'table', 'breakfast'], ['cnr', '1:10', 'recipe', 'lunch'],
+    ['chilli', '7:00', 'recipe', 'dinner'], ['shake', '4:30', 'verified', 'snack'] ] }
 };
 
 const round1 = (x) => Math.round(x * 10) / 10;
 const nutritionDays = {};
 for (const iso of Object.keys(DAY_LOG)) {
   const d = DAY_LOG[iso];
-  const meals = d.meals.map(([k, at, src]) => {
+  const meals = d.meals.map(([k, at, src, slot]) => {
     const f = FOODS[k];
     if (!f) throw new Error('no food named ' + k);
-    return { key: k, icon: f.icon, name: f.name, at, src, kcal: f.kcal, pro: f.pro, carb: f.carb, fat: f.fat };
+    if (!['breakfast', 'lunch', 'dinner', 'snack'].includes(slot)) {
+      throw new Error('no slot on ' + k + ' at ' + at);
+    }
+    return { key: k, icon: f.icon, name: f.name, at, src, slot,
+             kcal: f.kcal, pro: f.pro, carb: f.carb, fat: f.fat };
   });
   nutritionDays[iso] = {
     date: iso,
