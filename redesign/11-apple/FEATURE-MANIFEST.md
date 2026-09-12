@@ -46,16 +46,16 @@ media-retry             open                    retry                   save-cus
 try                     undo
 ```
 
-**fuel.html** — 26
+**fuel.html** — 28
 
 ```
 ' + c[0] +
           '  cam                     cam-log                 cam-oil                 close
-log-often               log-recipe              meal                    meal-delete             meal-portion
-meals                   mic                     mic-log                 new-recipe              open-recipe
-plan-log                recipes-back            retry                   scan                    scan-log
-supp                    targets                 targets-save            undo                    water-add
-water-sub
+log-often               log-recipe              log-search              meal                    meal-delete
+meal-portion            meals                   mic                     mic-log                 new-recipe
+open-recipe             plan-log                recipes-back            retry                   scan
+scan-log                search                  supp                    targets                 targets-save
+undo                    water-add               water-sub
 ```
 
 **profile.html** — 4
@@ -90,7 +90,7 @@ close-toast             confirm                 create-account          pick    
 save-name               sheet                   sign-in                 sync                    toggle
 ```
 
-**shopping.html** — 44
+**shopping.html** — 45
 
 ```
 ' +
@@ -98,11 +98,11 @@ save-name               sheet                   sign-in                 sync    
 add-store               back                    clear-all               clear-done              close
 compare                 del-hist                edit-target             export                  find-swaps
 hist                    merge-do                merge-sep               open-item               pan-add
-pan-empty               pan-filter              pan-interval-save       pan-open                pan-remove
-pan-staple              pan-to-list             panel                   pick                    receipt-save
-remove                  retry                   save-purchase           save-target             scan-cam
-scan-cancel             scan-lib                search-store            shop-at                 store-remove
-store-toggle            suggest                 tick                    undo
+pan-add-missing         pan-empty               pan-filter              pan-interval-save       pan-open
+pan-remove              pan-staple              pan-to-list             panel                   pick
+receipt-save            remove                  retry                   save-purchase           save-target
+scan-cam                scan-cancel             scan-lib                search-store            shop-at
+store-remove            store-toggle            suggest                 tick                    undo
 ```
 
 **split-builder.html** — 28
@@ -116,14 +116,14 @@ manual-back             move-' + kind + '       open-swap               pick-add
 save                    split-name              toast-action
 ```
 
-**stack.html** — 23
+**stack.html** — 24
 
 ```
 add-comp                add-cycle               back                    cancel                  cancel-presets
 cp-cat                  cp-freq                 cp-route                del-comp                delete
 edit                    enable                  end                     open                    open-comp
-pr-cat                  presets                 reopen                  retry                   save-comp
-save-cycle              take                    use-preset
+pr-cat                  presets                 read-stack              reopen                  retry
+save-comp               save-cycle              take                    use-preset
 ```
 
 **train.html** — 18
@@ -161,10 +161,10 @@ rest-add                rest-set                rest-skip               rest-tog
 toast-action            tool                    tools
 ```
 
-**session.js** — 1
+**session.js** — 2
 
 ```
-resume
+resume                  shelf-finish
 ```
 
 ## Test ids per screen
@@ -176,17 +176,17 @@ The selectors every test and every audit script addresses.
 | `coach.html` | 99 |
 | `cycle.html` | 43 |
 | `exercise-library.html` | 51 |
-| `fuel.html` | 79 |
+| `fuel.html` | 83 |
 | `home.html` | 21 |
-| `onboarding.html` | 65 |
+| `onboarding.html` | 69 |
 | `profile.html` | 23 |
 | `progress.html` | 71 |
 | `recap.html` | 25 |
 | `review.html` | 47 |
 | `settings.html` | 31 |
-| `shopping.html` | 117 |
-| `split-builder.html` | 69 |
-| `stack.html` | 40 |
+| `shopping.html` | 119 |
+| `split-builder.html` | 70 |
+| `stack.html` | 42 |
 | `train.html` | 52 |
 | `tutorial.html` | 12 |
 | `workout-detail.html` | 31 |
@@ -194,14 +194,17 @@ The selectors every test and every audit script addresses.
 | `app.js` | 1 |
 | `bodymap.js` | 0 |
 | `chrome.js` | 1 |
-| `session.js` | 1 |
+| `fixtures.js` | 0 |
+| `session.js` | 3 |
 | `theme.js` | 0 |
+| `units.js` | 0 |
 
-## Storage keys — 7
+## Storage keys — 11
 
 ```
 lk_                       lk_badges                 lk_cycle                  lk_fuelNumbers
-lk_libBrowse              lk_perfTracking           lk_tutorialSeen
+lk_lastSession            lk_libBrowse              lk_openLift               lk_openSplit
+lk_openWorkout            lk_perfTracking           lk_tutorialSeen
 ```
 
 ## Per-screen totals
@@ -211,27 +214,29 @@ five columns after them are.
 
 | Screen | Lines | Listeners | Actions | Buttons | Inputs | testids |
 |---|---|---|---|---|---|---|
-| `coach.html` | 1565 | 6 | 46 | 53 | 3 | 99 |
-| `cycle.html` | 662 | 5 | 16 | 19 | 6 | 43 |
-| `exercise-library.html` | 1629 | 7 | 22 | 31 | 4 | 51 |
-| `fuel.html` | 1238 | 5 | 26 | 46 | 3 | 79 |
-| `home.html` | 530 | 3 | 0 | 18 | 0 | 21 |
-| `onboarding.html` | 1152 | 10 | 0 | 31 | 5 | 65 |
-| `profile.html` | 402 | 4 | 4 | 12 | 0 | 23 |
-| `progress.html` | 1192 | 6 | 22 | 34 | 6 | 71 |
-| `recap.html` | 649 | 4 | 13 | 15 | 0 | 25 |
-| `review.html` | 1015 | 5 | 0 | 23 | 0 | 47 |
-| `settings.html` | 1058 | 5 | 15 | 23 | 4 | 31 |
-| `shopping.html` | 1587 | 6 | 44 | 60 | 16 | 117 |
-| `split-builder.html` | 1179 | 12 | 28 | 36 | 4 | 69 |
-| `stack.html` | 735 | 5 | 23 | 28 | 3 | 40 |
-| `train.html` | 989 | 6 | 18 | 28 | 2 | 52 |
-| `tutorial.html` | 277 | 3 | 4 | 7 | 0 | 12 |
-| `workout-detail.html` | 536 | 4 | 9 | 12 | 1 | 31 |
-| `workout-log.html` | 1249 | 6 | 38 | 50 | 5 | 94 |
+| `coach.html` | 1567 | 6 | 46 | 53 | 3 | 99 |
+| `cycle.html` | 667 | 5 | 16 | 19 | 6 | 43 |
+| `exercise-library.html` | 1632 | 7 | 22 | 31 | 4 | 51 |
+| `fuel.html` | 1454 | 5 | 28 | 49 | 4 | 83 |
+| `home.html` | 545 | 3 | 0 | 18 | 0 | 21 |
+| `onboarding.html` | 1250 | 10 | 0 | 34 | 5 | 69 |
+| `profile.html` | 414 | 4 | 4 | 12 | 0 | 23 |
+| `progress.html` | 1273 | 6 | 22 | 34 | 6 | 71 |
+| `recap.html` | 690 | 4 | 13 | 15 | 0 | 25 |
+| `review.html` | 1120 | 5 | 0 | 23 | 0 | 47 |
+| `settings.html` | 1074 | 5 | 15 | 23 | 4 | 31 |
+| `shopping.html` | 1678 | 6 | 45 | 61 | 16 | 119 |
+| `split-builder.html` | 1352 | 12 | 28 | 36 | 4 | 70 |
+| `stack.html` | 963 | 7 | 24 | 30 | 3 | 42 |
+| `train.html` | 1009 | 6 | 18 | 28 | 2 | 52 |
+| `tutorial.html` | 285 | 3 | 4 | 7 | 0 | 12 |
+| `workout-detail.html` | 598 | 4 | 9 | 12 | 1 | 31 |
+| `workout-log.html` | 1451 | 7 | 38 | 50 | 5 | 94 |
 | `app.js` | 708 | 0 | 0 | 0 | 1 | 1 |
 | `bodymap.js` | 443 | 4 | 0 | 1 | 0 | 0 |
 | `chrome.js` | 585 | 10 | 0 | 1 | 0 | 1 |
-| `session.js` | 211 | 2 | 1 | 1 | 0 | 1 |
+| `fixtures.js` | 4297 | 0 | 0 | 0 | 0 | 0 |
+| `session.js` | 243 | 3 | 2 | 3 | 0 | 3 |
 | `theme.js` | 67 | 1 | 0 | 0 | 0 | 0 |
-| **total** | **19658** | **119** | **329** | **529** | **63** | **973** |
+| `units.js` | 117 | 1 | 0 | 0 | 0 | 0 |
+| **total** | **25482** | **124** | **334** | **540** | **64** | **988** |
