@@ -23,36 +23,40 @@
   answers one question — train today, or not, and if so, what — and puts
   the answer, the reason to act on it, and the action in the first fold.
 
-  FOUR BLOCKS (was 10):
-  1. Momentum band. The hero figure the old screen never had: weeks on
-     plan (5, measured from lk_history: weeks of Aug 3, 10, 17, 24 and 31
-     each carry three lifting sessions; the week of Jul 27 carries two,
-     which is where the count starts). Beside it, the week rhythm — a
-     sunken track showing the seven days as trained, today, planned or
-     rest. Streak plus this week, one line, no chrome. Not interactive,
-     so nothing here is a target under 44px.
+  EVERY FIGURE ON IT IS NOW READ, NOT TYPED. The rebuild hand-wrote its
+  numbers into a DATA literal: the weeks on plan, the week track, the last
+  session, the squat series, the session name and its length. They happened
+  to agree with the seed, but nothing made them agree, and the cycle row did
+  not — it said "Day 16 / Luteal" where the profile says day 12 and
+  follicular. Everything below now comes out of LKStore, which means it also
+  survives a reload and changes when another screen writes.
+
+  THE BLOCKS:
+  1. Momentum band. Weeks on plan (5: consecutive weeks carrying three
+     lifting sessions, counted back from last week; the week of Jul 27
+     carries two, which is where the count stops). Beside it the week
+     rhythm, Monday first. Under it the week's own line — training days
+     and the consistency label — and the streak when the gaming layer is on.
   2. Answer card. Session name, its shape, the accent-filled primary.
-     Raised on a training day, sunken on a rest day: the two states are
-     given different tone, not different colour.
-  3. Last session row. One tap back into the thing most likely to be
-     unfinished, and the only place a relative date belongs.
-  4. Climbing lift row. The third timescale: the squat's top set across
-     five weeks, drawn as a sparkline whose endpoints are named in text.
+     Raised on a training day, sunken on a rest day.
+  3. The card stack. Things that are true today and are not the session:
+     an insight worked out from the history, supplements due in this part
+     of the day, what has run out, compounds due. Each card is present only
+     when its own data says so, and each can be put away.
+  4. Last session row, and the recent five under it.
+  5. Climbing lift row. The third timescale.
+  6. Cycle row, when cycle tracking is on.
 
   CUT: greeting block, 2x2 stat grid (179px, 0 controls), quick actions,
-  feed cards (source of the "999 days" sentinel), VIEW PROGRESS (a button
-  standing in for a tab), Weekly Recap, calendar (338px, no tappable
-  cells), cycle row, ThrowbackCard, the voice FAB (second accent fill,
-  and it intercepted pointer events over the last block).
+  VIEW PROGRESS (a button standing in for a tab), Weekly Recap as a block
+  (it is a row into recap.html), calendar (338px, no tappable cells),
+  ThrowbackCard, the voice FAB (second accent fill, and it intercepted
+  pointer events over the last block).
 
   MOTION: one entry animation per state, on the block that answers the
-  question. Training rises into place; rest settles down into it. The
-  week track fills left to right and stops on today. Both are switched
-  off under prefers-reduced-motion.
+  question. Both are switched off under prefers-reduced-motion.
 
   ACCENT: exactly one accent fill per state, on the primary action.
-  Today's mark in the week track carries a 2px --accent-text ring, not
-  a fill, and only on a training day.
 
   NUMBERS: every figure is tabular and carries its unit. Dates are
   relative inside the week, absolute after it, never a sentinel.
@@ -74,7 +78,7 @@
           <h1 class="hdr__title-large" data-title-large>Today</h1>
         </div>
         <button class="hdr__account" data-testid="open-account" aria-label="Account and settings">
-          <span class="hdr__initial" aria-hidden="true">C</span>
+          <span class="hdr__initial" aria-hidden="true" id="hdr-initial">C</span>
         </button>
         <span class="hdr__title-small" data-title-small aria-hidden="true">Today</span>
       </header>
@@ -133,98 +137,299 @@
     chev: svg('<path d="m9 5 7 7-7 7"/>'),
     alert: svg('<path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/>'),
     plan: svg('<path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/>', ' ico--lg'),
-    lift: svg('<path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/>')
+    lift: svg('<path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/>'),
+    run: svg('<path d="M13 5.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/><path d="M7 21l3-6 4-2-1-5-3 2-2 3"/><path d="M13 13l3 3 1 5"/>'),
+    spark: svg('<path d="M12 3v4M12 17v4M4.9 7l2.8 2.8M16.3 14.2l2.8 2.8M3 12h4M17 12h4M4.9 17l2.8-2.8M16.3 9.8l2.8-2.8"/>'),
+    pill: svg('<path d="M10.5 3.5 3.5 10.5a4.95 4.95 0 0 0 7 7l7-7a4.95 4.95 0 0 0-7-7z"/><path d="M7 7l7 7"/>'),
+    cart: svg('<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M3 4h2l2.4 11.2a1.5 1.5 0 0 0 1.5 1.2h8.3a1.5 1.5 0 0 0 1.5-1.2L21 8H6"/>'),
+    close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+    flame: svg('<path d="M12 3c.6 3-1.2 4.2-2.6 5.6A5.9 5.9 0 0 0 7.5 13a4.5 4.5 0 0 0 9 0c0-1.8-.9-3-1.8-4.1"/>')
   };
 
   /* ---- formatting ------------------------------------------------- */
   var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  function n(v) { return '<span class="num">' + v + '</span>'; }
+  var DOW3 = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function n(v) { return '<span class="num">' + esc(v) + '</span>'; }
   /* One unit, from lk_profile.useKg, through LKUnits. This printed kg
      whatever Settings said, which is the relabel-without-convert defect
      Settings itself claims to have fixed. */
   function kg(v) { return n(LKUnits.fmtTotal(v)); }
+  function plural(v, one, many) { return v === 1 ? one : many; }
+
+  /* ---- dates ------------------------------------------------------
+     UTC throughout. A local-midnight date is a day out for half the
+     planet, and every date in this build is an ISO day, not an instant. */
+  var TODAY = (window.LKFixtures && LKFixtures.today) || '2026-09-09';
+  function ms(iso) { var a = String(iso).split('-'); return Date.UTC(+a[0], +a[1] - 1, +a[2]); }
+  function isoOf(t) { return new Date(t).toISOString().slice(0, 10); }
+  function addDays(iso, k) { return isoOf(ms(iso) + k * 86400000); }
+  function daysBetween(a, b) { return Math.round((ms(b) - ms(a)) / 86400000); }
+  function dow(iso) { return new Date(ms(iso)).getUTCDay(); }
+  /* Monday first, because the week track on this screen is Monday first and
+     two week windows on one screen would disagree about the same Sunday.
+     The shipped app started its week on Sunday; that is the one figure here
+     that deliberately differs from it, and it differs in one place only. */
+  function weekStart(iso) { return addDays(iso, -((dow(iso) + 6) % 7)); }
   /* Relative inside a week, absolute after it. Never a sentinel. */
-  function when(daysAgo, dateISO) {
-    if (daysAgo === 0) return 'today';
-    if (daysAgo === 1) return 'yesterday';
-    if (daysAgo < 7) return n(daysAgo) + ' days ago';
-    var d = dateISO.split('-');
-    return MONTHS[Number(d[1]) - 1] + ' ' + n(String(Number(d[2])));
+  function when(dateISO) {
+    var d = daysBetween(dateISO, TODAY);
+    if (d === 0) return 'today';
+    if (d === 1) return 'yesterday';
+    if (d > 1 && d < 7) return n(d) + ' days ago';
+    var p = String(dateISO).split('-');
+    return MONTHS[Number(p[1]) - 1] + ' ' + n(String(Number(p[2])));
+  }
+  function headerDate(iso) {
+    var p = String(iso).split('-');
+    return DOW3[dow(iso)] + ', ' + MONTHS[+p[1] - 1].toUpperCase() + ' ' + (+p[2]);
   }
 
-  /* ---- seed (fixtures/seed-data.json, guest profile in kg) --------
-     momentum.weeks   counted from lk_history, Monday weeks with three
-                      lifting sessions: Aug 3, 10, 17, 24, 31 = 5.
-     momentum.days    this week, Monday first.
-     lift             Barbell Squat top set per Legs day, Aug 3 to Sep 7:
-                      75, 77.5, 80, 82.5, 85, 87.5 kg.                 */
-  var LIFT = {
-    id: 701,
-    name: 'Barbell Squat',
-    topKg: 87.5, fromKg: 75, gainKg: 12.5, weeks: 5,
-    series: [75, 77.5, 80, 82.5, 85, 87.5]
-  };
-  var DATA = {
-    training: {
-      date: 'WED, SEP 9',
-      momentum: {
-        weeks: 5,
-        days: [['M','done'],['T','rest'],['W','today'],['T','rest'],['F','planned'],['S','rest'],['S','rest']],
-        read: 'This week, Monday first: Monday trained, Tuesday rest, Wednesday is today and planned, ' +
-              'Thursday rest, Friday planned, Saturday rest, Sunday rest.'
-      },
-      next: { name: 'Push', split: 'PPL', exercises: 5, minutes: 50 },
-      last: { name: 'PPL - Legs', daysAgo: 2, dateISO: '2026-09-07', sets: 16, volumeKg: 14363 }
-    },
-    rest: {
-      date: 'WED, SEP 9',
-      momentum: {
-        weeks: 5,
-        days: [['M','done'],['T','done'],['W','today-rest'],['T','planned'],['F','rest'],['S','rest'],['S','rest']],
-        read: 'This week, Monday first: Monday trained, Tuesday trained, Wednesday is today and a rest day, ' +
-              'Thursday planned, Friday rest, Saturday rest, Sunday rest.'
-      },
-      next: { name: 'Pull', split: 'PPL', dayLabel: 'tomorrow' },
-      last: { name: 'PPL - Push', daysAgo: 1, dateISO: '2026-09-08', sets: 16, volumeKg: 4266 }
+  /* ---- the store --------------------------------------------------
+     Every read on this screen goes through LKStore: the fixture is the
+     seed, the stored value wins the moment a person has written one.
+     Nothing below is a literal that could drift from the data. */
+  function get(key, fb) { return window.LKStore ? LKStore.get(key, fb) : fb; }
+  function set(key, v) { return window.LKStore ? LKStore.set(key, v) : false; }
+  /* Settings writes these as booleans and older builds wrote the strings,
+     so both are accepted. This is the same rule Settings itself applies. */
+  function bool(key) { var v = get(key, false); return v === true || v === 'true'; }
+  function arr(key) { var v = get(key, []); return Array.isArray(v) ? v : []; }
+
+  /* ---- the model --------------------------------------------------
+     One pass over the stored history, splits, pantry, supplements and
+     cycle profile. `blank` is the dev switcher asking for the empty
+     screen: it must not read a person's data back over the state it is
+     showing, so the flag is passed in rather than storage being cleared. */
+  function buildModel(blank) {
+    var M = {};
+    M.history = blank ? [] : arr('lk_history').slice().sort(function (a, b) {
+      return a.date === b.date ? 0 : (a.date < b.date ? 1 : -1);
+    });
+    M.splits = blank ? [] : arr('lk_splits');
+    M.profile = get('lk_profile', {}) || {};
+
+    /* The week, Monday first. A day is "done" when something was logged on
+       it. Nothing here is marked "planned": the splits carry no weekday, so
+       which future day is a training day is not in the data. The rebuild
+       drew a planned Friday anyway, which is a claim the build cannot back. */
+    var ws = weekStart(TODAY);
+    var dates = {};
+    M.history.forEach(function (w) { dates[w.date] = true; });
+    M.week = [];
+    for (var i = 0; i < 7; i++) {
+      var iso = addDays(ws, i);
+      var done = !!dates[iso];
+      var today = iso === TODAY;
+      M.week.push({
+        iso: iso,
+        cap: 'MTWTFSS'.charAt(i),
+        mark: done ? 'done' : (today ? 'today' : 'rest'),
+        today: today,
+        done: done
+      });
     }
-  };
+    M.weekSessions = M.history.filter(function (w) {
+      return w.date >= ws && w.date <= addDays(ws, 6);
+    });
+    /* uDays: distinct days trained this week, which is the figure the
+       shipped app put in the stats grid and in the weekly recap. */
+    var seen = {};
+    M.weekSessions.forEach(function (w) { seen[w.date] = true; });
+    M.uDays = Object.keys(seen).length;
+    M.consistency = M.uDays >= 5 ? 'Incredible week'
+      : M.uDays >= 3 ? 'Solid week'
+      : M.uDays === 0 ? 'Rest week' : 'Building momentum';
+
+    /* Weeks on plan: consecutive whole weeks carrying at least three
+       lifting sessions, counted back from the week before this one. The
+       current week is included only once it has earned it, so the figure
+       never counts a week that has not happened. */
+    var weeks = 0, cursor = addDays(ws, -7);
+    if (liftsInWeek(M.history, ws) >= 3) { weeks++; }
+    while (weeks < 520 && liftsInWeek(M.history, cursor) >= 3) {
+      weeks++; cursor = addDays(cursor, -7);
+    }
+    M.weeks = weeks;
+
+    /* The streak: consecutive days trained, counted back from today, or
+       from yesterday when today has not been trained yet. With the seed
+       this is 0 -- the last session was Sep 7 and today is Sep 9 -- and a
+       streak of nothing is not shown at all. */
+    var cur = dates[TODAY] ? TODAY : addDays(TODAY, -1);
+    var streak = 0;
+    while (dates[cur] && streak < 3650) { streak++; cur = addDays(cur, -1); }
+    M.streak = streak;
+    M.gaming = bool('lk_gamingLayer');
+
+    M.last = M.history[0] || null;
+    M.lastLift = null;
+    for (var j = 0; j < M.history.length; j++) {
+      if (M.history[j].kind === 'lift') { M.lastLift = M.history[j]; break; }
+    }
+    M.recent = M.history.slice(0, 5);
+    M.next = nextSession(M);
+    M.lift = climbingLift(M.history);
+    M.trainedToday = !!dates[TODAY];
+    return M;
+  }
+
+  function liftsInWeek(history, ws) {
+    var a = ws, b = addDays(ws, 6), c = 0;
+    history.forEach(function (w) { if (w.kind === 'lift' && w.date >= a && w.date <= b) c++; });
+    return c;
+  }
+
+  /* Which session comes next, and how long it takes.
+
+     Both were literals: "Push, PPL, 5 exercises, about 50 min". The day now
+     comes from the split -- the one after the day the last lifting session
+     used, which its name carries -- and the exercise count from that day's
+     own list. The length is the median of how long that day has actually
+     taken, because an estimate the app can measure should not be a guess:
+     with the seed, Push has taken 55, 57 and 51 minutes, so it says 55. */
+  function nextSession(M) {
+    var sp = M.splits[0];
+    if (!sp || !sp.days || !sp.days.length) return null;
+    var idx = -1;
+    if (M.lastLift) {
+      var nm = String(M.lastLift.name).toLowerCase();
+      for (var i = 0; i < sp.days.length; i++) {
+        if (nm.indexOf(String(sp.days[i].name).toLowerCase()) >= 0) { idx = i; break; }
+      }
+    }
+    var day = sp.days[(idx + 1) % sp.days.length];
+    var count = (day.exercises || []).length;
+    var mins = medianMinutes(M.history, day.name);
+    return {
+      name: day.name,
+      split: sp.name,
+      exercises: count,
+      minutes: mins || (count * 9 + 5),
+      measured: !!mins
+    };
+  }
+  function medianMinutes(history, dayName) {
+    var mins = [];
+    var needle = String(dayName).toLowerCase();
+    history.forEach(function (w) {
+      if (w.kind !== 'lift' || !w.min) return;
+      if (String(w.name).toLowerCase().indexOf(needle) < 0) return;
+      mins.push(w.min);
+    });
+    if (!mins.length) return 0;
+    mins.sort(function (a, b) { return a - b; });
+    /* To the nearest five minutes. The median of six Push sessions is 55.5
+       and the card says "about": a figure that says about should not then
+       claim a minute it cannot know. */
+    return Math.round(mins[Math.floor(mins.length / 2)] / 5) * 5;
+  }
+
+  /* The climbing lift. This was a literal too -- id, name, series and the
+     "up 12.5 kg in 5 weeks" -- so it could not have followed a session
+     logged today. It is now the lift whose top set has gained the most
+     across the stored history, with its last six top sets as the series. */
+  function climbingLift(history) {
+    var byId = {};
+    for (var i = history.length - 1; i >= 0; i--) {
+      var w = history[i];
+      if (w.kind !== 'lift' || !w.exercises) continue;
+      w.exercises.forEach(function (ex) {
+        var top = topSet(ex);
+        if (!top) return;
+        var rec = byId[ex.id] || (byId[ex.id] = { id: ex.id, name: ex.name, points: [] });
+        rec.points.push({ date: w.date, kg: top });
+      });
+    }
+    var best = null;
+    Object.keys(byId).forEach(function (k) {
+      var r = byId[k];
+      if (r.points.length < 3) return;
+      var from = r.points[0].kg, to = r.points[r.points.length - 1].kg;
+      var gain = to - from;
+      if (gain <= 0) return;
+      if (!best || gain > best.gainKg) {
+        best = {
+          id: r.id, name: r.name, fromKg: from, topKg: to, gainKg: gain,
+          weeks: Math.max(1, Math.round(daysBetween(r.points[0].date, r.points[r.points.length - 1].date) / 7)),
+          series: r.points.slice(-6).map(function (p) { return p.kg; })
+        };
+      }
+    });
+    return best;
+  }
+  function topSet(ex) {
+    var top = null;
+    (ex.sets || []).forEach(function (st) {
+      if (!st.done || st.warm || st.kg === null || st.kg === undefined) return;
+      if (top === null || st.kg > top) top = st.kg;
+    });
+    return top;
+  }
 
   /* ---- blocks ----------------------------------------------------- */
 
   /* The hero figure and the week rhythm, side by side on the page
      ground. Read-only, so there is no target here to undersize. */
-  function momentum(m) {
-    var days = m.days.map(function (d) {
-      var now = d[1] === 'today' || d[1] === 'today-rest';
-      return '<span class="week__day' + (now ? ' week__day--now' : '') + '">' +
-               '<span class="week__mark week__mark--' + d[1] + '"></span>' +
-               '<span class="week__cap" aria-hidden="true">' + d[0] + '</span>' +
+  function momentum(M) {
+    var read = 'This week, Monday first: ' + M.week.map(function (d) {
+      var name = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][M.week.indexOf(d)];
+      return name + (d.today ? ' is today and ' : ' ') + (d.done ? 'trained' : 'not trained');
+    }).join(', ') + '.';
+    var days = M.week.map(function (d) {
+      return '<span class="week__day' + (d.today ? ' week__day--now' : '') + '">' +
+               '<span class="week__mark week__mark--' + d.mark + '"></span>' +
+               '<span class="week__cap" aria-hidden="true">' + d.cap + '</span>' +
              '</span>';
     }).join('');
+    /* F-HOME-005. The week's own line: days trained and the label the
+       shipped app put on them. It was measured and then never shown. */
+    var line = '<p class="t-detail mt-3" data-testid="week-summary">' +
+      n(M.uDays) + ' ' + plural(M.uDays, 'day', 'days') + ' this week &middot; ' + M.consistency +
+      '</p>';
+    /* F-GAME-001. The streak, on Home and on the Profile header, and only
+       when the gaming layer is switched on -- which it is not by default,
+       and a streak of zero is never claimed. */
+    var streak = (M.gaming && M.streak > 0)
+      ? '<span class="streakpill" data-testid="streak-pill">' + ICO.flame +
+          '<span class="num">' + M.streak + '</span>' +
+          '<span class="vis-hidden">day streak</span></span>'
+      : '';
     return '' +
       '<div class="hstack hstack--4 mt-4" data-testid="momentum">' +
         '<div class="hero">' +
           '<span class="hero__figure">' +
-            '<span class="t-hero num" data-testid="hero-value">' + m.weeks + '</span>' +
-            '<span class="hero__unit">weeks</span>' +
+            '<span class="t-hero num" data-testid="hero-value">' + M.weeks + '</span>' +
+            '<span class="hero__unit">' + plural(M.weeks, 'week', 'weeks') + '</span>' +
           '</span>' +
           '<span class="hero__label">On plan</span>' +
         '</div>' +
-        '<div class="week grow" role="img" aria-label="' + m.read + '" data-testid="week-rhythm">' + days + '</div>' +
-      '</div>';
+        '<div class="week grow" role="img" aria-label="' + esc(read) + '" data-testid="week-rhythm">' + days + '</div>' +
+      '</div>' +
+      '<div class="hstack hstack--2">' + line + streak + '</div>';
   }
 
-  function lastRow(last) {
+  function sessionSub(w) {
+    if (w.kind === 'cardio') {
+      return when(w.date) + ' &middot; ' + n(w.min) + ' min';
+    }
+    return when(w.date) + ' &middot; ' + n(w.sets) + ' sets &middot; ' + kg(w.kg);
+  }
+
+  function lastRow(M) {
+    if (!M.last) return '';
     return '' +
       '<div class="section">' +
         '<div class="section__head"><h2 class="t-label">Last session</h2></div>' +
         '<div class="card card--flush">' +
-          '<button class="row" data-testid="row-last-session">' +
-            '<span class="ico-well">' + ICO.lift + '</span>' +
+          '<button class="row" data-testid="row-last-session" data-id="' + esc(M.last.id) + '">' +
+            '<span class="ico-well">' + (M.last.kind === 'cardio' ? ICO.run : ICO.lift) + '</span>' +
             '<span class="row__main stack">' +
-              '<span class="row__title">' + last.name + '</span>' +
-              '<span class="row__sub">' + when(last.daysAgo, last.dateISO) + ' &middot; ' +
-                n(last.sets) + ' sets &middot; ' + kg(last.volumeKg) + '</span>' +
+              '<span class="row__title">' + esc(M.last.name) + '</span>' +
+              '<span class="row__sub">' + sessionSub(M.last) + '</span>' +
             '</span>' +
             '<span class="row__chev">' + ICO.chev + '</span>' +
           '</button>' +
@@ -246,13 +451,42 @@
       '</div>';
   }
 
+  /* F-HOME-013 and F-HOME-014. The five most recent sessions, each one a
+     target, and a way to the rest of them. The rebuild cut the list to a
+     single "last session" row, and that row went to Train -- so there was
+     no route from Home to any session's own detail at all. Each row now
+     hands workout-detail the id it is about, which is how Train and Recap
+     already open it. */
+  function recentBlock(M) {
+    if (M.recent.length < 2) return '';
+    var rows = M.recent.map(function (w) {
+      return '<button class="row" data-testid="row-recent" data-id="' + esc(w.id) + '">' +
+               '<span class="ico-well">' + (w.kind === 'cardio' ? ICO.run : ICO.lift) + '</span>' +
+               '<span class="row__main stack">' +
+                 '<span class="row__title">' + esc(w.name) + '</span>' +
+                 '<span class="row__sub">' + sessionSub(w) + '</span>' +
+               '</span>' +
+               '<span class="row__chev">' + ICO.chev + '</span>' +
+             '</button>';
+    }).join('');
+    return '' +
+      '<div class="section">' +
+        '<div class="section__head">' +
+          '<h2 class="t-label grow">Recent</h2>' +
+          '<button class="btn btn--tertiary btn--sm" data-testid="recent-see-all">See all</button>' +
+        '</div>' +
+        '<div class="card card--flush">' + rows + '</div>' +
+      '</div>';
+  }
+
   /* Sparkline. Six top sets, plotted in a 64x24 box, endpoints named
      in the row text so the drawing is never the only source. */
   function sparkline(series) {
     var lo = Math.min.apply(null, series), hi = Math.max.apply(null, series);
+    var span = hi - lo || 1;
     var pts = series.map(function (v, i) {
-      var x = (i / (series.length - 1)) * 60 + 2;
-      var y = 22 - ((v - lo) / (hi - lo)) * 20;
+      var x = (i / Math.max(1, series.length - 1)) * 60 + 2;
+      var y = 22 - ((v - lo) / span) * 20;
       return x.toFixed(1) + ',' + y.toFixed(1);
     });
     var end = pts[pts.length - 1].split(',');
@@ -263,14 +497,15 @@
   }
 
   function liftRow(l) {
+    if (!l) return '';
     return '' +
       '<div class="section">' +
         '<div class="section__head"><h2 class="t-label">Climbing</h2></div>' +
         '<div class="card card--flush">' +
-          '<button class="row" data-testid="row-climbing-lift">' +
+          '<button class="row" data-testid="row-climbing-lift" data-id="' + esc(l.id) + '">' +
             '<span class="row__main stack">' +
-              '<span class="row__title">' + l.name + '</span>' +
-              '<span class="row__sub">Up ' + kg(l.gainKg) + ' in ' + n(l.weeks) + ' weeks</span>' +
+              '<span class="row__title">' + esc(l.name) + '</span>' +
+              '<span class="row__sub">Up ' + kg(l.gainKg) + ' in ' + n(l.weeks) + ' ' + plural(l.weeks, 'week', 'weeks') + '</span>' +
             '</span>' +
             sparkline(l.series) +
             '<span class="row__value">' + kg(l.topKg) + '</span>' +
@@ -280,23 +515,73 @@
       '</div>';
   }
 
-  /* The cycle row. It appears only when the profile has cycle tracking on,
-     the same gate the screen behind it uses -- a row that leads to "this is
-     off" is a row that wastes a tap. Settings owns the switch and writes it
-     where this screen can read it, the way the theme is already shared. */
-  function cycleOn() {
-    try { return localStorage.getItem('lk_cycle') === 'true'; } catch (e) { return false; }
+  /* ---- the cycle row ----------------------------------------------
+     It appears only when the profile has cycle tracking on, the same gate
+     the screen behind it uses -- a row that leads to "this is off" is a row
+     that wastes a tap.
+
+     WHAT IT SAID. "Day 16 / Luteal, estimated, next period in 12 days",
+     typed in. lk_mcProfile says the last period started on 2026-08-29 with a
+     28-day cycle, so on Sep 9 it is day 12, follicular, and the next period
+     is Sep 26 -- seventeen days away, not twelve.
+
+     WHERE IT COMES FROM NOW. LKFixtures.cycleOn(), which is the one
+     calculator the Cycle screen reads as well, so the row and the screen
+     behind it cannot disagree again. It also reports a cycle that has run
+     past its length as "late" with a day count rather than wrapping the
+     number round, and returns no day at all for a start date in the future.
+
+     DISCREET MODE. mcProfile.discreet is a real setting: the Cycle screen
+     hides the phase name and the symptoms when it is on, so this row hides
+     the phase too and shows only the day and the date. */
+  function mcProfile() {
+    var p = get('lk_mcProfile', null);
+    return (p && typeof p === 'object') ? p : {};
+  }
+  var PHASE_NAME = { menstrual: 'Period', follicular: 'Follicular',
+                     ovulatory: 'Ovulation', luteal: 'Luteal', late: 'Late' };
+  function cycleFacts() {
+    if (!(window.LKFixtures && typeof LKFixtures.cycleOn === 'function')) return null;
+    /* cycleOn() reads LKFixtures.mcProfile, which is the seed. The store is
+       the truth the moment somebody has edited their own cycle, so the
+       stored profile is put in front of the calculator for the length of
+       the call and the seed is put back after it. The calculator should
+       take a profile argument instead; until it does, this is the one place
+       that difference is handled, rather than this screen growing a second
+       copy of the arithmetic -- which is how the two disagreed before. */
+    var stored = get('lk_mcProfile', null);
+    var seed = LKFixtures.mcProfile;
+    try {
+      if (stored && typeof stored === 'object') LKFixtures.mcProfile = stored;
+      return LKFixtures.cycleOn(TODAY);
+    } catch (e) {
+      return null;
+    } finally {
+      LKFixtures.mcProfile = seed;
+    }
   }
   function cycleRow() {
-    if (!cycleOn()) return '';
+    if (!bool('lk_cycle')) return '';
+    var f = cycleFacts();
+    var discreet = !!mcProfile().discreet;
+    var title = 'Cycle tracking', sub = 'Not set up yet &middot; two dates is all it needs';
+    if (f && f.overdue) {
+      title = 'Day ' + n(f.day);
+      sub = (discreet ? '' : 'Period is ' + n(f.overdue) + ' ' + plural(f.overdue, 'day', 'days') +
+            ' late &middot; ') + 'estimated from a ' + n(f.cycleLen) + '-day cycle';
+    } else if (f && f.day !== null && f.day !== undefined) {
+      title = 'Day ' + n(f.day);
+      sub = (discreet ? '' : (PHASE_NAME[f.phase] || f.phase) + ', estimated &middot; ') +
+            'next period in ' + n(f.daysToNext) + ' ' + plural(f.daysToNext, 'day', 'days');
+    }
     return '' +
       '<div class="section">' +
         '<div class="section__head"><h2 class="t-label">Cycle</h2></div>' +
         '<div class="card card--flush">' +
           '<button class="row" data-testid="row-cycle">' +
             '<span class="row__main stack">' +
-              '<span class="row__title">Day 16</span>' +
-              '<span class="row__sub">Luteal, estimated &middot; next period in 12 days</span>' +
+              '<span class="row__title" data-testid="cycle-day">' + title + '</span>' +
+              '<span class="row__sub" data-testid="cycle-sub">' + sub + '</span>' +
             '</span>' +
             '<span class="row__chev">' + ICO.chev + '</span>' +
           '</button>' +
@@ -304,53 +589,331 @@
       '</div>';
   }
 
+  /* ---- the card stack ---------------------------------------------
+     F-HOME-006, F-HOME-009, F-SUPP-010, F-SHOP-031, F-CYCLE-210.
+
+     The rebuild cut the feed cards outright, and the sign-off found that
+     with them went four things that are only true for part of a day: the
+     insight, what is due to be swallowed, what has run out, and what is
+     due to be injected. None of them had anywhere to live, so none of them
+     were built.
+
+     The stack is the feed: each card asks its own data whether it applies,
+     and a card with nothing to say does not render. Nothing here is on a
+     timer or a rotation. Every card can be put away, and putting one away
+     is written to lk_homeLayout -- the shipped app's own key for which
+     Home blocks a person has hidden -- so it is still away tomorrow. The
+     seed ships with the insight already hidden, which is why the stack
+     carries its own way back: a hidden card is a decision, not a deletion.
+     ------------------------------------------------------------------ */
+  var CARD_IDS = ['insight', 'supps', 'restock', 'cycle'];
+  var CARD_NAMES = { insight: 'Insight', supps: 'Supplements due', restock: 'Running low', cycle: 'Compounds due' };
+  function hiddenCards() {
+    var L = get('lk_homeLayout', {}) || {};
+    return (L && typeof L.hidden === 'object' && L.hidden) ? L.hidden : {};
+  }
+  function hideCard(id, on) {
+    var L = get('lk_homeLayout', {}) || {};
+    if (typeof L !== 'object') L = {};
+    L.hidden = (typeof L.hidden === 'object' && L.hidden) ? L.hidden : {};
+    if (on === !!L.hidden[id]) return false;
+    if (on) L.hidden[id] = true; else delete L.hidden[id];
+    return set('lk_homeLayout', L);
+  }
+
+  function cardShell(id, title, icon, bodyHTML, testid) {
+    return '' +
+      '<div class="feedcard" data-testid="' + testid + '">' +
+        '<div class="feedcard__head">' +
+          '<span class="ico-well">' + icon + '</span>' +
+          '<h3 class="t-label grow">' + esc(title) + '</h3>' +
+          '<button class="iconbtn feedcard__dismiss" data-act="dismiss-card" data-card="' + id + '" ' +
+            'aria-label="Put the ' + esc(title) + ' card away">' + ICO.close + '</button>' +
+        '</div>' +
+        bodyHTML +
+      '</div>';
+  }
+
+  /* F-HOME-006. The insight, worked out here and cached for the day in
+     lk_proactiveTip -- the shipped app's key, which holds {text, date}.
+     The shipped card came back from a model over the network. There is no
+     network in this build, so this one is arithmetic over the stored
+     history and it says so on its face: a sentence that reads like advice
+     and is not labelled is the one thing this screen must not print. */
+  function insightText(M) {
+    if (M.lift && M.lift.gainKg > 0) {
+      return LKUnits.fmt(M.lift.fromKg) + ' to ' + LKUnits.fmt(M.lift.topKg) + ' on the ' +
+        M.lift.name.toLowerCase() + ' top set in ' + M.lift.weeks + ' weeks. That is ' +
+        LKUnits.fmt(Math.round((M.lift.gainKg / M.lift.weeks) * 100) / 100, 1) + ' a week, and it is still going up.';
+    }
+    if (M.weeks > 0) {
+      return M.weeks + ' weeks with three lifting sessions in each. The weeks are the part most people lose.';
+    }
+    return '';
+  }
+  function insightCard(M) {
+    var cached = get('lk_proactiveTip', null);
+    var text = (cached && cached.date === TODAY && cached.text) ? cached.text : insightText(M);
+    if (!text) return '';
+    if (!cached || cached.date !== TODAY) set('lk_proactiveTip', { text: text, date: TODAY });
+    return cardShell('insight', 'Worth knowing', ICO.spark,
+      '<p class="t-body mt-2">' + esc(text) + '</p>' +
+      '<p class="t-meta mt-2">Worked out from your logged sets on this device. Not a coach, and nothing was sent anywhere.</p>',
+      'card-insight');
+  }
+
+  /* F-SUPP-010. What is due now, not what is due today: the shipped card
+     has a window per time of day and this one keeps them -- Morning 05-12,
+     Pre-Workout 12-18, With Food 11-14, Before Bed from 19, anything else
+     always due. A supplement already ticked off today is gone from the
+     card, and the tick is written to lk_suppLog on the tap rather than to
+     a Save button somewhere else. */
+  var SUPP_WINDOW = {
+    'Morning': [5, 12], 'Pre-Workout': [12, 18], 'Pre-workout': [12, 18],
+    'With Food': [11, 14], 'Before Bed': [19, 24]
+  };
+  function suppDue(nowHour) {
+    var log = get('lk_suppLog', {}) || {};
+    var today = log[TODAY] || [];
+    return arr('lk_supplements').filter(function (s) {
+      if (s.reminder === false) return false;
+      if (today.indexOf(s.name) >= 0) return false;
+      var f = String(s.freq || 'Daily').toLowerCase();
+      if (f.indexOf('other') >= 0 && Math.floor(ms(TODAY) / 86400000) % 2 !== 0) return false;
+      if (f.indexOf('week') >= 0 && dow(TODAY) !== 1) return false;
+      var w = SUPP_WINDOW[s.timeOf];
+      if (w && (nowHour < w[0] || nowHour >= w[1])) return false;
+      return true;
+    });
+  }
+  function suppCard(M, nowHour) {
+    var due = suppDue(nowHour);
+    if (!due.length) return '';
+    var rows = due.map(function (s) {
+      return '<div class="row row--static">' +
+               '<span class="row__main stack">' +
+                 '<span class="row__title">' + esc(s.name) + '</span>' +
+                 '<span class="row__sub">' + esc(s.dose || '') + (s.timeOf ? ' &middot; ' + esc(s.timeOf) : '') + '</span>' +
+               '</span>' +
+               '<button class="btn btn--secondary btn--sm" data-act="supp-taken" data-name="' + esc(s.name) + '" ' +
+                 'data-testid="supp-taken">Taken</button>' +
+             '</div>';
+    }).join('');
+    return cardShell('supps', 'Supplements due', ICO.pill,
+      '<div class="card card--flush mt-2">' + rows + '</div>', 'card-supps');
+  }
+
+  /* F-SHOP-031, and F-HOME-015 underneath it.
+
+     Two things belong on this card: a staple whose restock interval has
+     elapsed, and a pantry item somebody marked empty. The shipped app auto-
+     added the first kind to the shopping list on every Home mount and then
+     showed the same rows here with "N days overdue", so the card is what
+     the auto-add did, made visible. "Bought" clears it, the way the pantry
+     screen's own control does; the shopping list is not edited from here
+     beyond the add that already happened. */
+  function pantryDue() {
+    var list = arr('lk_shoppingList');
+    var onList = {};
+    list.forEach(function (it) { onList[String(it.itemName).toLowerCase()] = true; });
+    var out = [];
+    arr('lk_pantryItems').forEach(function (it) {
+      var since = it.lastBought || it.dateAdded;
+      var due = null;
+      if (it.staple && since) {
+        var dueISO = addDays(String(since).slice(0, 10), Number(it.intervalDays) || 7);
+        var over = daysBetween(dueISO, TODAY);
+        if (over >= 0) due = over === 0 ? 'due now' : n(over) + ' ' + plural(over, 'day', 'days') + ' overdue';
+      }
+      if (!due && it.empty) due = 'marked empty';
+      if (!due) return;
+      out.push({ id: it.id, name: it.name, why: due, onList: !!onList[String(it.name).toLowerCase()] });
+    });
+    return out;
+  }
+  /* F-HOME-015. The one invisible thing Home did: on mount, a staple whose
+     interval has elapsed goes on the shopping list, once, and is marked
+     bought-forward so it is not added again tomorrow. It runs before the
+     first render so the card below can say "on your list" truthfully. */
+  function autoAddDueStaples() {
+    var pantry = arr('lk_pantryItems');
+    if (!pantry.length) return 0;
+    var list = arr('lk_shoppingList');
+    var onList = {};
+    list.forEach(function (it) { onList[String(it.itemName).toLowerCase()] = true; });
+    var added = 0;
+    pantry.forEach(function (it) {
+      if (!it.staple) return;
+      var since = it.lastBought || it.dateAdded;
+      if (!since) return;
+      var dueISO = addDays(String(since).slice(0, 10), Number(it.intervalDays) || 7);
+      if (daysBetween(dueISO, TODAY) < 0) return;
+      if (onList[String(it.name).toLowerCase()]) return;
+      list.push({
+        id: 'sh_' + ms(TODAY) + '_' + String(it.id).slice(-4),
+        itemName: it.name, quantity: it.quantity || 1, unit: it.unit || '',
+        category: it.category || 'pantry', dateAdded: TODAY + 'T00:00:00.000Z',
+        checked: false, auto: true
+      });
+      added++;
+    });
+    if (added) set('lk_shoppingList', list);
+    return added;
+  }
+  function restockCard() {
+    var due = pantryDue();
+    if (!due.length) return '';
+    var rows = due.map(function (it) {
+      return '<div class="row row--static">' +
+               '<span class="row__main stack">' +
+                 '<span class="row__title">' + esc(it.name) + '</span>' +
+                 '<span class="row__sub">' + it.why + (it.onList ? ' &middot; on your list' : '') + '</span>' +
+               '</span>' +
+               '<button class="btn btn--secondary btn--sm" data-act="staple-bought" data-id="' + esc(it.id) + '" ' +
+                 'data-testid="staple-bought">Bought</button>' +
+             '</div>';
+    }).join('');
+    return cardShell('restock', 'Running low', ICO.cart,
+      '<div class="card card--flush mt-2">' + rows + '</div>', 'card-restock');
+  }
+
+  /* F-CYCLE-210. Compounds due today, and only when performance tracking
+     is on -- the same gate the Stack screen uses, and off by default.
+
+     The cycles themselves are read from lk_cycles. Nothing in this build
+     writes that key yet (Stack holds its cycles in a literal), so with the
+     seed alone this card has nothing to read and does not render. It is
+     wired to the key rather than to a copy of Stack's data on purpose: two
+     screens with their own copy of the same cycle is the defect this
+     sign-off keeps finding, and one of them inventing the other's data is
+     worse than a card that waits. */
+  function dueOn(comp, iso) {
+    var f = String(comp.freq || '');
+    if (f === 'daily') return true;
+    if (f === 'eod') return daysBetween(comp.since || iso, iso) % 2 === 0;
+    if (f === 'e3d') return daysBetween(comp.since || iso, iso) % 3 === 0;
+    if (f === 'weekly') return dow(iso) === (comp.day !== undefined ? comp.day : dow(comp.since || iso));
+    if (f === 'twice-weekly') {
+      var d0 = comp.day !== undefined ? comp.day : dow(comp.since || iso);
+      return dow(iso) === d0 || dow(iso) === (d0 + 3) % 7;
+    }
+    return false;
+  }
+  function compoundsDue() {
+    if (!bool('lk_perfTracking')) return [];
+    var out = [];
+    arr('lk_cycles').forEach(function (c) {
+      if (c.status !== 'active') return;
+      if (c.start && c.start > TODAY) return;
+      if (c.endActual && c.endActual < TODAY) return;
+      (c.comps || []).forEach(function (x) {
+        if (!dueOn(x, TODAY)) return;
+        if ((x.taken || []).indexOf(TODAY) >= 0) return;
+        out.push({ cycle: c.id, name: x.name, dose: x.dose, route: x.route, cycleName: c.name });
+      });
+    });
+    return out;
+  }
+  function compoundCard() {
+    var due = compoundsDue();
+    if (!due.length) return '';
+    var rows = due.map(function (x) {
+      return '<div class="row row--static">' +
+               '<span class="row__main stack">' +
+                 '<span class="row__title">' + esc(x.name) + '</span>' +
+                 '<span class="row__sub">' + esc(x.dose || '') + ' &middot; ' + esc(x.route || '') +
+                   ' &middot; ' + esc(x.cycleName || '') + '</span>' +
+               '</span>' +
+               '<button class="btn btn--secondary btn--sm" data-act="comp-taken" data-cycle="' + esc(x.cycle) + '" ' +
+                 'data-name="' + esc(x.name) + '" data-testid="comp-taken">Taken</button>' +
+             '</div>';
+    }).join('');
+    return cardShell('cycle', 'Compounds due', ICO.pill,
+      '<div class="card card--flush mt-2">' + rows + '</div>', 'card-compounds');
+  }
+
+  function stack(M) {
+    var hid = hiddenCards();
+    var built = {
+      insight: function () { return insightCard(M); },
+      supps: function () { return suppCard(M, new Date().getHours()); },
+      restock: function () { return restockCard(); },
+      cycle: function () { return compoundCard(); }
+    };
+    var html = '', hiddenWithContent = 0;
+    CARD_IDS.forEach(function (id) {
+      var card = built[id]();
+      if (!card) return;
+      if (hid[id]) { hiddenWithContent++; return; }
+      html += card;
+    });
+    if (!html && !hiddenWithContent) return '';
+    return '<div class="feed mt-4" data-testid="card-stack">' + html +
+      (hiddenWithContent
+        ? '<button class="btn btn--tertiary btn--sm feed__restore" data-act="restore-cards" data-testid="restore-cards">' +
+            'Show ' + hiddenWithContent + ' hidden ' + plural(hiddenWithContent, 'card', 'cards') + '</button>'
+        : '') +
+      '</div>';
+  }
+
   /* ---- states ----------------------------------------------------- */
   var VIEWS = {};
 
   /* Training day. Raised card, verb first, rises into place. */
-  VIEWS.training = function () {
-    var d = DATA.training, s = d.next;
+  VIEWS.training = function (M) {
+    var s = M.next;
+    var shape = s
+      ? esc(s.split) + ' &middot; ' + n(s.exercises) + ' exercises &middot; about ' + n(s.minutes) + ' min' +
+        (s.measured ? ', from your last ' + esc(s.name) + ' sessions' : '')
+      : 'No split chosen yet';
     return '' +
-      momentum(d.momentum) +
+      momentum(M) +
       '<div class="card card--raised mt-4 enter-rise" data-testid="card-answer" data-answer="train">' +
-        '<h2 class="t-title">' + s.name + '</h2>' +
-        '<p class="t-detail mt-2">' + s.split + ' &middot; ' + n(s.exercises) + ' exercises &middot; about ' +
-          n(s.minutes) + ' min</p>' +
+        '<h2 class="t-title" data-testid="next-name">' + (s ? esc(s.name) : 'Train') + '</h2>' +
+        '<p class="t-detail mt-2" data-testid="next-shape">' + shape + '</p>' +
         '<button class="btn btn--primary btn--block mt-4" data-testid="primary-action">' +
-          ICO.play + '<span class="btn__label">Start ' + s.name + '</span>' +
+          ICO.play + '<span class="btn__label">Start ' + (s ? esc(s.name) : 'a session') + '</span>' +
         '</button>' +
         '<button class="btn btn--secondary btn--block mt-2" data-testid="action-choose-session">' +
           '<span class="btn__label">Choose another session</span>' +
         '</button>' +
       '</div>' +
-      lastRow(d.last) + liftRow(LIFT) + cycleRow();
+      stack(M) + lastRow(M) + recentBlock(M) + liftRow(M.lift) + cycleRow();
   };
 
   /* Rest day. Sunken card, sentence first, settles into place. The
      session is still one tap away, but nothing here asks for it. */
-  VIEWS.live = function () { return VIEWS.training(); };
+  VIEWS.live = function (M) { return VIEWS.training(M); };
 
-  VIEWS.rest = function () {
-    var d = DATA.rest, s = d.next;
+  VIEWS.rest = function (M) {
+    var s = M.next;
     return '' +
-      momentum(d.momentum) +
+      momentum(M) +
       '<div class="card card--sunken mt-4 enter-settle" data-testid="card-answer" data-answer="rest">' +
         '<div class="hstack hstack--3">' +
           '<span class="ico-well">' + ICO.moon + '</span>' +
           '<div class="grow stack stack--1">' +
             '<h2 class="t-section">Rest day</h2>' +
-            '<p class="t-detail">' + n(2) + ' sessions logged this week. Next is ' + s.name + ', ' + s.dayLabel + '.</p>' +
+            '<p class="t-detail" data-testid="rest-line">' + n(M.weekSessions.length) + ' ' +
+              plural(M.weekSessions.length, 'session', 'sessions') + ' logged this week.' +
+              (s ? ' Next is ' + esc(s.name) + '.' : '') + '</p>' +
           '</div>' +
         '</div>' +
-        '<button class="btn btn--primary btn--block mt-4" data-testid="primary-action">' +
-          ICO.play + '<span class="btn__label">Start ' + s.name + ' early</span>' +
-        '</button>' +
+        (s ? '<button class="btn btn--primary btn--block mt-4" data-testid="primary-action">' +
+          ICO.play + '<span class="btn__label">Start ' + esc(s.name) + ' early</span>' +
+        '</button>' : '') +
       '</div>' +
-      lastRow(d.last) + liftRow(LIFT) + cycleRow();
+      stack(M) + lastRow(M) + recentBlock(M) + liftRow(M.lift) + cycleRow();
   };
 
   /* Empty. Nothing has been earned yet, so nothing is claimed: no
-     hero figure, no week track, one sentence, one action. */
+     hero figure, no week track, one sentence, one action.
+
+     F-HOME-016. This was a dev state and only a dev state: `render(get
+     ('state') || 'training')`, so a reader with no splits at all still got
+     a training day, a session name and a Start button for a plan that did
+     not exist. The state is now chosen by the data -- no splits means this
+     -- and the dev switcher only overrides what the data already decides. */
   VIEWS.empty = function () {
     return '' +
       '<div class="empty mt-5 enter-settle" data-testid="card-answer" data-answer="empty">' +
@@ -416,7 +979,7 @@
       '<div class="card card--raised mt-4 enter-rise" data-testid="card-answer" data-answer="error">' +
         '<div class="banner banner--error">' +
           ICO.alert +
-          '<span><strong>Today did not load</strong>Your last sync failed, so the session for today is unknown.</span>' +
+          '<span><strong>Today did not load</strong>The training history on this device could not be read, so the session for today is unknown.</span>' +
         '</div>' +
         '<button class="btn btn--primary btn--block mt-4" data-testid="primary-action">' +
           '<span class="btn__label">Try again</span>' +
@@ -429,6 +992,7 @@
 
   /* ---- render ----------------------------------------------------- */
   var STATES = [
+    ['auto', 'From your data'],
     ['training', 'Training day'],
     ['live', 'Session running'],
     ['rest', 'Rest day'],
@@ -438,7 +1002,8 @@
   ];
   var body = document.getElementById('body');
   var hdrDate = document.getElementById('hdr-date');
-  var current = 'training';
+  var current = 'auto';
+  var MODEL = null;
 
   /* The shelf is what a running session looks like from anywhere else in the
      app: it names the session, counts what is done, and gets back in one tap.
@@ -461,17 +1026,85 @@
     else if (!on && live && live.name === 'Push A') LKSession.end();
   }
 
+  /* Which state the data is in. The screen used to take this from the dev
+     switcher alone. */
+  function autoState(M) {
+    if (!M.splits.length) return 'empty';
+    return M.trainedToday ? 'rest' : 'training';
+  }
+
+  var rendering = false;
   function render(state) {
-    current = VIEWS[state] ? state : 'training';
-    document.getElementById('screen').setAttribute('data-state', current);
-    hdrDate.textContent = (DATA[current] || DATA.training).date;
-    LKPatch(body, VIEWS[current]());
-    seedDemoSession(current === 'live');
+    if (rendering) return;
+    rendering = true;
+    try { paint(state); } finally { rendering = false; }
+  }
+  function paint(state) {
+    if (state) current = (state === 'auto' || VIEWS[state]) ? state : 'auto';
+    var blank = current === 'empty';
+    MODEL = buildModel(blank);
+    var view = current === 'auto' ? autoState(MODEL) : current;
+    if (!VIEWS[view]) view = autoState(MODEL);
+    document.getElementById('screen').setAttribute('data-state', view);
+    hdrDate.textContent = headerDate(TODAY);
+    var initial = String(MODEL.profile.displayName || 'A').charAt(0).toUpperCase();
+    document.getElementById('hdr-initial').textContent = initial;
+    LKPatch(body, VIEWS[view](MODEL));
+    seedDemoSession(view === 'live');
     LKPatch(document.getElementById('shelf-slot'), shelfHTML());
     body.scrollTop = 0;
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.state === current));
     });
+  }
+
+  /* ---- actions ------------------------------------------------------
+     The cards write on the tap, not on a Save somewhere else, and every
+     one of them writes the shipped app's own key. */
+  function act(name, el) {
+    if (name === 'dismiss-card') {
+      hideCard(el.getAttribute('data-card'), true);
+      return true;
+    }
+    if (name === 'restore-cards') {
+      CARD_IDS.forEach(function (id) { hideCard(id, false); });
+      return true;
+    }
+    if (name === 'supp-taken') {
+      var log = get('lk_suppLog', {}) || {};
+      var day = log[TODAY] || [];
+      var nm = el.getAttribute('data-name');
+      if (day.indexOf(nm) < 0) day.push(nm);
+      log[TODAY] = day;
+      set('lk_suppLog', log);
+      return true;
+    }
+    if (name === 'staple-bought') {
+      var id = el.getAttribute('data-id');
+      var pantry = arr('lk_pantryItems');
+      pantry.forEach(function (it) {
+        if (String(it.id) !== id) return;
+        it.lastBought = TODAY;
+        it.empty = false;
+      });
+      set('lk_pantryItems', pantry);
+      return true;
+    }
+    if (name === 'comp-taken') {
+      var cid = el.getAttribute('data-cycle'), cname = el.getAttribute('data-name');
+      var cycles = arr('lk_cycles');
+      cycles.forEach(function (c) {
+        if (String(c.id) !== cid) return;
+        (c.comps || []).forEach(function (x) {
+          if (x.name !== cname) return;
+          x.taken = x.taken || [];
+          if (x.taken.indexOf(TODAY) < 0) x.taken.push(TODAY);
+        });
+      });
+      set('lk_cycles', cycles);
+      return true;
+    }
+    return false;
   }
 
   /* ---- crossings ----------------------------------------------------
@@ -486,7 +1119,9 @@
   var GOES = {
     'primary-action': 'train.html',
     'action-choose-session': 'train.html',
-    'row-last-session': 'train.html',
+    'row-last-session': 'workout-detail.html',
+    'row-recent': 'workout-detail.html',
+    'recent-see-all': 'train.html',
     'row-recap': 'recap.html',
     'row-climbing-lift': 'progress.html',
     'open-account': 'settings.html',
@@ -494,8 +1129,10 @@
     'row-cycle': 'cycle.html'
   };
   document.addEventListener('click', function (e) {
-    var el = e.target.closest ? e.target.closest('[data-testid]') : null;
+    var el = e.target.closest ? e.target.closest('[data-act],[data-testid]') : null;
     while (el) {
+      var a = el.getAttribute('data-act');
+      if (a && act(a, el)) return;
       var tid = el.getAttribute('data-testid');
       var to = GOES[tid];
       if (to) {
@@ -503,11 +1140,17 @@
            its own default was, which was the bench press -- so the one
            sentence on Home about a lift led to a chart of a different one. */
         if (tid === 'row-climbing-lift') {
-          try { localStorage.setItem('lk_openLift', String(LIFT.id)); } catch (err) {}
+          try { localStorage.setItem('lk_openLift', String(el.getAttribute('data-id') || '')); } catch (err) {}
+        }
+        /* WHICH session. The last-session row went to Train, which is a
+           list of every session and not the one the row names. Both rows
+           hand workout-detail the id, the way Train and Recap already do. */
+        if (tid === 'row-last-session' || tid === 'row-recent') {
+          try { localStorage.setItem('lk_openWorkout', String(el.getAttribute('data-id') || '')); } catch (err) {}
         }
         location.href = to; return;
       }
-      el = el.parentElement && el.parentElement.closest ? el.parentElement.closest('[data-testid]') : null;
+      el = el.parentElement && el.parentElement.closest ? el.parentElement.closest('[data-act],[data-testid]') : null;
     }
   });
 
@@ -527,7 +1170,49 @@
     if (b) render(b.dataset.state);
   });
 
-  render(new URLSearchParams(location.search).get('state') || 'training');
+  /* Another screen writing the same key repaints this one rather than
+     letting the two drift apart. */
+  /* Anything written -- by a card on this screen, by another screen in the
+     demo, or by another tab -- repaints this one rather than letting the two
+     drift apart. It is also why the card handlers above only write: the
+     repaint is the store's answer to the write, not a second job for every
+     handler to remember. */
+  if (window.LKStore) {
+    LKStore.onChange(function (v, key) {
+      /* Two keys are handoffs to the screen being opened, not state this
+         screen shows. */
+      if (key === 'lk_openWorkout' || key === 'lk_openLift') return;
+      /* The insight card writes its own cache on the render that builds it,
+         so a repaint from inside a repaint has to be refused rather than
+         allowed to recurse. */
+      if (rendering) return;
+      render();
+    });
+  }
+
+  /* F-ONB-001. Nothing in this build asked whether anybody had ever set the
+     app up: a first run landed on Home, which then showed a plan, a history
+     and a name that belonged to nobody. Home is the front door, so it asks
+     here, and onboarding.html writes the answer (lk_onboarded) when it
+     finishes. The fixture seeds a reader six weeks into a plan, so the demo
+     is not a first run and is not sent anywhere; the gate fires when there
+     is no seed and nothing written, which is what a real install is. */
+  function needsOnboarding() {
+    if (!window.LKStore) return false;
+    if (get('lk_onboarded', false) === true) return false;
+    if (LKStore.touched('lk_profile') || LKStore.touched('lk_splits') || LKStore.touched('lk_history')) return false;
+    return !(window.LKFixtures && LKFixtures.profile);
+  }
+
+  /* F-HOME-015 runs before the first paint, so the restock card can say
+     "on your list" about something this mount has just put there. */
+  autoAddDueStaples();
+
+  if (needsOnboarding()) {
+    location.replace('onboarding.html');
+  } else {
+    render(new URLSearchParams(location.search).get('state') || 'auto');
+  }
 })();
 
   /* The strip's clock, on a screen that only repaints when something on it

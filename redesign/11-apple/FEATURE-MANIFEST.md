@@ -12,28 +12,35 @@ any one of those blocks the wave that caused it.
 Every distinct `data-action` / `data-act` value. These are the verbs the
 screens dispatch on; losing one is losing a feature.
 
-**coach.html** — 46
+**coach.html** — 59
 
 ```
 add-memory              adjust                  ask-again               ask-for-plan            bind
-bind-pick               checkin-save            close-modal             copy                    delete
-delete-confirm          dismiss-plan            feel                    forget                  instr
-interview               iv-answer               iv-back                 iv-close                iv-edit
-iv-edit-first           iv-free                 iv-next                 iv-use                  new-chat
-open-plan               open-split              perm                    perms-off               perms-on
-phase                   quick                   retry                   review-answers          save-plan
-save-setup              send                    start                   stop                    style
-suggest                 target                  toast                   view                    write
-write-again
+bind-pick               cancel-memory           cancel-name             checkin-save            clear-memory
+close-modal             continue                copy                    delete                  delete-confirm
+dismiss-chip            dismiss-plan            edit-msg                feel                    forget
+instr                   interview               iv-answer               iv-back                 iv-close
+iv-edit                 iv-edit-first           iv-free                 iv-next                 iv-use
+jump                    memory-on               new-chat                open-plan               open-split
+perm                    perms-off               perms-on                phase                   quick
+receipt                 rename                  retry                   retry-last              review-answers
+save-memory             save-name               save-plan               save-setup              send
+start                   stop                    style                   suggest                 target
+toast                   view                    write                   write-again
 ```
 
-**cycle.html** — 16
+**cycle.html** — 43
 
 ```
-back                    close                   cs-delete               cs-save                 day-clear
-day-save                discreet                flow                    irregular               mood
-open-day                open-settings           retry                   settings                setup-save
-sym
+' + act + '             ' + opts.act + '        acc                     back                    back-settings
+bc                      cal-next                cal-prev                close                   close-dialog
+confirm                 cs-delete               cs-export               cs-save                 day-clear
+day-save                discreet                end-recovery            event                   hide-flag
+irregular               mood                    open-bc                 open-day                open-settings
+open-train              pill                    retry                   reveal                  ring-today
+settings                setup-back              setup-next              setup-skip              sex
+su-bc                   su-goal                 su-irregular            su-unsure               sym
+toggle-view             train-fine              train-lighter
 ```
 
 **exercise-library.html** — 22
@@ -56,6 +63,12 @@ meal-portion            meals                   mic                     mic-log 
 open-recipe             plan-log                recipes-back            retry                   scan
 scan-log                search                  supp                    targets                 targets-save
 undo                    water-add               water-sub
+```
+
+**home.html** — 5
+
+```
+comp-taken              dismiss-card            restore-cards           staple-bought           supp-taken
 ```
 
 **profile.html** — 4
@@ -82,27 +95,29 @@ month-prev              open-day                open-session            retry   
 see-day                 week-next               week-prev
 ```
 
-**settings.html** — 15
+**settings.html** — 20
 
 ```
 ' + action + '          back                    body-set                close-dialog            close-sheet
-close-toast             confirm                 create-account          pick                    save-body
-save-name               sheet                   sign-in                 sync                    toggle
+close-toast             confirm                 create-account          notif-master            notif-test
+notif-toggle            pick                    save-body               save-name               save-password
+sheet                   sign-in                 sound-pick              sync                    toggle
 ```
 
-**shopping.html** — 45
+**shopping.html** — 46
 
 ```
 ' +
             (all ? 'do-clear-all' : 'do-clear-done') + '  add-custom              add-item                add-meal                add-purchase
 add-store               back                    clear-all               clear-done              close
-compare                 del-hist                edit-target             export                  find-swaps
-hist                    merge-do                merge-sep               open-item               pan-add
-pan-add-missing         pan-empty               pan-filter              pan-interval-save       pan-open
-pan-remove              pan-staple              pan-to-list             panel                   pick
-receipt-save            remove                  retry                   save-purchase           save-target
-scan-cam                scan-cancel             scan-lib                search-store            shop-at
-store-remove            store-toggle            suggest                 tick                    undo
+compare                 del-hist                edit-target             export                  find-store
+find-swaps              hist                    merge-do                merge-sep               open-item
+pan-add                 pan-add-missing         pan-empty               pan-filter              pan-interval-save
+pan-open                pan-remove              pan-staple              pan-to-list             panel
+photo-discard           photo-type              pick                    remove                  retry
+save-purchase           save-target             scan-cam                scan-lib                search-store
+shop-at                 store-remove            store-toggle            suggest                 tick
+undo
 ```
 
 **split-builder.html** — 28
@@ -126,13 +141,17 @@ pr-cat                  presets                 read-stack              reopen  
 save-comp               save-cycle              take                    use-preset
 ```
 
-**train.html** — 18
+**train.html** — 32
 
 ```
-back                    cardio-cancel           cardio-save             close-sheet             edit-split
-filter                  log-cardio              new-split               open-activities         open-history
-open-library            open-session            open-split              retry                   start-day
-start-today             undo                    use-cached
+' +
+              (w.kind === 'lift' ? 'open-session' : 'toggle-session') + '  back                    cardio-cancel           cardio-fav              cardio-save
+cf-choice               cf-min                  cf-note                 cf-num                  close-sheet
+edit-split              fav-delete              fav-move                fav-rename              filter
+log-cardio              nc-met                  nc-min                  nc-name                 nc-save
+new-cardio              new-split               open-activities         open-favs               open-history
+open-library            open-split              retry                   start-day               start-today
+undo                    use-cached
 ```
 
 **tutorial.html** — 4
@@ -141,24 +160,27 @@ start-today             undo                    use-cached
 begin                   finish                  next                    skip
 ```
 
-**workout-detail.html** — 9
+**workout-detail.html** — 17
 
 ```
-back                    delete                  edit                    note-cancel             note-edit
-note-save               repeat                  retry                   undo
+' + act + '             back                    delete                  ed-addset               ed-cancel
+ed-delex                ed-delset               ed-name                 ed-save                 ed-warm
+edit                    note-cancel             note-edit               note-save               repeat
+retry                   undo
 ```
 
-**workout-log.html** — 38
+**workout-log.html** — 42
 
 ```
-addex                   addex-pick              addex-q                 addset                  airec
-block                   block-add               block-remove            close                   discard
-discard-confirm         done                    edit                    exact                   exsheet
-finish                  grip                    note                    pad-cancel              pad-del
-pad-done                pad-key                 pad-step                partial                 plate-add
-plate-apply             plate-bar               plate-clear             plate-side              plate-undo
-rest-add                rest-set                rest-skip               rest-toggle             rir
-toast-action            tool                    tools
+addex                   addex-more              addex-pick              addex-q                 addset
+addset-both             airec                   block                   block-add               block-remove
+close                   discard                 discard-confirm         done                    edit
+exact                   exsheet                 finish                  grip                    move
+move-done               note                    pad-cancel              pad-del                 pad-done
+pad-key                 pad-step                partial                 plate-add               plate-apply
+plate-bar               plate-clear             plate-side              plate-undo              rest-add
+rest-set                rest-skip               rest-toggle             rir                     toast-action
+tool                    tools
 ```
 
 **session.js** — 2
@@ -173,38 +195,39 @@ The selectors every test and every audit script addresses.
 
 | Screen | testids |
 |---|---|
-| `coach.html` | 99 |
-| `cycle.html` | 43 |
+| `coach.html` | 120 |
+| `cycle.html` | 106 |
 | `exercise-library.html` | 51 |
 | `fuel.html` | 83 |
-| `home.html` | 21 |
+| `home.html` | 36 |
 | `onboarding.html` | 69 |
-| `profile.html` | 23 |
+| `profile.html` | 25 |
 | `progress.html` | 71 |
 | `recap.html` | 25 |
-| `review.html` | 47 |
-| `settings.html` | 31 |
-| `shopping.html` | 119 |
+| `review.html` | 52 |
+| `settings.html` | 43 |
+| `shopping.html` | 127 |
 | `split-builder.html` | 70 |
 | `stack.html` | 42 |
-| `train.html` | 52 |
+| `train.html` | 93 |
 | `tutorial.html` | 12 |
-| `workout-detail.html` | 31 |
-| `workout-log.html` | 94 |
+| `workout-detail.html` | 43 |
+| `workout-log.html` | 102 |
 | `app.js` | 1 |
 | `bodymap.js` | 0 |
 | `chrome.js` | 1 |
 | `fixtures.js` | 0 |
 | `session.js` | 3 |
+| `store.js` | 0 |
 | `theme.js` | 0 |
 | `units.js` | 0 |
 
-## Storage keys — 11
+## Storage keys — 10
 
 ```
-lk_                       lk_badges                 lk_cycle                  lk_fuelNumbers
-lk_lastSession            lk_libBrowse              lk_openLift               lk_openSplit
-lk_openWorkout            lk_perfTracking           lk_tutorialSeen
+lk_coachDataPrefs         lk_cycle                  lk_fuelNumbers            lk_lastSession
+lk_libBrowse              lk_openLift               lk_openSplit              lk_openWorkout
+lk_perfTracking           lk_tutorialSeen
 ```
 
 ## Per-screen totals
@@ -214,29 +237,30 @@ five columns after them are.
 
 | Screen | Lines | Listeners | Actions | Buttons | Inputs | testids |
 |---|---|---|---|---|---|---|
-| `coach.html` | 1567 | 6 | 46 | 53 | 3 | 99 |
-| `cycle.html` | 667 | 5 | 16 | 19 | 6 | 43 |
-| `exercise-library.html` | 1632 | 7 | 22 | 31 | 4 | 51 |
-| `fuel.html` | 1454 | 5 | 28 | 49 | 4 | 83 |
-| `home.html` | 545 | 3 | 0 | 18 | 0 | 21 |
-| `onboarding.html` | 1250 | 10 | 0 | 34 | 5 | 69 |
-| `profile.html` | 414 | 4 | 4 | 12 | 0 | 23 |
-| `progress.html` | 1273 | 6 | 22 | 34 | 6 | 71 |
-| `recap.html` | 690 | 4 | 13 | 15 | 0 | 25 |
-| `review.html` | 1120 | 5 | 0 | 23 | 0 | 47 |
-| `settings.html` | 1074 | 5 | 15 | 23 | 4 | 31 |
-| `shopping.html` | 1678 | 6 | 45 | 61 | 16 | 119 |
-| `split-builder.html` | 1352 | 12 | 28 | 36 | 4 | 70 |
-| `stack.html` | 963 | 7 | 24 | 30 | 3 | 42 |
-| `train.html` | 1009 | 6 | 18 | 28 | 2 | 52 |
-| `tutorial.html` | 285 | 3 | 4 | 7 | 0 | 12 |
-| `workout-detail.html` | 598 | 4 | 9 | 12 | 1 | 31 |
-| `workout-log.html` | 1451 | 7 | 38 | 50 | 5 | 94 |
+| `coach.html` | 2158 | 7 | 59 | 66 | 5 | 120 |
+| `cycle.html` | 2189 | 10 | 43 | 48 | 7 | 106 |
+| `exercise-library.html` | 1633 | 7 | 22 | 31 | 4 | 51 |
+| `fuel.html` | 1455 | 5 | 28 | 49 | 4 | 83 |
+| `home.html` | 1231 | 3 | 5 | 25 | 0 | 36 |
+| `onboarding.html` | 1251 | 10 | 0 | 34 | 5 | 69 |
+| `profile.html` | 567 | 4 | 4 | 12 | 0 | 25 |
+| `progress.html` | 1387 | 6 | 22 | 34 | 6 | 71 |
+| `recap.html` | 691 | 4 | 13 | 15 | 0 | 25 |
+| `review.html` | 1300 | 6 | 0 | 24 | 1 | 52 |
+| `settings.html` | 1756 | 6 | 20 | 29 | 5 | 43 |
+| `shopping.html` | 2160 | 7 | 46 | 60 | 17 | 127 |
+| `split-builder.html` | 1353 | 12 | 28 | 36 | 4 | 70 |
+| `stack.html` | 964 | 7 | 24 | 30 | 3 | 42 |
+| `train.html` | 1983 | 6 | 32 | 43 | 7 | 93 |
+| `tutorial.html` | 286 | 3 | 4 | 7 | 0 | 12 |
+| `workout-detail.html` | 907 | 5 | 17 | 18 | 3 | 43 |
+| `workout-log.html` | 1839 | 12 | 42 | 56 | 5 | 102 |
 | `app.js` | 708 | 0 | 0 | 0 | 1 | 1 |
 | `bodymap.js` | 443 | 4 | 0 | 1 | 0 | 0 |
 | `chrome.js` | 585 | 10 | 0 | 1 | 0 | 1 |
-| `fixtures.js` | 4297 | 0 | 0 | 0 | 0 | 0 |
+| `fixtures.js` | 4577 | 0 | 0 | 0 | 0 | 0 |
 | `session.js` | 243 | 3 | 2 | 3 | 0 | 3 |
+| `store.js` | 235 | 1 | 0 | 0 | 0 | 0 |
 | `theme.js` | 67 | 1 | 0 | 0 | 0 | 0 |
 | `units.js` | 117 | 1 | 0 | 0 | 0 | 0 |
-| **total** | **25482** | **124** | **334** | **540** | **64** | **988** |
+| **total** | **32085** | **140** | **411** | **622** | **77** | **1175** |

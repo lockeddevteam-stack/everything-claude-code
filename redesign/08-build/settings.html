@@ -107,17 +107,41 @@
     worse than both. The choice is stored in localStorage under lk_theme
     and applied by theme.js on every screen, so it survives a reload and
     Appearance is not a preference that only themes its own page.
-  - The storage progress bar. The sentence above it already says 1.2 MB
-    of 5.0 MB; a second, lower-contrast reading of the same number is
-    decoration.
+  - Nothing in the Data group, any more. The storage row said "1.2 MB of
+    5.0 MB" as a literal string, Export a backup toasted a filename and
+    built no file, Restore had no file input behind it, and Erase
+    everything on this phone erased nothing and reported success. The
+    figure is measured from LKStore.dump() and carries a bar that turns
+    amber at 80%, the export builds a real JSON file through <a download>
+    and names the key count in it, Restore opens a real file picker and
+    goes through LKStore.load(), and Erase calls LKStore.reset() and
+    counts what went.
   - Save Name and Save Stats as bare buttons stranded in a list. An edit
     now commits inside the sheet that opened it, so no row can be left in
     an unsaved state you cannot see.
   - The guest SIGN UP card as a glowing hero. Creating an account is a
     real action and stays, as one plain button inside the Account card.
 
+  WHAT SURVIVES A RELOAD
+  Everything. This screen wrote four keys -- fuelNumbers, badges, cycle,
+  perfTracking -- and held the other nineteen settings in a variable on
+  the page, so the display name, every body stat, the reminder and its
+  time, the check-in, partial reps, the rest timer, the plate rounding,
+  the week start and the distance unit all reverted on reload and reached
+  no other screen. Every row now reads and writes through LKStore under
+  the shipped app's own key names, and the write happens on the action
+  rather than on a Save button somewhere else.
+
+  NOTIFICATIONS, HONESTLY
+  The permission prompt is a real browser API and this asks for it,
+  including the blocked state a page cannot undo. Scheduling anything for
+  later needs a service worker and this build has none, so the six
+  preferences are stored, the test send is a real notification from this
+  page, and the sentence under them says which half is missing.
+
   STATES
-  Signed in, Guest, Signed out, Loading, Account unreachable. Only the
+  Signed in, Guest, Signed out, Loading, Account unreachable. Guest is
+  read from lk_guestMode as well as set by the switcher. Only the
   Account group has a loading or an error state: preferences are read
   from the device, so they cannot fail, and pretending they can would
   hide a working screen behind a spinner.
@@ -217,8 +241,22 @@
      other screen reads. */
   var ST = window.LKStore;
   function get(key, dflt) { return ST ? ST.get(key, dflt) : dflt; }
-  function put(key, v) { if (ST) ST.set(key, v); }
-  function patchKey(key, o) { if (ST) ST.patch(key, o); }
+  /* A write from this screen notifies this page as well as the other tabs,
+     and the listener at the bottom of this file re-reads the store on that
+     notification. `mine` stops a row from redrawing itself twice for its own
+     write, and stops a write made mid-edit from being read back over a sheet
+     that is open. */
+  var mine = 0;
+  function put(key, v) {
+    if (!ST) return;
+    mine++;
+    try { ST.set(key, v); } finally { mine--; }
+  }
+  function patchKey(key, o) {
+    if (!ST) return;
+    mine++;
+    try { ST.patch(key, o); } finally { mine--; }
+  }
   /* A switch is written as a real boolean here, but the shipped app wrote
      some of these keys as the strings "true" and "false" and store.js hands
      back whatever is there. Both readings are accepted; only the boolean is
@@ -1248,22 +1286,35 @@
     'sign-out': {
       title: 'Sign out?',
       body: 'Your workouts stay on this phone. You will need your password to sync again.',
-      go: 'Sign out', danger: false, done: 'Signed out.', to: 'signed-out'
+      go: 'Sign out', danger: false, done: 'Signed out. Everything you logged is still on this phone.', to: 'signed-out'
     },
     'reset': {
+      /* This dialog was already right. What was wrong was everything after
+         it: the button closed the dialog and toasted "Everything on this
+         phone was erased" while localStorage was untouched, so lk_badges,
+         lk_perfTracking, lk_cycle, lk_fuelNumbers, lk_profile and lk_theme
+         all survived an erase that reported success. It calls
+         LKStore.reset() now and the toast counts what actually went. */
       title: 'Erase everything on this phone?',
       body: 'Every workout, split and record on this phone is deleted. This cannot be undone.',
-      go: 'Erase everything', danger: true, done: 'Everything on this phone was erased.'
+      go: 'Erase everything', danger: true
     },
     'delete': {
+      /* "Your account and everything in it is deleted from LOCKED" was a
+         claim about a server this build cannot reach, followed by the toast
+         "Account deleted." Nothing left the device and nothing on it was
+         removed. What this can honestly do is the local half, so that is
+         what it says and what it does. */
       title: 'Delete your account?',
-      body: 'Your account and everything in it is deleted from LOCKED. This cannot be undone.',
-      go: 'Delete account', danger: true, done: 'Account deleted.', to: 'guest'
+      body: 'There is no account server in this build, so nothing can be deleted from one. ' +
+            'What this does do is sign you out and erase everything LOCKED has stored on this phone. ' +
+            'That cannot be undone.',
+      go: 'Sign out and erase this phone', danger: true, to: 'guest'
     },
     'restore': {
       title: 'Restore from a backup?',
-      body: 'What is on this phone is replaced by the backup file you choose.',
-      go: 'Choose a file', danger: false, done: 'Nothing was replaced. No file was chosen.'
+      body: 'What is on this phone is replaced by the backup file you choose. Export one first if you want to keep it.',
+      go: 'Choose a file', danger: false
     }
   };
 
@@ -1464,7 +1515,8 @@
       /* A unit change confirms itself with both numbers, so the person
          can see the value was converted rather than relabelled. */
       if (key2 === 'unit' && before.unit !== S.unit) {
-        if (window.LKUnits) LKUnits.set(S.unit === 'kg');
+        /* persist() already wrote it through LKUnits, which is what tells
+           every other open screen. */
         toast(S.unit === 'lb'
           ? 'Weights now show in pounds. Your body weight, ' + round1(before.weightKg) +
             ' kg, is ' + round1(before.weightKg * LB) + ' lb.'
@@ -1511,20 +1563,27 @@
     } else if (a === 'tutorial') {
       location.href = 'tutorial.html';
     } else if (a === 'export') {
-      toast('Backup ready. LOCKED-backup-2026-09-09.json');
+      exportBackup();
+
+    } else if (a === 'export-nutrition') {
+      nutritionCSV();
+
+    } else if (a === 'force-refresh') {
+      forceRefresh();
+
+    } else if (a === 'save-password') {
+      savePassword();
 
     } else if (a === 'create-account' || a === 'sign-in') {
-      toast(a === 'sign-in' ? 'Sign in opens next.' : 'Account setup opens next.');
+      /* Both were toasts announcing a screen that exists. Onboarding holds
+         sign-in and account creation, so they go there. */
+      location.href = 'onboarding.html';
 
     } else if (a.indexOf('confirm-') === 0 && a !== 'confirm') {
       openOverlay('dialog', a.slice(8));
 
     } else if (a === 'confirm') {
-      var c = CONFIRM[t.dataset.id];
-      if (c.to) S.view = c.to;
-      if (t.dataset.id === 'reset') { S.sync = 'idle'; }
-      closeOverlay();
-      toast(c.done);
+      confirmed(t.dataset.id);
 
     } else if (a === 'close-dialog') {
       var d = S.dialog;
@@ -1537,6 +1596,60 @@
       render();
     }
   });
+
+  /* What each confirmation actually does. Three of the four used to do
+     nothing but change a variable and print a sentence claiming otherwise. */
+  function confirmed(id) {
+    var c = CONFIRM[id];
+    if (id === 'reset' || id === 'delete') {
+      var gone = ST ? ST.reset() : 0;
+      /* Every row re-reads the store, which is now empty, so the whole app
+         falls back to the seed -- the state a fresh install of this build
+         opens in. Written down for delete, so Profile agrees rather than
+         showing an account this screen has just signed out of. */
+      reseed();
+      if (id === 'delete') { S.view = 'guest'; put('lk_guestMode', '1'); }
+      S.sync = 'idle';
+      closeOverlay();
+      toast(gone + (gone === 1 ? ' key' : ' keys') + ' erased. Everything you changed on this phone is gone, ' +
+        'and the app is back to the data a fresh install of this build opens with.' +
+        (id === 'delete' ? ' Nothing was sent to a server: there is not one here.' : ''));
+      return;
+    }
+    if (id === 'restore') {
+      closeOverlay('row-restore');
+      restoreInput().click();
+      return;
+    }
+    if (c.to) {
+      S.view = c.to;
+      put('lk_guestMode', c.to === 'signed-in' ? '0' : '1');
+    }
+    closeOverlay();
+    toast(c.done);
+  }
+
+  /* Four checks, in the order a person meets them. The fifth -- is the
+     current password the right one -- is the server's, and there is not one. */
+  function savePassword() {
+    var cur = (document.getElementById('f-pw-old') || {}).value || '';
+    var nw = (document.getElementById('f-pw-new') || {}).value || '';
+    var again = (document.getElementById('f-pw-again') || {}).value || '';
+    var bad = null, focus = null;
+    if (!cur) { bad = 'Type the password you use now.'; focus = 'f-pw-old'; }
+    else if (nw.length < 8) { bad = 'A new password needs at least 8 characters.'; focus = 'f-pw-new'; }
+    else if (nw === cur) { bad = 'That is the password you already have.'; focus = 'f-pw-new'; }
+    else if (again !== nw) { bad = 'The two new passwords are not the same.'; focus = 'f-pw-again'; }
+    S.pwError = bad;
+    render();
+    if (bad) {
+      var f = document.getElementById(focus);
+      if (f) f.focus();
+      return;
+    }
+    closeOverlay('row-password');
+    toast('Those eight characters would do. Nothing was changed and nothing was sent: this build has no account server.');
+  }
 
   function rowFor(key) {
     return {
@@ -1602,6 +1715,28 @@
     if (want === 'error') S.sync = 'failed';
   }
   render();
+
+  /* Another screen, or another tab, changing something this screen shows.
+     LKUnits.onChange existed and no screen subscribed to it, so a unit
+     changed anywhere else left every open screen reading the old one until
+     a reload. The same for the store: a restore or an erase performed in a
+     second tab has to reach this one. */
+  if (window.LKUnits) {
+    LKUnits.onChange(function (useKg) {
+      var next = useKg ? 'kg' : 'lb';
+      if (next === S.unit) return;
+      S.unit = next;
+      render();
+    });
+  }
+  if (ST) {
+    ST.onChange(function (value, key) {
+      if (mine) return;                 /* this screen's own write */
+      if (S.sheet || S.dialog) return;  /* not while a sheet is open */
+      reseed();
+      render();
+    });
+  }
 })();
 
   /* The running workout, from a screen that is not it. Leaving the workout

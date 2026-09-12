@@ -26,20 +26,40 @@
   week mid-follicular.
 
   IT IS GATED, and the gate is the shipped app's. Cycle tracking appears when
-  the profile's sex is set to female, and says so plainly when it is not,
-  with a way to go and change it. That is not a judgement about who trains;
-  it is that a prediction built on a cycle length is meaningless without one.
+  Settings turns it on, and says so plainly when it is not, with a way to go
+  and change it.
 
   WHAT IT PREDICTS AND WHAT IT DOES NOT. The phase and the day count come
   from the last recorded start plus the cycle length -- arithmetic, and it
-  says so. It does not diagnose, it does not warn, and it never tells anybody
-  they are late. A prediction with no measurement behind it is a guess with a
-  confident face, and the copy names it as an estimate every time it shows
-  one.
+  says so. It does not diagnose. The health flags below name a pattern in
+  what was logged and say who to take it to; naming a pattern is not the same
+  as saying what is causing it, and the copy never crosses that line.
 
-  DISCREET MODE was in the original and is here: the phase name and the
-  symptom names go, the day count stays. Somebody may hand this phone to a
-  training partner.
+  THREE SURFACES, THREE ANSWERS. Sign-off found Home saying Day 16, this
+  screen saying Day 16, and the seed saying Day 12: this file carried its own
+  seedProfile() with lastStart 2026-08-25, which agreed with nothing. The
+  profile and the day log now come from lk_mcProfile and lk_mcDays through
+  LKStore, whose seed is the shared fixture's, which is the seed file's. And
+  the arithmetic itself is not written here at all: every day number, phase
+  and next-period date comes out of LKFixtures.cycleOn, which Home reads too.
+  A second copy of the formula is how three surfaces came to disagree in the
+  first place, so this screen does not keep one.
+
+  THE DAY COUNT DOES NOT WRAP. It used to be (daysBetween % cycleLen) + 1,
+  which meant a cycle ten days late read "Day 11" and being overdue was
+  unreachable by construction. cycleOn keeps counting past the end of a
+  cycle and reports how far past it is, so the overdue copy below is
+  reachable.
+
+  THE LAST START IS DERIVED, NOT STORED. Saving flow used to rewrite
+  lastStart, and clearing that day left the prediction where the save had
+  moved it. The starts are now read out of the day log every time they are
+  needed, so clearing a day undoes exactly what logging it did.
+
+  DISCREET MODE was in the original and is here, and it now hides what it
+  says it hides: the phase name, the symptom names and the events section,
+  in the day sheet and in the summaries as well as on the card. The day count
+  stays. Somebody may hand this phone to a training partner.
 -->
 
 <div class="stage">
@@ -78,7 +98,12 @@
     back:  svg('<path d="m15 5-7 7 7 7"/>'),
     close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
     gear:  svg('<circle cx="12" cy="12" r="3.5"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/>'),
-    alert: svg('<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/>')
+    alert: svg('<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/>'),
+    cal:   svg('<rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M8 3v4M16 3v4M3.5 10h17"/>'),
+    ring:  svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 8.5 8.5"/>'),
+    chev:  svg('<path d="m9 5 7 7-7 7"/>'),
+    down:  svg('<path d="m5 9 7 7 7-7"/>'),
+    save:  svg('<path d="M12 3v12M7 10l5 5 5-5M4 20h16"/>')
   };
 
   function esc(t) {
@@ -86,10 +111,13 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
-  function n(v) { return '<span class="num">' + v + '</span>'; }
 
+  /* ---------------------------------------------------------------
+     Dates. Everything is UTC midnight so a day is a day.
+     --------------------------------------------------------------- */
   var TODAY = '2026-09-09';
   var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var MONL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   var DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   function ms(iso) { var p = iso.split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]); }
   function iso(t) {
@@ -97,54 +125,72 @@
     return d.getUTCFullYear() + '-' + p2(d.getUTCMonth() + 1) + '-' + p2(d.getUTCDate());
   }
   function daysBetween(a, b) { return Math.round((ms(b) - ms(a)) / 86400000); }
+  function shift(i, n) { return iso(ms(i) + n * 86400000); }
   function absDate(i) { var p = i.split('-'); return MON[+p[1] - 1] + ' ' + (+p[2]); }
   function dowOf(i) { return DOW[new Date(ms(i)).getUTCDay()]; }
+  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
 
   /* ---------------------------------------------------------------
-     The profile and the log. Fixtures, so the screen renders the same
-     way every run.
+     What can be logged.
+
+     Five flow levels, with spotting back where the shipped app had it.
+     The seed's stored values are on this scale: 2026-09-01 and 09-02 are
+     flow 1, which is spotting at the end of a period, not a light day at
+     the start of one.
      --------------------------------------------------------------- */
-  function seedProfile() {
-    return { setup: true, sex: 'female', lastStart: '2026-08-25', cycleLen: 28,
-             periodLen: 5, irregular: false, discreet: false };
-  }
-  function seedDays() {
-    return {
-      '2026-08-25': { flow: 3, sym: { cramps: 2 }, mood: ['tired'], note: '' },
-      '2026-08-26': { flow: 3, sym: { cramps: 2, headache: 1 }, mood: ['tired'], note: 'Skipped the session.' },
-      '2026-08-27': { flow: 2, sym: {}, mood: [], note: '' },
-      '2026-08-28': { flow: 1, sym: {}, mood: ['ok'], note: '' },
-      '2026-08-29': { flow: 1, sym: {}, mood: ['ok'], note: '' },
-      '2026-09-03': { flow: 0, sym: {}, mood: ['strong'], note: 'Best squat session in weeks.' },
-      '2026-09-07': { flow: 0, sym: { bloating: 1 }, mood: ['low'], note: '' }
-    };
-  }
+  var FLOWS = [
+    [0, 'None'], [1, 'Spotting'], [2, 'Light'], [3, 'Medium'], [4, 'Heavy']
+  ];
+  /* Bleeding that counts as the start of a cycle. Spotting on its own does
+     not move a prediction, which is the whole reason spotting is a level of
+     its own rather than the bottom of "light". */
+  var BLEED = 2;
 
   var SYMPTOMS = [
     ['cramps', 'Cramps'], ['headache', 'Headache'], ['bloating', 'Bloating'],
-    ['backache', 'Back ache'], ['tender', 'Tenderness'], ['nausea', 'Nausea']
+    ['backache', 'Back ache'], ['tender', 'Breast tenderness'], ['nausea', 'Nausea'],
+    ['fatigue', 'Fatigue'], ['acne', 'Acne'], ['cravings', 'Cravings'],
+    ['moodswings', 'Mood swings'], ['insomnia', 'Trouble sleeping'], ['looseness', 'Loose stools']
   ];
-  var MOODS = [['low','Low'],['tired','Tired'],['ok','OK'],['strong','Strong'],['irritable','Irritable']];
-  var FLOWS = [['0','None'],['1','Light'],['2','Medium'],['3','Heavy']];
+  var SEVERITY = [[0, 'Off'], [1, 'Mild'], [2, 'Moderate'], [3, 'Severe']];
+  var MOODS = [['low','Low'],['tired','Tired'],['ok','OK'],['strong','Strong'],['irritable','Irritable'],['energised','Energised']];
+  var SCALE5 = [[1,'1'],[2,'2'],[3,'3'],[4,'4'],[5,'5']];
+  var SEX = [['none','Not logged'],['protected','Protected'],['unprotected','Unprotected']];
 
-  /* Four phases from two numbers. Named as an estimate everywhere it is
-     shown, because that is exactly what it is. */
-  function phaseOf(dayInCycle, p) {
-    if (dayInCycle <= p.periodLen) return { key: 'menstrual', name: 'Period', hue: 'var(--id-1)' };
-    var ov = Math.round(p.cycleLen / 2);
-    if (dayInCycle < ov - 1) return { key: 'follicular', name: 'Follicular', hue: 'var(--id-3)' };
-    if (dayInCycle <= ov + 1) return { key: 'ovulatory', name: 'Ovulation', hue: 'var(--id-5)' };
-    return { key: 'luteal', name: 'Luteal', hue: 'var(--id-4)' };
-  }
-  function dayInCycle(p) {
-    if (!p.lastStart) return null;
-    return (daysBetween(p.lastStart, TODAY) % p.cycleLen) + 1;
-  }
-  function nextStart(p) {
-    if (!p.lastStart) return null;
-    var d = daysBetween(p.lastStart, TODAY);
-    var cycles = Math.floor(d / p.cycleLen) + 1;
-    return iso(ms(p.lastStart) + cycles * p.cycleLen * 86400000);
+  /* The events section. Plain names for things people actually log. A
+     euphemism here would make the list harder to read and would tell the
+     reader this app is uncomfortable with her life. */
+  var EVENTS = [
+    ['ec', 'Morning-after pill', 'Emergency contraception. It can move when your next period arrives.'],
+    ['test-neg', 'Pregnancy test, negative', ''],
+    ['test-pos', 'Pregnancy test, positive', ''],
+    ['miscarriage', 'Miscarriage', 'Pregnancy loss. Logging it pauses the predictions.'],
+    ['abortion', 'Abortion', 'Logging it pauses the predictions.'],
+    ['iud-in', 'IUD fitted', ''],
+    ['iud-out', 'IUD removed', '']
+  ];
+  var RECOVERY_EVENTS = ['miscarriage', 'abortion'];
+
+  var GOALS = [
+    ['track', 'Just keep track', 'The day count, the log, and nothing pushed at you.'],
+    ['train', 'Train around it', 'The phase shows up next to your training.'],
+    ['conceive', 'Trying to conceive', 'The fertile window is shown first.'],
+    ['avoid', 'Avoiding pregnancy', 'Shown, but never as contraception. It is not one.'],
+    ['health', 'Watch for changes', 'Long gaps and big swings are flagged.']
+  ];
+  var BIRTH_CONTROL = [
+    ['none', 'None'],
+    ['pill', 'Combined pill'],
+    ['mini', 'Progestogen-only pill'],
+    ['iud-h', 'Hormonal IUD'],
+    ['iud-c', 'Copper IUD'],
+    ['implant', 'Implant or injection'],
+    ['other', 'Something else']
+  ];
+  function isPill(bc) { return bc === 'pill' || bc === 'mini'; }
+  function bcLabel(v) {
+    for (var i = 0; i < BIRTH_CONTROL.length; i++) if (BIRTH_CONTROL[i][0] === v) return BIRTH_CONTROL[i][1];
+    return 'None';
   }
 
   /* What training the phase suggests. Not a rule and not a limit -- the
@@ -154,72 +200,726 @@
     menstrual: 'Training through it is fine. If the first two days are heavy, taking load off and keeping the session is better than skipping it.',
     follicular: 'The stretch where most people add weight most easily. Worth putting your hardest sessions here if you get to choose.',
     ovulatory: 'Strength usually peaks around here. Warm up longer: joints are looser and that is where the tweaks happen.',
-    luteal: 'Effort feels higher for the same weight, especially late. That is the reading, not a drop in strength. Judge sessions on RIR rather than on how heavy they felt.'
+    luteal: 'Effort feels higher for the same weight, especially late. That is the reading, not a drop in strength. Judge sessions on RIR rather than on how heavy they felt.',
+    overdue: 'Nothing about training changes because a period is late. The screen has simply run out of cycle to estimate from.'
   };
+
+  /* ---------------------------------------------------------------
+     The seeds.
+
+     lk_mcProfile and lk_mcDays are now in the shared fixture, generated
+     from tests/fixtures/seed-data.json, and store.js hands them back for
+     these two keys. This file used to carry its own seedProfile() saying
+     lastStart 2026-08-25, which agreed with neither the seed nor Home;
+     what is left here is the fallback for a page loaded without fixtures.
+     --------------------------------------------------------------- */
+  function seedProfile() {
+    var F = window.LKFixtures;
+    if (F && F.mcProfile) return JSON.parse(JSON.stringify(F.mcProfile));
+    return { setup: true, goal: 'train', lastStart: null, cycleLen: 28, periodLen: 5,
+             irregular: false, birthControl: 'none', discreet: false, createdAt: null };
+  }
+  function seedDays() {
+    var F = window.LKFixtures;
+    return F && F.mcDays ? JSON.parse(JSON.stringify(F.mcDays)) : {};
+  }
+
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function store() { return window.LKStore; }
 
   var S = {
     state: 'populated',
+    view: 'cycle',          /* 'cycle' | 'calendar' */
     p: seedProfile(),
     days: seedDays(),
-    sheet: null,        /* null | 'settings' | an ISO date */
+    sheet: null,            /* null | 'settings' | 'bc' | an ISO date */
+    dialog: null,
     draft: null,
+    preview: null,          /* a day number being dragged on the ring */
+    reveal: false,          /* discreet mode: names shown for this sheet only */
+    open: {},               /* open accordion sections */
+    calOffset: 0,
+    setupStep: 0,
+    setupError: null,
     toast: null
   };
 
   /* ---------------------------------------------------------------
-     Pieces
+     Read and write. The fixture is the seed, the store is the truth.
+
+     `fresh` is the dev switcher rebuilding a state from scratch: it must
+     not read a person's stored profile back over the state it is showing,
+     the way coach.html's reset(fresh) does not.
+     --------------------------------------------------------------- */
+  function reset(fresh) {
+    var st = store();
+    var rd = function (key, fb) { return (st && !fresh) ? st.get(key, fb) : fb; };
+    var p = rd('lk_mcProfile', seedProfile());
+    if (!p || typeof p !== 'object') p = seedProfile();
+    var days = rd('lk_mcDays', seedDays());
+    if (!days || typeof days !== 'object') days = seedDays();
+    S.p = p;
+    S.days = days;
+    S.sheet = null; S.dialog = null; S.draft = null; S.preview = null;
+    S.reveal = false; S.setupError = null; S.setupStep = 0; S.toast = null;
+    S.calOffset = 0;
+  }
+  function persistProfile() { if (store()) store().set('lk_mcProfile', S.p); }
+  function persistDays() { if (store()) store().set('lk_mcDays', S.days); }
+
+  /* ---------------------------------------------------------------
+     Arithmetic.
+
+     Every start this screen knows about, oldest first. They are read out
+     of the day log rather than stored, so clearing a flow day undoes the
+     prediction that logging it moved -- which is the defect sign-off found
+     and could not have been fixed while lastStart was a field somebody
+     wrote to.
+
+     The date typed at setup counts as a start too, because on a first run
+     it is the only one there is.
+     --------------------------------------------------------------- */
+  function allStarts() {
+    var keys = Object.keys(S.days).sort();
+    var out = [], last = null;
+    keys.forEach(function (k) {
+      if ((S.days[k].flow || 0) < BLEED) return;
+      if (last === null || daysBetween(last, k) > 3) out.push(k);
+      last = k;
+    });
+    if (S.p.lastStart) {
+      var near = false;
+      for (var i = 0; i < out.length; i++) {
+        if (Math.abs(daysBetween(out[i], S.p.lastStart)) <= 3) { near = true; break; }
+      }
+      if (!near) { out.push(S.p.lastStart); out.sort(); }
+    }
+    return out.filter(function (d) { return daysBetween(d, TODAY) >= 0; });
+  }
+  function lastStart() { var a = allStarts(); return a.length ? a[a.length - 1] : null; }
+
+  /* Gaps between consecutive recorded starts. This is the only measured
+     cycle length on the screen; p.cycleLen is a setting, not a measurement,
+     and the copy never confuses the two. */
+  function intervals() {
+    var a = allStarts(), out = [];
+    for (var i = 1; i < a.length; i++) out.push(daysBetween(a[i - 1], a[i]));
+    return out;
+  }
+
+  /* The shared calculator, asked about this screen's live profile rather
+     than about the fixture's.
+
+     LKFixtures.cycleOn reads LKFixtures.mcProfile, which is the seed and
+     never the day this reader just logged. Rather than reimplement the
+     formula here -- which is precisely how three screens came to give three
+     answers -- the fixture's profile is swapped for the live one for the
+     length of one synchronous call and put straight back. One
+     implementation of the arithmetic exists in this build, and it is not
+     in this file. */
+  function calc(start, on) {
+    var F = window.LKFixtures;
+    if (!F || typeof F.cycleOn !== 'function' || !start) return null;
+    var saved = F.mcProfile;
+    F.mcProfile = { lastStart: start, cycleLen: S.p.cycleLen, periodLen: S.p.periodLen,
+                    irregular: !!S.p.irregular };
+    try { return F.cycleOn(on || TODAY); }
+    finally { F.mcProfile = saved; }
+  }
+  function cyc(on) { return calc(lastStart(), on); }
+
+  function dayInCycle(on) {
+    var c = cyc(on);
+    return c ? c.day : null;
+  }
+  /* The day-in-cycle of some past date, measured from whichever start came
+     before it. Used by the insights, where "day 2" has to mean day 2 of the
+     cycle that date fell in, not of the current one. */
+  function dayInCycleAt(date) {
+    var a = allStarts(), best = null;
+    for (var i = 0; i < a.length; i++) if (daysBetween(a[i], date) >= 0) best = a[i];
+    if (!best) return null;
+    var c = calc(best, date);
+    return c ? c.day : null;
+  }
+
+  /* Ovulation sits where cycleOn puts it, so the ring, the typical-day
+     footer and the phase name cannot disagree with the day count above
+     them. */
+  function ovDay(p) { return Math.round(p.cycleLen / 2); }
+  function ranges(p) {
+    var ov = ovDay(p);
+    return {
+      menstrual:  [1, p.periodLen],
+      follicular: [p.periodLen + 1, ov - 2],
+      ovulatory:  [ov - 1, ov + 1],
+      luteal:     [ov + 2, p.cycleLen],
+      fertile:    [ov - 5, ov + 1],
+      pms:        [Math.max(1, p.cycleLen - 4), p.cycleLen]
+    };
+  }
+  var PHASE_NAME = { menstrual: 'Period', follicular: 'Follicular', ovulatory: 'Ovulation', luteal: 'Luteal', overdue: 'Past your usual length' };
+  var PHASE_HUE = { menstrual: 'var(--id-1)', follicular: 'var(--id-3)', ovulatory: 'var(--id-5)', luteal: 'var(--id-4)' };
+
+  function phaseOf(d, p) {
+    if (d === null) return null;
+    if (d > p.cycleLen) return { key: 'overdue', name: PHASE_NAME.overdue, hue: 'var(--text-tertiary)' };
+    var r = ranges(p), k;
+    for (k in r) {
+      if (k === 'fertile' || k === 'pms') continue;
+      if (d >= r[k][0] && d <= r[k][1]) return { key: k, name: PHASE_NAME[k], hue: PHASE_HUE[k] };
+    }
+    return { key: 'luteal', name: PHASE_NAME.luteal, hue: PHASE_HUE.luteal };
+  }
+  function nextStart() { var c = cyc(); return c ? c.nextStart : null; }
+  function daysToNext() { var c = cyc(); return c ? c.daysToNext : null; }
+  function overdueBy() { var c = cyc(); return c ? c.overdue : 0; }
+
+  /* The confidence band. Measured from the recorded starts once there are
+     three of them; before that it is a stated default and says so, because
+     a band with nothing behind it presented as a measurement is exactly the
+     confident face this screen is supposed not to wear. */
+  function band() {
+    var iv = intervals();
+    if (iv.length >= 2) {
+      var lo = Math.min.apply(null, iv), hi = Math.max.apply(null, iv);
+      var b = Math.max(1, Math.ceil((hi - lo) / 2));
+      if (S.p.irregular) b = Math.max(b, 4);
+      return { days: b, why: 'measured across your ' + plural(iv.length + 1, 'recorded cycle', 'recorded cycles') };
+    }
+    if (S.p.irregular) return { days: 4, why: 'a default for irregular cycles, not measured from yours yet' };
+    return { days: 2, why: 'a default, not measured from your cycles yet' };
+  }
+  /* Irregular cycles are shown as a range rather than a date. The switch
+     used to say that and change nothing at all: p.irregular was read
+     nowhere outside the sheet that set it. */
+  function estimate(dateISO) {
+    var b = band();
+    if (S.p.irregular) {
+      return { text: absDate(shift(dateISO, -b.days)) + ' to ' + absDate(shift(dateISO, b.days)),
+               band: b, range: true };
+    }
+    return { text: absDate(dateISO) + ', give or take ' + plural(b.days, 'day', 'days'),
+             band: b, range: false };
+  }
+
+  function daysSinceStart() {
+    var ls = lastStart();
+    return ls === null ? null : daysBetween(ls, TODAY);
+  }
+  function isStale() {
+    var d = daysSinceStart();
+    return d !== null && d > S.p.cycleLen + 45;
+  }
+
+  /* Recovery mode. Set by logging a pregnancy loss or an abortion in the
+     events section, cleared by the reader. While it is on, nothing on this
+     screen predicts anything. */
+  function recoveryDate() {
+    if (S.p.recoveryOff) return null;
+    var keys = Object.keys(S.days).sort(), found = null;
+    keys.forEach(function (k) {
+      var ev = S.days[k].events || [];
+      for (var i = 0; i < RECOVERY_EVENTS.length; i++) {
+        if (ev.indexOf(RECOVERY_EVENTS[i]) >= 0) found = k;
+      }
+    });
+    return found;
+  }
+  function ecDate() {
+    var keys = Object.keys(S.days).sort(), found = null;
+    keys.forEach(function (k) {
+      if ((S.days[k].events || []).indexOf('ec') >= 0 && daysBetween(k, TODAY) <= 30) found = k;
+    });
+    return found;
+  }
+
+  function today() { return S.days[TODAY] || null; }
+  function todayDraft() {
+    var e = S.days[TODAY];
+    return e ? clone(e) : { flow: 0, sym: {}, mood: [], note: '' };
+  }
+
+  /* ---------------------------------------------------------------
+     Training, read from the shipped key. Volume is kilograms in the model
+     and goes out through LKUnits, never as a bare ' kg'.
+     --------------------------------------------------------------- */
+  function sessions() {
+    var h = (store() ? store().get('lk_history', []) : (window.LKFixtures || {}).history) || [];
+    return h.filter(function (w) { return w && w.kind === 'lift' && w.date && w.kg; });
+  }
+  function volumeByPhase() {
+    var out = {}, any = false;
+    sessions().forEach(function (w) {
+      var d = dayInCycleAt(w.date);
+      if (d === null) return;
+      var ph = phaseOf(d, S.p);
+      if (!ph || ph.key === 'overdue') return;
+      out[ph.key] = out[ph.key] || { n: 0, kg: 0 };
+      out[ph.key].n++; out[ph.key].kg += w.kg;
+      any = true;
+    });
+    return any ? out : null;
+  }
+  /* A training spike: the last four weeks against the four before them.
+     One of the two halves of the RED-S flag. */
+  function volumeSpike() {
+    var recent = 0, before = 0;
+    sessions().forEach(function (w) {
+      var ago = daysBetween(w.date, TODAY);
+      if (ago < 0) return;
+      if (ago <= 27) recent += w.kg; else if (ago <= 55) before += w.kg;
+    });
+    if (!before) return null;
+    return Math.round((recent - before) / before * 100);
+  }
+
+  /* ---------------------------------------------------------------
+     Health flags.
+
+     These name a pattern in what was logged and say who to take it to.
+     They do not say what is causing it, because nothing on this phone can
+     know that, and "this screen does not diagnose anything" has to stay
+     true after they are added or it should not have been written.
+     --------------------------------------------------------------- */
+  function healthFlags() {
+    var out = [];
+    var since = daysSinceStart();
+    var spike = volumeSpike();
+    var iv = intervals();
+    if (since !== null && since >= 90) {
+      out.push({
+        id: 'amenorrhoea', level: 'red',
+        title: 'No period recorded for ' + plural(since, 'day', 'days'),
+        body: 'Three months or more without a period has a name, amenorrhoea, and it is worth ' +
+              'seeing a doctor about. That is the whole of what this screen can tell you: it is ' +
+              'counting the days between what you logged. It cannot say why, and it is not a diagnosis.'
+      });
+    } else if (since !== null && since >= 45) {
+      out.push({
+        id: 'long-gap', level: 'amber',
+        title: plural(since, 'day', 'days') + ' since your last recorded start',
+        body: 'A gap over 45 days is worth mentioning to a doctor next time you see one. Long gaps ' +
+              'have plenty of ordinary causes. This screen is counting days and nothing else.'
+      });
+    }
+    var longRecorded = false;
+    for (var i = 0; i < iv.length; i++) if (iv[i] >= 45) longRecorded = true;
+    if (spike !== null && spike >= 30 && (longRecorded || (since !== null && since >= 45))) {
+      out.push({
+        id: 'reds', level: 'amber',
+        title: 'A long gap alongside a jump in training',
+        body: 'Your logged training volume is up ' + spike + ' per cent on the four weeks before, and ' +
+              'your cycle has gone long in the same stretch. Those two together are the pattern behind ' +
+              'low energy availability, sometimes called RED-S. A doctor or a sports dietitian is the ' +
+              'right person to look at it. This screen cannot tell you whether that is what is happening.'
+      });
+    }
+    var hidden = S.p.flagsHidden || {};
+    return out.filter(function (f) { return f.level === 'red' || !hidden[f.id]; });
+  }
+
+  /* ---------------------------------------------------------------
+     Header
      --------------------------------------------------------------- */
   function headerHTML() {
+    var tracking = S.state === 'populated' || S.state === 'discreet';
     return '' +
       '<button class="hdr__back" type="button" data-act="back" data-testid="back" aria-label="Back to Home">' +
         ICO.back + '</button>' +
       '<div class="hdr__title stack stack--1">' +
-        '<span class="t-meta">YOUR CYCLE</span>' +
+        '<span class="t-meta">ON THIS PHONE ONLY</span>' +
         '<h1 class="t-title">Cycle</h1>' +
       '</div>' +
-      (S.state === 'populated' || S.state === 'discreet'
+      (tracking
+        ? '<button class="iconbtn" type="button" data-act="toggle-view" data-testid="cycle-view-toggle" ' +
+            'aria-pressed="' + (S.view === 'calendar') + '" ' +
+            'aria-label="' + (S.view === 'calendar' ? 'Show the cycle view' : 'Show the calendar') + '">' +
+            (S.view === 'calendar' ? ICO.ring : ICO.cal) + '</button>'
+        : '') +
+      (tracking
         ? '<button class="iconbtn" type="button" data-act="settings" data-testid="cycle-settings" ' +
             'aria-label="Cycle settings">' + ICO.gear + '</button>'
         : '');
   }
 
-  function todayCard() {
-    var p = S.p, d = dayInCycle(p);
-    var ph = phaseOf(d, p);
-    var next = nextStart(p);
-    var to = daysBetween(TODAY, next);
-    var quiet = p.discreet;
-    return '<div class="card mt-4" data-testid="cycle-today">' +
-      '<div class="hstack hstack--3">' +
-        '<span class="stack stack--1 grow">' +
-          '<span class="t-label">TODAY</span>' +
-          '<span class="t-hero num" data-testid="cycle-day">Day ' + d + '</span>' +
-          '<span class="t-detail">' +
-            (quiet ? 'Of an estimated ' + p.cycleLen + '-day cycle.'
-                   : esc(ph.name) + ' &middot; estimated, from your last start and a ' +
-                     p.cycleLen + '-day cycle.') +
-          '</span>' +
-        '</span>' +
-        /* A marker, not a numbered disc. The disc carried the day number in
-           white on an --id hue, which at 2.29:1 was unreadable on the lighter
-           two -- and the number is already the biggest thing on the card. The
-           phase is named in text beside it, so colour is never the only thing
-           carrying it. */
-        (quiet ? '' : '<span class="cyc__phase" aria-hidden="true" style="background:' + ph.hue + '"></span>') +
+  /* ---------------------------------------------------------------
+     The ring. 272px, four phase arcs, the elapsed part solid and the rest
+     faded, a marker on today, and drag or arrow keys to preview any day.
+     --------------------------------------------------------------- */
+  var R_SIZE = 272, R_C = 136, R_R = 112, R_W = 20;
+  function polar(r, deg) {
+    var a = (deg - 90) * Math.PI / 180;
+    return [R_C + r * Math.cos(a), R_C + r * Math.sin(a)];
+  }
+  function arcPath(r, a0, a1) {
+    if (a1 - a0 >= 359.99) a1 = a0 + 359.99;
+    if (a1 <= a0) return '';
+    var p0 = polar(r, a0), p1 = polar(r, a1);
+    return 'M' + p0[0].toFixed(2) + ' ' + p0[1].toFixed(2) +
+           ' A' + r + ' ' + r + ' 0 ' + ((a1 - a0) > 180 ? 1 : 0) + ' 1 ' +
+           p1[0].toFixed(2) + ' ' + p1[1].toFixed(2);
+  }
+  function angOf(day) { return (day - 1) / S.p.cycleLen * 360; }
+
+  function ringHTML() {
+    var p = S.p, r = ranges(p), d = dayInCycle();
+    var cur = d === null ? 0 : Math.min(d, p.cycleLen);
+    var elapsedTo = angOf(cur + 1);
+    var order = ['menstrual', 'follicular', 'ovulatory', 'luteal'];
+    var arcs = '';
+    order.forEach(function (k) {
+      var a0 = angOf(r[k][0]), a1 = angOf(r[k][1] + 1);
+      var hue = PHASE_HUE[k];
+      /* Discreet mode drops the phase colouring with the phase name: four
+         named hues are the phase, told in colour. */
+      if (p.discreet) hue = 'var(--text-tertiary)';
+      arcs += '<path d="' + arcPath(R_R, a0, a1) + '" stroke="' + hue + '" stroke-width="' + R_W +
+              '" fill="none" opacity="0.28" stroke-linecap="butt"></path>';
+      if (cur > 0 && elapsedTo > a0) {
+        arcs += '<path d="' + arcPath(R_R, a0, Math.min(a1, elapsedTo)) + '" stroke="' + hue +
+                '" stroke-width="' + R_W + '" fill="none" stroke-linecap="butt"></path>';
+      }
+    });
+    var marker = '';
+    if (d !== null && d <= p.cycleLen) {
+      var mp = polar(R_R, angOf(d) + (180 / p.cycleLen));
+      marker = '<circle cx="' + mp[0].toFixed(2) + '" cy="' + mp[1].toFixed(2) +
+               '" r="7" fill="var(--bg)" stroke="var(--text)" stroke-width="3"></circle>';
+    }
+    var prev = '';
+    if (S.preview !== null) {
+      var pp = polar(R_R, angOf(S.preview) + (180 / p.cycleLen));
+      prev = '<circle cx="' + pp[0].toFixed(2) + '" cy="' + pp[1].toFixed(2) +
+             '" r="10" fill="none" stroke="var(--accent-text)" stroke-width="3"></circle>';
+    }
+    var label = d === null ? 'No start recorded'
+      : 'Day ' + d + ' of an estimated ' + p.cycleLen + ' day cycle';
+    return '<div class="cycring mt-4">' +
+      '<div class="cycring__box" id="ring-box" data-testid="cycle-ring" ' +
+        'role="slider" tabindex="0" aria-label="Cycle ring. Drag or use the arrow keys to look at any day." ' +
+        'aria-valuemin="1" aria-valuemax="' + p.cycleLen + '" ' +
+        'aria-valuenow="' + (S.preview !== null ? S.preview : (d === null ? 1 : Math.min(d, p.cycleLen))) + '" ' +
+        'aria-valuetext="' + esc(S.preview !== null ? 'Day ' + S.preview : label) + '">' +
+        '<svg class="cycring__svg" viewBox="0 0 ' + R_SIZE + ' ' + R_SIZE + '" aria-hidden="true" focusable="false">' +
+          '<circle cx="' + R_C + '" cy="' + R_C + '" r="' + R_R + '" fill="none" ' +
+            'stroke="var(--surface-sunken)" stroke-width="' + R_W + '"></circle>' +
+          arcs + marker + prev +
+        '</svg>' +
+        '<div class="cycring__centre">' + ringCentre() + '</div>' +
       '</div>' +
-      '<p class="t-detail mt-3">Next period estimated ' + esc(absDate(next)) + ', ' +
-        (to === 0 ? 'today' : to === 1 ? 'tomorrow' : 'in ' + to + ' days') + '.</p>' +
-      (quiet ? '' : '<p class="t-caption-1 quiet mt-2">' + esc(PHASE_NOTE[ph.key]) + '</p>') +
     '</div>';
   }
 
-  /* The last 28 days, most recent last, so the strip reads left to right the
-     way a calendar does. A logged day carries its flow; today is ringed. */
+  /* Four centre states: previewing a day, recovering, out of data, and the
+     ordinary one. */
+  function ringCentre() {
+    var p = S.p, d = dayInCycle();
+    if (S.preview !== null) {
+      var pd = S.preview;
+      var ls = lastStart();
+      var date = ls ? shift(ls, pd - 1) : null;
+      var ph = phaseOf(pd, p);
+      return '<span class="t-label">LOOKING AT</span>' +
+        '<span class="cycring__day num" data-testid="ring-preview">Day ' + pd + '</span>' +
+        '<span class="t-caption-1 quiet">' + (p.discreet ? '' : esc(ph.name) + (date ? ' &middot; ' : '')) +
+          (date ? esc(absDate(date)) : '') + '</span>' +
+        '<button class="btn btn--tertiary btn--sm mt-1" type="button" data-act="ring-today" data-testid="ring-today">' +
+          '<span class="btn__label">Back to today</span></button>';
+    }
+    if (recoveryDate()) {
+      return '<span class="t-label">RECOVERY</span>' +
+        '<span class="cycring__day" data-testid="ring-recovery">Paused</span>' +
+        '<span class="t-caption-1 quiet">No estimate while your cycle comes back.</span>';
+    }
+    if (d === null) {
+      return '<span class="t-label">NO START YET</span>' +
+        '<span class="cycring__day" data-testid="ring-nodata">Day &mdash;</span>' +
+        '<button class="btn btn--tertiary btn--sm mt-1" type="button" data-act="settings" data-testid="ring-add-start">' +
+          '<span class="btn__label">Add a start date</span></button>';
+    }
+    if (isStale()) {
+      return '<span class="t-label">OUT OF DATE</span>' +
+        '<span class="cycring__day num" data-testid="ring-stale">Day ' + d + '</span>' +
+        '<span class="t-caption-1 quiet">Too long since a start for this to mean much.</span>';
+    }
+    var ph = phaseOf(d, p);
+    var to = daysToNext();
+    return '<span class="t-label">TODAY</span>' +
+      '<span class="cycring__day num" data-testid="cycle-day">Day ' + d + '</span>' +
+      (p.discreet ? '' : '<span class="t-caption-1" data-testid="ring-phase">' + esc(ph.name) + '</span>') +
+      '<span class="t-caption-1 quiet">' +
+        (to < 0 ? 'Period estimate passed' : to === 0 ? 'Period estimated today' :
+         'Next in ' + plural(to, 'day', 'days')) + '</span>';
+  }
+
+  /* ---------------------------------------------------------------
+     Quick actions and the two inline strips
+     --------------------------------------------------------------- */
+  function quickHTML() {
+    var t = today() || {};
+    var pill = isPill(S.p.birthControl);
+    var third = pill
+      ? ['pill-quick', t.pill ? 'Pill taken' : 'Take pill', t.pill ? 'Logged for today' : 'One tap for today']
+      : ['focus-energy', 'Energy', 'How today feels'];
+    return '<div class="cycq" role="group" aria-label="Quick actions">' +
+      qbtn('log-period', 'Log period', 'Flow for today') +
+      qbtn('log-symptoms', 'Symptoms', S.p.discreet ? 'Names are hidden' : 'Twelve, with a severity') +
+      qbtn(third[0], third[1], third[2]) +
+      qbtn('log-more', 'More', 'Sleep, sex, events') +
+    '</div>';
+  }
+  function qbtn(act, title, sub) {
+    return '<button class="cycq__btn" type="button" data-act="' + act + '" data-testid="qa-' + act + '">' +
+      '<span class="cycq__t">' + esc(title) + '</span>' +
+      '<span class="cycq__s">' + esc(sub) + '</span></button>';
+  }
+
+  function scaleStrip(opts) {
+    return '<div class="cycscale" role="radiogroup" aria-label="' + esc(opts.label) + '" ' +
+        'id="' + opts.id + '" data-testid="' + opts.id + '">' +
+      opts.items.map(function (it) {
+        return '<button class="cycscale__b" type="button" role="radio" ' +
+          'aria-checked="' + (String(opts.value) === String(it[0])) + '" ' +
+          'data-act="' + opts.act + '" data-v="' + it[0] + '" ' +
+          'data-testid="' + opts.id + '-' + it[0] + '">' + esc(it[1]) + '</button>';
+      }).join('') + '</div>';
+  }
+
+  function inlineStrips() {
+    var t = today() || {};
+    return '<div class="section mt-5">' +
+      '<div class="section__head"><h2 class="t-label">Today</h2>' +
+        '<span class="t-meta">' + esc(dowOf(TODAY) + ' ' + absDate(TODAY)) + '</span></div>' +
+      '<div class="card">' +
+        '<span class="t-label">Flow</span>' +
+        scaleStrip({ id: 'today-flow', label: 'Flow today', act: 'quick-flow',
+                     value: t.flow || 0, items: FLOWS }) +
+        '<span class="t-label" style="display:block;margin-top:var(--sp-4)">Energy, 1 low to 5 high</span>' +
+        scaleStrip({ id: 'today-energy', label: 'Energy today', act: 'quick-energy',
+                     value: t.energy || 0, items: SCALE5 }) +
+        '<p class="t-caption-1 quiet mt-3">Saved as you tap. Nothing here is sent anywhere.</p>' +
+      '</div>' +
+    '</div>';
+  }
+
+  /* ---------------------------------------------------------------
+     Phase card, with the typical day range it is read off
+     --------------------------------------------------------------- */
+  function phaseCard() {
+    var p = S.p, d = dayInCycle();
+    if (d === null || recoveryDate()) return '';
+    var ph = phaseOf(d, p), r = ranges(p);
+    if (p.discreet) {
+      return '<div class="card mt-4" data-testid="cycle-phase">' +
+        '<p class="t-detail">The phase name is hidden in discreet mode. The day count above is ' +
+          'worked out from your last recorded start and a ' + p.cycleLen + ' day setting.</p>' +
+      '</div>';
+    }
+    var band = ph.key === 'overdue' ? null : r[ph.key];
+    return '<div class="card mt-4" data-testid="cycle-phase">' +
+      '<div class="hstack hstack--3">' +
+        '<span class="stack stack--1 grow">' +
+          '<span class="t-label">PHASE</span>' +
+          '<span class="t-title-3" data-testid="phase-name">' + esc(ph.name) + '</span>' +
+        '</span>' +
+        '<span class="cyc__phase" aria-hidden="true" style="background:' + ph.hue + '"></span>' +
+      '</div>' +
+      '<p class="t-caption-1 quiet mt-2">' + esc(PHASE_NOTE[ph.key]) + '</p>' +
+      (band
+        ? '<p class="t-caption-1 quiet mt-3" data-testid="phase-typical">On a ' + p.cycleLen +
+            ' day cycle this phase usually runs day ' + band[0] + ' to day ' + band[1] +
+            '. Estimated from two numbers, not measured.</p>'
+        : '') +
+    '</div>';
+  }
+
+  /* ---------------------------------------------------------------
+     Predictions
+     --------------------------------------------------------------- */
+  function predCard(id, label, value, sub, now) {
+    return '<div class="card mt-3" data-testid="pred-' + id + '">' +
+      '<div class="hstack hstack--3">' +
+        '<span class="stack stack--1 grow">' +
+          '<span class="t-label">' + esc(label) + '</span>' +
+          '<span class="t-headline">' + esc(value) + '</span>' +
+        '</span>' +
+        (now ? '<span class="badge badge--accent">NOW</span>' : '<span class="badge">EST</span>') +
+      '</div>' +
+      '<p class="t-caption-1 quiet mt-2">' + esc(sub) + '</p>' +
+    '</div>';
+  }
+
+  function predictions() {
+    var p = S.p, ls = lastStart(), d = dayInCycle();
+    if (!ls || recoveryDate()) return '';
+    if (isStale()) {
+      return '<div class="empty mt-5" data-testid="cycle-stale">' +
+        '<p class="empty__title">Too long since a start to estimate</p>' +
+        '<p class="empty__body">The last start this screen has is ' + esc(absDate(ls)) + ', ' +
+          plural(daysSinceStart(), 'day', 'days') + ' ago. Log a period, or set a new start date in ' +
+          'settings, and the estimates come back.</p>' +
+      '</div>';
+    }
+    var r = ranges(p), b = band(), out = '';
+    var over = overdueBy();
+
+    out += '<div class="section mt-5"><div class="section__head">' +
+      '<h2 class="t-label">What the arithmetic says</h2>' +
+      '<span class="t-meta">&plusmn;' + b.days + ' days</span></div>';
+
+    if (over > 0) {
+      /* The overdue variant. It says the estimate has passed and it says
+         what that is not: this screen never tells anybody they are late,
+         and "Any day" is the strongest thing it is allowed to say. */
+      out += predCard('next', 'NEXT PERIOD', 'Any day',
+        'The estimate was ' + absDate(nextStart()) + ', ' + plural(over, 'day', 'days') +
+        ' ago. An estimate passing is not a finding about you. It means the arithmetic has run out.');
+    } else {
+      var est = estimate(nextStart());
+      var to = daysToNext();
+      out += predCard('next', 'NEXT PERIOD', est.text,
+        (to === 0 ? 'Estimated today. ' : to === 1 ? 'Estimated tomorrow. ' : 'In about ' + plural(to, 'day', 'days') + '. ') +
+        'The give or take is ' + est.band.why + '.');
+    }
+
+    var fs = shift(ls, r.fertile[0] - 1), fe = shift(ls, r.fertile[1] - 1);
+    var inFertile = d >= r.fertile[0] && d <= r.fertile[1];
+    out += predCard('fertile', 'FERTILE WINDOW', absDate(fs) + ' to ' + absDate(fe),
+      (inFertile ? 'You are inside it today. ' : '') +
+      'Worked out from the cycle length, not measured. It is an estimate of when ovulation is ' +
+      'likely, and it is not contraception.', inFertile);
+
+    var ps = shift(ls, r.pms[0] - 1), pe = shift(ls, r.pms[1] - 1);
+    var inPms = d >= r.pms[0] && d <= r.pms[1];
+    out += predCard('pms', 'PMS WINDOW', absDate(ps) + ' to ' + absDate(pe),
+      (inPms ? 'You are inside it today. ' : '') +
+      'The last five days of the estimated cycle, where most people log the most symptoms. ' +
+      'Yours may sit somewhere else.', inPms);
+
+    if (p.irregular) {
+      out += '<div class="banner banner--info mt-3" data-testid="cycle-irregular-note">' + ICO.alert +
+        '<span><strong>Irregular cycles are on</strong>Every estimate above is a range rather than a ' +
+        'date, widened to ' + plural(b.days, 'day', 'days') + ' either side. A cycle that varies a lot ' +
+        'cannot be predicted precisely, and a single date would be pretending otherwise.</span></div>';
+    }
+    if (over >= 5) {
+      out += '<div class="banner banner--warn mt-3" data-testid="cycle-overdue-note">' + ICO.alert +
+        '<span><strong>' + plural(over, 'day', 'days') + ' past the estimate</strong>' +
+        'This is about the estimate, not about you. A cycle running long happens for many ordinary ' +
+        'reasons, and this screen has no way of knowing which. If it keeps happening, or a gap goes ' +
+        'over 45 days, it is worth mentioning to a doctor.</span></div>';
+    }
+    out += '</div>';
+    return out;
+  }
+
+  /* ---------------------------------------------------------------
+     Recovery and emergency contraception
+     --------------------------------------------------------------- */
+  function recoveryCard() {
+    var when = recoveryDate();
+    if (!when) return '';
+    var ago = daysBetween(when, TODAY);
+    return '<div class="card card--outline mt-4" data-testid="cycle-recovery">' +
+      '<span class="t-label">RECOVERY</span>' +
+      '<p class="t-body mt-2">Predictions are paused since ' + esc(absDate(when)) + '.</p>' +
+      '<p class="t-caption-1 quiet mt-2">You logged a pregnancy ending ' + plural(ago, 'day', 'days') +
+        ' ago. Cycles often take one to three months to settle back, and the first bleed after is ' +
+        'not a reliable start to count from, so this screen stops estimating rather than showing you ' +
+        'a number it cannot stand behind. Logging flow still works and is still saved.</p>' +
+      '<p class="t-caption-1 quiet mt-2">Heavy bleeding, a fever or pain that gets worse are reasons ' +
+        'to call a doctor rather than wait.</p>' +
+      '<button class="btn btn--secondary btn--block mt-3" type="button" data-act="end-recovery" ' +
+        'data-testid="end-recovery"><span class="btn__label">Start estimating again</span></button>' +
+    '</div>';
+  }
+  function ecCard() {
+    var when = ecDate();
+    if (!when) return '';
+    var ago = daysBetween(when, TODAY);
+    return '<div class="card card--outline mt-4" data-testid="cycle-ec">' +
+      '<span class="t-label">MORNING-AFTER PILL</span>' +
+      '<p class="t-body mt-2">Logged ' + (ago === 0 ? 'today' : plural(ago, 'day', 'days') + ' ago') +
+        ', on ' + esc(absDate(when)) + '.</p>' +
+      '<p class="t-caption-1 quiet mt-2">It can move your next period by up to a week in either ' +
+        'direction, so the estimates on this screen are less reliable than usual for this cycle. ' +
+        'It is emergency contraception; it is not an abortion pill and it does not end a pregnancy.</p>' +
+      '<p class="t-caption-1 quiet mt-2">If your period is more than seven days later than you ' +
+        'expected, a pregnancy test is the way to find out. This screen cannot tell you.</p>' +
+    '</div>';
+  }
+
+  /* ---------------------------------------------------------------
+     The training card. Only on a day that was logged as rough.
+     --------------------------------------------------------------- */
+  function roughReasons() {
+    var t = today();
+    if (!t) return [];
+    var out = [], sym = t.sym || {};
+    ['cramps', 'fatigue', 'headache'].forEach(function (k) {
+      if ((sym[k] || 0) >= 2) {
+        for (var i = 0; i < SYMPTOMS.length; i++) if (SYMPTOMS[i][0] === k) out.push(SYMPTOMS[i][1].toLowerCase());
+      }
+    });
+    if (t.energy && t.energy <= 2) out.push('energy at ' + t.energy + ' out of 5');
+    return out;
+  }
+  function trainingCard() {
+    var reasons = roughReasons();
+    if (!reasons.length) return '';
+    var t = today() || {};
+    var said = t.training || null;
+    var why = S.p.discreet
+      ? 'You logged today as a rough one.'
+      : 'You logged ' + reasons.join(', ') + ' today.';
+    return '<div class="card mt-4" data-testid="cycle-training">' +
+      '<span class="t-label">TRAINING TODAY</span>' +
+      '<p class="t-body mt-2">' + esc(why) + '</p>' +
+      '<p class="t-caption-1 quiet mt-2">Nothing here changes your session on its own. Your answer is ' +
+        'written onto today so the log says what the numbers were like, and nothing else happens.</p>' +
+      (said
+        ? '<p class="t-detail mt-3" data-testid="training-said">You said: ' +
+            (said === 'lighter' ? 'take it lighter' : 'you feel fine') + '.</p>'
+        : '') +
+      '<div class="hstack hstack--2 mt-3">' +
+        '<button class="btn ' + (said === 'lighter' ? 'btn--primary' : 'btn--secondary') + ' grow" type="button" ' +
+          'data-act="train-lighter" aria-pressed="' + (said === 'lighter') + '" data-testid="train-lighter">' +
+          '<span class="btn__label">Take it lighter</span></button>' +
+        '<button class="btn ' + (said === 'fine' ? 'btn--primary' : 'btn--secondary') + ' grow" type="button" ' +
+          'data-act="train-fine" aria-pressed="' + (said === 'fine') + '" data-testid="train-fine">' +
+          '<span class="btn__label">I feel fine</span></button>' +
+      '</div>' +
+      '<button class="btn btn--tertiary btn--block mt-2" type="button" data-act="open-train" data-testid="open-train">' +
+        '<span class="btn__label">Open Train</span></button>' +
+    '</div>';
+  }
+
+  /* ---------------------------------------------------------------
+     Health flags
+     --------------------------------------------------------------- */
+  function flagsHTML() {
+    var flags = healthFlags();
+    if (!flags.length) return '';
+    return flags.map(function (f) {
+      return '<div class="banner banner--' + (f.level === 'red' ? 'error' : 'warn') + ' mt-4" ' +
+          'role="' + (f.level === 'red' ? 'alert' : 'status') + '" data-testid="flag-' + f.id + '">' +
+        ICO.alert + '<span><strong>' + esc(f.title) + '</strong>' + esc(f.body) +
+        (f.level === 'red' ? '' : '') + '</span></div>' +
+        (f.level === 'red' ? ''
+          : '<button class="btn btn--tertiary btn--block" type="button" data-act="hide-flag" ' +
+            'data-k="' + f.id + '" data-testid="hide-flag-' + f.id + '">' +
+            '<span class="btn__label">Hide this one</span></button>');
+    }).join('');
+  }
+
+  /* ---------------------------------------------------------------
+     The 28-day strip. A logged day carries its flow; today is ringed.
+     --------------------------------------------------------------- */
   function strip() {
-    var p = S.p;
-    var out = [];
+    var p = S.p, out = [];
     for (var i = 27; i >= 0; i--) {
-      var day = iso(ms(TODAY) - i * 86400000);
+      var day = shift(TODAY, -i);
       var e = S.days[day];
       var isToday = day === TODAY;
       var flow = e && e.flow ? e.flow : 0;
@@ -229,7 +929,7 @@
         'aria-label="' + dowOf(day) + ' ' + absDate(day) +
           (logged ? ', logged' : ', nothing logged') + '">' +
         '<span class="cyc__mark" data-flow="' + flow + '" data-logged="' + logged + '"' +
-          (flow && !p.discreet ? ' style="background:' + phaseOf(1, p).hue + '; opacity:' + (0.35 + flow * 0.2) + '"' : '') +
+          (flow && !p.discreet ? ' style="background: var(--id-1); opacity:' + (0.25 + flow * 0.15) + '"' : '') +
         '></span>' +
         '<span class="cyc__cap">' + (+day.split('-')[2]) + '</span>' +
       '</button>');
@@ -243,51 +943,320 @@
     '</div>';
   }
 
-  function insights() {
-    var entries = Object.keys(S.days);
-    if (entries.length < 3) {
-      return '<div class="empty mt-5" data-testid="cycle-insights-empty">' +
-        '<p class="empty__title">Not enough logged yet</p>' +
-        '<p class="empty__body">Three cycles is where a pattern starts to be worth reading. ' +
-          'Until then this stays quiet rather than guessing.</p>' +
-      '</div>';
-    }
-    var symCount = {};
-    entries.forEach(function (k) {
+  /* ---------------------------------------------------------------
+     Insights. Three, all derived, all from what is on this phone.
+     --------------------------------------------------------------- */
+  function symptomTiming() {
+    var counts = {}, days = {};
+    Object.keys(S.days).forEach(function (k) {
       var sym = S.days[k].sym || {};
-      Object.keys(sym).forEach(function (id) { symCount[id] = (symCount[id] || 0) + 1; });
+      var dc = dayInCycleAt(k);
+      Object.keys(sym).forEach(function (id) {
+        if (!sym[id]) return;
+        counts[id] = (counts[id] || 0) + 1;
+        if (dc !== null) { (days[id] = days[id] || []).push(dc); }
+      });
     });
-    var top = Object.keys(symCount).sort(function (a, b) { return symCount[b] - symCount[a]; }).slice(0, 3);
-    var notes = entries.filter(function (k) { return S.days[k].note; }).length;
-    return '<div class="section mt-5">' +
-      '<div class="section__head"><h2 class="t-label">What you have logged</h2></div>' +
-      '<div class="card card--flush">' +
-        top.map(function (id) {
-          var label = SYMPTOMS.filter(function (x) { return x[0] === id; })[0];
-          return '<div class="row row--static" data-testid="ins-' + id + '">' +
-            '<span class="row__main"><span class="row__title">' +
-              esc(label ? label[1] : id) + '</span></span>' +
-            '<span class="row__value num">' + symCount[id] +
-              (symCount[id] === 1 ? ' day' : ' days') + '</span></div>';
-        }).join('') +
-        '<div class="row row--static"><span class="row__main"><span class="row__title">Notes written</span></span>' +
-          '<span class="row__value num">' + notes + '</span></div>' +
+    var ids = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; }).slice(0, 3);
+    if (!ids.length) return null;
+    return ids.map(function (id) {
+      var label = id;
+      for (var i = 0; i < SYMPTOMS.length; i++) if (SYMPTOMS[i][0] === id) label = SYMPTOMS[i][1];
+      var ds = (days[id] || []).slice().sort(function (a, b) { return a - b; });
+      var when = ds.length
+        ? (ds[0] === ds[ds.length - 1] ? 'day ' + ds[0] : 'day ' + ds[0] + ' to ' + ds[ds.length - 1])
+        : 'days this screen cannot place';
+      return { label: label, n: counts[id], when: when };
+    });
+  }
+  function energyByPhase() {
+    var out = {};
+    Object.keys(S.days).forEach(function (k) {
+      var e = S.days[k];
+      if (!e.energy) return;
+      var dc = dayInCycleAt(k);
+      if (dc === null) return;
+      var ph = phaseOf(dc, S.p);
+      if (!ph || ph.key === 'overdue') return;
+      out[ph.key] = out[ph.key] || { n: 0, sum: 0 };
+      out[ph.key].n++; out[ph.key].sum += e.energy;
+    });
+    return Object.keys(out).length ? out : null;
+  }
+
+  function insights() {
+    var timing = symptomTiming();
+    var energy = energyByPhase();
+    var vol = volumeByPhase();
+    var quiet = S.p.discreet;
+    var out = '<div class="section mt-5"><div class="section__head">' +
+      '<h2 class="t-label">What you have logged</h2></div>';
+
+    /* 1. Symptom timing relative to the period. */
+    out += '<div class="card" data-testid="ins-timing">' +
+      '<span class="t-label">SYMPTOM TIMING</span>';
+    if (quiet) {
+      out += '<p class="t-detail mt-2">Symptom names are hidden in discreet mode.</p>';
+    } else if (!timing) {
+      out += '<p class="t-detail mt-2">Nothing logged yet. Tap a day and add a symptom, and this ' +
+        'fills in with where in the cycle you tend to log it.</p>';
+    } else {
+      out += '<div class="stack stack--2 mt-2">' + timing.map(function (t) {
+        return '<div class="hstack hstack--3" data-testid="ins-timing-' + esc(t.label.toLowerCase().replace(/\s+/g, '-')) + '">' +
+          '<span class="grow"><span class="t-body">' + esc(t.label) + '</span>' +
+          '<span class="t-caption-1 quiet" style="display:block">mostly ' + esc(t.when) + ' of the cycle</span></span>' +
+          '<span class="t-body num">' + plural(t.n, 'day', 'days') + '</span></div>';
+      }).join('') + '</div>';
+    }
+    out += '</div>';
+
+    /* 2. Energy by phase. */
+    out += '<div class="card mt-3" data-testid="ins-energy">' +
+      '<span class="t-label">ENERGY BY PHASE</span>';
+    if (quiet) {
+      out += '<p class="t-detail mt-2">Phase names are hidden in discreet mode.</p>';
+    } else if (!energy) {
+      out += '<p class="t-detail mt-2">No energy logged yet. The strip at the top of this screen is ' +
+        'one tap, and after a few weeks this reads back what it found.</p>';
+    } else {
+      out += '<div class="statrow">' + ['menstrual','follicular','ovulatory','luteal'].map(function (k) {
+        var e = energy[k];
+        if (!e) return '';
+        return '<span class="statrow__i"><span class="statrow__n">' +
+          (e.sum / e.n).toFixed(1) + '</span><span class="statrow__l">' + esc(PHASE_NAME[k]) +
+          ', ' + plural(e.n, 'day', 'days') + '</span></span>';
+      }).join('') + '</div>' +
+      '<p class="t-caption-1 quiet mt-2">Your own averages out of 5. Counts, not conclusions.</p>';
+    }
+    out += '</div>';
+
+    /* 3. Training volume by phase, from lk_history. */
+    out += '<div class="card mt-3" data-testid="ins-volume">' +
+      '<span class="t-label">TRAINING VOLUME BY PHASE</span>';
+    if (quiet) {
+      out += '<p class="t-detail mt-2">Phase names are hidden in discreet mode.</p>';
+    } else if (!vol) {
+      out += '<p class="t-detail mt-2">No logged sessions fall inside a cycle this screen can place. ' +
+        'Once a start and a few sessions overlap, the average session volume per phase shows here.</p>';
+    } else {
+      out += '<div class="stack stack--2 mt-2">' + ['menstrual','follicular','ovulatory','luteal'].map(function (k) {
+        var v = vol[k];
+        if (!v) return '';
+        return '<div class="hstack hstack--3" data-testid="ins-vol-' + k + '">' +
+          '<span class="grow"><span class="t-body">' + esc(PHASE_NAME[k]) + '</span>' +
+          '<span class="t-caption-1 quiet" style="display:block">' + plural(v.n, 'session', 'sessions') + '</span></span>' +
+          '<span class="t-body num">' + esc(LKUnits.fmtTotal(Math.round(v.kg / v.n))) + '</span></div>';
+      }).join('') + '</div>' +
+      '<p class="t-caption-1 quiet mt-2">Average per session, from your workout log. A phase with one ' +
+        'session in it is one session, not a trend.</p>';
+    }
+    out += '</div>';
+
+    out += '<p class="t-caption-1 quiet mt-2">Counts, not conclusions. This screen does not diagnose ' +
+      'anything and it never tells you that you are late.</p></div>';
+    return out;
+  }
+
+  /* ---------------------------------------------------------------
+     The science accordion
+     --------------------------------------------------------------- */
+  var SCIENCE = [
+    ['strength', 'Does the phase change what you can lift?',
+      'The best available answer is: much less than the internet says. Colenso-Semple, D’Souza, ' +
+      'Elliott-Sale and Phillips reviewed the controlled evidence in 2023 and found no consistent ' +
+      'effect of menstrual cycle phase on acute strength performance or on adaptation to training. ' +
+      'Study quality was poor and the effects that were reported did not replicate. ' +
+      'Colenso-Semple LM, D’Souza AC, Elliott-Sale KJ, Phillips SM. Current evidence shows no ' +
+      'influence of women’s menstrual cycle phase on acute strength performance or adaptations. ' +
+      'Frontiers in Sports and Active Living, 2023.'],
+    ['feel', 'So why does the late luteal phase feel harder?',
+      'Because how hard a session feels and how much you can lift are two different measurements. ' +
+      'Higher resting heart rate, worse sleep, a warmer core and more symptoms all push perceived ' +
+      'effort up without moving the bar. That is why the training note on this screen talks about ' +
+      'judging a set on reps in reserve rather than on how heavy it felt.'],
+    ['predict', 'How the estimate on this screen is worked out',
+      'Last recorded start, plus your cycle length setting, equals the next estimated start. ' +
+      'Ovulation is placed fourteen days before that, because the luteal phase is the more stable ' +
+      'half; the fertile window is the five days before ovulation plus the day after. That is all of ' +
+      'it. There is no model and no data from anybody else. A calendar estimate is not ovulation ' +
+      'tracking and it is not contraception.'],
+    ['doctor', 'When to see a doctor',
+      'Cycles shorter than 21 days or longer than 35 on a regular basis. Any gap over 45 days, and ' +
+      'certainly three months or more without a period. Bleeding heavy enough to soak through an ' +
+      'hour after hour, bleeding between periods, or pain that stops you doing what you normally do. ' +
+      'None of that is a verdict from this screen; it is the list of things worth taking to somebody ' +
+      'who can examine you.']
+  ];
+  function scienceHTML() {
+    return '<div class="section mt-5"><div class="section__head">' +
+      '<h2 class="t-label">What is behind this</h2></div>' +
+      '<div class="card card--flush">' + SCIENCE.map(function (s) {
+        var open = !!S.open[s[0]];
+        return '<button class="cycacc__h" type="button" data-act="acc" data-k="' + s[0] + '" ' +
+            'aria-expanded="' + open + '" aria-controls="acc-' + s[0] + '" data-testid="acc-' + s[0] + '">' +
+            '<span class="grow">' + esc(s[1]) + '</span>' +
+            '<span class="cycacc__chev" data-open="' + open + '" aria-hidden="true">' + ICO.down + '</span>' +
+          '</button>' +
+          '<div class="cycacc__panel" id="acc-' + s[0] + '"' + (open ? '' : ' hidden') +
+            ' data-testid="acc-panel-' + s[0] + '"><p class="t-detail">' + esc(s[2]) + '</p></div>';
+      }).join('') + '</div></div>';
+  }
+
+  /* ---------------------------------------------------------------
+     Calendar view: a month, three cycles of projection, and the stats
+     --------------------------------------------------------------- */
+  function projectedStarts() {
+    var ls = lastStart();
+    if (!ls || recoveryDate() || isStale()) return [];
+    var out = [];
+    for (var k = 1; k <= 3; k++) out.push(shift(ls, k * S.p.cycleLen));
+    return out;
+  }
+  /* What a given date is predicted to be. Recorded flow always wins over a
+     prediction: the log is the measurement and the projection is not. */
+  function paintOf(date) {
+    var e = S.days[date];
+    if (e && e.flow) return { kind: 'flow', flow: e.flow };
+    if (recoveryDate() || isStale()) return null;
+    var ls = lastStart();
+    if (!ls) return null;
+    var r = ranges(S.p), p = S.p;
+    var anchors = [ls].concat(projectedStarts());
+    for (var i = 0; i < anchors.length; i++) {
+      var d = daysBetween(anchors[i], date) + 1;
+      if (d < 1 || d > p.cycleLen) continue;
+      /* The current cycle's own past is history, not a prediction. */
+      var future = daysBetween(TODAY, date) > 0;
+      if (d <= p.periodLen && (i > 0 || future)) return { kind: 'period' };
+      if (d >= r.ovulatory[0] && d <= r.ovulatory[1] && d === r.ovulatory[0] + 1) return { kind: 'ov' };
+      if (d >= r.fertile[0] && d <= r.fertile[1]) return { kind: 'fertile' };
+      if (d >= r.pms[0] && d <= r.pms[1]) return { kind: 'pms' };
+    }
+    return null;
+  }
+
+  function monthGrid() {
+    var base = ms(TODAY);
+    var bd = new Date(base);
+    var y = bd.getUTCFullYear(), m = bd.getUTCMonth() + S.calOffset;
+    var first = new Date(Date.UTC(y, m, 1));
+    var yy = first.getUTCFullYear(), mm = first.getUTCMonth();
+    var lead = first.getUTCDay();
+    var len = new Date(Date.UTC(yy, mm + 1, 0)).getUTCDate();
+    var cells = '';
+    for (var i = 0; i < lead; i++) cells += '<span class="cal__pad" aria-hidden="true"></span>';
+    for (var d = 1; d <= len; d++) {
+      var date = iso(Date.UTC(yy, mm, d));
+      var pt = paintOf(date);
+      var future = daysBetween(TODAY, date) > 0;
+      var cls = 'cal__d cyccal__d' + (future ? ' cal__d--future' : '');
+      if (pt && pt.kind === 'period') cls += ' cyccal-pred';
+      if (pt && pt.kind === 'fertile') cls += ' cyccal-fert';
+      if (pt && pt.kind === 'ov') cls += ' cyccal-ov';
+      if (pt && pt.kind === 'pms') cls += ' cyccal-pms';
+      var flow = pt && pt.kind === 'flow'
+        ? '<span class="cyccal__flow" style="opacity:' + (0.25 + pt.flow * 0.15) + '" aria-hidden="true"></span>'
+        : '';
+      var what = pt ? (pt.kind === 'flow' ? 'flow logged' :
+        pt.kind === 'period' ? 'period predicted' : pt.kind === 'ov' ? 'ovulation predicted' :
+        pt.kind === 'fertile' ? 'fertile window' : 'PMS window') : 'nothing logged';
+      cells += '<button class="' + cls + '" type="button" data-act="open-day" data-day="' + date + '" ' +
+        'data-today="' + (date === TODAY) + '" data-testid="cal-' + date + '" ' +
+        'aria-label="' + dowOf(date) + ' ' + absDate(date) + ', ' + (S.p.discreet ? 'logged or not' : what) + '">' +
+        flow + '<span class="cal__n">' + d + '</span></button>';
+    }
+    return '<div class="card card--cal mt-4">' +
+      '<div class="hstack hstack--2">' +
+        '<button class="iconbtn" type="button" data-act="cal-prev" data-testid="cal-prev" aria-label="Previous month">' +
+          ICO.back + '</button>' +
+        '<h2 class="t-headline grow" style="text-align:center" data-testid="cal-month">' +
+          MONL[mm] + ' ' + yy + '</h2>' +
+        '<button class="iconbtn" type="button" data-act="cal-next" data-testid="cal-next" aria-label="Next month">' +
+          ICO.chev + '</button>' +
       '</div>' +
-      '<p class="t-caption-1 quiet mt-2">Counts, not conclusions. This screen does not diagnose ' +
-        'anything and it never tells you that you are late.</p>' +
+      '<div class="cal__dow mt-3" aria-hidden="true">' +
+        DOW.map(function (x) { return '<span>' + x[0] + '</span>'; }).join('') + '</div>' +
+      '<div class="cal">' + cells + '</div>' +
     '</div>';
   }
 
+  function legend() {
+    if (S.p.discreet) {
+      return '<p class="t-caption-1 quiet mt-3">The key is hidden in discreet mode.</p>';
+    }
+    var items = [
+      ['<span class="cycleg__sw" style="background: var(--id-1); opacity:0.7"></span>', 'Flow you logged'],
+      ['<span class="cycleg__sw cyccal-pred"></span>', 'Period predicted'],
+      ['<span class="cycleg__sw cyccal-fert"></span>', 'Fertile window'],
+      ['<span class="cycleg__sw cyccal-ov"></span>', 'Ovulation estimated'],
+      ['<span class="cycleg__sw cyccal-pms"></span>', 'PMS window']
+    ];
+    return '<div class="cycleg mt-3" data-testid="cal-legend">' + items.map(function (it) {
+      return '<span class="cycleg__i">' + it[0] + '<span class="t-caption-1 quiet">' + it[1] + '</span></span>';
+    }).join('') + '</div>' +
+    '<p class="t-caption-1 quiet mt-2">Three cycles are projected ahead. Everything unfilled is ' +
+      'arithmetic from one start date and one length, not a measurement.</p>';
+  }
+
+  function statsStrip() {
+    var a = allStarts(), iv = intervals();
+    var avg = iv.length ? Math.round(iv.reduce(function (x, y) { return x + y; }, 0) / iv.length) : null;
+    var vary = iv.length >= 2 ? (Math.min.apply(null, iv) + ' to ' + Math.max.apply(null, iv)) : null;
+    return '<div class="section mt-5"><div class="section__head">' +
+      '<h2 class="t-label">Your cycles</h2></div>' +
+      '<div class="card"><div class="statrow">' +
+        '<span class="statrow__i"><span class="statrow__n" data-testid="stat-cycles">' + a.length +
+          '</span><span class="statrow__l">starts recorded</span></span>' +
+        '<span class="statrow__i"><span class="statrow__n" data-testid="stat-average">' +
+          (avg === null ? '&mdash;' : avg) + '</span><span class="statrow__l">average length, days</span></span>' +
+        '<span class="statrow__i"><span class="statrow__n" data-testid="stat-variation">' +
+          (vary === null ? '&mdash;' : vary) + '</span><span class="statrow__l">variation, days</span></span>' +
+      '</div>' +
+      (iv.length
+        ? '<p class="t-caption-1 quiet mt-3">Measured between the starts in your log. Your setting says ' +
+            S.p.cycleLen + ' days; a setting is not a measurement and the two are allowed to differ.</p>'
+        : '<p class="t-caption-1 quiet mt-3">One start is not a cycle length. A second recorded start ' +
+            'is what turns this into a measurement; until then the estimates run on your ' +
+            S.p.cycleLen + ' day setting.</p>') +
+      '</div>' + historyChart() + '</div>';
+  }
+
+  function historyChart() {
+    var a = allStarts(), iv = intervals();
+    if (iv.length < 1) return '';
+    var hi = Math.max.apply(null, iv);
+    return '<div class="card mt-3" data-testid="cycle-history-chart">' +
+      '<span class="t-label">CYCLE LENGTH, MOST RECENT LAST</span>' +
+      '<div class="bars">' + iv.map(function (v, i) {
+        var top = v === hi;
+        return '<div class="bars__col">' +
+          '<div class="bars__track"><div class="bars__fill' + (top ? ' is-top' : '') +
+            '" style="height:' + Math.round(v / hi * 100) + '%"></div></div>' +
+          '<span class="bars__lab">' + v + '</span></div>';
+      }).join('') + '</div>' +
+      '<p class="t-caption-1 quiet mt-2">' + plural(iv.length, 'gap', 'gaps') + ' between the ' +
+        a.length + ' starts in your log, in days.</p>' +
+    '</div>';
+  }
+
+  /* ---------------------------------------------------------------
+     Views
+     --------------------------------------------------------------- */
+  function cycleView() {
+    return ringHTML() + quickHTML() + inlineStrips() + recoveryCard() + ecCard() +
+      phaseCard() + trainingCard() + flagsHTML() + predictions() + strip() + insights() + scienceHTML();
+  }
+  function calendarView() {
+    return monthGrid() + legend() + statsStrip() + strip();
+  }
+
   var VIEWS = {};
-  VIEWS.populated = function () { return todayCard() + strip() + insights(); };
+  VIEWS.populated = function () { return S.view === 'calendar' ? calendarView() : cycleView(); };
   VIEWS.discreet = VIEWS.populated;
 
   VIEWS.gated = function () {
     return '<div class="empty mt-5" data-testid="cycle-gated">' +
         '<p class="empty__title">Cycle tracking is off</p>' +
-        /* The real gate. The sentence sent the reader to change a profile
-           field that was already correct: this reader's profile says female
-           and her cycle is set up, and what is off is the Settings switch. */
         '<p class="empty__body">The switch is in Settings, under Cycle tracking. Everything on this ' +
           'screen is worked out from a cycle length, so it needs a recorded start and a length to ' +
           'work from; without them there is nothing to show.</p>' +
@@ -296,35 +1265,125 @@
       '</div>';
   };
 
+  /* ---------------------------------------------------------------
+     Setup. Six steps, dots, and a Skip that skips.
+     --------------------------------------------------------------- */
+  var SETUP_STEPS = ['privacy', 'goal', 'start', 'lengths', 'irregular', 'birth'];
+
+  function dots(i, n) {
+    var out = '';
+    for (var k = 0; k < n; k++) out += '<span class="cycdots__d" data-on="' + (k <= i) + '"></span>';
+    return '<div class="cycdots" role="img" aria-label="Step ' + (i + 1) + ' of ' + n + '">' + out + '</div>';
+  }
+
   VIEWS.setup = function () {
-    var p = S.p;
-    return '<p class="t-detail mt-3">Three numbers and the screen works. All of them can be ' +
-        'changed later, and the estimate says how confident it is not.</p>' +
-      '<div class="card mt-4">' +
-        '<label class="t-label field__label" for="su-start">Day your last period started</label>' +
-        '<input class="input" id="su-start" type="date" value="' + (p.lastStart || '') + '" data-testid="su-start">' +
-        '<label class="t-label field__label mt-3" for="su-cycle">Usual cycle length, days</label>' +
-        '<input class="input num" id="su-cycle" type="number" min="15" max="60" step="1" ' +
-          'inputmode="numeric" value="' + p.cycleLen + '" data-testid="su-cycle">' +
-        '<label class="t-label field__label mt-3" for="su-period">Usual period length, days</label>' +
-        '<input class="input num" id="su-period" type="number" min="1" max="10" step="1" ' +
-          'inputmode="numeric" value="' + p.periodLen + '" data-testid="su-period">' +
-        (S.setupError ? '<p class="field__error mt-2" role="alert" data-testid="su-error">' +
-          esc(S.setupError) + '</p>' : '') +
-        '<button class="btn btn--primary btn--block mt-4" type="button" data-act="setup-save" data-testid="su-save">' +
-          '<span class="btn__label">Start tracking</span></button>' +
+    var p = S.p, i = S.setupStep, step = SETUP_STEPS[i];
+    var head = '<div class="hstack hstack--3 mt-4">' + dots(i, SETUP_STEPS.length) +
+      '<span class="grow"></span>' +
+      '<button class="btn btn--tertiary btn--sm" type="button" data-act="setup-skip" data-testid="su-skip">' +
+        '<span class="btn__label">Skip</span></button></div>';
+    var body = '';
+
+    if (step === 'privacy') {
+      body = '<div class="card mt-4">' +
+        '<h2 class="t-title-3">Before anything else</h2>' +
+        '<p class="t-detail mt-2">What you log here is written to this phone and stays on it. There is ' +
+          'no account behind this screen, nothing is uploaded, and nothing is shared with the coach ' +
+          'unless you turn that on yourself in Settings.</p>' +
+        '<p class="t-detail mt-2">Discreet mode hides the phase name, the symptom names and the events ' +
+          'section, for handing the phone to somebody. You can turn it on at any point.</p>' +
+        '<p class="t-caption-1 quiet mt-2">This screen estimates. It does not diagnose, and it will ' +
+          'never tell you that you are late.</p>' +
+      '</div>';
+    } else if (step === 'goal') {
+      body = '<h2 class="t-title-3 mt-4">What is this for?</h2>' +
+        '<p class="t-detail mt-2">It changes what gets shown first. Nothing is locked away.</p>' +
+        '<div class="card card--flush mt-3">' + GOALS.map(function (g) {
+          return '<button class="opt" type="button" role="radio" aria-checked="' + (p.goal === g[0]) + '" ' +
+            'data-act="su-goal" data-v="' + g[0] + '" data-testid="su-goal-' + g[0] + '">' +
+            '<span class="opt__mark">' + svg('<path d="m5 12 4.5 4.5L19 7"/>') + '</span>' +
+            '<span class="opt__main"><span class="opt__title">' + esc(g[1]) + '</span>' +
+            '<span class="opt__sub">' + esc(g[2]) + '</span></span></button>';
+        }).join('') + '</div>';
+    } else if (step === 'start') {
+      body = '<h2 class="t-title-3 mt-4">When did your last period start?</h2>' +
+        '<p class="t-detail mt-2">The first day of bleeding. Everything else on the screen is counted ' +
+          'from it, so a rough answer is better than a wrong one.</p>' +
+        '<div class="card mt-3">' +
+          '<label class="t-label field__label" for="su-start">Start date</label>' +
+          /* A future date used to be accepted: the field had no max and the
+             save checked only that the box was not empty, so 2026-12-01
+             rendered Day -26 beside a next-period date before the start it
+             was counted from. */
+          '<input class="input" id="su-start" type="date" max="' + TODAY + '" ' +
+            'value="' + esc(p.lastStart || '') + '" data-testid="su-start">' +
+          (S.setupError ? '<p class="field__error mt-2" role="alert" data-testid="su-error">' +
+            esc(S.setupError) + '</p>' : '') +
+          '<button class="btn btn--secondary btn--block mt-3" type="button" data-act="su-unsure" data-testid="su-unsure">' +
+            '<span class="btn__label">I am not sure</span></button>' +
+          '<p class="t-caption-1 quiet mt-2">Not sure is a real answer. The screen holds off on ' +
+            'estimating until you log a period, and says so instead of guessing.</p>' +
+        '</div>';
+    } else if (step === 'lengths') {
+      body = '<h2 class="t-title-3 mt-4">How long, usually?</h2>' +
+        '<p class="t-detail mt-2">28 and 5 are the common answers and a fine place to start. Both can ' +
+          'be changed later, and once you have logged two starts the screen measures it instead.</p>' +
+        '<div class="card mt-3">' +
+          '<label class="t-label field__label" for="su-cycle">Cycle length, days</label>' +
+          '<input class="input num" id="su-cycle" type="number" min="15" max="60" step="1" ' +
+            'inputmode="numeric" value="' + p.cycleLen + '" data-testid="su-cycle">' +
+          '<label class="t-label field__label mt-3" for="su-period">Period length, days</label>' +
+          '<input class="input num" id="su-period" type="number" min="1" max="10" step="1" ' +
+            'inputmode="numeric" value="' + p.periodLen + '" data-testid="su-period">' +
+          (S.setupError ? '<p class="field__error mt-2" role="alert" data-testid="su-error">' +
+            esc(S.setupError) + '</p>' : '') +
+        '</div>';
+    } else if (step === 'irregular') {
+      body = '<h2 class="t-title-3 mt-4">Do your cycles vary a lot?</h2>' +
+        '<p class="t-detail mt-2">If they do, a single predicted date would be pretending to a ' +
+          'precision it has not got. Turning this on shows every estimate as a range instead.</p>' +
+        '<div class="card card--flush mt-3"><div class="row">' +
+          '<span class="row__main"><span class="row__title" id="su-lbl-irr">Irregular cycles</span>' +
+          '<span class="row__sub">' + (p.irregular
+            ? 'Estimates are shown as a range rather than a date.'
+            : 'Estimates are shown as a single date with a give or take.') + '</span></span>' +
+          '<button class="switch" role="switch" aria-checked="' + !!p.irregular + '" ' +
+            'aria-labelledby="su-lbl-irr" data-act="su-irregular" data-testid="su-irregular">' +
+            '<span class="switch__track"></span><span class="switch__knob"></span></button>' +
+        '</div></div>';
+    } else {
+      body = '<h2 class="t-title-3 mt-4">Are you using any birth control?</h2>' +
+        '<p class="t-detail mt-2">It changes what this screen can honestly say. Hormonal methods can ' +
+          'stop ovulation, and a bleed on the pill is not the same event as a period.</p>' +
+        '<div class="card card--flush mt-3">' + BIRTH_CONTROL.map(function (b) {
+          return '<button class="opt" type="button" role="radio" aria-checked="' + (p.birthControl === b[0]) + '" ' +
+            'data-act="su-bc" data-v="' + b[0] + '" data-testid="su-bc-' + b[0] + '">' +
+            '<span class="opt__mark">' + svg('<path d="m5 12 4.5 4.5L19 7"/>') + '</span>' +
+            '<span class="opt__main"><span class="opt__title">' + esc(b[1]) + '</span></span></button>';
+        }).join('') + '</div>';
+    }
+
+    var last = i === SETUP_STEPS.length - 1;
+    return head + body +
+      '<div class="hstack hstack--2 mt-5">' +
+        (i > 0
+          ? '<button class="btn btn--secondary" type="button" data-act="setup-back" data-testid="su-back">' +
+              '<span class="btn__label">Back</span></button>'
+          : '') +
+        '<button class="btn btn--primary grow" type="button" data-act="setup-next" data-testid="su-next">' +
+          '<span class="btn__label">' + (last ? 'Start tracking' : 'Continue') + '</span></button>' +
       '</div>' +
       '<p class="t-caption-1 quiet mt-3">Stored on this phone. Nothing is uploaded and nothing is ' +
         'shared with the coach unless you turn that on.</p>';
   };
 
   VIEWS.empty = function () {
-    return todayCard() +
+    return ringHTML() + quickHTML() + inlineStrips() +
       '<div class="empty mt-5" data-testid="cycle-empty">' +
         '<p class="empty__title">Nothing logged yet</p>' +
         '<p class="empty__body">Tap a day below to record flow, how you felt, or a note. ' +
           'One tap a day is enough for the pattern to be worth reading.</p>' +
-      '</div>' + strip();
+      '</div>' + strip() + scienceHTML();
   };
 
   VIEWS.loading = function () {
@@ -349,43 +1408,96 @@
   };
 
   /* ---------------------------------------------------------------
-     Sheets
+     The day sheet
      --------------------------------------------------------------- */
+  function hiddenNote(what) {
+    return '<div class="card card--outline mt-3" data-testid="discreet-' + what + '">' +
+      '<p class="t-detail">Hidden by discreet mode.</p>' +
+      '<button class="btn btn--secondary btn--block mt-2" type="button" data-act="reveal" ' +
+        'data-testid="reveal-' + what + '"><span class="btn__label">Show them for now</span></button>' +
+      '<p class="t-caption-1 quiet mt-2">Showing them here does not turn discreet mode off, and they ' +
+        'go again when this sheet closes.</p>' +
+    '</div>';
+  }
+
   function daySheet(day) {
-    var d = S.draft;
+    var d = S.draft, p = S.p;
+    var quiet = p.discreet && !S.reveal;
+    var dc = dayInCycleAt(day);
     return '<div class="scrim" data-act="close" data-testid="scrim"></div>' +
       '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="dy-title" ' +
-        'data-detents="0.6 0.88" data-detent-open="0.88" data-testid="day-sheet">' +
+        'data-detents="0.6 0.92" data-detent-open="0.92" data-testid="day-sheet">' +
         '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
         '<div class="sheet__head">' +
-          '<h2 class="t-headline grow" id="dy-title">' + dowOf(day) + ', ' + esc(absDate(day)) + '</h2>' +
+          '<h2 class="t-headline grow" id="dy-title">' + dowOf(day) + ', ' + esc(absDate(day)) +
+            (dc !== null && !p.discreet ? ' <span class="t-caption-1 quiet">day ' + dc + '</span>' : '') + '</h2>' +
           '<button class="iconbtn" type="button" data-act="close" aria-label="Close" data-testid="day-close">' +
             ICO.close + '</button></div>' +
         '<div class="sheet__body">' +
+
           '<h3 class="t-label">Flow</h3>' +
-          '<div class="seg mt-2" role="radiogroup" aria-label="Flow">' +
-            FLOWS.map(function (f) {
-              return '<button class="seg__item" type="button" role="radio" ' +
-                'aria-checked="' + (String(d.flow) === f[0] ? 'true' : 'false') + '" ' +
-                'data-act="flow" data-v="' + f[0] + '" data-testid="flow-' + f[0] + '">' + f[1] + '</button>';
-            }).join('') +
-          '</div>' +
+          scaleStrip({ id: 'flow', label: 'Flow', act: 'flow', value: d.flow || 0, items: FLOWS }) +
+
+          (isPill(p.birthControl)
+            ? '<div class="card card--flush mt-4"><div class="row">' +
+                '<span class="row__main"><span class="row__title" id="lbl-pill">Pill taken</span>' +
+                '<span class="row__sub">' + esc(bcLabel(p.birthControl)) + '</span></span>' +
+                '<button class="switch" role="switch" aria-checked="' + !!d.pill + '" ' +
+                  'aria-labelledby="lbl-pill" data-act="pill" data-testid="day-pill">' +
+                  '<span class="switch__track"></span><span class="switch__knob"></span></button>' +
+              '</div></div>'
+            : '') +
+
           '<h3 class="t-label mt-5">Symptoms</h3>' +
-          '<div class="chiprow mt-2">' +
-            SYMPTOMS.map(function (sy) {
-              var on = !!(d.sym && d.sym[sy[0]]);
-              return '<button class="chip" type="button" aria-pressed="' + on + '" ' +
-                'data-act="sym" data-k="' + sy[0] + '" data-testid="sym-' + sy[0] + '">' + sy[1] + '</button>';
-            }).join('') +
-          '</div>' +
+          (quiet ? hiddenNote('symptoms') :
+            '<div class="stack stack--3 mt-2">' + SYMPTOMS.map(function (sy) {
+              var v = (d.sym && d.sym[sy[0]]) || 0;
+              return '<div class="cycsev" data-testid="sym-' + sy[0] + '">' +
+                '<span class="t-body cycsev__n" id="sev-lbl-' + sy[0] + '">' + esc(sy[1]) + '</span>' +
+                '<div class="seg" role="radiogroup" aria-labelledby="sev-lbl-' + sy[0] + '">' +
+                  SEVERITY.map(function (s) {
+                    return '<button class="seg__item" type="button" role="radio" ' +
+                      'aria-checked="' + (v === s[0]) + '" data-act="sym" data-k="' + sy[0] + '" ' +
+                      'data-v="' + s[0] + '" data-testid="sym-' + sy[0] + '-' + s[0] + '">' + s[1] + '</button>';
+                  }).join('') +
+                '</div></div>';
+            }).join('') + '</div>') +
+
+          '<h3 class="t-label mt-5">Energy, 1 low to 5 high</h3>' +
+          scaleStrip({ id: 'energy', label: 'Energy', act: 'energy', value: d.energy || 0, items: SCALE5 }) +
+
+          '<h3 class="t-label mt-5">Sleep, 1 poor to 5 good</h3>' +
+          scaleStrip({ id: 'sleep', label: 'Sleep', act: 'sleep', value: d.sleep || 0, items: SCALE5 }) +
+
           '<h3 class="t-label mt-5">How you felt</h3>' +
-          '<div class="chiprow mt-2">' +
-            MOODS.map(function (m) {
+          (quiet ? hiddenNote('mood') :
+            '<div class="chiprow mt-2">' + MOODS.map(function (m) {
               var on = (d.mood || []).indexOf(m[0]) >= 0;
               return '<button class="chip" type="button" aria-pressed="' + on + '" ' +
                 'data-act="mood" data-k="' + m[0] + '" data-testid="mood-' + m[0] + '">' + m[1] + '</button>';
-            }).join('') +
-          '</div>' +
+            }).join('') + '</div>') +
+
+          '<h3 class="t-label mt-5">Sex</h3>' +
+          (quiet ? hiddenNote('sex') :
+            '<div class="seg mt-2" role="radiogroup" aria-label="Sex">' + SEX.map(function (x) {
+              return '<button class="seg__item" type="button" role="radio" ' +
+                'aria-checked="' + ((d.sex || 'none') === x[0]) + '" data-act="sex" data-v="' + x[0] + '" ' +
+                'data-testid="sex-' + x[0] + '">' + x[1] + '</button>';
+            }).join('') + '</div>' +
+            '<p class="t-caption-1 quiet mt-2">Logged because it is a fact about the day, next to the ' +
+              'other facts. It is not used to work anything out.</p>') +
+
+          '<h3 class="t-label mt-5">Events</h3>' +
+          (quiet ? hiddenNote('events') :
+            '<div class="card card--flush mt-2">' + EVENTS.map(function (ev) {
+              var on = (d.events || []).indexOf(ev[0]) >= 0;
+              return '<button class="opt" type="button" role="checkbox" aria-checked="' + on + '" ' +
+                'data-act="event" data-k="' + ev[0] + '" data-testid="event-' + ev[0] + '">' +
+                '<span class="opt__mark">' + svg('<path d="m5 12 4.5 4.5L19 7"/>') + '</span>' +
+                '<span class="opt__main"><span class="opt__title">' + esc(ev[1]) + '</span>' +
+                (ev[2] ? '<span class="opt__sub">' + esc(ev[2]) + '</span>' : '') + '</span></button>';
+            }).join('') + '</div>') +
+
           '<label class="t-label field__label mt-5" for="day-note">Note</label>' +
           '<textarea class="input" id="day-note" rows="3" data-testid="day-note" ' +
             'placeholder="Anything worth remembering.">' + esc(d.note || '') + '</textarea>' +
@@ -403,11 +1515,15 @@
       '</div>';
   }
 
+  /* ---------------------------------------------------------------
+     Settings and birth control sheets
+     --------------------------------------------------------------- */
   function settingsSheet() {
     var p = S.p;
     return '<div class="scrim" data-act="close" data-testid="scrim"></div>' +
       '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="cs-title" ' +
-        'data-testid="cycle-settings-sheet">' +
+        'data-detents="0.7 0.92" data-detent-open="0.92" data-testid="cycle-settings-sheet">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
         '<div class="sheet__head"><h2 class="t-headline grow" id="cs-title">Cycle settings</h2>' +
           '<button class="iconbtn" type="button" data-act="close" aria-label="Close" data-testid="cs-close">' +
             ICO.close + '</button></div>' +
@@ -417,10 +1533,10 @@
               '<span class="row__main">' +
                 '<span class="row__title" id="lbl-discreet">Discreet mode</span>' +
                 '<span class="row__sub">' + (p.discreet
-                  ? 'The day count stays. The phase and the symptom names do not.'
-                  : 'Shows the phase name and your symptoms.') + '</span>' +
+                  ? 'The day count stays. The phase name, the symptom names and the events section are hidden until you tap to show them.'
+                  : 'Shows the phase name, your symptoms and the events section.') + '</span>' +
               '</span>' +
-              '<button class="switch" role="switch" aria-checked="' + p.discreet + '" ' +
+              '<button class="switch" role="switch" aria-checked="' + !!p.discreet + '" ' +
                 'aria-labelledby="lbl-discreet" data-act="discreet" data-testid="cs-discreet">' +
                 '<span class="switch__track"></span><span class="switch__knob"></span></button>' +
             '</div>' +
@@ -428,15 +1544,25 @@
               '<span class="row__main">' +
                 '<span class="row__title" id="lbl-irregular">Irregular cycles</span>' +
                 '<span class="row__sub">' + (p.irregular
-                  ? 'Estimates are shown as a range rather than a date.'
-                  : 'Estimates are shown as a single date.') + '</span>' +
+                  ? 'Estimates are shown as a range rather than a date, widened to ' + plural(band().days, 'day', 'days') + ' either side.'
+                  : 'Estimates are shown as a single date with a give or take.') + '</span>' +
               '</span>' +
-              '<button class="switch" role="switch" aria-checked="' + p.irregular + '" ' +
+              '<button class="switch" role="switch" aria-checked="' + !!p.irregular + '" ' +
                 'aria-labelledby="lbl-irregular" data-act="irregular" data-testid="cs-irregular">' +
                 '<span class="switch__track"></span><span class="switch__knob"></span></button>' +
             '</div>' +
+            '<button class="row row--withaside" type="button" data-act="open-bc" data-testid="cs-bc">' +
+              '<span class="row__main"><span class="row__title">Birth control</span>' +
+                '<span class="row__sub">Changes what this screen can honestly say</span></span>' +
+              '<span class="row__value">' + esc(bcLabel(p.birthControl)) + '</span>' +
+              '<span class="row__chev" aria-hidden="true">' + ICO.chev + '</span>' +
+            '</button>' +
           '</div>' +
-          '<label class="t-label field__label mt-4" for="cs-cycle">Cycle length, days</label>' +
+
+          '<label class="t-label field__label mt-4" for="cs-start">Last period started</label>' +
+          '<input class="input" id="cs-start" type="date" max="' + TODAY + '" ' +
+            'value="' + esc(p.lastStart || '') + '" data-testid="cs-start">' +
+          '<label class="t-label field__label mt-3" for="cs-cycle">Cycle length, days</label>' +
           '<input class="input num" id="cs-cycle" type="number" min="15" max="60" step="1" ' +
             'inputmode="numeric" value="' + p.cycleLen + '" data-testid="cs-cycle">' +
           '<label class="t-label field__label mt-3" for="cs-period">Period length, days</label>' +
@@ -444,6 +1570,15 @@
             'inputmode="numeric" value="' + p.periodLen + '" data-testid="cs-period">' +
           (S.setupError ? '<p class="field__error mt-2" role="alert" data-testid="cs-error">' +
             esc(S.setupError) + '</p>' : '') +
+
+          '<div class="card card--flush mt-4">' +
+            '<button class="row row--withaside" type="button" data-act="cs-export" data-testid="cs-export">' +
+              '<span class="row__main"><span class="row__title">Export your cycle log</span>' +
+                '<span class="row__sub">A JSON file saved to this device. Nothing is uploaded.</span></span>' +
+              '<span class="row__chev" aria-hidden="true">' + ICO.save + '</span>' +
+            '</button>' +
+          '</div>' +
+
           '<p class="t-caption-1 quiet mt-4">Everything here is on this phone. Deleting removes ' +
             'the log and the settings and cannot be undone.</p>' +
         '</div>' +
@@ -451,6 +1586,9 @@
           '<div class="stack stack--2">' +
             '<button class="btn btn--primary btn--block" type="button" data-act="cs-save" data-testid="cs-save">' +
               '<span class="btn__label">Save</span></button>' +
+            /* Two taps. Every other destructive control in this build arms
+               first; this one used to wipe the log and the settings on one,
+               with no confirm and no undo. */
             '<button class="btn btn--danger btn--block" type="button" data-act="cs-delete" data-testid="cs-delete">' +
               '<span class="btn__label">Delete everything logged here</span></button>' +
           '</div>' +
@@ -458,8 +1596,59 @@
       '</div>';
   }
 
+  function bcSheet() {
+    var p = S.p;
+    return '<div class="scrim" data-act="close" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="bc-title" data-testid="cycle-bc-sheet">' +
+        '<div class="sheet__head"><h2 class="t-headline grow" id="bc-title">Birth control</h2>' +
+          '<button class="iconbtn" type="button" data-act="back-settings" aria-label="Back to cycle settings" ' +
+            'data-testid="bc-close">' + ICO.close + '</button></div>' +
+        '<div class="sheet__body">' +
+          '<div class="card card--flush">' + BIRTH_CONTROL.map(function (b) {
+            return '<button class="opt" type="button" role="radio" aria-checked="' + (p.birthControl === b[0]) + '" ' +
+              'data-act="bc" data-v="' + b[0] + '" data-testid="bc-' + b[0] + '">' +
+              '<span class="opt__mark">' + svg('<path d="m5 12 4.5 4.5L19 7"/>') + '</span>' +
+              '<span class="opt__main"><span class="opt__title">' + esc(b[1]) + '</span></span></button>';
+          }).join('') + '</div>' +
+          '<p class="t-caption-1 quiet mt-3">On a combined pill or a hormonal IUD the bleed you get is ' +
+            'a withdrawal bleed, not a period, and ovulation is usually stopped. The day count still ' +
+            'works as a count. The fertile window does not mean what it means off hormones, and this ' +
+            'screen is never contraception either way.</p>' +
+          (isPill(p.birthControl)
+            ? '<p class="t-caption-1 quiet mt-2">A pill taken toggle is added to each day sheet.</p>'
+            : '') +
+        '</div>' +
+      '</div>';
+  }
+
+  var DIALOGS = {
+    'delete': {
+      title: 'Delete everything logged here?',
+      body: 'Your cycle settings and every day you have logged are removed from this phone. ' +
+            'Nothing else in LOCKED is touched. This cannot be undone.',
+      go: 'Delete everything'
+    }
+  };
+  function dialogHTML(id) {
+    var c = DIALOGS[id];
+    return '<div class="scrim" data-act="close-dialog" data-testid="scrim-dialog"></div>' +
+      '<div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dlg-title" ' +
+        'aria-describedby="dlg-body" data-testid="dialog-' + id + '">' +
+        '<h2 class="t-section" id="dlg-title">' + esc(c.title) + '</h2>' +
+        '<p class="t-detail mt-2" id="dlg-body">' + esc(c.body) + '</p>' +
+        '<div class="stack stack--2 mt-5">' +
+          '<button class="btn btn--danger-solid btn--block" type="button" data-act="confirm" data-k="' + id + '" ' +
+            'data-testid="confirm-' + id + '"><span class="btn__label">' + esc(c.go) + '</span></button>' +
+          '<button class="btn btn--tertiary btn--block" type="button" data-act="close-dialog" ' +
+            'data-testid="cancel-' + id + '"><span class="btn__label">Cancel</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
   function overlayHTML() {
+    if (S.dialog) return dialogHTML(S.dialog);
     if (S.sheet === 'settings') return settingsSheet();
+    if (S.sheet === 'bc') return bcSheet();
     if (S.sheet) return daySheet(S.sheet);
     return '';
   }
@@ -475,33 +1664,131 @@
 
   function toastHTML() {
     if (!S.toast) return '';
-    return '<div class="toast" role="status" data-testid="toast">' +
+    return '<div class="toast toast--nonav" role="status" data-testid="toast">' +
       '<span class="toast__body">' + esc(S.toast) + '</span></div>';
   }
 
   function render() {
     screen.setAttribute('data-state', S.state);
+    screen.setAttribute('data-view', S.view);
     LKPatch(hdr, headerHTML());
     LKPatch(body, (VIEWS[S.state] || VIEWS.populated)());
     LKPatch(overlay, overlayHTML() + toastHTML());
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
-      b.setAttribute('aria-pressed', String(b.dataset.state === S.state));
+      b.setAttribute('aria-pressed', String(b.dataset.state === S.devState));
     });
     if (window.LKChrome) LKChrome.init(document);
     /* Today is the rightmost day, so the strip opens on it rather than on
        four weeks ago. Only when the reader has not scrolled it themselves --
        LKPatch keeps the scroll position, and overriding a deliberate scroll
        on every render would fight the finger. */
-    var strip = document.querySelector('.cyc');
-    if (strip && !strip.__lk_placed) {
-      strip.__lk_placed = true;
-      strip.scrollLeft = strip.scrollWidth;
+    var st = document.querySelector('.cyc');
+    if (st && !st.__lk_placed) {
+      st.__lk_placed = true;
+      st.scrollLeft = st.scrollWidth;
     }
+    bindRing();
     clearTimeout(toastTimer);
     if (S.toast) toastTimer = setTimeout(function () { S.toast = null; render(); }, 5000);
   }
   function say(msg) { S.toast = msg; render(); }
 
+  /* ---------------------------------------------------------------
+     The ring's drag. Pointer events on the box, and arrow keys for
+     anybody not using one.
+     --------------------------------------------------------------- */
+  function bindRing() {
+    var box = document.getElementById('ring-box');
+    if (!box || box.__lk_bound) return;
+    box.__lk_bound = true;
+    var dragging = false;
+    function dayAt(e) {
+      var r = box.getBoundingClientRect();
+      var a = Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2));
+      var deg = a * 180 / Math.PI + 90;
+      while (deg < 0) deg += 360;
+      deg = deg % 360;
+      return Math.min(S.p.cycleLen, Math.max(1, Math.floor(deg / 360 * S.p.cycleLen) + 1));
+    }
+    box.addEventListener('pointerdown', function (e) {
+      if (e.target.closest('button')) return;
+      dragging = true;
+      try { box.setPointerCapture(e.pointerId); } catch (err) {}
+      var d = dayAt(e);
+      if (d !== S.preview) { S.preview = d; render(); }
+    });
+    box.addEventListener('pointermove', function (e) {
+      if (!dragging) return;
+      var d = dayAt(e);
+      if (d !== S.preview) { S.preview = d; render(); }
+    });
+    box.addEventListener('pointerup', function () { dragging = false; });
+    box.addEventListener('pointercancel', function () { dragging = false; });
+    box.addEventListener('keydown', function (e) {
+      var cur = S.preview !== null ? S.preview : Math.min(dayInCycle() || 1, S.p.cycleLen);
+      if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { S.preview = Math.min(S.p.cycleLen, cur + 1); }
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { S.preview = Math.max(1, cur - 1); }
+      else if (e.key === 'Home') { S.preview = 1; }
+      else if (e.key === 'End') { S.preview = S.p.cycleLen; }
+      else if (e.key === 'Escape' && S.preview !== null) { S.preview = null; }
+      else return;
+      e.preventDefault();
+      render();
+      var again = document.getElementById('ring-box');
+      if (again) again.focus();
+    });
+  }
+
+  /* ---------------------------------------------------------------
+     Writes. Each one goes where the action is, not on a Save button
+     somewhere else.
+     --------------------------------------------------------------- */
+  function writeToday(patch) {
+    var e = S.days[TODAY] ? clone(S.days[TODAY]) : { flow: 0, sym: {}, mood: [], note: '' };
+    Object.keys(patch).forEach(function (k) { e[k] = patch[k]; });
+    if (isBlank(e)) delete S.days[TODAY]; else S.days[TODAY] = e;
+    persistDays();
+  }
+  function isBlank(e) {
+    if (e.flow) return false;
+    if (e.energy || e.sleep) return false;
+    if (e.pill) return false;
+    if (e.note) return false;
+    if (e.training) return false;
+    if ((e.mood || []).length) return false;
+    if ((e.events || []).length) return false;
+    if (e.sex && e.sex !== 'none') return false;
+    var sym = e.sym || {}, any = false;
+    Object.keys(sym).forEach(function (k) { if (sym[k]) any = true; });
+    return !any;
+  }
+
+  function exportLog() {
+    var payload = {
+      exportedOn: TODAY,
+      note: 'LOCKED cycle log, exported on this device. Nothing was uploaded.',
+      lk_mcProfile: S.p,
+      lk_mcDays: S.days
+    };
+    try {
+      var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'locked-cycle-' + TODAY + '.json';
+      a.setAttribute('data-testid', 'export-link');
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () { a.remove(); URL.revokeObjectURL(url); }, 2000);
+      return Object.keys(S.days).length;
+    } catch (e) {
+      return -1;
+    }
+  }
+
+  /* ---------------------------------------------------------------
+     Clicks
+     --------------------------------------------------------------- */
   document.addEventListener('click', function (e) {
     var t = e.target.closest ? e.target.closest('[data-act]') : null;
     if (!t) return;
@@ -509,27 +1796,94 @@
 
     if (a === 'back') { location.href = 'home.html'; return; }
     if (a === 'open-settings') { location.href = 'settings.html'; return; }
-    if (a === 'close') { S.sheet = null; S.draft = null; S.setupError = null; render(); return; }
+    if (a === 'open-train') { location.href = 'train.html'; return; }
+    if (a === 'close') { S.sheet = null; S.draft = null; S.setupError = null; S.reveal = false; render(); return; }
+    if (a === 'close-dialog') { S.dialog = null; render(); return; }
     if (a === 'settings') { S.sheet = 'settings'; S.setupError = null; render(); return; }
+    if (a === 'open-bc') { S.sheet = 'bc'; render(); return; }
+    if (a === 'back-settings') { S.sheet = 'settings'; render(); return; }
+    if (a === 'reveal') { S.reveal = true; render(); return; }
+    if (a === 'toggle-view') { S.view = S.view === 'calendar' ? 'cycle' : 'calendar'; render(); return; }
+    if (a === 'cal-prev') { S.calOffset--; render(); return; }
+    if (a === 'cal-next') { S.calOffset++; render(); return; }
+    if (a === 'acc') {
+      var ak = t.getAttribute('data-k');
+      S.open[ak] = !S.open[ak];
+      render();
+      return;
+    }
+    if (a === 'ring-today') { S.preview = null; render(); return; }
     if (a === 'retry') {
       S.state = 'loading'; render();
       setTimeout(function () { S.state = 'populated'; render(); }, 700);
       return;
     }
 
-    if (a === 'open-day') {
-      var day = t.getAttribute('data-day');
-      var e0 = S.days[day];
-      S.draft = e0 ? JSON.parse(JSON.stringify(e0)) : { flow: 0, sym: {}, mood: [], note: '' };
-      S.sheet = day;
+    /* --- quick actions ------------------------------------------- */
+    if (a === 'log-period' || a === 'log-symptoms' || a === 'log-more') {
+      openDay(TODAY);
+      return;
+    }
+    if (a === 'pill-quick') {
+      var was = (today() || {}).pill;
+      writeToday({ pill: !was });
+      render();
+      say(was ? 'Pill unticked for today.' : 'Pill logged for today.');
+      return;
+    }
+    if (a === 'focus-energy') {
+      var strip1 = document.getElementById('today-energy');
+      if (strip1) {
+        strip1.scrollIntoView({ block: 'center' });
+        var b1 = strip1.querySelector('button');
+        if (b1) b1.focus();
+      }
+      return;
+    }
+    if (a === 'quick-flow') {
+      writeToday({ flow: Number(t.getAttribute('data-v')) });
+      render();
+      say('Flow saved for today.');
+      return;
+    }
+    if (a === 'quick-energy') {
+      writeToday({ energy: Number(t.getAttribute('data-v')) });
+      render();
+      say('Energy saved for today.');
+      return;
+    }
+    if (a === 'train-lighter' || a === 'train-fine') {
+      writeToday({ training: a === 'train-lighter' ? 'lighter' : 'fine' });
+      render();
+      say(a === 'train-lighter' ? 'Written onto today: take it lighter.' : 'Written onto today: feeling fine.');
+      return;
+    }
+    if (a === 'hide-flag') {
+      S.p.flagsHidden = S.p.flagsHidden || {};
+      S.p.flagsHidden[t.getAttribute('data-k')] = true;
+      persistProfile();
       render();
       return;
     }
+    if (a === 'end-recovery') {
+      S.p.recoveryOff = true;
+      persistProfile();
+      render();
+      say('Estimates are back on.');
+      return;
+    }
+
+    /* --- the day sheet ------------------------------------------- */
+    if (a === 'open-day') { openDay(t.getAttribute('data-day')); return; }
     if (a === 'flow') { S.draft.flow = Number(t.getAttribute('data-v')); render(); return; }
+    if (a === 'energy') { S.draft.energy = Number(t.getAttribute('data-v')); render(); return; }
+    if (a === 'sleep') { S.draft.sleep = Number(t.getAttribute('data-v')); render(); return; }
+    if (a === 'pill') { S.draft.pill = !S.draft.pill; render(); return; }
+    if (a === 'sex') { S.draft.sex = t.getAttribute('data-v'); render(); return; }
     if (a === 'sym') {
-      var k = t.getAttribute('data-k');
+      var k = t.getAttribute('data-k'), v = Number(t.getAttribute('data-v'));
       S.draft.sym = S.draft.sym || {};
-      if (S.draft.sym[k]) delete S.draft.sym[k]; else S.draft.sym[k] = 1;
+      if (v === 0) delete S.draft.sym[k]; else S.draft.sym[k] = v;
       render();
       return;
     }
@@ -541,80 +1895,224 @@
       render();
       return;
     }
+    if (a === 'event') {
+      var ev = t.getAttribute('data-k');
+      S.draft.events = S.draft.events || [];
+      var ai = S.draft.events.indexOf(ev);
+      if (ai >= 0) S.draft.events.splice(ai, 1); else S.draft.events.push(ev);
+      render();
+      return;
+    }
     if (a === 'day-save') {
       var f = document.getElementById('day-note');
       S.draft.note = f ? f.value.trim() : '';
       var target = S.sheet;
       /* An entry with nothing in it is not an entry. Saving a blank day
          clears it rather than filling the strip with empty marks. */
-      var blank = !S.draft.flow && !Object.keys(S.draft.sym || {}).length &&
-                  !(S.draft.mood || []).length && !S.draft.note;
+      var blank = isBlank(S.draft);
       if (blank) delete S.days[target]; else S.days[target] = S.draft;
-      /* A day logged with flow on a day the cycle did not predict is the
-         start of a new one, which is the only thing here that moves the
-         estimate. */
-      if (S.draft.flow >= 2 && (!S.p.lastStart || daysBetween(S.p.lastStart, target) > S.p.periodLen)) {
-        S.p.lastStart = target;
+      /* No lastStart is written here. The starts are read back out of the
+         log whenever they are needed, which is what makes clearing this day
+         undo exactly what saving it did. */
+      if (!blank && !S.p.recoveryOff) {
+        var started = (S.draft.events || []).filter(function (x) { return RECOVERY_EVENTS.indexOf(x) >= 0; });
+        if (started.length) S.p.recoveryOff = false;
       }
-      S.sheet = null; S.draft = null;
+      persistDays();
+      persistProfile();
+      S.sheet = null; S.draft = null; S.reveal = false;
       render();
-      say(blank ? esc(absDate(target)) + ' cleared.' : esc(absDate(target)) + ' saved.');
+      say(blank ? absDate(target) + ' cleared.' : absDate(target) + ' saved.');
       return;
     }
     if (a === 'day-clear') {
       var c = S.sheet;
       delete S.days[c];
-      S.sheet = null; S.draft = null;
+      persistDays();
+      S.sheet = null; S.draft = null; S.reveal = false;
       render();
-      say(esc(absDate(c)) + ' cleared.');
+      say(absDate(c) + ' cleared. Any estimate it moved has moved back.');
       return;
     }
-    if (a === 'discreet') { S.p.discreet = !S.p.discreet; render(); return; }
-    if (a === 'irregular') { S.p.irregular = !S.p.irregular; render(); return; }
-    if (a === 'cs-save' || a === 'setup-save') {
-      var cy = parseInt((document.getElementById(a === 'cs-save' ? 'cs-cycle' : 'su-cycle') || {}).value, 10);
-      var pe = parseInt((document.getElementById(a === 'cs-save' ? 'cs-period' : 'su-period') || {}).value, 10);
-      if (isNaN(cy) || cy < 15 || cy > 60) { S.setupError = 'A cycle between 15 and 60 days.'; render(); return; }
-      if (isNaN(pe) || pe < 1 || pe > 10) { S.setupError = 'A period between 1 and 10 days.'; render(); return; }
-      if (pe >= cy) { S.setupError = 'A period cannot be as long as the whole cycle.'; render(); return; }
+
+    /* --- settings ------------------------------------------------ */
+    if (a === 'discreet') { S.p.discreet = !S.p.discreet; S.reveal = false; persistProfile(); render(); return; }
+    if (a === 'irregular') { S.p.irregular = !S.p.irregular; persistProfile(); render(); return; }
+    if (a === 'bc') {
+      S.p.birthControl = t.getAttribute('data-v');
+      persistProfile();
+      S.sheet = 'settings';
+      render();
+      say('Birth control set to ' + bcLabel(S.p.birthControl).toLowerCase() + '.');
+      return;
+    }
+    if (a === 'cs-export') {
+      var n = exportLog();
+      say(n < 0
+        ? 'This browser would not save the file. Nothing left the phone either way.'
+        : 'Saved ' + plural(n, 'logged day', 'logged days') + ' to a file on this device. Nothing was uploaded.');
+      return;
+    }
+    if (a === 'cs-save') {
+      var cy = parseInt((document.getElementById('cs-cycle') || {}).value, 10);
+      var pe = parseInt((document.getElementById('cs-period') || {}).value, 10);
+      var stv = (document.getElementById('cs-start') || {}).value;
+      var err = validate(cy, pe, stv, false);
+      if (err) { S.setupError = err; render(); return; }
       S.p.cycleLen = cy; S.p.periodLen = pe;
-      if (a === 'setup-save') {
-        var st = (document.getElementById('su-start') || {}).value;
-        if (!st) { S.setupError = 'When did the last one start?'; render(); return; }
-        S.p.lastStart = st;
-        S.p.setup = true;
-        S.state = 'populated';
-      }
+      S.p.lastStart = stv || null;
+      persistProfile();
       S.sheet = null; S.setupError = null;
       render();
       say('Saved.');
       return;
     }
-    if (a === 'cs-delete') {
-      S.days = {};
-      S.p = { setup: false, sex: 'female', lastStart: null, cycleLen: 28, periodLen: 5,
-              irregular: false, discreet: false };
-      S.sheet = null;
-      S.state = 'setup';
+    if (a === 'cs-delete') { S.dialog = 'delete'; render(); return; }
+    if (a === 'confirm') {
+      if (t.getAttribute('data-k') === 'delete') {
+        S.days = {};
+        S.p = { setup: false, goal: null, lastStart: null, cycleLen: 28, periodLen: 5,
+                irregular: false, birthControl: 'none', discreet: false, createdAt: TODAY };
+        persistDays();
+        persistProfile();
+        S.dialog = null; S.sheet = null; S.setupStep = 0;
+        S.state = 'setup';
+        render();
+        say('Everything logged here is gone.');
+      }
+      return;
+    }
+
+    /* --- setup --------------------------------------------------- */
+    if (a === 'su-goal') { S.p.goal = t.getAttribute('data-v'); render(); return; }
+    if (a === 'su-bc') { S.p.birthControl = t.getAttribute('data-v'); render(); return; }
+    if (a === 'su-irregular') { S.p.irregular = !S.p.irregular; render(); return; }
+    if (a === 'su-unsure') {
+      S.p.lastStart = null;
+      S.setupError = null;
+      S.setupStep++;
       render();
-      say('Everything logged here is gone.');
+      return;
+    }
+    if (a === 'setup-back') { S.setupStep = Math.max(0, S.setupStep - 1); S.setupError = null; render(); return; }
+    if (a === 'setup-skip') {
+      S.p.setup = true;
+      persistProfile();
+      S.state = 'populated';
+      render();
+      say('Skipped. The defaults are 28 and 5, and settings changes them.');
+      return;
+    }
+    if (a === 'setup-next') {
+      var step = SETUP_STEPS[S.setupStep];
+      if (step === 'start') {
+        var sv = (document.getElementById('su-start') || {}).value;
+        if (!sv) { S.setupError = 'Pick a date, or tap "I am not sure".'; render(); return; }
+        var serr = validate(S.p.cycleLen, S.p.periodLen, sv, true);
+        if (serr) { S.setupError = serr; render(); return; }
+        S.p.lastStart = sv;
+      }
+      if (step === 'lengths') {
+        var c2 = parseInt((document.getElementById('su-cycle') || {}).value, 10);
+        var p2 = parseInt((document.getElementById('su-period') || {}).value, 10);
+        var lerr = validate(c2, p2, S.p.lastStart, true);
+        if (lerr) { S.setupError = lerr; render(); return; }
+        S.p.cycleLen = c2; S.p.periodLen = p2;
+      }
+      S.setupError = null;
+      if (S.setupStep < SETUP_STEPS.length - 1) { S.setupStep++; render(); return; }
+      S.p.setup = true;
+      persistProfile();
+      S.state = 'populated';
+      render();
+      say('Tracking from ' + (S.p.lastStart ? absDate(S.p.lastStart) : 'your first logged period') + '.');
       return;
     }
   });
 
+  /* One validator for the setup flow and the settings sheet, so a date the
+     setup refuses cannot be typed into settings instead. */
+  function validate(cy, pe, start, skipLengths) {
+    if (!skipLengths || cy !== undefined) {
+      if (isNaN(cy) || cy < 15 || cy > 60) return 'A cycle between 15 and 60 days.';
+      if (isNaN(pe) || pe < 1 || pe > 10) return 'A period between 1 and 10 days.';
+      if (pe >= cy) return 'A period cannot be as long as the whole cycle.';
+    }
+    if (start) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return 'That is not a date this screen can read.';
+      var ago = daysBetween(start, TODAY);
+      if (ago < 0) return 'That date has not happened yet. A start date is in the past.';
+      if (ago > 400) return 'That is over a year ago. Use a more recent start, or clear it.';
+    }
+    return null;
+  }
+
+  function openDay(day) {
+    var e0 = S.days[day];
+    S.draft = e0 ? clone(e0) : { flow: 0, sym: {}, mood: [], note: '' };
+    S.sheet = day;
+    S.reveal = false;
+    render();
+  }
+
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && S.sheet) { S.sheet = null; S.draft = null; render(); }
+    if (e.key !== 'Escape') return;
+    if (S.dialog) { S.dialog = null; render(); return; }
+    if (S.sheet) { S.sheet = null; S.draft = null; S.reveal = false; render(); }
   });
 
   /* ---- dev states -------------------------------------------------- */
   var STATES = [
-    ['populated', 'Tracking'],
-    ['discreet', 'Discreet mode'],
-    ['empty', 'Nothing logged'],
-    ['setup', 'First run'],
-    ['gated', 'Not enabled'],
-    ['loading', 'Loading'],
-    ['error', 'Error']
+    ['populated', 'Tracking', function () {}],
+    ['discreet', 'Discreet mode', function () { S.p.discreet = true; }],
+    ['calendar', 'Calendar', function () { S.state = 'populated'; S.view = 'calendar'; }],
+    ['rough', 'Rough day', function () {
+      S.state = 'populated';
+      S.days[TODAY] = { flow: 0, sym: { cramps: 2, fatigue: 2 }, mood: ['low'], energy: 2, note: '' };
+    }],
+    ['history', 'Several cycles', function () {
+      /* Six months of starts so the calendar, the stats strip and the
+         length chart have something to be about. Everything they show is
+         still read out of this log, not stored as a figure. */
+      S.state = 'populated';
+      [['2026-04-06', 27], ['2026-05-03', 30], ['2026-06-02', 26], ['2026-06-28', 29],
+       ['2026-07-27', 33], ['2026-08-29', 0]].forEach(function (pair) {
+        for (var i = 0; i < 4; i++) {
+          var d = shift(pair[0], i);
+          if (!S.days[d]) S.days[d] = { flow: i === 0 ? 3 : i === 3 ? 1 : 2, sym: {}, mood: [], note: '' };
+        }
+      });
+      S.p.lastStart = '2026-08-29';
+    }],
+    ['flags', 'Health flags', function () {
+      S.state = 'populated';
+      S.days = { '2026-05-20': { flow: 3, sym: {}, mood: [], note: '' },
+                 '2026-05-21': { flow: 2, sym: {}, mood: [], note: '' } };
+      S.p.lastStart = '2026-05-20';
+    }],
+    ['recovery', 'Recovery', function () {
+      S.state = 'populated';
+      S.days['2026-09-01'] = { flow: 3, sym: {}, mood: [], note: '', events: ['miscarriage'] };
+    }],
+    ['ec', 'After the morning-after pill', function () {
+      S.state = 'populated';
+      S.days['2026-09-06'] = { flow: 0, sym: {}, mood: [], note: '', events: ['ec'], sex: 'unprotected' };
+    }],
+    ['overdue', 'Overdue', function () {
+      S.state = 'populated';
+      S.days = { '2026-07-25': { flow: 3, sym: {}, mood: [], note: '' },
+                 '2026-07-26': { flow: 2, sym: {}, mood: [], note: '' } };
+      S.p.lastStart = '2026-07-25';
+    }],
+    ['empty', 'Nothing logged', function () { S.days = {}; }],
+    ['setup', 'First run', function () {
+      S.days = {};
+      S.p = { setup: false, goal: null, lastStart: null, cycleLen: 28, periodLen: 5,
+              irregular: false, birthControl: 'none', discreet: false, createdAt: TODAY };
+    }],
+    ['gated', 'Not enabled', function () {}],
+    ['loading', 'Loading', function () {}],
+    ['error', 'Error', function () {}]
   ];
   var menu = document.getElementById('dev-menu');
   var toggle = document.getElementById('dev-toggle');
@@ -626,18 +2124,33 @@
     menu.hidden = !open;
     this.setAttribute('aria-expanded', String(open));
   });
+  function applyState(id) {
+    var found = null;
+    STATES.forEach(function (s) { if (s[0] === id) found = s; });
+    if (!found) return;
+    /* fresh: the switcher rebuilds from the seed rather than reading a
+       person's stored log back over the state it is showing. */
+    reset(true);
+    S.devState = id;
+    S.state = (id === 'populated' || id === 'discreet') ? id
+      : (id === 'empty' || id === 'setup' || id === 'gated' || id === 'loading' || id === 'error') ? id
+      : 'populated';
+    S.view = 'cycle';
+    found[2]();
+    render();
+  }
   menu.addEventListener('click', function (e) {
     var b = e.target.closest('.dev__item');
     if (!b) return;
-    var st = b.dataset.state;
-    S.state = st;
-    S.p = seedProfile();
-    S.days = st === 'empty' || st === 'setup' ? {} : seedDays();
-    S.p.discreet = st === 'discreet';
-    if (st === 'setup') { S.p.setup = false; S.p.lastStart = null; }
-    S.sheet = null; S.draft = null; S.toast = null; S.setupError = null;
-    render();
+    applyState(b.dataset.state);
   });
+
+  /* ---------------------------------------------------------------
+     Boot
+     --------------------------------------------------------------- */
+  reset(false);
+  S.devState = 'populated';
+  if (!S.p.setup) S.state = 'setup';
 
   /* Settings owns the gate and writes it where this screen can read it. It
      is the default here, not an override: the dev switcher still wins. */
@@ -646,8 +2159,16 @@
   } catch (e) {}
 
   var q = new URLSearchParams(location.search);
-  if (q.get('state') && VIEWS[q.get('state')]) S.state = q.get('state');
-  render();
+  if (q.get('state')) applyState(q.get('state'));
+  else render();
+
+  /* Another tab, or Settings, changing the same keys. Two screens on one
+     log cannot be allowed to drift. */
+  if (store()) {
+    store().onChange('lk_mcProfile', function (v) { if (v) { S.p = v; render(); } });
+    store().onChange('lk_mcDays', function (v) { if (v) { S.days = v; render(); } });
+  }
+
   requestAnimationFrame(function () { window.__ready = true; });
 })();
 

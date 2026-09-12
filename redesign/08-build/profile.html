@@ -123,24 +123,115 @@
      a distance to a milestone that was not the reader's. */
   var FXP = window.LKFixtures || {};
   var TOT = FXP.totals || {};
-  var ME = (function () {
-    var p = FXP.profile || {};
-    /* Heaviest set per lift, best first -- the records the app actually
-       holds, named from the catalogue. */
-    var recs = (FXP.prs || []).slice()
-      .sort(function (a, b) { return b.kg - a.kg; })
-      .map(function (r) { return { lift: r.name, group: r.group || r.muscle || '', kg: r.kg }; });
+  var ST = window.LKStore;
+  function get(key, dflt) { return ST ? ST.get(key, dflt) : dflt; }
+
+  /* Counted from lk_history, not from a summary. The totals key is a
+     generated roll-up of the same sessions and agrees with this to the
+     kilogram -- 22 sessions, 288 working sets, 140,204 kg -- but a figure
+     read from the sessions themselves is one that still tells the truth
+     after a session is logged, and that is the whole point of the store.
+     Warm-ups are not working sets and their load is not volume, which is the
+     rule every stored session summary already follows. */
+  function countTotals(history) {
+    var sets = 0, vol = 0;
+    history.forEach(function (h) {
+      sets += Number(h.sets) || 0;
+      vol += Number(h.kg) || 0;
+    });
+    return { sessions: history.length, sets: sets, volumeKg: vol };
+  }
+
+  /* lk_prs ships in two shapes. The app's own is a map of exercise id to
+     every record on that lift, which is where "12 records over 9 lifts"
+     comes from; fixtures.js flattens it to one row per lift, so a read of
+     the untouched key gives 9 rows and no count. Both are read; the count
+     falls back to the roll-up when the flat shape is all there is. */
+  function readRecords() {
+    var raw = get('lk_prs', null);
+    if (raw && !Array.isArray(raw) && typeof raw === 'object') {
+      var rows = [], count = 0;
+      Object.keys(raw).forEach(function (id) {
+        var list = raw[id] || [];
+        count += list.length;
+        var best = list.slice().sort(function (a, b) { return b.w - a.w || b.r - a.r; })[0];
+        if (best) rows.push({ lift: best.name || nameFor(id), group: best.group || '', kg: best.w });
+      });
+      rows.sort(function (a, b) { return b.kg - a.kg; });
+      return { rows: rows, count: count };
+    }
+    var arr = Array.isArray(raw) ? raw : (FXP.prs || []);
     return {
-      name: p.name || '',
-      handle: p.username || '',
-      workouts: TOT.sessions || 0,
-      prs: TOT.records || 0,
-      sets: TOT.sets || 0,
-      volumeKg: TOT.volumeKg || 0,
-      useKg: p.useKg !== false,
-      records: recs
+      rows: arr.slice().sort(function (a, b) { return b.kg - a.kg; })
+        .map(function (r) { return { lift: r.name, group: r.group || r.muscle || '', kg: r.kg }; }),
+      count: TOT.records || arr.length
     };
-  })();
+  }
+  function nameFor(id) {
+    var hit = '';
+    (FXP.prs || []).forEach(function (r) { if (String(r.exId) === String(id)) hit = r.name; });
+    return hit;
+  }
+
+  function readMe() {
+    var p = get('lk_profile', {}) || {};
+    var history = get('lk_history', []) || [];
+    var t = countTotals(history);
+    var recs = readRecords();
+    return {
+      /* What Settings writes when somebody changes their name. It wrote
+         nothing at all before, so the name typed there never arrived here. */
+      name: p.displayName || p.name || '',
+      handle: p.username || '',
+      workouts: t.sessions,
+      prs: recs.count,
+      sets: t.sets,
+      volumeKg: t.volumeKg,
+      useKg: p.useKg !== false,
+      records: recs.rows,
+      history: history
+    };
+  }
+  var ME = readMe();
+
+  /* THE STREAK. Settings offers "Streaks and badges" and promises "On.
+     Profile shows them." There was no streak anywhere in the build: no
+     screen computed one and no key held one. It is days in a row with a
+     session, counted back from today, out of lk_history -- and the longest
+     run this history holds, because a run of zero with no second number is
+     a scolding rather than a record.
+
+     TODAY is the fixture's date, not the wall clock: every other figure on
+     this screen is measured against the seed, and a streak measured against
+     a real clock would report zero the day this build is next opened. */
+  var TODAY = FXP.today || '2026-09-09';
+  function dayMs(iso) {
+    var p = String(iso).slice(0, 10).split('-');
+    return Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  }
+  function streak() {
+    var days = {}, list = [];
+    ME.history.forEach(function (h) {
+      var t = dayMs(h.date);
+      if (isNaN(t) || days[t]) return;
+      days[t] = 1;
+      list.push(t);
+    });
+    list.sort(function (a, b) { return b - a; });
+    var DAY = 86400000;
+    /* Today counts if it has a session; if it does not, yesterday still
+       starts a run, because a streak should not break at breakfast. */
+    var cur = 0, t = dayMs(TODAY);
+    if (!days[t]) t -= DAY;
+    while (days[t]) { cur++; t -= DAY; }
+    var best = 0, run = 0;
+    for (var i = 0; i < list.length; i++) {
+      run = (i && list[i - 1] - list[i] === DAY) ? run + 1 : 1;
+      if (run > best) best = run;
+    }
+    var lastGap = list.length ? Math.round((dayMs(TODAY) - list[0]) / DAY) : null;
+    return { current: cur, best: best, days: list.length, lastGap: lastGap, last: list.length ? list[0] : null };
+  }
 
   /* A badge is earned by a count crossing a line. The line is written next
      to the badge so nothing about it is a mystery. */
@@ -157,13 +248,36 @@
     { id: 's2000',  face: 'S2k', name: '2,000 sets',  need: 2000, of: 'sets',     got: 'That is a lot of reps' }
   ];
 
-  var S = { state: 'populated' };
+  /* The gaming layer is a setting, not a state: a guest can have badges on
+     and a signed-in reader can have them off. It was only ever `state ===
+     "badges"`, so reading the setting meant giving up the guest state. */
+  var S = { state: 'populated', badges: false };
+  function showBadges() { return S.badges || S.state === 'badges'; }
 
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function dayLabel(t) {
+    var d = new Date(t);
+    return MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate();
+  }
+  /* The streak, in the header, where the switch that turns it on says it
+     will be. A run of zero says so and says when the last session was,
+     because "0" on its own is a number a reader cannot check. */
+  function streakLine() {
+    if (!showBadges()) return '';
+    var k = streak();
+    var main = k.current > 0
+      ? n(k.current) + (k.current === 1 ? ' day in a row' : ' days in a row')
+      : (k.last === null ? 'No sessions yet' : 'No run going, last trained ' + dayLabel(k.last));
+    var best = k.best ? ' &middot; best ' + n(k.best) : '';
+    return '<span class="t-meta" data-testid="streak" data-current="' + k.current +
+      '" data-best="' + k.best + '">' + main + best + '</span>';
+  }
   function headerHTML() {
     return '' +
       '<div class="hdr__title stack stack--1">' +
         '<span class="t-meta">@' + esc(ME.handle) + '</span>' +
         '<h1 class="hdr__title-large" data-title-large>' + esc(ME.name) + '</h1>' +
+        streakLine() +
       '</div>' +
       '<span class="hdr__title-small" data-title-small aria-hidden="true">' + esc(ME.name) + '</span>';
   }
@@ -174,14 +288,19 @@
      --------------------------------------------------------------- */
   function identity() {
     var guest = S.state === 'guest';
+    /* "Backed up. Last synced 12 minutes ago" was a literal on a build with
+       no server and no request in it. lk_lastSync is the only thing that can
+       say otherwise, and it is empty. */
+    var synced = get('lk_lastSync', null);
     return '<div class="card card--flush" data-testid="identity">' +
       '<div class="row row--static">' +
         '<span class="avatar" aria-hidden="true">' + esc(ME.name.charAt(0).toUpperCase()) + '</span>' +
         '<span class="row__main stack">' +
-          '<span class="row__title">' + (guest ? 'On this phone only' : 'Backed up') + '</span>' +
+          '<span class="row__title">' + (guest ? 'On this phone only' : synced ? 'Backed up' : 'Not backed up') + '</span>' +
           '<span class="row__sub">' + (guest
             ? 'Nothing leaves this device'
-            : 'Last synced 12 minutes ago') + '</span>' +
+            : synced ? 'Last synced ' + esc(String(synced))
+                     : 'Nothing has left this device. This build has no server to sync with.') + '</span>' +
         '</span>' +
       '</div>' +
       '<button class="row" type="button" data-action="settings" data-testid="open-settings">' +
@@ -252,13 +371,26 @@
   }
 
   function badges() {
-    if (S.state !== 'badges') return '';
+    if (!showBadges()) return '';
     var have = { workouts: ME.workouts, prs: ME.prs, sets: ME.sets };
     var earned = BADGES.filter(function (b) { return have[b.of] >= b.need; });
     var locked = BADGES.filter(function (b) { return have[b.of] < b.need; });
 
     if (!earned.length && !locked.length) return '';
-    return '<div class="section">' +
+    var k = streak();
+    var streakCard = '<div class="card mt-4" data-testid="streak-card">' +
+      '<div class="tiles">' +
+        stat('Day streak', n(k.current), '') +
+        stat('Best run', n(k.best), k.best === 1 ? 'day' : 'days') +
+      '</div>' +
+      '<p class="t-detail mt-3">Days in a row with a session, counted back from ' + dayLabel(dayMs(TODAY)) + '. ' +
+        (k.last === null
+          ? 'Nothing logged yet.'
+          : 'Your last session was ' + dayLabel(k.last) +
+            (k.lastGap > 1 ? ', ' + n(k.lastGap) + ' days ago, which is what ended the run.' : '.')) +
+      '</p>' +
+    '</div>';
+    return streakCard + '<div class="section">' +
       '<div class="section__head"><h2 class="t-label">Badges</h2>' +
         '<span class="t-meta num">' + earned.length + ' of ' + BADGES.length + '</span></div>' +
       (earned.length
@@ -387,14 +519,34 @@
   /* "Streaks and badges are a setting, off unless somebody turned them on" --
      the comment at the top of this file has said so all along, and until now
      there was no such setting anywhere. Settings owns it and writes it where
-     this screen can see it. The dev switcher still overrides. */
-  try {
-    if (localStorage.getItem('lk_badges') === 'true') S.state = 'badges';
-  } catch (e) {}
+     this screen can see it. The dev switcher still overrides.
+
+     lk_guestMode is read here too. It ships in the seed and grep found it in
+     no screen in the build, so guest was a state only the dev switcher could
+     reach and Settings' own sign-out never arrived. */
+  var badgesOn = get('lk_badges', false);
+  S.badges = badgesOn === true || badgesOn === 'true';
+  if (String(get('lk_guestMode', '0')) === '1') S.state = 'guest';
 
   var q = new URLSearchParams(location.search);
   if (q.get('state') && VIEWS[q.get('state')]) S.state = q.get('state');
   render();
+
+  /* Settings is a push from this screen, so a reader comes back to it with
+     the unit, the name or the badge switch just changed. Neither reached
+     here without a reload: LKUnits.onChange existed and nothing subscribed
+     to it, and nothing watched the store at all. */
+  if (window.LKUnits) LKUnits.onChange(function () { render(); });
+  if (ST) {
+    ST.onChange(function (value, key) {
+      ME = readMe();
+      if (key === 'lk_badges') S.badges = value === true || value === 'true';
+      if (key === 'lk_guestMode' && S.state !== 'new' && S.state !== 'loading' && S.state !== 'error') {
+        S.state = String(value) === '1' ? 'guest' : 'populated';
+      }
+      render();
+    });
+  }
   requestAnimationFrame(function () { window.__ready = true; });
 })();
 

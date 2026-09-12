@@ -185,7 +185,10 @@
   var MONTHS = ['January','February','March','April','May','June','July',
                 'August','September','October','November','December'];
   var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var TODAY = '2026-09-09';
+  /* The fixture's today, not the wall clock. Every date on this screen is
+     measured against the seed, so a log stamped with the real date read
+     "last -1 days ago" the moment the two disagreed. */
+  var TODAY = (window.LKFixtures && LKFixtures.today) || '2026-09-09';
 
   function esc(s) {
     return String(s).replace(/[&<>"]/g, function (c) {
@@ -254,7 +257,7 @@
 
   var MIN_PER_EX = 10;
   var SPLITS = [], HISTORY = [], WEEKS = [], FAVS = [], CUSTOM_CARDIO = [];
-  var BODY_KG = 70;
+  var PREFS = {}, PROFILE = {}, BODY_KG = 70;
 
   /* lk_splits. The day rows' exercise counts are COUNTED and the split's own
      total is the sum of them. The sheet printed days.length * 5, which is
@@ -288,9 +291,29 @@
                   date: w.date, min: w.min };
       if (row.kind === 'lift') { row.sets = w.sets; row.kg = w.kg; }
       else {
-        ['km', 'cal', 'calNet', 'calRange', 'calTier', 'calConf', 'effort', 'surface',
-         'position', 'machine', 'resistance', 'incline', 'watts', 'hr', 'note', 'act'
+        /* A cardio record carries a lot and a hand-logged one carries almost
+           none of it, so every field here is copied only where it exists.
+           The row printed "undefined km, undefined cal" for a session nothing
+           had measured. */
+        ['km', 'cal', 'effort', 'surface', 'position', 'resistance', 'incline',
+         'watts', 'hr', 'note', 'act', 'modality', 'environment', 'climb'
         ].forEach(function (k) { if (w[k] !== undefined && w[k] !== null && w[k] !== '') row[k] = w[k]; });
+        if (w.heartRate && w.heartRate.avg) row.hr = Number(w.heartRate.avg);
+        if (w.intensity) {
+          if (w.intensity.rpe != null) row.rpe = Number(w.intensity.rpe);
+          if (w.intensity.estMET != null) row.met = Number(w.intensity.estMET);
+        }
+        if (w.machine && w.machine.category) {
+          row.machine = w.machine.category +
+            (w.machine.brand ? ' \u00b7 ' + w.machine.brand : '');
+        }
+        if (w.distanceM != null && row.km == null) row.km = Math.round(w.distanceM / 100) / 10;
+        if (w.calDetail) {
+          row.calNet = w.calDetail.net;
+          row.calRange = w.calDetail.range;
+          row.calConf = w.calDetail.confidence;
+          row.calEstimated = w.calDetail.estimated !== false;
+        }
       }
       return row;
     }).sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
@@ -333,10 +356,20 @@
     loadSplits(fresh);
     loadHistory(fresh);
     loadWeeks();
-    FAVS = rd('lk_cardioFavorites', [], fresh) || [];
-    CUSTOM_CARDIO = rd('lk_cardioCustom', [], fresh) || [];
+    /* lk_cardioFavorites, in the shape the shipped app stores: a label, a
+       modality, a machine and a defaults block. The quick rows were a
+       hand-written literal of three, so the one favourite actually stored
+       never appeared and a second one could not be made. */
+    FAVS = (rd('lk_cardioFavorites', [], fresh) || []).slice().sort(function (a, b) {
+      return (a.order || 0) - (b.order || 0);
+    });
+    CUSTOM_CARDIO = (rd('lk_cardioCustom', [], fresh) || []).map(function (c) {
+      c.custom = true; c.g = 'yours'; return c;
+    });
+    PREFS = rd('lk_cardioPrefs', {}, fresh) || {};
     var prof = rd('lk_profile', null, fresh) ||
                (window.LKFixtures && LKFixtures.profile) || {};
+    PROFILE = prof;
     BODY_KG = Number(prof.weightKg) > 0 ? Number(prof.weightKg) : 70;
   }
 
@@ -363,55 +396,50 @@
   ];
   var CARDIO_CAT = [
     /* Machines */
-    { id: 'treadrun',  name: 'Treadmill run',      g: 'machine', met: 9.8,  min: 30, speed: 'run',  f: ['dist', 'incline', 'hr', 'effort'] },
-    { id: 'treadwalk', name: 'Treadmill walk',     g: 'machine', met: 4.3,  min: 30, speed: 'walk', f: ['dist', 'incline', 'hr', 'effort'] },
-    { id: 'row',       name: 'Rowing erg',         g: 'machine', met: 8.5,  min: 20, f: ['dist', 'watts', 'hr', 'effort'] },
-    { id: 'bike',      name: 'Upright bike',       g: 'machine', met: 7.0,  min: 25, f: ['dist', 'resistance', 'watts', 'hr', 'effort'] },
-    { id: 'recumbent', name: 'Recumbent bike',     g: 'machine', met: 5.5,  min: 30, f: ['dist', 'resistance', 'hr', 'effort'] },
-    { id: 'spinbike',  name: 'Spin bike',          g: 'machine', met: 8.5,  min: 45, f: ['dist', 'resistance', 'watts', 'hr', 'effort'] },
-    { id: 'ellip',     name: 'Elliptical',         g: 'machine', met: 5.0,  min: 30, f: ['dist', 'resistance', 'hr', 'effort'] },
-    { id: 'stair',     name: 'Stair climber',      g: 'machine', met: 9.0,  min: 20, f: ['floors', 'resistance', 'hr', 'effort'] },
-    { id: 'ski',       name: 'Ski erg',            g: 'machine', met: 7.0,  min: 15, f: ['dist', 'watts', 'hr', 'effort'] },
-    { id: 'airbike',   name: 'Air bike',           g: 'machine', met: 8.5,  min: 15, f: ['dist', 'watts', 'hr', 'effort'] },
-    { id: 'armerg',    name: 'Arm ergometer',      g: 'machine', met: 5.0,  min: 15, f: ['dist', 'resistance', 'hr', 'effort'] },
-    { id: 'curved',    name: 'Curved treadmill',   g: 'machine', met: 10.0, min: 20, speed: 'run', f: ['dist', 'hr', 'effort'] },
-    { id: 'versa',     name: 'VersaClimber',       g: 'machine', met: 9.0,  min: 15, f: ['floors', 'hr', 'effort'] },
+    { id: 'treadrun', mod: 'treadmill_run',  name: 'Treadmill run',      g: 'machine', met: 9.8,  min: 30, speed: 'run',  f: ['dist', 'incline', 'hr', 'effort'] },
+    { id: 'treadwalk', mod: 'treadmill_walk', name: 'Treadmill walk',     g: 'machine', met: 4.3,  min: 30, speed: 'walk', f: ['dist', 'incline', 'hr', 'effort'] },
+    { id: 'row', mod: 'row',       name: 'Rowing erg',         g: 'machine', met: 8.5,  min: 20, f: ['dist', 'watts', 'hr', 'effort'] },
+    { id: 'bike', mod: 'bike',      name: 'Upright bike',       g: 'machine', met: 7.0,  min: 25, f: ['dist', 'resistance', 'watts', 'hr', 'effort'] },
+    { id: 'recumbent', mod: 'recumbent_bike', name: 'Recumbent bike',     g: 'machine', met: 5.5,  min: 30, f: ['dist', 'resistance', 'hr', 'effort'] },
+    { id: 'spinbike', mod: 'spin_bike',  name: 'Spin bike',          g: 'machine', met: 8.5,  min: 45, f: ['dist', 'resistance', 'watts', 'hr', 'effort'] },
+    { id: 'ellip', mod: 'elliptical',     name: 'Elliptical',         g: 'machine', met: 5.0,  min: 30, f: ['dist', 'resistance', 'hr', 'effort'] },
+    { id: 'stair', mod: 'stair_climber',     name: 'Stair climber',      g: 'machine', met: 9.0,  min: 20, f: ['floors', 'resistance', 'hr', 'effort'] },
+    { id: 'ski', mod: 'ski_erg',       name: 'Ski erg',            g: 'machine', met: 7.0,  min: 15, f: ['dist', 'watts', 'hr', 'effort'] },
+    { id: 'airbike', mod: 'air_bike',   name: 'Air bike',           g: 'machine', met: 8.5,  min: 15, f: ['dist', 'watts', 'hr', 'effort'] },
+    { id: 'armerg', mod: 'arm_ergometer',    name: 'Arm ergometer',      g: 'machine', met: 5.0,  min: 15, f: ['dist', 'resistance', 'hr', 'effort'] },
+    { id: 'curved', mod: 'curved_treadmill',    name: 'Curved treadmill',   g: 'machine', met: 10.0, min: 20, speed: 'run', f: ['dist', 'hr', 'effort'] },
     /* Outdoors */
-    { id: 'run',       name: 'Outdoor run',        g: 'outdoor', met: 9.8,  min: 35, speed: 'run',  f: ['dist', 'surface', 'hr', 'effort'] },
-    { id: 'trail',     name: 'Trail run',          g: 'outdoor', met: 10.0, min: 45, speed: 'run',  f: ['dist', 'climb', 'hr', 'effort'] },
-    { id: 'walk',      name: 'Walking',            g: 'outdoor', met: 3.5,  min: 45, speed: 'walk', f: ['dist', 'surface', 'hr', 'effort'] },
-    { id: 'powerwalk', name: 'Power walking',      g: 'outdoor', met: 5.0,  min: 30, speed: 'walk', f: ['dist', 'surface', 'hr', 'effort'] },
-    { id: 'hike',      name: 'Hiking',             g: 'outdoor', met: 6.0,  min: 60, f: ['dist', 'climb', 'hr', 'effort'] },
-    { id: 'cycle',     name: 'Outdoor cycling',    g: 'outdoor', met: 8.0,  min: 45, speed: 'bike', f: ['dist', 'position', 'climb', 'hr', 'effort'] },
-    { id: 'mtb',       name: 'Mountain biking',    g: 'outdoor', met: 8.5,  min: 60, f: ['dist', 'climb', 'hr', 'effort'] },
-    { id: 'commute',   name: 'Cycling commute',    g: 'outdoor', met: 6.8,  min: 25, speed: 'bike', f: ['dist', 'position', 'hr'] },
-    { id: 'hills',     name: 'Hill sprints',       g: 'outdoor', met: 10.0, min: 15, f: ['reps', 'hr', 'effort'] },
-    { id: 'sled',      name: 'Sled push and drag', g: 'outdoor', met: 8.0,  min: 12, f: ['dist', 'hr', 'effort'] },
-    { id: 'ruck',      name: 'Rucking',            g: 'outdoor', met: 7.0,  min: 50, speed: 'walk', f: ['dist', 'packkg', 'climb', 'hr'] },
-    { id: 'stairs',    name: 'Stair climbing',     g: 'outdoor', met: 8.8,  min: 20, f: ['floors', 'hr', 'effort'] },
+    { id: 'run', mod: 'run',       name: 'Outdoor run',        g: 'outdoor', met: 9.8,  min: 35, speed: 'run',  f: ['dist', 'surface', 'hr', 'effort'] },
+    { id: 'trail', mod: 'trail_run',     name: 'Trail run',          g: 'outdoor', met: 10.0, min: 45, speed: 'run',  f: ['dist', 'climb', 'hr', 'effort'] },
+    { id: 'walk', mod: 'walk',      name: 'Walking',            g: 'outdoor', met: 3.5,  min: 45, speed: 'walk', f: ['dist', 'surface', 'hr', 'effort'] },
+    { id: 'powerwalk', mod: 'power_walk', name: 'Power walking',      g: 'outdoor', met: 5.0,  min: 30, speed: 'walk', f: ['dist', 'surface', 'hr', 'effort'] },
+    { id: 'hike', mod: 'hike',      name: 'Hiking',             g: 'outdoor', met: 6.0,  min: 60, f: ['dist', 'climb', 'hr', 'effort'] },
+    { id: 'cycle', mod: 'cycling',     name: 'Outdoor cycling',    g: 'outdoor', met: 8.0,  min: 45, speed: 'bike', f: ['dist', 'position', 'climb', 'hr', 'effort'] },
+    { id: 'mtb', mod: 'mountain_bike',       name: 'Mountain biking',    g: 'outdoor', met: 8.5,  min: 60, f: ['dist', 'climb', 'hr', 'effort'] },
+    { id: 'hills', mod: 'hill_sprints',     name: 'Hill sprints',       g: 'outdoor', met: 10.0, min: 15, f: ['reps', 'hr', 'effort'] },
+    { id: 'sled', mod: 'sled',      name: 'Sled push and drag', g: 'outdoor', met: 8.0,  min: 12, f: ['dist', 'hr', 'effort'] },
+    { id: 'ruck', mod: 'ruck',      name: 'Rucking',            g: 'outdoor', met: 7.0,  min: 50, speed: 'walk', f: ['dist', 'packkg', 'climb', 'hr'] },
+    { id: 'stairs', mod: 'stair_climbing',    name: 'Stair climbing',     g: 'outdoor', met: 8.8,  min: 20, f: ['floors', 'hr', 'effort'] },
     /* Water and snow */
-    { id: 'swimfree',  name: 'Swimming, freestyle', g: 'water', met: 8.3,  min: 30, f: ['dist', 'hr', 'effort'] },
-    { id: 'swimbreast',name: 'Swimming, breaststroke', g: 'water', met: 10.3, min: 30, f: ['dist', 'hr', 'effort'] },
-    { id: 'swimopen',  name: 'Open water swim',    g: 'water', met: 9.5,  min: 40, f: ['dist', 'hr', 'effort'] },
-    { id: 'aqua',      name: 'Aqua jogging',       g: 'water', met: 8.0,  min: 30, f: ['hr', 'effort'] },
-    { id: 'kayak',     name: 'Kayaking',           g: 'water', met: 5.0,  min: 60, f: ['dist', 'hr', 'effort'] },
-    { id: 'waterrow',  name: 'Rowing on water',    g: 'water', met: 7.0,  min: 60, f: ['dist', 'hr', 'effort'] },
-    { id: 'sup',       name: 'Paddleboarding',     g: 'water', met: 6.0,  min: 45, f: ['dist', 'hr'] },
-    { id: 'xcski',     name: 'Cross-country skiing', g: 'water', met: 9.0, min: 60, f: ['dist', 'climb', 'hr', 'effort'] },
-    { id: 'snowshoe',  name: 'Snowshoeing',        g: 'water', met: 7.5,  min: 60, f: ['dist', 'climb', 'hr'] },
+    { id: 'swimfree', mod: 'swim_freestyle',  name: 'Swimming, freestyle', g: 'water', met: 8.3,  min: 30, f: ['dist', 'hr', 'effort'] },
+    { id: 'swimbreast', mod: 'swim_breaststroke',name: 'Swimming, breaststroke', g: 'water', met: 10.3, min: 30, f: ['dist', 'hr', 'effort'] },
+    { id: 'swimopen', mod: 'open_water_swim',  name: 'Open water swim',    g: 'water', met: 9.5,  min: 40, f: ['dist', 'hr', 'effort'] },
+    { id: 'aqua', mod: 'aqua_jog',      name: 'Aqua jogging',       g: 'water', met: 8.0,  min: 30, f: ['hr', 'effort'] },
+    { id: 'kayak', mod: 'kayak',     name: 'Kayaking',           g: 'water', met: 5.0,  min: 60, f: ['dist', 'hr', 'effort'] },
+    { id: 'waterrow', mod: 'row_water',  name: 'Rowing on water',    g: 'water', met: 7.0,  min: 60, f: ['dist', 'hr', 'effort'] },
+    { id: 'xcski', mod: 'xc_ski',     name: 'Cross-country skiing', g: 'water', met: 9.0, min: 60, f: ['dist', 'climb', 'hr', 'effort'] },
     /* Studio and sport */
-    { id: 'rope',      name: 'Jump rope',          g: 'studio', met: 12.3, min: 12, f: ['reps', 'hr', 'effort'] },
-    { id: 'hiit',      name: 'HIIT circuit',       g: 'studio', met: 8.0,  min: 20, f: ['rounds', 'hr', 'effort'] },
-    { id: 'circuit',   name: 'Circuit training',   g: 'studio', met: 7.5,  min: 30, f: ['rounds', 'hr', 'effort'] },
-    { id: 'bag',       name: 'Boxing, heavy bag',  g: 'studio', met: 7.8,  min: 20, f: ['rounds', 'hr', 'effort'] },
-    { id: 'kick',      name: 'Kickboxing class',   g: 'studio', met: 10.3, min: 45, f: ['hr', 'effort'] },
-    { id: 'spinclass', name: 'Spin class',         g: 'studio', met: 8.5,  min: 45, f: ['watts', 'hr', 'effort'] },
-    { id: 'dance',     name: 'Dance cardio',       g: 'studio', met: 7.3,  min: 45, f: ['hr', 'effort'] },
-    { id: 'climb',     name: 'Rock climbing',      g: 'studio', met: 8.0,  min: 60, f: ['hr', 'effort'] },
-    { id: 'football',  name: 'Football',           g: 'studio', met: 7.0,  min: 60, f: ['hr', 'effort'] },
-    { id: 'basketball',name: 'Basketball',         g: 'studio', met: 6.5,  min: 45, f: ['hr', 'effort'] },
-    { id: 'tennis',    name: 'Tennis',             g: 'studio', met: 7.3,  min: 60, f: ['hr', 'effort'] },
-    { id: 'padel',     name: 'Padel',              g: 'studio', met: 7.0,  min: 60, f: ['hr', 'effort'] }
+    { id: 'rope', mod: 'jump_rope',      name: 'Jump rope',          g: 'studio', met: 12.3, min: 12, f: ['reps', 'hr', 'effort'] },
+    { id: 'hiit', mod: 'hiit',      name: 'HIIT circuit',       g: 'studio', met: 8.0,  min: 20, f: ['rounds', 'hr', 'effort'] },
+    { id: 'circuit', mod: 'circuit',   name: 'Circuit training',   g: 'studio', met: 7.5,  min: 30, f: ['rounds', 'hr', 'effort'] },
+    { id: 'bag', mod: 'heavy_bag',       name: 'Boxing, heavy bag',  g: 'studio', met: 7.8,  min: 20, f: ['rounds', 'hr', 'effort'] },
+    { id: 'kick', mod: 'kickboxing',      name: 'Kickboxing class',   g: 'studio', met: 10.3, min: 45, f: ['hr', 'effort'] },
+    { id: 'spinclass', mod: 'spin_class', name: 'Spin class',         g: 'studio', met: 8.5,  min: 45, f: ['watts', 'hr', 'effort'] },
+    { id: 'dance', mod: 'dance_cardio',     name: 'Dance cardio',       g: 'studio', met: 7.3,  min: 45, f: ['hr', 'effort'] },
+    { id: 'climb', mod: 'climbing',     name: 'Rock climbing',      g: 'studio', met: 8.0,  min: 60, f: ['hr', 'effort'] },
+    { id: 'football', mod: 'football',  name: 'Football',           g: 'studio', met: 7.0,  min: 60, f: ['hr', 'effort'] },
+    { id: 'basketball', mod: 'basketball',name: 'Basketball',         g: 'studio', met: 6.5,  min: 45, f: ['hr', 'effort'] },
+    { id: 'tennis', mod: 'tennis',    name: 'Tennis',             g: 'studio', met: 7.3,  min: 60, f: ['hr', 'effort'] }
   ];
 
   /* The field schema. One row per field id, so a form is built from the
@@ -528,6 +556,7 @@
       lo: Math.round(gross * (1 - spread)),
       hi: Math.round(gross * (1 + spread)),
       met: Math.round(met * 10) / 10,
+      method: paceMet ? 'pace-derived' : 'met-lookup',
       from: from,
       tier: tier,
       conf: conf,
@@ -559,6 +588,7 @@
     logging: null,
     logError: null,
     open: null,           /* id of the expanded cardio row in history */
+    newCardio: null,      /* the "your own activity" form while it is open */
     confirmFav: null      /* favourite id awaiting its second tap to delete */
   };
 
@@ -584,8 +614,14 @@
     var meta = parts.filter(Boolean).join(' &middot; ');
     /* The date sits on the title line, not beside the metrics: at 393px
        a lifting metric line plus a date wrapped to two lines. */
+    /* A LIFTING row pushes to the session it names. A CARDIO row opens in
+       place: a cardio session is eight figures and a note, not a screen, and
+       workout-detail is built around exercises and sets it does not have. */
+    var open = S.open === w.id;
     return '' +
-      '<button class="row" type="button" data-action="open-session" data-id="' + w.id + '" ' +
+      '<button class="row" type="button" data-action="' +
+              (w.kind === 'lift' ? 'open-session' : 'toggle-session') + '" data-id="' + w.id + '" ' +
+              (w.kind === 'lift' ? '' : 'aria-expanded="' + open + '" ') +
               'data-testid="history-' + w.id + '">' +
         '<span class="ico-well">' + (w.kind === 'lift' ? ICO.lift : ICO.cardio) + '</span>' +
         '<span class="row__main stack">' +
@@ -596,7 +632,41 @@
           '<span class="row__sub">' + meta + '</span>' +
         '</span>' +
         '<span class="row__chev">' + ICO.chev + '</span>' +
-      '</button>';
+      '</button>' +
+      (open ? cardioDetail(w) : '');
+  }
+
+  /* What the record actually holds — F-CARDIO-012. Every line is a stored
+     figure or one derived from two of them; nothing is filled in. */
+  function cardioDetail(w) {
+    var rows = [];
+    function add(label, val) { if (val !== undefined && val !== null && val !== '') rows.push([label, val]); }
+    add('Duration', w.min + ' min');
+    add('Distance', w.km != null ? w.km + ' km' : null);
+    if (w.km > 0 && w.min > 0) {
+      add('Pace', paceStr(w.min / w.km) + ' /km');
+      add('Speed', (Math.round(w.km / (w.min / 60) * 10) / 10) + ' km/h');
+      if (/row/.test(w.modality || '')) add('Split', paceStr(w.min / (w.km * 2)) + ' /500 m');
+    }
+    add('Average power', w.watts != null ? w.watts + ' W' : null);
+    add('Heart rate', w.hr != null ? w.hr + ' bpm' : null);
+    add('Effort', w.rpe != null ? 'RPE ' + w.rpe : w.effort);
+    add('Surface', w.surface ? capitalise(w.surface) : null);
+    add('Machine', w.machine ? capitalise(String(w.machine).replace(/_/g, ' ')) : null);
+    add('Gross burn', w.cal != null ? group(w.cal) + ' kcal' : null);
+    add('Net burn', w.calNet != null ? group(w.calNet) + ' kcal' : null);
+    return '<div class="card card--sunken" data-testid="detail-' + w.id + '">' +
+      rows.map(function (r) {
+        return '<div class="spread mt-2"><span class="t-detail">' + r[0] + '</span>' +
+          '<span class="t-meta num">' + r[1] + '</span></div>';
+      }).join('') +
+      (w.note ? '<p class="t-detail mt-3">' + esc(w.note) + '</p>' : '') +
+      (w.calRange
+        ? '<p class="t-caption-1 quiet mt-3">The burn is an estimate at ' +
+          esc(String(w.calConf || 'unknown')) + ' confidence, between ' +
+          group(w.calRange[0]) + ' and ' + group(w.calRange[1]) + ' kcal. Nothing measured it.</p>'
+        : '') +
+    '</div>';
   }
 
   function splitRow(sp) {
@@ -678,11 +748,26 @@
      favourites sit the other modalities this person has actually done
      recently, which is what makes the top of the block a ranking rather than
      a second catalogue. */
+  function favName(f) { return f.label || f.name || 'Saved setup'; }
+  function favMin(f) {
+    if (f.defaults && f.defaults.durationSec) return Math.round(f.defaults.durationSec / 60);
+    return f.min || 30;
+  }
+  function favAct(f) {
+    return byModality(f.modality) || byName(favName(f)) || findCardio(f.act);
+  }
+  function byModality(mod) {
+    if (!mod) return null;
+    var all = allActivities();
+    for (var i = 0; i < all.length; i++) if (all[i].mod === mod || all[i].id === mod) return all[i];
+    return null;
+  }
   function favRows() {
     var out = FAVS.map(function (f) {
-      var act = findCardio(f.act) || { name: f.name, min: f.min };
-      return { key: 'fav:' + f.id, id: f.act, fav: f, name: f.name || act.name,
-               min: f.min || act.min, note: 'Saved setup', last: f.last };
+      var act = favAct(f) || { id: f.modality || f.id, name: favName(f), min: favMin(f) };
+      return { key: 'fav:' + f.id, id: act.id, fav: f, name: favName(f),
+               min: favMin(f), note: 'Saved setup',
+               last: f.lastUsedAt ? String(f.lastUsedAt).slice(0, 10) : f.last };
     });
     var seen = {};
     out.forEach(function (r) { seen[r.id] = 1; });
@@ -690,7 +775,7 @@
     for (var i = 0; i < HISTORY.length && out.length < 3; i++) {
       var w = HISTORY[i];
       if (w.kind !== 'cardio') continue;
-      var act = (w.act && findCardio(w.act)) || byName(w.name);
+      var act = byModality(w.modality) || (w.act && findCardio(w.act)) || byName(w.name);
       if (!act || seen[act.id]) continue;
       seen[act.id] = 1;
       out.push({ key: 'recent:' + act.id, id: act.id, name: act.name, min: w.min || act.min, last: w.date });
@@ -706,7 +791,9 @@
   function lastCardioFor(id) {
     for (var i = 0; i < HISTORY.length; i++) {
       var w = HISTORY[i];
-      if (w.kind === 'cardio' && ((w.act && w.act === id) || (byName(w.name) || {}).id === id)) return w;
+      if (w.kind !== 'cardio') continue;
+      var a = byModality(w.modality) || (w.act && findCardio(w.act)) || byName(w.name);
+      if (a && a.id === id) return w;
     }
     return null;
   }
@@ -738,8 +825,14 @@
       keep('burn', w.cal, 'Biggest burn');
       keep('watts', w.watts, 'Most power');
       if (w.km > 0 && w.min > 0) {
-        keepLow('pace', w.min / w.km, 'Best pace');
-        keep('speed', w.km / (w.min / 60), 'Fastest');
+        /* Pace is a minutes-per-kilometre figure and it only means anything
+           on foot: a 21.6 km/h bike ride read "best pace 2:47 /km" beside a
+           run, which is a comparison between two different things. Wheels
+           and water get a speed; feet get a pace. */
+        var onFoot = /run|walk|hike|ruck/.test(w.modality || '') ||
+                     /run|walk|hik|ruck/i.test(w.name || '');
+        if (onFoot) keepLow('pace', w.min / w.km, 'Best pace');
+        else keep('speed', w.km / (w.min / 60), 'Fastest');
       }
     });
     return best;
@@ -763,6 +856,8 @@
          b.far ? b.far.w.name.replace(/&middot;/g, '·') + ', ' + absDate(b.far.w.date) : '');
     if (b.pace) tile('pace', n(paceStr(b.pace.v)) + '<span class="stat__unit"> /km</span>',
          b.pace.w.name + ', ' + absDate(b.pace.w.date));
+    if (b.speed) tile('speed', n(Math.round(b.speed.v * 10) / 10) + '<span class="stat__unit"> km/h</span>',
+         b.speed.w.name + ', ' + absDate(b.speed.w.date));
     tile('long', n(b.long ? b.long.v : 0) + '<span class="stat__unit"> min</span>',
          b.long ? b.long.w.name + ', ' + absDate(b.long.w.date) : '');
     tile('burn', n(b.burn ? b.burn.v : 0) + '<span class="stat__unit"> kcal</span>',
@@ -782,31 +877,47 @@
     '</div>';
   }
 
-  var ZONES = [[0.50, 0.60, 'Z1 Recovery'], [0.60, 0.70, 'Z2 Easy'], [0.70, 0.80, 'Z3 Steady'],
-               [0.80, 0.90, 'Z4 Hard'], [0.90, 1.01, 'Z5 Max']];
-  function maxHR() { var prof = rd('lk_profile', {}, false) || {}; return 220 - (Number(prof.age) || 30); }
+  /* TIME IN ZONE, on the model lk_cardioPrefs actually stores: five zones of
+     heart rate RESERVE, which needs a resting rate as well as a maximum and
+     is the reason restingHr is stored at all. A session with no heart rate
+     cannot be placed in a zone and is counted as unplaced rather than
+     quietly dropped into Z1. */
+  var ZONES = [[0, 0.60, 'Z1 Recovery'], [0.60, 0.70, 'Z2 Easy'], [0.70, 0.80, 'Z3 Steady'],
+               [0.80, 0.90, 'Z4 Hard'], [0.90, 9, 'Z5 Max']];
+  function maxHR() {
+    if (Number(PREFS.maxHrOverride) > 0) return Number(PREFS.maxHrOverride);
+    return 220 - (Number(PROFILE.age) || 30);
+  }
+  function restHR() { return Number(PREFS.restingHr) > 0 ? Number(PREFS.restingHr) : 60; }
   function timeInZone() {
-    var mx = maxHR(), rows = ZONES.map(function (z) { return { name: z[2], min: 0 }; });
-    var total = 0;
+    var mx = maxHR(), rest = restHR();
+    var rows = ZONES.map(function (z) { return { name: z[2], min: 0 }; });
+    var total = 0, unplaced = 0;
     HISTORY.forEach(function (w) {
-      if (w.kind !== 'cardio' || !(w.hr > 0)) return;
-      var pct = w.hr / mx;
+      if (w.kind !== 'cardio') return;
+      if (!(w.hr > 0)) { unplaced += w.min || 0; return; }
+      var pct = (w.hr - rest) / (mx - rest);
       for (var i = 0; i < ZONES.length; i++) {
         if (pct >= ZONES[i][0] && pct < ZONES[i][1]) { rows[i].min += w.min || 0; total += w.min || 0; }
       }
     });
     if (!total) {
-      return '<p class="t-caption-1 quiet mt-3" data-testid="zone-empty">Time in zone needs a heart rate. ' +
-        'No cardio session on this phone carries one. Type an average heart rate when you log and it lands in a zone here, ' +
-        'against a maximum of ' + mx + ' bpm from your age.</p>';
+      return '<p class="t-caption-1 quiet mt-3" data-testid="zone-empty">Time in zone needs a heart rate, ' +
+        'and no cardio session on this phone carries one. Type an average heart rate when you log and it lands ' +
+        'in a zone here, against a reserve of ' + rest + ' to ' + mx + ' bpm.</p>';
     }
-    return '<div class="mt-3" data-testid="zone-card"><span class="t-label">Time in zone</span>' +
+    return '<div class="mt-3" data-testid="zone-card">' +
+      '<div class="spread"><span class="t-label">Time in zone</span>' +
+        '<span class="t-meta num">' + total + ' min placed</span></div>' +
       rows.filter(function (r) { return r.min; }).map(function (r) {
         return '<div class="spread mt-2"><span class="t-detail">' + r.name + '</span>' +
           '<span class="t-meta num">' + r.min + ' min</span></div>' +
           '<div class="meter"><span class="meter__fill" style="width:' +
           Math.round(r.min / total * 100) + '%"></span></div>';
-      }).join('') + '</div>';
+      }).join('') +
+      '<p class="t-caption-1 quiet mt-2">Heart rate reserve, ' + rest + ' to ' + mx + ' bpm' +
+        (unplaced ? '. ' + unplaced + ' more minutes carried no heart rate and are not placed' : '') + '.</p>' +
+    '</div>';
   }
 
   /* The write. A logged session is a full record in lk_history through
@@ -826,18 +937,30 @@
       return;
     }
     var est = estimate(act, l.v);
+    /* The record is written in the shape every other screen reads: the same
+       keys the seeded cardio sessions carry, so a session logged here and a
+       session that came with the app are indistinguishable to the reader of
+       lk_history. calDetail says the figure is estimated, because it is. */
     var rec = {
-      id: 'w' + Date.now(), kind: 'cardio', act: act.id, name: act.name,
-      date: todayISO(), dateISO: todayISO(), min: min,
-      cal: est.kcal, calNet: est.net, calRange: [est.lo, est.hi],
-      calTier: est.tier, calConf: est.conf, sets: 0, vol: 0, exercises: []
+      id: 'w' + Date.now(), kind: 'cardio', act: act.id, modality: act.mod || act.id,
+      name: act.name, date: todayISO(), dateISO: todayISO(),
+      min: min, durationSec: min * 60,
+      cal: est.kcal, sets: 0, vol: 0, exercises: [],
+      calDetail: { value: est.kcal, net: est.net, gross: est.kcal,
+                   range: [est.lo, est.hi], method: est.method, tier: est.tier,
+                   confidence: est.conf.toLowerCase(), basis: 'gross', estimated: true },
+      intensity: { rpe: null, estMET: est.met, talkTest: null },
+      environment: act.g === 'machine' ? 'indoor' : 'outdoor'
     };
     (act.f || []).forEach(function (k) {
       var val = l.v[k];
       if (val === undefined || val === null || val === '') return;
-      if (FIELD[k].type === 'choice') rec[k === 'effort' ? 'effort' : k] = val;
-      else rec[k === 'dist' ? 'km' : k] = Number(val);
+      if (FIELD[k].type === 'choice') rec[k] = val;
+      else if (k === 'dist') { rec.km = Number(val); rec.distanceM = Math.round(Number(val) * 1000); }
+      else if (k === 'hr') rec.heartRate = { avg: Number(val) };
+      else rec[k] = Number(val);
     });
+    if (act.g === 'machine') rec.machine = { category: act.id, brand: null, model: null };
     if (l.v.note && l.v.note.trim()) rec.note = l.v.note.trim();
 
     var hist = rd('lk_history', [], false) || [];
@@ -856,12 +979,18 @@
   function saveFavourite() {
     var l = S.logging;
     if (!l || !l.done) return;
-    var fav = { id: 'fav_' + Date.now(), act: l.id, name: l.done.name,
-                min: l.done.min, v: l.v, last: todayISO() };
-    FAVS = (rd('lk_cardioFavorites', [], false) || []).slice();
-    FAVS.unshift(fav);
-    if (store()) store().set('lk_cardioFavorites', FAVS);
-    say(esc(fav.name) + ' saved to your favourites.');
+    var act = findCardio(l.id) || {};
+    var stored = (rd('lk_cardioFavorites', [], false) || []).slice();
+    var fav = {
+      id: 'fav_' + Date.now(), label: l.done.name, modality: act.mod || l.id,
+      environment: l.done.environment, machine: l.done.machine || null,
+      defaults: { durationSec: l.done.min * 60, surface: l.done.surface || null, v: l.v },
+      order: stored.length, useCount: 0, lastUsedAt: todayISO(), pinned: false
+    };
+    stored.push(fav);
+    if (store()) store().set('lk_cardioFavorites', stored);
+    loadData(false);
+    say(esc(fav.label) + ' saved to your favourites.');
   }
 
   function field(k, v, act) {
@@ -943,6 +1072,10 @@
     return '<div class="scrim" data-action="cardio-cancel" data-testid="scrim"></div>' +
       '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="cd-title" data-testid="cardio-sheet" ' +
         'data-detents="0.6 0.94" data-detent-open="0.94">' +
+        /* A detented sheet MUST carry a grab handle. Without one chrome.js
+           falls back to making the whole sheet the drag handle, which takes
+           a pointer capture on every press and swallows the tap on Log it. */
+        '<div class="sheet__grab"></div>' +
         '<div class="sheet__head"><h2 class="t-section grow" id="cd-title">' + esc(act.name) + '</h2>' +
           '<button class="iconbtn" type="button" data-action="cardio-cancel" aria-label="Cancel" ' +
             'data-testid="cardio-close">' + ICO.close + '</button></div>' +
@@ -973,7 +1106,7 @@
     add('Surface', w.surface);
     add('Riding position', w.position);
     add('Gross burn', group(w.cal) + ' kcal');
-    add('Net burn', group(w.calNet) + ' kcal');
+    add('Net burn', group(w.calDetail ? w.calDetail.net : est.net) + ' kcal');
     return '<div class="scrim" data-action="cardio-cancel" data-testid="scrim"></div>' +
       '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="cd-title" data-testid="cardio-logged">' +
         '<div class="sheet__head"><h2 class="t-section grow" id="cd-title">Logged &middot; ' + esc(w.name) + '</h2>' +
@@ -1036,7 +1169,8 @@
               '<span class="t-detail">' + (wk.n === 1 ? 'session' : 'sessions') + '</span></div>' +
             '<div class="stat"><span class="stat__label">Minutes</span>' +
               '<span class="stat__value">' + n(wk.min) + '</span>' +
-              '<span class="t-detail">this week</span></div>' +
+              '<span class="t-detail">' + (PREFS.weeklyTargetMin
+                ? 'of ' + PREFS.weeklyTargetMin + ' target' : 'this week') + '</span></div>' +
             '<div class="stat"><span class="stat__label">Calories</span>' +
               '<span class="stat__value">' + n(group(wk.cal)) + '</span>' +
               '<span class="t-detail">estimated</span></div>' +
@@ -1068,9 +1202,19 @@
   var VIEWS = {};
 
   VIEWS.populated = function () {
+    /* Gated on the DATA, not on a dev state. A reader with no splits was
+       still shown a training day, because the state came from the switcher. */
+    if (!SPLITS.length || !SPLITS[0].days.length) return VIEWS.empty();
     var sp = SPLITS[0];
     var day = sp.days[0];
     var recent = HISTORY.slice(0, 5);
+    /* WHEN this day was last done, from the history rather than a literal
+       date typed into the markup. */
+    var lastDone = null;
+    for (var i = 0; i < HISTORY.length && !lastDone; i++) {
+      var w = HISTORY[i];
+      if (w.kind === 'lift' && w.name.indexOf(day.name) > -1) lastDone = w.date;
+    }
 
     return '' +
       /* The one thing a lifter opens this tab to do, in the first fold
@@ -1079,8 +1223,9 @@
       '<section class="card card--raised mt-4 enter-rise" data-testid="card-today">' +
         '<div class="t-label">Today &middot; ' + esc(sp.name) + '</div>' +
         '<h2 class="t-title mt-2">' + esc(day.name) + '</h2>' +
-        '<p class="t-detail mt-2">' + n(day.exercises) + ' exercises &middot; about ' +
-          n(day.minutes) + ' min &middot; last done ' + relDate('2026-09-03') + '</p>' +
+        '<p class="t-detail mt-2" data-testid="today-meta">' + n(day.exercises) + ' exercises &middot; about ' +
+          n(day.minutes) + ' min' +
+          (lastDone ? ' &middot; last done ' + relDate(lastDone) : '') + '</p>' +
         '<button class="btn btn--primary btn--block mt-4" type="button" data-action="start-today" data-testid="start-today">' +
           ICO.play + '<span class="btn__label">Start ' + esc(day.name) + '</span>' +
         '</button>' +
@@ -1454,6 +1599,8 @@
     if (!S.sheet) return '';
     var inner = S.sheet.kind === 'split'
       ? splitSheet(SPLITS.filter(function (s) { return s.id === S.sheet.id; })[0])
+      : S.sheet.kind === 'favs' ? favSheet()
+      : S.sheet.kind === 'newcardio' ? newCardioSheet()
       : activitySheet();
     return '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' + inner;
   }
@@ -1511,8 +1658,57 @@
   function openSheet(sheet) {
     lastFocus = document.activeElement;
     S.sheet = sheet;
-    S.query = '';
+    S.confirmFav = null;
+    if (sheet.kind !== 'newcardio') S.query = '';
     render(true);
+  }
+  function focusField(testid) {
+    var f = overlay.querySelector('[data-testid="' + testid + '"]');
+    if (f) { f.focus(); if (f.select) { try { f.select(); } catch (e) {} } }
+  }
+  function capitalise(s2) { return String(s2).charAt(0).toUpperCase() + String(s2).slice(1); }
+
+  /* Re-draw the log sheet's body only, so a chip tap or a keystroke does not
+     rebuild the field the caret is in. The live estimate moves with it. */
+  function renderSheetBody() {
+    var holder = overlay.querySelector('[data-testid="cardio-sheet"] .sheet__body');
+    if (!holder) { render(true); return; }
+    var tmp = document.createElement('div');
+    tmp.innerHTML = cardioSheet();
+    var next = tmp.querySelector('[data-testid="cardio-sheet"] .sheet__body');
+    if (next) LKPatch(holder, next.innerHTML);
+  }
+
+  /* A favourite that gets used says so: the count and the date are what make
+     the list orderable by anything other than when it was made. */
+  function markFavUsed(fav) {
+    fav.useCount = (fav.useCount || 0) + 1;
+    fav.lastUsedAt = todayISO();
+    if (store()) store().set('lk_cardioFavorites', FAVS);
+  }
+
+  function saveCustomCardio() {
+    var d = S.newCardio;
+    if (!d.name.trim()) {
+      d.error = 'Give it a name first.';
+      render(true); focusField('nc-name'); return;
+    }
+    var min = Number(d.min);
+    if (isNaN(min) || min < 1 || min > 600) {
+      d.error = 'A usual duration between 1 and 600 minutes.';
+      render(true); focusField('nc-min'); return;
+    }
+    var act = { id: 'own_' + Date.now(), mod: 'custom', name: d.name.trim(), g: 'yours',
+                met: d.met, min: min, custom: true, f: ['dist', 'hr', 'effort'] };
+    var stored = (rd('lk_cardioCustom', [], false) || []).slice();
+    stored.push(act);
+    if (store()) store().set('lk_cardioCustom', stored);
+    loadData(false);
+    S.sheet = { kind: 'activity' };
+    S.query = '';
+    S.newCardio = null;
+    render(true);
+    say(esc(act.name) + ' added to your activities.');
   }
   function closeSheet() {
     S.sheet = null;
@@ -1551,15 +1747,87 @@
       var id = t.getAttribute('data-id');
       var c = findCardio(id);
       if (!c) return;
-      S.logging = { id: id, name: c.name, min: c.min };
-      if (S.sheet) closeSheet();
-      render();
-      var f = overlay.querySelector('[data-testid="cardio-min"]');
-      if (f) { f.focus(); f.select(); }
+      /* The form opens on what this person last did, not on the catalogue
+         default: a saved setup first, then the last logged session, then the
+         catalogue. Every answer is pre-filled, which is the whole value of a
+         favourite. */
+      var v = { min: c.min, note: '' };
+      var favId = t.getAttribute('data-fav');
+      var fav = favId && FAVS.filter(function (f) { return f.id === favId; })[0];
+      var last = lastCardioFor(id);
+      if (last) {
+        v.min = last.min;
+        if (last.km != null) v.dist = last.km;
+        if (last.hr != null) v.hr = last.hr;
+        if (last.surface) v.surface = capitalise(last.surface);
+        if (last.effort) v.effort = last.effort;
+        if (last.watts != null) v.watts = last.watts;
+      }
+      if (fav) {
+        v.min = favMin(fav);
+        if (fav.defaults && fav.defaults.v) {
+          Object.keys(fav.defaults.v).forEach(function (k) { v[k] = fav.defaults.v[k]; });
+          v.min = favMin(fav);
+        }
+        markFavUsed(fav);
+      }
+      S.logging = { id: id, name: c.name, v: v };
+      S.logError = null;
+      if (S.sheet) closeSheet(); else render();
+      focusField('cardio-min');
       return;
     }
-    if (a === 'cardio-cancel') { S.logging = null; render(); return; }
+    if (a === 'cardio-cancel') { S.logging = null; S.logError = null; render(); return; }
     if (a === 'cardio-save') { saveCardio(); return; }
+    if (a === 'cardio-fav') { saveFavourite(); return; }
+    if (a === 'cf-min') { S.logging.v.min = Number(t.getAttribute('data-v')); renderSheetBody(); return; }
+    if (a === 'cf-choice') {
+      var k = t.getAttribute('data-k'), val = t.getAttribute('data-v');
+      S.logging.v[k] = S.logging.v[k] === val ? undefined : val;
+      renderSheetBody();
+      return;
+    }
+    if (a === 'open-favs') { openSheet({ kind: 'favs' }); return; }
+    if (a === 'new-cardio') {
+      S.newCardio = { name: S.query.trim(), min: 30, met: 7, error: null };
+      openSheet({ kind: 'newcardio' });
+      focusField('nc-name');
+      return;
+    }
+    if (a === 'nc-met') { S.newCardio.met = Number(t.getAttribute('data-v')); render(true); return; }
+    if (a === 'nc-save') { saveCustomCardio(); return; }
+    if (a === 'fav-move') {
+      var dir = Number(t.getAttribute('data-dir'));
+      var fid = t.getAttribute('data-id');
+      var i = FAVS.map(function (f) { return f.id; }).indexOf(fid);
+      if (i < 0 || i + dir < 0 || i + dir >= FAVS.length) return;
+      FAVS.splice(i + dir, 0, FAVS.splice(i, 1)[0]);
+      FAVS.forEach(function (f, k) { f.order = k; });
+      if (store()) store().set('lk_cardioFavorites', FAVS);
+      render(true);
+      focusField('fav-' + (dir < 0 ? 'up' : 'down') + '-' + fid);
+      return;
+    }
+    if (a === 'fav-delete') {
+      var did = t.getAttribute('data-id');
+      /* Two taps, not a dialog. The first arms the button and says so; the
+         second removes. A favourite is a shortcut, so losing one costs a tap
+         to rebuild and does not deserve a modal. */
+      if (S.confirmFav !== did) { S.confirmFav = did; render(true); return; }
+      var gone = FAVS.filter(function (f) { return f.id === did; })[0];
+      FAVS = FAVS.filter(function (f) { return f.id !== did; });
+      FAVS.forEach(function (f, k) { f.order = k; });
+      if (store()) store().set('lk_cardioFavorites', FAVS);
+      S.confirmFav = null;
+      render(true);
+      say(esc(favName(gone || {})) + ' removed from favourites.');
+      return;
+    }
+    if (a === 'toggle-session') {
+      S.open = S.open === t.getAttribute('data-id') ? null : t.getAttribute('data-id');
+      render(true);
+      return;
+    }
     if (a === 'undo') { S.toast = null; render(true); return; }
     if (a === 'retry') { S.state = 'loading'; render(); setTimeout(function () { S.state = 'populated'; render(); }, 900); return; }
     if (a === 'use-cached') { S.state = 'populated'; render(); return; }
@@ -1591,16 +1859,54 @@
   });
 
   document.addEventListener('input', function (e) {
-    if (e.target.id !== 'act-q') return;
-    S.query = e.target.value;
-    var holder = overlay.querySelector('.sheet__body');
-    if (!holder) return;
-    /* Re-render the sheet body only, so the field keeps focus and
-       the caret. */
-    var tmp = document.createElement('div');
-    tmp.innerHTML = activitySheet();
-    LKPatch(holder, tmp.querySelector('.sheet__body').innerHTML);
+    var el = e.target;
+    if (el.id === 'act-q') {
+      S.query = el.value;
+      var holder = overlay.querySelector('[data-testid="activity-sheet"] .sheet__body');
+      if (!holder) return;
+      /* Re-render the sheet body only, so the field keeps focus and
+         the caret. */
+      var tmp = document.createElement('div');
+      tmp.innerHTML = activitySheet();
+      LKPatch(holder, tmp.querySelector('.sheet__body').innerHTML);
+      return;
+    }
+    var a = el.getAttribute && el.getAttribute('data-action');
+    if (!a) return;
+    if (a === 'cf-num' && S.logging) {
+      var k = el.getAttribute('data-k');
+      var raw = el.value === '' ? '' : Number(el.value);
+      /* The model is always kilograms: a pack weight typed in pounds is
+         converted here, on the way in, and never again. */
+      if (k !== 'min' && FIELD[k] && FIELD[k].type === 'weight' && raw !== '') {
+        raw = LKUnits.useKg() ? raw : Math.round(raw / LKUnits.lbPerKg * 100) / 100;
+      }
+      S.logging.v[k] = raw;
+      updateEstimate();
+      return;
+    }
+    if (a === 'cf-note' && S.logging) { S.logging.v.note = el.value; return; }
+    if (a === 'nc-name' && S.newCardio) { S.newCardio.name = el.value; return; }
+    if (a === 'nc-min' && S.newCardio) { S.newCardio.min = el.value; return; }
+    if (a === 'fav-rename') {
+      var fid = el.getAttribute('data-id');
+      FAVS.forEach(function (f) { if (f.id === fid) f.label = el.value; });
+      if (store()) store().set('lk_cardioFavorites', FAVS);
+      return;
+    }
   });
+
+  /* Only the estimate card, so typing a distance never rebuilds the field
+     the caret is in. */
+  function updateEstimate() {
+    var holder = overlay.querySelector('[data-testid="cardio-estimate"]');
+    if (!holder || !S.logging) return;
+    var act = findCardio(S.logging.id);
+    if (!act) return;
+    var tmp = document.createElement('div');
+    tmp.innerHTML = estimateCard(act, S.logging.v);
+    LKPatch(holder, tmp.firstChild.innerHTML);
+  }
 
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
@@ -1629,13 +1935,31 @@
   menu.addEventListener('click', function (e) {
     var b = e.target.closest('.dev__item');
     if (!b) return;
+    /* The switcher shows a STATE, so it rebuilds from the fixture and must
+       not read a person's stored sessions back over the state it is showing. */
+    loadData(true);
     S.state = b.dataset.state;
     S.view = 'hub';
     S.sheet = null;
     S.toast = null;
+    S.logging = null;
+    S.open = null;
     render();
   });
 
+  /* Another tab logging a session, or the workout log finishing one, moves
+     this screen rather than leaving the two to drift. */
+  if (window.LKStore) {
+    ['lk_history', 'lk_splits', 'lk_cardioFavorites', 'lk_cardioCustom'].forEach(function (k) {
+      LKStore.onChange(k, function () {
+        if (S.logging || S.sheet) return;
+        loadData(false);
+        render(true);
+      });
+    });
+  }
+
+  loadData(false);
   var params = new URLSearchParams(location.search);
   if (params.get('state')) S.state = params.get('state');
   if (params.get('view')) S.view = params.get('view');

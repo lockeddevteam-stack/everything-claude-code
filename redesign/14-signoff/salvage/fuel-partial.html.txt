@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — Fuel</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<script src="theme.js"></script>
+<script src="fixtures.js"></script>
+<script src="store.js"></script>
+<script src="units.js"></script>
+<script src="app.js"></script>
+<script src="chrome.js"></script>
+<script src="session.js"></script>
+</head>
+<body>
+<!--
+  FUEL — built from Concept D, "Glance and Ledger merged, no Fuel Score".
+
+  The whole screen answers one question: what is left to eat today, and how do
+  I record what I just ate.
+
+  WHY THE SPLIT BUTTON
+  Voice and camera are the two fast paths and neither is secondary, so they
+  share one accent control rather than competing as two.
+
+  WHAT WAS CUT, AND ON WHOSE SAY-SO
+  The Fuel Score is gone. It was a composite of weighted sub-scores, which
+  reads as rigorous and cannot be acted on. Cut at the Wave 0 gate by the
+  owner. Receipt scanning went with it, to Shopping.
+
+  SOURCE BADGES ARE NOT DECORATION
+  Every logged row says where its numbers came from. A verified barcode and an
+  AI estimate from a photo are not the same claim, and a screen that renders
+  them identically is lying about its own confidence.
+
+  WHAT THE SIGN-OFF PASS CHANGED
+  Five sentences on this screen said things the build could not back: search
+  hits claimed a barcode, the water goal claimed to move, the plan described a
+  swap control that did not exist, the hero claimed a 0.34% weekly GAIN over a
+  seed that holds a loss, and the first-weeks caption named a formula nothing
+  computed. Each is now either true or gone. Every figure is derived from
+  window.LKFixtures, and every action is written through window.LKStore, so
+  the day survives a reload.
+
+  STATES
+  populated, first-weeks (the target is the starting formula until there are
+  two weeks to read), hidden (numbers off), empty, loading, error, plus two
+  demo gates: a running session and a cutting week that trips the refeed rule.
+-->
+
+<div class="stage">
+  <div class="phone">
+    <div class="screen" id="screen" data-testid="screen-fuel" data-state="populated">
+
+      <header class="hdr hdr--large" data-large-title="#body" data-scroll-edge="#body" id="hdr"></header>
+
+      <main class="body" id="body" data-testid="fuel-scroll" tabindex="-1"></main>
+
+      <div id="overlay"></div>
+
+      <!-- The accessory shelf. A session that is running is visible from
+           whichever tab you wandered to. -->
+      <div id="shelf-slot"></div>
+
+      <nav class="tabbar" aria-label="Sections" data-minimize="#body">
+        <button class="tabbar__item" type="button" data-testid="tab-home">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4v-5H9v5H5a1 1 0 0 1-1-1z"/></svg>
+          <span class="tabbar__label">Home</span>
+        </button>
+        <button class="tabbar__item" type="button" data-testid="tab-train">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/></svg>
+          <span class="tabbar__label">Train</span>
+        </button>
+        <button class="tabbar__item" type="button" aria-current="page" data-testid="tab-fuel">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7 3v8a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V3"/><path d="M9 13v8"/><path d="M17 3c-1.5 1.8-2 3.6-2 5.5 0 1.6.7 2.5 2 2.5s2-.9 2-2.5c0-1.9-.5-3.7-2-5.5Z"/><path d="M17 11v10"/></svg>
+          <span class="tabbar__label">Fuel</span>
+        </button>
+        <button class="tabbar__item" type="button" data-testid="tab-coach">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 15a3 3 0 0 1-3 3H9l-4 3V7a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3z"/></svg>
+          <span class="tabbar__label">Coach</span>
+        </button>
+        <button class="tabbar__item" type="button" data-testid="tab-profile">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>
+          <span class="tabbar__label">Profile</span>
+        </button>
+      </nav>
+
+    </div>
+  </div>
+</div>
+
+<div class="dev">
+  <button class="dev__toggle" id="dev-toggle" aria-expanded="false" aria-controls="dev-menu" data-testid="dev-toggle">State</button>
+  <div class="dev__menu" id="dev-menu" hidden data-testid="dev-menu"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var screen = document.getElementById('screen');
+  var hdr = document.getElementById('hdr');
+  var body = document.getElementById('body');
+  var overlay = document.getElementById('overlay');
+  var menu = document.getElementById('dev-menu');
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c];
+    });
+  }
+  function n(v) { return Number(v).toLocaleString('en-GB'); }
+  function g1(v) { return (Math.round(Number(v) * 10) / 10).toLocaleString('en-GB'); }
+  function clone(o) { try { return JSON.parse(JSON.stringify(o)); } catch (e) { return o; } }
+
+  var ICO = {
+    mic: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
+    cam: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+    tick: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l5 5L19 7"/></svg>',
+    chev: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg>',
+    alert: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/></svg>',
+    plus: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg>',
+    barcode: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 6v12M7.5 6v12M11 6v9M14.5 6v12M18 6v12M20.5 6v9"/></svg>',
+    close: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    back: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6"/></svg>',
+    star: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 4.5l2.3 4.7 5.2.8-3.7 3.6.9 5.1-4.7-2.4-4.7 2.4.9-5.1L4.5 10l5.2-.8z"/></svg>',
+    starOn: '<svg class="ico" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 4.5l2.3 4.7 5.2.8-3.7 3.6.9 5.1-4.7-2.4-4.7 2.4.9-5.1L4.5 10l5.2-.8z"/></svg>',
+    trash: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 7h14M10 7V5h4v2M8 7l.7 12h6.6L16 7"/></svg>',
+    /* The one row in the list that is not a food. */
+    clock: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>'
+  };
+
+  /* ===============================================================
+     The data layer
+
+     ONE SOURCE. Every figure below comes from window.LKFixtures, which is
+     generated from tests/fixtures/seed-data.json -- the same file Home,
+     Train, Recap, Progress and Settings read.
+
+     ONE WRITER. Every figure that a person can move is read back through
+     window.LKStore, so what they did is still there after a reload. Before
+     this pass DAY was rebuilt from the fixture on every load and every log,
+     target edit, water change and supplement tick was gone on refresh.
+     =============================================================== */
+  var FX = window.LKFixtures || {};
+  var NUT = FX.nutrition || { targets: {}, foods: {}, days: {}, trend: [] };
+  var FOODS = NUT.foods || {};
+  var TODAY = FX.today;
+  function ST() { return window.LKStore; }
+
+  var WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function isoParts(iso) { var p = String(iso).split('-'); return [+p[0], +p[1], +p[2]]; }
+  function isoMs(iso) { var p = isoParts(iso); return Date.UTC(p[0], p[1] - 1, p[2]); }
+  function msIso(ms) {
+    var d = new Date(ms);
+    var mm = d.getUTCMonth() + 1, dd = d.getUTCDate();
+    return d.getUTCFullYear() + '-' + (mm < 10 ? '0' : '') + mm + '-' + (dd < 10 ? '0' : '') + dd;
+  }
+  function dayLabel(iso) {
+    var p = isoParts(iso), d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));
+    return WD[d.getUTCDay()] + ' ' + p[2] + ' ' + MON[p[1] - 1];
+  }
+  function shortLabel(iso) { var p = isoParts(iso); return p[2] + ' ' + MON[p[1] - 1]; }
+  function dowOf(iso) { var p = isoParts(iso); return WD[new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay()]; }
+
+  /* MEAL SLOTS. F-FUEL-400/403 want Breakfast / Lunch / Dinner / Snack chosen
+     at log time, with the diary grouped by slot. Every path on this screen
+     used to call addMeal, which stamped a clock time and appended to one flat
+     list, so there was no slot concept anywhere. */
+  var SLOTS = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
+
+  /* fixtures.js is shared and this pass may not edit it, so the columns the
+     food table has no room for live here, keyed by the fixture's own food
+     keys. Nothing here overrides a calorie or a macro: this table adds the
+     portion weight F-FUEL-409 scales from, the four micronutrients F-FUEL-001
+     shows, the slot a food usually belongs to, and the tags F-FUEL-417
+     filters on. The micronutrients are the demo table's own figures and the
+     panel says so, exactly as the kcal beside them are.
+
+     The slot matters for a second reason: the seeded meals carry a 12-hour
+     clock with no meridiem ("7:20" is dinner, "8:10" is breakfast), so the
+     time alone cannot place a seeded meal. The food can. */
+  var FOODX = {
+    eggs:     { g: 240, fibre: 4,  sugar: 6,  sat: 11,  na: 780, slot: 'Breakfast', tags: ['vegetarian', 'high protein'] },
+    bowl:     { g: 450, fibre: 6,  sugar: 8,  sat: 4,   na: 920, slot: 'Lunch',     tags: ['high protein'] },
+    shake:    { g: 400, fibre: 3,  sugar: 24, sat: 1,   na: 180, slot: 'Snack',     tags: ['vegetarian', 'high protein'] },
+    pasta:    { g: 480, fibre: 7,  sugar: 12, sat: 9,   na: 640, slot: 'Dinner',    tags: [] },
+    chilli:   { g: 350, fibre: 11, sugar: 9,  sat: 6,   na: 720, slot: 'Dinner',    tags: ['high protein'] },
+    cnr:      { g: 420, fibre: 3,  sugar: 4,  sat: 3,   na: 810, slot: 'Dinner',    tags: ['high protein'] },
+    pancakes: { g: 200, fibre: 5,  sugar: 11, sat: 2,   na: 320, slot: 'Breakfast', tags: ['vegetarian', 'high protein'] },
+    skyr:     { g: 150, fibre: 0,  sugar: 6,  sat: 0.2, na: 60,  slot: 'Snack',     tags: ['vegetarian', 'high protein'] }
+  };
+  function xOf(key) { return FOODX[key] || { g: 100, fibre: 0, sugar: 0, sat: 0, na: 0, slot: 'Snack', tags: [] }; }
+
+  /* F-FUEL-020. The clock can place a meal logged now, because a meal logged
+     now happens now. Nothing else on this screen guesses a slot. */
+  function slotForNow() {
+    var h = new Date().getHours();
+    if (h >= 4 && h < 11) return 'Breakfast';
+    if (h >= 11 && h < 16) return 'Lunch';
+    if (h >= 16 && h < 22) return 'Dinner';
+    return 'Snack';
+  }
+  function nextSlot(day) {
+    var used = {};
+    (day.meals || []).forEach(function (m) { used[m.slot] = true; });
+    for (var i = 0; i < SLOTS.length; i++) { if (!used[SLOTS[i]]) return SLOTS[i]; }
+    return 'Snack';
+  }
+
+  /* ---------------------------------------------------------------
+     Seeds. The fixture is the seed; the store is the truth.
+     --------------------------------------------------------------- */
+  function seedLog() {
+    var out = {};
+    Object.keys(NUT.days || {}).forEach(function (iso) {
+      var d = NUT.days[iso];
+      out[iso] = {
+        waterMl: d.waterMl || 0,
+        meals: (d.meals || []).map(function (m) {
+          return { key: m.key, icon: m.icon, name: m.name, at: m.at, kcal: m.kcal,
+                   pro: m.pro, carb: m.carb, fat: m.fat, src: m.src,
+                   slot: xOf(m.key).slot,
+                   /* The portion the meal was logged at, so a rescale scales
+                      the ORIGINAL rather than compounding on itself. */
+                   base: { kcal: m.kcal, pro: m.pro, carb: m.carb, fat: m.fat },
+                   mult: 1 };
+        })
+      };
+    });
+    return out;
+  }
+  function seedSuppLog() {
+    var out = {};
+    Object.keys(NUT.days || {}).forEach(function (iso) {
+      var m = {};
+      (NUT.days[iso].supps || []).forEach(function (s) { m[s.name] = !!s.taken; });
+      out[iso] = m;
+    });
+    return out;
+  }
+  function seedTargets() {
+    var t = NUT.targets || {};
+    return { kcal: t.kcal, pro: t.pro, carb: t.carb, fat: t.fat };
+  }
+
+  /* A recipe is a food you assembled yourself: it carries its own ingredients
+     and yields a number of servings, so logging one serving divides rather
+     than making you do arithmetic at the counter. Macros are the recipe's
+     TOTAL; per-serving is derived on read and never stored, because a stored
+     per-serving figure and a changed serving count disagree the moment either
+     one moves. */
+  function seedRecipe(key, name, servings, mins, tags, ing, steps) {
+    var f = FOODS[key] || { icon: '🍽', kcal: 0, pro: 0, carb: 0, fat: 0 };
+    return { id: 'r_' + key, icon: f.icon, name: name, servings: servings, key: key,
+             mins: mins, tags: tags,
+             kcal: f.kcal * servings, pro: f.pro * servings,
+             carb: f.carb * servings, fat: f.fat * servings, ing: ing, steps: steps };
+  }
+  function seedRecipes() {
+    return [
+      seedRecipe('chilli', 'Chilli, big batch', 6, 55, ['high protein', 'batch'],
+        ['1 kg beef mince, 5%', '2 tins kidney beans', '2 tins chopped tomatoes',
+         '1 onion', '2 peppers', 'Chilli, cumin, paprika'],
+        ['Brown the mince in a dry pan, no oil needed at 5%.',
+         'Soften the onion and peppers, then the spices for a minute.',
+         'Tomatoes and beans in, lid on, forty minutes on low.',
+         'Cool, divide into six, fridge for three days or freeze.']),
+      seedRecipe('cnr', 'Chicken and rice, 4 days', 4, 40, ['high protein', 'batch'],
+        ['800 g chicken thigh', '400 g rice, dry', '2 tbsp olive oil', 'Soy, garlic, ginger'],
+        ['Rice on first, it takes the longest.',
+         'Thighs skin-side down in the oil until they release.',
+         'Garlic and ginger in at the end, soy off the heat.',
+         'Four boxes, rice first so it takes the sauce.']),
+      seedRecipe('pancakes', 'Protein pancakes', 2, 15, ['vegetarian', 'high protein', 'quick'],
+        ['100 g oats', '2 scoops whey', '2 eggs', '150 g skyr', 'Baking powder'],
+        ['Blitz the oats to a flour.',
+         'Everything else in, rest the batter five minutes.',
+         'Medium heat, turn when the edges set.'])
+    ];
+  }
+
+  /* The week's plan. Today's slots are not marked done by hand: a slot is
+     logged when a meal of that name is on that day's list, so the plan and
+     the ledger for the same day cannot disagree. */
+  function planSlot(at, key) {
+    var f = FOODS[key];
+    return { at: at, key: key, name: f.name, kcal: f.kcal, pro: f.pro, carb: f.carb, fat: f.fat,
+             slot: SLOTS.indexOf(at) > -1 ? at : xOf(key).slot };
+  }
+  function seedPlan() {
+    return {
+      id: 'p_seed', name: 'This week', active: true, starred: false,
+      days: [
+        { d: 'Mon', iso: '2026-09-07', slots: [planSlot('Breakfast', 'eggs'), planSlot('Lunch', 'bowl'),
+            planSlot('Dinner', 'chilli'), planSlot('Snack', 'shake')] },
+        { d: 'Tue', iso: '2026-09-08', slots: [planSlot('Breakfast', 'eggs'), planSlot('Lunch', 'cnr'),
+            planSlot('Dinner', 'pasta'), planSlot('Snack', 'shake')] },
+        { d: 'Wed', iso: '2026-09-09', slots: [planSlot('Breakfast', 'eggs'), planSlot('Lunch', 'bowl'),
+            planSlot('Dinner', 'chilli'), planSlot('Snack', 'shake')] },
+        { d: 'Thu', iso: '2026-09-10', slots: [planSlot('Breakfast', 'pancakes'), planSlot('Lunch', 'cnr'),
+            planSlot('Dinner', 'pasta')] },
+        { d: 'Fri', iso: '2026-09-11', slots: [planSlot('Breakfast', 'shake'), planSlot('Lunch', 'chilli'),
+            planSlot('Dinner', 'bowl')] }
+      ]
+    };
+  }
+
+  /* ---------------------------------------------------------------
+     State, read through the store
+     --------------------------------------------------------------- */
+  var LOG, TARGETS, RECIPES, PLANS, SUPPS, SUPPLOG, FAVS, MYSTORE, PREFS, DAY;
+
+  function reset(fresh) {
+    /* `fresh` is the dev switcher rebuilding a state from scratch. It must not
+       read a person's stored answers back over the state it is showing. */
+    var st = ST();
+    var rd = function (key, fallback) { return (st && !fresh) ? st.get(key, fallback) : fallback; };
+
+    LOG = rd('lk_fuelLog', null);
+    if (!LOG || typeof LOG !== 'object') LOG = seedLog();
+    TARGETS = rd('lk_fuelTargets', null);
+    if (!TARGETS || !TARGETS.kcal) TARGETS = seedTargets();
+    RECIPES = rd('lk_recipes', null);
+    if (!Array.isArray(RECIPES) || !RECIPES.length) RECIPES = seedRecipes();
+    PLANS = rd('lk_fuelPlans', null);
+    if (!Array.isArray(PLANS) || !PLANS.length) PLANS = [seedPlan()];
+    SUPPS = rd('lk_supplements', null);
+    if (!Array.isArray(SUPPS)) SUPPS = clone(FX.supplements || []);
+    SUPPLOG = rd('lk_suppLog', null);
+    if (!SUPPLOG || typeof SUPPLOG !== 'object' || Array.isArray(SUPPLOG)) SUPPLOG = seedSuppLog();
+    FAVS = rd('lk_fuelFavourites', null);
+    if (!Array.isArray(FAVS)) FAVS = [];
+    MYSTORE = rd('lk_myGroceries', null);
+    if (!Array.isArray(MYSTORE)) MYSTORE = [];
+    PREFS = rd('lk_fuelPrefs', null);
+    if (!PREFS || typeof PREFS !== 'object') {
+      PREFS = { waterUnit: 'ml', activity: 'moderate', diet: [], allergies: '', macroMode: 'auto' };
+    }
+    DAY = buildDay();
+  }
+
+  function persist(key, value) { if (ST()) ST().set(key, value); }
+  function persistLog() { persist('lk_fuelLog', LOG); }
+
+  function dayRec(iso) {
+    if (!LOG[iso]) LOG[iso] = { meals: [], waterMl: 0 };
+    return LOG[iso];
+  }
+
+  /* NOT a stored total. eaten and the three macro `have` figures are added up
+     from the day's meals every time the list changes, so a meal that is
+     logged, rescaled or deleted cannot leave anything behind. */
+  function recount(d) {
+    var t = { kcal: 0, pro: 0, carb: 0, fat: 0, fibre: 0, sugar: 0, sat: 0, na: 0 };
+    d.meals.forEach(function (m) {
+      t.kcal += m.kcal || 0; t.pro += m.pro || 0; t.carb += m.carb || 0; t.fat += m.fat || 0;
+      var x = m.key ? xOf(m.key) : null;
+      var mult = m.mult || 1;
+      if (x) { t.fibre += x.fibre * mult; t.sugar += x.sugar * mult; t.sat += x.sat * mult; t.na += x.na * mult; }
+      else if (m.micro) { t.fibre += m.micro.fibre || 0; t.sugar += m.micro.sugar || 0; t.sat += m.micro.sat || 0; t.na += m.micro.na || 0; }
+    });
+    d.eaten = Math.round(t.kcal);
+    d.macros[0].have = Math.round(t.pro);
+    d.macros[1].have = Math.round(t.carb);
+    d.macros[2].have = Math.round(t.fat);
+    d.micro = { fibre: Math.round(t.fibre), sugar: Math.round(t.sugar),
+                sat: Math.round(t.sat), na: Math.round(t.na) };
+    return d;
+  }
+
+  function profile() {
+    var p = (ST() && ST().get('lk_profile', null)) || FX.profile || {};
+    return p;
+  }
+  /* lk_profile.goal is "build". The hero used to print the literal
+     'lean bulk', which is not a value this app stores anywhere. */
+  var GOAL_WORD = { build: 'build muscle', cut: 'lose fat', lose: 'lose fat',
+                    maintain: 'maintain', recomp: 'recomp' };
+  function goalKey() { return (S && S.goalOverride) || (profile().goal || 'maintain'); }
+  function goalWord() { return GOAL_WORD[goalKey()] || goalKey(); }
+  function isCutting() { return goalKey() === 'cut' || goalKey() === 'lose'; }
+
+  function weightKg() {
+    var w = weightSeries();
+    if (w.length) return w[w.length - 1].kg;
+    return profile().weightKg || 0;
+  }
+
+  /* F-FUEL-020. 35 ml per kilogram of body weight, rounded to the nearest 50.
+     The water sheet used to say "the target moves with your weight and the
+     weather" over a flat fixture 3,000 ml -- exactly the round number
+     somebody picked that the sentence disowned. */
+  function waterGoalMl() {
+    var kg = weightKg();
+    if (!kg) return NUT.targets.waterMl || 2500;
+    return Math.round(kg * 35 / 50) * 50;
+  }
+
+  function weightSeries() {
+    var w = (ST() && ST().get('lk_weightLog', null)) || FX.weightLog || [];
+    return w.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+  }
+
+  /* F-FUEL-019. An exponential moving average over the weight log, and the
+     per-week rate read off it. A single weighing is noise; the EMA is what a
+     rate can honestly be taken from. */
+  function weightEma(alpha) {
+    var w = weightSeries(), a = alpha || 0.3, out = [];
+    w.forEach(function (p, i) {
+      var prev = i ? out[i - 1].ema : p.kg;
+      out.push({ date: p.date, kg: p.kg, ema: i ? a * p.kg + (1 - a) * prev : p.kg });
+    });
+    return out;
+  }
+  function emaRatePctWk() {
+    var e = weightEma();
+    if (e.length < 2) return null;
+    var b = e[e.length - 1], a = e[e.length - 2];
+    var days = (isoMs(b.date) - isoMs(a.date)) / 86400000;
+    if (!days) return null;
+    return ((b.ema - a.ema) / a.ema * 100) * (7 / days);
+  }
+  /* The hero's figure, and the one the sign-off pass named: the plain change
+     across the last week of the log. The seed runs 64.5 kg to 64.2 kg, which
+     is -0.47% a week. The screen used to carry a literal weekPct of 0.34 and
+     print it as a GAIN. */
+  function weekRatePct() {
+    var w = weightSeries();
+    if (w.length < 2) return null;
+    var b = w[w.length - 1], a = w[w.length - 2];
+    var days = (isoMs(b.date) - isoMs(a.date)) / 86400000;
+    if (!days) return null;
+    return ((b.kg - a.kg) / a.kg * 100) * (7 / days);
+  }
+  /* Whether the rate is going the way the goal wants. "on target" was printed
+     unconditionally under a figure whose sign the screen had not looked at. */
+  function rateVerdict(pct) {
+    if (pct === null) return '';
+    if (isCutting()) return pct < -0.1 ? 'on target' : (pct > 0.1 ? 'gaining while cutting' : 'holding');
+    if (goalKey() === 'build') return pct > 0.1 ? 'on target' : (pct < -0.1 ? 'losing while building' : 'holding');
+    return Math.abs(pct) < 0.2 ? 'on target' : 'drifting';
+  }

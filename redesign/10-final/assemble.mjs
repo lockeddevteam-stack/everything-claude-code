@@ -142,6 +142,13 @@ const MANIFEST = {
     { from: 'onboarding', selector: '[data-testid="overview-start"]', to: 'workout-log', mode: 'push' },
     { from: 'onboarding', selector: '[data-testid="overview-freestyle"]', to: 'workout-log', mode: 'push' },
     { from: 'onboarding', selector: '[data-testid="overview-week"]', to: 'train', mode: 'tab' },
+    /* Settings' guest card offers the same upgrade Profile's does, and it
+       navigates for real now rather than toasting. */
+    /* Cycle's rough-day card offers to open Train, which is the point of it:
+       the guidance is about today's session. */
+    { from: 'cycle', selector: '[data-testid="open-train"]', to: 'train', mode: 'tab' },
+    { from: 'settings', selector: '[data-testid="create-account"]', to: 'onboarding', mode: 'push' },
+    { from: 'settings', selector: '[data-testid="sign-in"]', to: 'onboarding', mode: 'push' },
     { from: 'profile', selector: '[data-testid="signup"]', to: 'onboarding', mode: 'push' },
     { from: 'profile', selector: '[data-testid="start-first"]', to: 'onboarding', mode: 'push' },
     /* The session shelf exists so a running session is not lost. It used to

@@ -248,7 +248,8 @@
     (rec.exercises || []).forEach(function (ex) {
       (ex.sets || []).forEach(function (st) {
         if (st.warm || st.kg == null || st.reps == null) return;
-        sets++; vol += st.kg * st.reps;
+        if (counts(st)) sets++;
+        vol += st.kg * st.reps;
       });
     });
     rec.sets = sets;
@@ -265,9 +266,14 @@
     return true;
   }
 
+  /* A SIDE IS NOT A NEW SET. A session logged left and right carries two
+     rows per set; both are real work and both are in the volume, but three
+     sets each side is three sets. The workout log counts them this way and
+     so does Review, so this screen does too. */
+  function counts(s) { return !s.warm && s.side !== 'R'; }
   function workingSets(w) {
     return w.exercises.reduce(function (a, e) {
-      return a + e.sets.filter(function (s) { return !s.warm; }).length;
+      return a + e.sets.filter(counts).length;
     }, 0);
   }
   function volume(w) {
@@ -319,7 +325,7 @@
   }
 
   function setRow(s, i, exIdx) {
-    var label = s.warm ? 'W' : String(i);
+    var label = s.warm ? 'W' : (String(i) + (s.side || ''));
     return '<div class="setgrid" data-testid="dset-' + exIdx + '-' + i + '">' +
         '<span class="setgrid__n' + (s.warm ? ' setgrid__n--warm' : '') + '">' + label + '</span>' +
         '<span class="setgrid__n" style="text-align:left">' + n(LKUnits.v(s.kg)) + ' ' + LKUnits.label() + '</span>' +
@@ -351,7 +357,7 @@
             '<span class="setgrid__head"></span>' +
           '</div>' +
           e.sets.map(function (s, k) {
-            return setRow(s, s.warm ? 0 : e.sets.slice(0, k).filter(function (x) { return !x.warm; }).length + 1, i);
+            return setRow(s, s.warm ? 0 : e.sets.slice(0, k + 1).filter(counts).length, i);
           }).join('') +
         '</div>' +
       '</div>';
@@ -445,7 +451,8 @@
     d.exercises.forEach(function (e) {
       e.sets.forEach(function (s) {
         if (s.warm || s.kg == null || s.reps == null) return;
-        sets++; vol += s.kg * s.reps;
+        if (counts(s)) sets++;
+        vol += s.kg * s.reps;
       });
     });
     return { sets: sets, vol: vol };

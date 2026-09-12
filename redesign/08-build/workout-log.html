@@ -191,8 +191,17 @@
       done: !!opts.done,
       warm: !!opts.warm,
       partials: opts.partials || 0,
-      prevKg: opts.prevKg === undefined ? kgValue : opts.prevKg,
-      prevReps: opts.prevReps === undefined ? reps : opts.prevReps
+      /* WHAT YOU LIFTED LAST TIME IS NOT WHAT YOU ARE LIFTING NOW. These
+         defaulted to the set's own figures, so a set seeded with today's
+         work carried today's numbers as its "previous" ones -- and because
+         exFromHistory only fills a previous figure that is still empty, the
+         real ones from the last session never landed. The exercise info
+         sheet's "Last session" line then read today's session back to the
+         lifter: it showed 40 x 10 and 72.5 x 8 where Sep 3's bench was
+         37.5 x 8 warm-up, then 72.5 x 8, 72.5 x 6, 72.5 x 5. A set with no
+         history behind it has none, and says so with a dash. */
+      prevKg: opts.prevKg === undefined ? null : opts.prevKg,
+      prevReps: opts.prevReps === undefined ? null : opts.prevReps
     };
   }
 
@@ -221,7 +230,10 @@
     var sets = (todaysSets || []).slice();
     var wi = 0;
     sets.forEach(function (st) {
-      if (st.warm) { if (warm[0] && st.prevKg === undefined) { st.prevKg = warm[0].kg; st.prevReps = warm[0].reps; } return; }
+      /* `== null` rather than `=== undefined`: an empty previous figure is
+          written as null now, and the strict test let today's warm-up keep
+          today's own numbers as last session's. */
+      if (st.warm) { if (warm[0] && st.prevKg == null) { st.prevKg = warm[0].kg; st.prevReps = warm[0].reps; } return; }
       var p = work[wi++];
       if (p && st.prevKg == null) { st.prevKg = p.kg; st.prevReps = p.reps; }
     });
@@ -275,6 +287,7 @@
     plate: { total: 20, bar: 20, added: [], perSide: true },
     aiBusyEx: -1,
     liftedEx: -1,
+    dragEx: -1,               /* the card under a finger, mid-drag */
     toast: null,
     tapCount: 0
   };
@@ -288,7 +301,7 @@
     S.exercises = pushDay();
     S.blocks = [];
     S.pad = null; S.overlay = null; S.toast = null; S.swapAt = null;
-    S.restRunning = false; S.restLeft = 0; S.aiBusyEx = -1; S.liftedEx = -1;
+    S.restRunning = false; S.restLeft = 0; S.aiBusyEx = -1; S.liftedEx = -1; S.dragEx = -1;
     S.tapCount = 0;
     S.over = false;
     S.elapsed = 1261;
@@ -333,9 +346,16 @@
      workout dropped the moment they finished it, and a reader counting the
      numbered rows got 6 where the header said 7.
      ============================================================= */
+  /* A SIDE IS NOT A NEW SET. An exercise tracked left and right carries two
+     rows per set, and both rows are real work -- their load is in the volume
+     -- but three sets each side is three sets, not six. The right-hand row
+     is therefore counted with its set rather than as another one, here and
+     everywhere else that counts: the card's own numbering, Review's set
+     list, and the record that reaches history. */
+  function counts(st) { return !st.warm && st.side !== 'R'; }
   function doneSets() {
     var c = 0;
-    S.exercises.forEach(function (ex) { ex.sets.forEach(function (st) { if (st.done && !st.warm) c++; }); });
+    S.exercises.forEach(function (ex) { ex.sets.forEach(function (st) { if (st.done && counts(st)) c++; }); });
     return c;
   }
   function doneWarmups() {
@@ -351,7 +371,7 @@
      figure is for. */
   function totalSets() {
     var c = 0;
-    S.exercises.forEach(function (ex) { ex.sets.forEach(function (st) { if (!st.warm) c++; }); });
+    S.exercises.forEach(function (ex) { ex.sets.forEach(function (st) { if (counts(st)) c++; }); });
     return c;
   }
 
@@ -471,12 +491,17 @@
       'data-testid="rir-' + e + '-' + i + '" aria-label="Set ' + (i + 1) + ' reps in reserve">' + opts + '</select>';
   }
 
-  function doneHTML(e, i) {
+  function doneHTML(e, i, half) {
     var st = S.exercises[e].sets[i];
     var live = isLive(e, i);
-    return '<button class="done' + (live && !st.done ? ' done--ready' : '') + '" type="button" role="checkbox" aria-checked="' + (st.done ? 'true' : 'false') + '" ' +
+    var label = st.done ? 'Undo set ' + (i + 1) : 'Mark set ' + (i + 1) + ' done';
+    /* Logged, but the other half of the round is not. The set IS done, so
+       aria-checked stays true; the name says what is still outstanding. */
+    if (half) label = 'Undo set ' + (i + 1) + ', waiting on ' + S.exercises[e + 1].name;
+    return '<button class="done' + (live && !st.done ? ' done--ready' : '') + (half ? ' done--half' : '') +
+      '" type="button" role="checkbox" aria-checked="' + (st.done ? 'true' : 'false') + '" ' +
       'data-act="done" data-ex="' + e + '" data-set="' + i + '" ' +
-      'data-testid="done-' + e + '-' + i + '" aria-label="' + (st.done ? 'Undo set ' + (i + 1) : 'Mark set ' + (i + 1) + ' done') + '">' + ICO.check + '</button>';
+      'data-testid="done-' + e + '-' + i + '" aria-label="' + esc(label) + '">' + ICO.check + '</button>';
   }
 
   function partialsHTML(e, i) {
@@ -489,42 +514,145 @@
     '</div>';
   }
 
-  function exerciseHTML(ex, e) {
+  /* W for a warm-up, the set's position for a working set, and the position
+     with the side on it -- 1L, 1R -- for an exercise tracked left and
+     right. */
+  function setNumber(ex, i) {
+    var st = ex.sets[i];
+    if (st.warm) return 'W';
+    var c = 0;
+    for (var k = 0; k <= i; k++) { if (counts(ex.sets[k])) c++; }
+    return String(c) + (st.side || '');
+  }
+
+  function setRows(ex, e, letter) {
     var rows = '';
     ex.sets.forEach(function (st, i) {
-      rows += '<div class="setgrid__n' + (st.warm ? ' setgrid__n--warm' : '') + '" aria-hidden="true">' + (st.warm ? 'W' : n(i + 1)) + '</div>' +
+      rows += '<div class="setgrid__n' + (st.warm ? ' setgrid__n--warm' : '') + '" aria-hidden="true">' +
+          (letter || '') + (st.warm ? 'W' : n(setNumber(ex, i))) + '</div>' +
         cellHTML(e, i, 'weight') +
         cellHTML(e, i, 'reps') +
         rirHTML(e, i) +
         doneHTML(e, i);
       if (!S.hidePartials) rows += partialsHTML(e, i);
     });
-    return '<article class="exc' + (S.liftedEx === e ? ' exc--lifted' : '') + '" data-testid="exercise-card-' + e + '">' +
-      '<div class="exc__head">' +
-        '<button class="exc__grip" type="button" data-act="grip" data-ex="' + e + '" data-testid="grip-' + e + '" ' +
-          'aria-pressed="' + (S.liftedEx === e ? 'true' : 'false') + '" aria-label="Reorder ' + esc(ex.name) + '">' + ICO.grip + '</button>' +
-        '<button class="exc__main" type="button" data-act="exsheet" data-ex="' + e + '" data-testid="exercise-menu-' + e + '" ' +
-          'aria-haspopup="dialog" aria-label="Options for ' + esc(ex.name) + '">' +
-          '<span class="exc__name">' + esc(ex.name) + '</span>' +
-          '<span class="exc__muscle">' + esc(ex.muscle) + '</span>' +
-        '</button>' +
-      '</div>' +
-      '<div class="sets"><div class="setgrid">' +
-        '<div class="setgrid__head setgrid__head--n">#</div>' +
-        '<div class="setgrid__head setgrid__head--unit" data-testid="unit-head-' + e + '">' + unitLabel().toUpperCase() + '</div>' +
-        '<div class="setgrid__head">Reps</div>' +
-        '<div class="setgrid__head">RIR</div>' +
-        '<div class="setgrid__head" aria-hidden="true"></div>' +
-        rows +
-      '</div></div>' +
+    return rows;
+  }
+
+  function gridHead(e) {
+    return '<div class="setgrid__head setgrid__head--n">#</div>' +
+      '<div class="setgrid__head setgrid__head--unit" data-testid="unit-head-' + e + '">' + unitLabel().toUpperCase() + '</div>' +
+      '<div class="setgrid__head">Reps</div>' +
+      '<div class="setgrid__head">RIR</div>' +
+      '<div class="setgrid__head" aria-hidden="true"></div>';
+  }
+
+  function headBtns(ex, e) {
+    return '<button class="exc__grip" type="button" data-act="grip" data-ex="' + e + '" data-testid="grip-' + e + '" ' +
+        'aria-pressed="' + (S.liftedEx === e ? 'true' : 'false') + '" aria-label="Reorder ' + esc(ex.name) +
+        ', position ' + (e + 1) + ' of ' + S.exercises.length + '">' + ICO.grip + '</button>' +
+      '<button class="exc__main" type="button" data-act="exsheet" data-ex="' + e + '" data-testid="exercise-menu-' + e + '" ' +
+        'aria-haspopup="dialog" aria-label="Options for ' + esc(ex.name) + '">' +
+        '<span class="exc__name">' + esc(ex.name) + '</span>' +
+        '<span class="exc__muscle">' + esc(ex.muscle) +
+          (ex.unilateral ? ' &middot; left and right' : '') + '</span>' +
+      '</button>';
+  }
+
+  function aiBtn(e, label) {
+    return '<button class="btn btn--sm btn--secondary" type="button" data-act="airec" data-ex="' + e + '" data-testid="btn-ai-rec-' + e + '"' +
+      (S.aiBusyEx === e ? ' aria-busy="true"' : '') + '>' +
+      (S.aiBusyEx === e ? '<span class="spinner" aria-hidden="true"></span><span>Thinking…</span>'
+        : ICO.spark + '<span class="btn__label">AI Rec' + (label ? ' ' + label : '') + '</span>') +
+      '</button>';
+  }
+
+  /* THE MOVE BAR. The grip said "Reordering Barbell Bench Press. Use the
+     grip again to drop it." and nothing on the screen could move: there was
+     no drag, no keyboard path and no control to move anything with. This is
+     split-builder.html's pattern -- tap the grip to lift, Up/Down to move,
+     drag the grip, or arrow keys while it has focus. */
+  function moveBarHTML(e) {
+    return '<div class="logmove" data-testid="movebar-' + e + '">' +
+      '<button class="btn btn--sm btn--secondary" type="button" data-act="move" data-ex="' + e + '" data-dir="-1" ' +
+        'data-testid="move-up-' + e + '"' + (e === 0 ? ' disabled aria-disabled="true"' : '') + '>' +
+        '<span class="btn__label">Up</span></button>' +
+      '<button class="btn btn--sm btn--secondary" type="button" data-act="move" data-ex="' + e + '" data-dir="1" ' +
+        'data-testid="move-down-' + e + '"' + (e === S.exercises.length - 1 ? ' disabled aria-disabled="true"' : '') + '>' +
+        '<span class="btn__label">Down</span></button>' +
+      '<button class="btn btn--sm btn--tertiary" type="button" data-act="move-done" data-ex="' + e + '" ' +
+        'data-testid="move-done-' + e + '"><span class="btn__label">Done</span></button>' +
+    '</div>';
+  }
+
+  function exerciseHTML(ex, e) {
+    return '<article class="exc' + (S.liftedEx === e ? ' exc--lifted' : '') +
+        (S.dragEx === e ? ' exc--dragging' : '') + '" data-testid="exercise-card-' + e + '">' +
+      '<div class="exc__head">' + headBtns(ex, e) + '</div>' +
+      '<div class="sets"><div class="setgrid">' + gridHead(e) + setRows(ex, e) + '</div></div>' +
       '<div class="exc__foot">' +
         '<button class="btn btn--sm btn--secondary" type="button" data-act="addset" data-ex="' + e + '" data-testid="btn-add-set-' + e + '">' + ICO.plus + '<span class="btn__label">Add Set</span></button>' +
-        '<button class="btn btn--sm btn--secondary" type="button" data-act="airec" data-ex="' + e + '" data-testid="btn-ai-rec-' + e + '"' +
-          (S.aiBusyEx === e ? ' aria-busy="true"' : '') + '>' +
-          (S.aiBusyEx === e ? '<span class="spinner" aria-hidden="true"></span><span>Thinking…</span>' : ICO.spark + '<span class="btn__label">AI Rec</span>') +
+        aiBtn(e, '') +
+      '</div>' +
+      (S.liftedEx === e ? moveBarHTML(e) : '') +
+    '</article>';
+  }
+
+  /* A SUPERSET IS ONE CARD. "Make it a superset" set a flag no render
+     function read, so the toast said the two lifts were paired and the
+     screen went on drawing them as two unrelated cards with two Add Sets
+     and no order between them. A pair is drawn as it is performed: the rows
+     interleaved A1, B1, A2, B2, one Add Set that lengthens both, and A's
+     tick left half-marked until B's set of the same number is logged, since
+     the round is not finished until both halves are. */
+  function supersetHTML(a, e) {
+    var b = S.exercises[e + 1];
+    var rows = '';
+    var na = a.sets.length, nb = b.sets.length;
+    for (var i = 0; i < Math.max(na, nb); i++) {
+      if (i < na) rows += setRow1(a, e, i, 'A');
+      if (i < nb) rows += setRow1(b, e + 1, i, 'B');
+    }
+    return '<article class="exc' + (S.liftedEx === e ? ' exc--lifted' : '') +
+        (S.dragEx === e ? ' exc--dragging' : '') + '" data-testid="exercise-card-' + e + '" data-superset="true">' +
+      '<div class="exc__head">' + headBtns(a, e) + '<span class="badge" data-testid="superset-badge-' + e + '">Superset</span></div>' +
+      '<div class="exc__head exc__head--b">' +
+        '<span class="exc__grip" aria-hidden="true"></span>' +
+        '<button class="exc__main" type="button" data-act="exsheet" data-ex="' + (e + 1) + '" data-testid="exercise-menu-' + (e + 1) + '" ' +
+          'aria-haspopup="dialog" aria-label="Options for ' + esc(b.name) + '">' +
+          '<span class="exc__name">' + esc(b.name) + '</span>' +
+          '<span class="exc__muscle">' + esc(b.muscle) + '</span>' +
         '</button>' +
       '</div>' +
+      '<div class="sets"><div class="setgrid">' + gridHead(e) + rows + '</div></div>' +
+      '<div class="exc__foot">' +
+        '<button class="btn btn--sm btn--secondary" type="button" data-act="addset-both" data-ex="' + e + '" data-testid="btn-add-set-' + e + '">' +
+          ICO.plus + '<span class="btn__label">Add Set to both</span></button>' +
+        aiBtn(e, 'A') + aiBtn(e + 1, 'B') +
+      '</div>' +
+      (S.liftedEx === e ? moveBarHTML(e) : '') +
     '</article>';
+  }
+
+  /* One row of the interleaved grid. The row carries its own exercise and
+     set index, so every control on it is the same control as on a plain
+     card and no handler had to learn about supersets. */
+  function setRow1(ex, e, i, letter) {
+    var st = ex.sets[i];
+    return '<div class="setgrid__n' + (st.warm ? ' setgrid__n--warm' : '') + '" aria-hidden="true">' +
+        letter + (st.warm ? 'W' : n(setNumber(ex, i))) + '</div>' +
+      cellHTML(e, i, 'weight') +
+      cellHTML(e, i, 'reps') +
+      rirHTML(e, i) +
+      doneHTML(e, i, letter === 'A' ? waitingOnB(e, i) : false) +
+      (S.hidePartials ? '' : partialsHTML(e, i));
+  }
+
+  /* A's set is logged, B's set of the same number is not. */
+  function waitingOnB(e, i) {
+    var a = S.exercises[e], b = S.exercises[e + 1];
+    if (!a || !b || !a.sets[i] || !a.sets[i].done) return false;
+    return !(b.sets[i] && b.sets[i].done);
   }
 
   function blockHTML(b, i) {
@@ -552,7 +680,11 @@
           ICO.plus + '<span class="btn__label">Add the first exercise</span></button>' +
       '</div>';
     } else {
-      S.exercises.forEach(function (ex, e) { out += exerciseHTML(ex, e); });
+      for (var e = 0; e < S.exercises.length; e++) {
+        var ex = S.exercises[e];
+        if (ex.superset && S.exercises[e + 1]) { out += supersetHTML(ex, e); e++; continue; }
+        out += exerciseHTML(ex, e);
+      }
       S.blocks.forEach(function (b, i) { out += blockHTML(b, i); });
     }
     out += '<div class="addrow">' +
@@ -824,6 +956,12 @@
       '</div>';
   }
 
+  /* THE PICKER'S LIBRARY. Six rows, typed into this file, against a library
+     of 866 -- so "Search all exercises" searched six, and a swap could only
+     ever reach whichever six somebody had chosen months ago. The whole
+     catalogue is fetched the way split-builder.html and the library screen
+     fetch it; from a file:// origin the fetch cannot run, the six below
+     stand, and the sheet says how many it is offering either way. */
   var LIBRARY = [
     { id: 211, name: 'Lat Pulldown', muscle: 'Lats' },
     { id: 113, name: 'Machine Chest Press', muscle: 'Mid Chest' },
@@ -832,17 +970,50 @@
     { id: 701, name: 'Back Squat', muscle: 'Quads' },
     { id: 802, name: 'Leg Curl', muscle: 'Hamstrings' }
   ];
+  var LIBRARY_FULL = false;
+
+  function loadLibrary() {
+    /* Custom exercises a person made are theirs and belong in the picker
+       whether or not the catalogue loads. */
+    function withCustom(rows) {
+      ((window.LKStore ? LKStore.get('lk_customEx', []) : []) || []).forEach(function (c) {
+        rows.push({ id: c.id, name: c.name, muscle: c.muscle || c.sid || c.gid || 'Custom', custom: true });
+      });
+      return rows;
+    }
+    if (location.protocol === 'file:' || typeof fetch !== 'function') {
+      LIBRARY = withCustom(LIBRARY.slice());
+      return;
+    }
+    fetch('../tests/fixtures/exercise-db.json', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
+      .then(function (rows) {
+        if (!Array.isArray(rows) || !rows.length) return;
+        LIBRARY = withCustom(rows.map(function (x) {
+          return { id: x.id, name: x.name, muscle: x.muscle || x.group || '' };
+        }));
+        LIBRARY.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+        LIBRARY_FULL = true;
+        if (S.overlay === 'addex') paint();
+      })
+      .catch(function () { LIBRARY = withCustom(LIBRARY.slice()); });
+  }
 
   function addExHTML() {
     return '<div class="scrim" data-act="close" data-testid="addex-scrim" role="presentation"></div>' +
       '<div class="sheet" role="dialog" aria-modal="true" aria-label="Add exercise" data-testid="addex-sheet">' +
         '<div class="sheet__grab" aria-hidden="true"></div>' +
-        '<div class="sheet__head"><h2 class="t-section">Add exercise</h2>' +
+        '<div class="sheet__head"><h2 class="t-section">' +
+          (S.swapAt !== null && S.exercises[S.swapAt]
+            ? 'Replacing: ' + esc(S.exercises[S.swapAt].name)
+            : 'Add exercise') + '</h2>' +
           '<button class="iconbtn" type="button" data-act="close" data-testid="addex-close" aria-label="Close add exercise">' + ICO.close + '</button></div>' +
         '<div class="search"><span class="search__ico">' + ICO.search + '</span>' +
           '<label class="vis-hidden" for="addex-q">Search all exercises</label>' +
           '<input class="input" id="addex-q" data-act="addex-q" data-testid="addex-search" ' +
             'value="' + esc(S.addexQ || '') + '" autocomplete="off" placeholder="Search all exercises"></div>' +
+        '<p class="t-meta mt-2" data-testid="addex-count">' + n(LIBRARY.length) + ' exercises' +
+          (LIBRARY_FULL ? '' : ', which is all this build could read from here') + '</p>' +
         '<div class="sheet__body mt-3">' + addExList() +
         '</div>' +
       '</div>';
@@ -851,14 +1022,19 @@
   /* The list the search actually filters. It was rendered straight from
      LIBRARY with the field wired to nothing: typing anything left all six
      rows exactly where they were, which is worse than having no field. */
+  var ADDEX_PAGE = 40;
   function addExList() {
     var q = (S.addexQ || '').trim().toLowerCase();
-    var rows = q
+    var all = q
       ? LIBRARY.filter(function (x) {
-          return x.name.toLowerCase().indexOf(q) > -1 || x.muscle.toLowerCase().indexOf(q) > -1;
+          return x.name.toLowerCase().indexOf(q) > -1 || (x.muscle || '').toLowerCase().indexOf(q) > -1;
         })
       : LIBRARY;
-    if (!rows.length) {
+    /* 866 rows in one sheet is a scroll nobody finishes, and it is the
+       search field's job anyway. A page at a time, with the count and a way
+       to see more, so the number offered is never hidden. */
+    var rows = all.slice(0, S.addexN || ADDEX_PAGE);
+    if (!all.length) {
       return '<div class="empty" data-testid="addex-empty">' +
         '<p class="empty__title">Nothing matches &ldquo;' + esc(S.addexQ.trim()) + '&rdquo;</p>' +
         '<p class="empty__body">Search by the lift or by the muscle it works. ' +
@@ -869,7 +1045,11 @@
       return '<button class="row" type="button" data-act="addex-pick" data-i="' + i + '" data-testid="addex-pick-' + x.id + '">' +
         '<span class="row__main"><span class="row__title">' + esc(x.name) + '</span><span class="row__sub">' + esc(x.muscle) + '</span></span>' +
         '<span class="row__chev">' + ICO.plus + '</span></button>';
-    }).join('') + '</div>';
+    }).join('') + '</div>' +
+    (all.length > rows.length
+      ? '<button class="btn btn--secondary btn--block mt-3" type="button" data-act="addex-more" data-testid="addex-more">' +
+          '<span class="btn__label">Show more (' + (all.length - rows.length) + ' left)</span></button>'
+      : '');
   }
 
   function discardHTML() {
@@ -970,8 +1150,53 @@
     LKSession.update({ name: S.name, done: doneSets(), total: totalSets() });
   }
 
+  /* THE SETS, NOT ONLY THE CLOCK. LKSession's record carries the name, the
+     start, and how many sets of how many are done -- it is the shelf's
+     record, and every screen in the app reads it. What it cannot carry is
+     the work: reload the log mid-session and the header kept counting from
+     the right minute while every weight, rep and tick went back to the
+     fixture. The rows live here, under the log's own key, tied to the
+     record's start time so they can never be pasted onto a different
+     session. LKSession itself is shared and was left alone. */
+  var ROWS_KEY = 'lk_liveSessionRows';
+
+  function persistRows() {
+    if (!window.LKStore) return;
+    if (S.over || !S.exercises.length) { LKStore.remove(ROWS_KEY); return; }
+    var r = window.LKSession && LKSession.get();
+    if (!r) return;
+    LKStore.set(ROWS_KEY, {
+      startedAt: r.startedAt,
+      name: S.name,
+      state: S.state,
+      exercises: S.exercises,
+      blocks: S.blocks,
+      restEnabled: S.restEnabled,
+      restSeconds: S.restSeconds,
+      hidePartials: S.hidePartials
+    });
+  }
+
+  function restoreRows() {
+    if (!window.LKStore || !window.LKSession) return false;
+    var live = LKSession.get();
+    if (!live) { LKStore.remove(ROWS_KEY); return false; }
+    var rows = LKStore.get(ROWS_KEY, null);
+    if (!rows || !rows.exercises || !rows.exercises.length) return false;
+    /* A different workout's rows are not this workout's rows. */
+    if (rows.startedAt !== live.startedAt) return false;
+    S.name = rows.name || S.name;
+    S.exercises = rows.exercises;
+    S.blocks = rows.blocks || [];
+    if (rows.restEnabled !== undefined) S.restEnabled = rows.restEnabled;
+    if (rows.restSeconds !== undefined) S.restSeconds = rows.restSeconds;
+    if (rows.hidePartials !== undefined) S.hidePartials = rows.hidePartials;
+    return true;
+  }
+
   function paint() {
     record();
+    persistRows();
     var hadOverlay = renderedOverlay;
     var opener = document.activeElement && document.activeElement.dataset
       ? document.activeElement.dataset.testid : null;
@@ -1123,6 +1348,21 @@
         say('Set added to ' + S.exercises[e].name);
         break;
       }
+      /* One Add Set for a pair, because a superset is performed in rounds:
+         adding a round to one half and not the other is not a thing that
+         happens on the gym floor. */
+      case 'addset-both': {
+        [e, e + 1].forEach(function (ix) {
+          var ex2 = S.exercises[ix];
+          if (!ex2) return;
+          var ls = ex2.sets[ex2.sets.length - 1];
+          ex2.sets.push(set(null, null, { prevKg: ls ? ls.kg || ls.prevKg : null,
+                                          prevReps: ls ? ls.prevReps : null,
+                                          rir: ls ? ls.rir : 2 }));
+        });
+        say('A set added to both halves of the superset.');
+        break;
+      }
       case 'airec': {
         if (S.aiBusyEx === e) break;
         S.aiBusyEx = e;
@@ -1160,9 +1400,25 @@
 
       /* ---- exercise card ---- */
       case 'grip':
+        /* A drag ends with a click on whatever is under the finger. Without
+           this, finishing a drag immediately lifted some other card. */
+        if (Date.now() - dragEndedAt < 350) return;
         S.liftedEx = S.liftedEx === e ? -1 : e;
-        say(S.liftedEx === e ? 'Reordering ' + S.exercises[e].name + '. Use the grip again to drop it.' : 'Order kept');
+        say(S.liftedEx === e
+          ? 'Reordering ' + S.exercises[e].name + '. Use Up and Down, or drag the grip.'
+          : 'Order kept');
         break;
+      case 'move': {
+        var dir = Number(t.getAttribute('data-dir'));
+        if (moveEx(e, e + dir)) {
+          S.liftedEx = e + dir;
+          say(S.exercises[e + dir].name + ' moved to position ' + (e + dir + 1) +
+              ' of ' + S.exercises.length + '.');
+          refocus('grip-' + (e + dir));
+        }
+        break;
+      }
+      case 'move-done': S.liftedEx = -1; say('Order kept'); refocus('grip-' + e); break;
       case 'exsheet': S.overlayEx = e; S.overlay = 'sheet'; break;
       case 'exact': {
         var key = t.getAttribute('data-key');
@@ -1200,15 +1456,45 @@
            one is being replaced, and the picker reads it. */
         if (key === 'swap') { S.swapAt = S.overlayEx; S.overlay = 'addex'; break; }
         if (key === 'superset') {
+          /* A superset is with the NEXT exercise, so the last one has
+             nothing to pair with and the sheet used to say it had. */
+          if (!cur.superset && !S.exercises[S.overlayEx + 1]) {
+            S.overlay = null;
+            toast('Nothing after ' + cur.name + ' to superset it with. Add the other exercise first.');
+            break;
+          }
           cur.superset = !cur.superset;
           S.overlay = null;
-          toast(cur.superset ? 'Supersetted with the next exercise.' : 'Superset off.');
+          toast(cur.superset
+            ? 'Supersetted with ' + S.exercises[S.overlayEx + 1].name + '.'
+            : 'Superset off.');
           break;
         }
         if (key === 'unilateral') {
           cur.unilateral = !cur.unilateral;
+          /* The flag alone changed nothing on screen. Turning it on splits
+             every set into the two rows it is actually performed in, and
+             turning it off folds them back onto the left-hand row -- which
+             is the row that already holds the weight and reps, so nothing a
+             person typed is lost either way. */
+          if (cur.unilateral) {
+            var out = [];
+            cur.sets.forEach(function (st) {
+              st.side = 'L';
+              out.push(st);
+              var r = JSON.parse(JSON.stringify(st));
+              r.side = 'R'; r.done = false; r.partials = 0;
+              out.push(r);
+            });
+            cur.sets = out;
+          } else {
+            cur.sets = cur.sets.filter(function (st) { return st.side !== 'R'; });
+            cur.sets.forEach(function (st) { delete st.side; });
+          }
           S.overlay = null;
-          toast(cur.unilateral ? 'Left and right tracked separately.' : 'Tracked as one side.');
+          toast(cur.unilateral
+            ? 'Left and right tracked separately. Each set is two rows now.'
+            : 'Tracked as one side. The right-hand rows are gone.');
           break;
         }
         S.overlay = null;
@@ -1276,7 +1562,8 @@
       }
 
       /* ---- add exercise, block ---- */
-      case 'addex': S.overlay = 'addex'; break;
+      case 'addex': S.overlay = 'addex'; S.addexN = ADDEX_PAGE; break;
+      case 'addex-more': S.addexN = (S.addexN || ADDEX_PAGE) + ADDEX_PAGE; break;
       case 'addex-pick': {
         var pick = LIBRARY[Number(t.getAttribute('data-i'))];
         if (S.swapAt !== null && S.exercises[S.swapAt]) {
@@ -1327,6 +1614,88 @@
     paint();
   });
 
+  /* =============================================================
+     Reordering. Three ways in, one function: Up/Down on the move bar,
+     the arrow keys while a grip has focus, and dragging the grip.
+     ============================================================= */
+  function moveEx(from, to) {
+    if (to < 0 || to >= S.exercises.length || from === to) return false;
+    /* Pairing is by adjacency, so moving one half of a superset past
+       something else would silently pair it with whatever landed beside it.
+       Both flags that touch the moved card are dropped instead, and the
+       toast says so rather than leaving a pair nobody made. */
+    var broke = !!(S.exercises[from].superset ||
+                   (S.exercises[from - 1] && S.exercises[from - 1].superset));
+    S.exercises[from].superset = false;
+    if (S.exercises[from - 1]) S.exercises[from - 1].superset = false;
+    var it = S.exercises.splice(from, 1)[0];
+    S.exercises.splice(to, 0, it);
+    if (broke) toast('Superset undone: the two lifts are no longer next to each other.');
+    return true;
+  }
+
+  var dragEndedAt = 0;
+
+  document.addEventListener('pointerdown', function (ev) {
+    var grip = ev.target.closest ? ev.target.closest('[data-act="grip"]') : null;
+    if (!grip) return;
+    var index = Number(grip.getAttribute('data-ex'));
+    var startY = ev.clientY;
+    var moved = false;
+    function rectsNow() {
+      return [].slice.call(body.querySelectorAll('.exc')).map(function (nd) {
+        return nd.getBoundingClientRect();
+      });
+    }
+    var rects = rectsNow();
+    try { grip.setPointerCapture(ev.pointerId); } catch (e2) {}
+
+    function onMove(e2) {
+      if (!moved && Math.abs(e2.clientY - startY) < 6) return;
+      if (!moved) { moved = true; S.dragEx = index; S.liftedEx = -1; paint(); }
+      var target = index;
+      for (var k = 0; k < rects.length; k++) {
+        var c = rects[k].top + rects[k].height / 2;
+        if (k < index && e2.clientY < c) { target = k; break; }
+        if (k > index && e2.clientY > c) { target = k; }
+      }
+      if (target !== index && moveEx(index, target)) {
+        index = target;
+        S.dragEx = index;
+        paint();
+        rects = rectsNow();
+      }
+    }
+    function onUp() {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+      if (!moved) return;
+      dragEndedAt = Date.now();
+      S.dragEx = -1;
+      paint();
+      say(S.exercises[index].name + ' moved to position ' + (index + 1) +
+          ' of ' + S.exercises.length + '.');
+    }
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+  });
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown') return;
+    var grip = ev.target.closest ? ev.target.closest('[data-act="grip"]') : null;
+    if (!grip) return;
+    ev.preventDefault();
+    var from = Number(grip.getAttribute('data-ex'));
+    var to = from + (ev.key === 'ArrowUp' ? -1 : 1);
+    if (!moveEx(from, to)) return;
+    S.liftedEx = to;
+    paint();
+    say(S.exercises[to].name + ' moved to position ' + (to + 1) + ' of ' + S.exercises.length + '.');
+    refocus('grip-' + to);
+  });
+
   document.addEventListener('change', function (ev) {
     var t = ev.target.closest('[data-act="rir"]');
     if (!t) return;
@@ -1338,7 +1707,7 @@
     var t = ev.target.closest('[data-act="note"]');
     if (t) { S.exercises[S.overlayEx].note = t.value; return; }
     var q = ev.target.closest('[data-act="addex-q"]');
-    if (q) { S.addexQ = q.value; paint(); }
+    if (q) { S.addexQ = q.value; S.addexN = ADDEX_PAGE; paint(); }
   });
   document.addEventListener('keydown', function (ev) {
     if (ev.key !== 'Escape') return;
@@ -1454,8 +1823,15 @@
     paint();
   });
 
+  loadLibrary();
+
+  /* A workout already running gets its own rows back, not the fixture's.
+     This is the whole point of writing them down. */
+  var restored = restoreRows();
+
   paintMenu();
   paint();
+  if (restored) say('Picked up where you left off.');
   window.__LK = { state: S, apply: function (s) { applyState(s); paintMenu(); paint(); } };
 })();
 </script>

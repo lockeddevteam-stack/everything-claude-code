@@ -36,8 +36,15 @@
      quiet Save without reflection" (rubric, purpose clarity 3). Here
      the single accent fill on every state is Save session, pinned in
      an actionbar so it never scrolls away. Saving is one tap from
-     entry. Feel is four chips in a section below the fold, optional,
-     and it gates nothing.
+     entry. Feel is five one-to-five ratings and a note, in a section
+     below the fold, optional, and it gates nothing.
+
+     AND SAVING SAVES. Save set a flag and wrote nothing: a finished
+     workout never joined lk_history, so the loop from logging a set to
+     reading the session back days later was never closed. The record
+     is written here, through LKStore, in the seed's own field names,
+     with the sets, the note and the five ratings in it -- which is
+     what workout-detail reads when that session is opened again.
 
   2. "Zero-set guard on save(): missing — saves sets:0, exercises:[],
      an empty record joins history and inflates Home's TOTAL WORKOUTS"
@@ -791,10 +798,12 @@
                 '<span class="t-meta">' + esc(e.muscle || '') + '</span></div>' +
               '<div style="padding: 0 var(--sp-4) var(--sp-4)">' +
                 e.sets.map(function (s, k) {
-                  if (!s.warm) wi++;
+                  /* A right-hand row is the same set on the other side, so it
+                     takes its set's number rather than the next one. */
+                  if (!s.warm && s.side !== 'R') wi++;
                   return '<div class="rsetline" data-testid="rset-' + i + '-' + k + '">' +
                       '<span class="rsetline__n' + (s.warm ? ' rsetline__n--warm' : '') + '">' +
-                        (s.warm ? 'W' : wi) + '</span>' +
+                        (s.warm ? 'W' : wi + (s.side || '')) + '</span>' +
                       '<span class="t-detail num">' + set(s.kg, s.reps) + '</span>' +
                       '<span class="t-meta num">' + (s.rir != null ? s.rir + ' RIR' : '') + '</span>' +
                     '</div>';
@@ -1241,6 +1250,13 @@
       default:
         return;
     }
+  });
+
+  /* The note, as it is typed. Kept in state rather than read off the field
+     at save time, because the field is inside a region that repaints. */
+  document.addEventListener('input', function (e) {
+    var t = e.target.closest ? e.target.closest('[data-testid="session-note"]') : null;
+    if (t) S.note = t.value;
   });
 
   /* A sheet closes on Escape, and closing it changes nothing. */
