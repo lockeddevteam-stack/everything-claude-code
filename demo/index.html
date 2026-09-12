@@ -14125,6 +14125,7 @@ DEMO.define("home", function (document, window, location, fetch) {
           '<span class="ico-well">' + icon + '</span>' +
           '<h3 class="t-label grow">' + esc(title) + '</h3>' +
           '<button class="iconbtn feedcard__dismiss" data-act="dismiss-card" data-card="' + id + '" ' +
+            'data-testid="dismiss-' + id + '" ' +
             'aria-label="Put the ' + esc(title) + ' card away">' + ICO.close + '</button>' +
         '</div>' +
         bodyHTML +
@@ -14449,6 +14450,16 @@ DEMO.define("home", function (document, window, location, fetch) {
         '</div>' +
         '<div class="week grow">' + days + '</div>' +
       '</div>' +
+      /* The week summary line -- "3 days this week, solid week" -- was added
+         to the loaded view and not to this skeleton, so everything below it
+         dropped 31px the moment the week arrived. A skeleton is a promise
+         about the shape that is coming; it has to include every line the
+         shape has. */
+      '<div class="skel mt-3" style="height: var(--lh-13); width: 58%"></div>' +
+      /* The answer card gained a line when it started naming where the
+         session's shape came from ("from your last Push sessions"), and the
+         skeleton did not follow: 108px reserved against 139px loaded, so
+         everything under it dropped 31px the moment the day arrived. */
       '<div class="card card--raised mt-4" data-testid="card-answer" data-answer="loading">' +
         '<div class="skel" style="height: var(--sp-5); width: 45%"></div>' +
         '<div class="skel mt-3" style="height: var(--sp-4); width: 80%"></div>' +
@@ -14531,12 +14542,34 @@ DEMO.define("home", function (document, window, location, fetch) {
   }
 
   var rendering = false;
+  /* Set by an action whose own control disappears in the render it triggers. */
+  var focusAfterRender = null;
+  /* The first card that will be on screen after a restore. Restoring puts
+     every card back, so the first id in the list is the first card, and its
+     dismiss button is a real control that is certain to exist. */
+  function firstVisibleCardDismiss() { return 'dismiss-' + CARD_IDS[0]; }
+
   function render(state) {
     if (rendering) return;
     rendering = true;
     try { paint(state); } finally { rendering = false; }
   }
   function paint(state) {
+    /* What had focus, and where the caret was, so a re-render does not throw
+       both away. Dismissing a card used to scroll the page to the top and
+       drop focus to the body -- on a keyboard that is the whole screen to
+       walk again, and it is invisible to everybody else. */
+    var active = document.activeElement;
+    var key = active && active.getAttribute ? active.getAttribute('data-testid') : null;
+    var caret = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
+    var wasScroll = body.scrollTop;
+    /* An action can name where focus should land when the control it was on
+       is about to vanish. */
+    if (focusAfterRender) { key = focusAfterRender; caret = null; focusAfterRender = null; }
+    /* A dev-state press is a different screen and starts at the top. An
+       ordinary re-render is the same screen and keeps its place. */
+    var switching = !!state;
+
     if (state) current = (state === 'auto' || VIEWS[state]) ? state : 'auto';
     var blank = current === 'empty';
     MODEL = buildModel(blank);
@@ -14549,7 +14582,16 @@ DEMO.define("home", function (document, window, location, fetch) {
     LKPatch(body, VIEWS[view](MODEL));
     seedDemoSession(view === 'live');
     LKPatch(document.getElementById('shelf-slot'), shelfHTML());
-    body.scrollTop = 0;
+    body.scrollTop = switching ? 0 : wasScroll;
+    if (key) {
+      var next = document.querySelector('[data-testid="' + key + '"]');
+      if (next && !next.disabled) {
+        next.focus({ preventScroll: true });
+        if (caret !== null && typeof next.setSelectionRange === 'function') {
+          try { next.setSelectionRange(caret, caret); } catch (e) {}
+        }
+      }
+    }
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.state === current));
     });
@@ -14565,6 +14607,12 @@ DEMO.define("home", function (document, window, location, fetch) {
     }
     if (name === 'restore-cards') {
       CARD_IDS.forEach(function (id) { hideCard(id, false); });
+      /* This control removes itself: once the cards are back there is
+         nothing left to restore. A button that disappears under the finger
+         drops focus to the body, which restarts the next Tab at the top of
+         the document, so the screen says where focus goes instead. The first
+         restored card is the thing the press just produced. */
+      focusAfterRender = firstVisibleCardDismiss();
       return true;
     }
     if (name === 'supp-taken') {
@@ -15498,7 +15546,10 @@ DEMO.define("train", function (document, window, location, fetch) {
       rows.filter(function (r) { return r.min; }).map(function (r) {
         return '<div class="spread mt-2"><span class="t-detail">' + r.name + '</span>' +
           '<span class="t-meta num">' + r.min + ' min</span></div>' +
-          '<div class="meter"><span class="meter__fill" style="width:' +
+          /* Quiet, not accent. One accent fill to a screen: the start button
+             is the thing being pointed at, and three coloured bars beside it
+             make four, which is the rule the accent audit exists to keep. */
+          '<div class="meter meter--quiet"><span class="meter__fill" style="width:' +
           Math.round(r.min / total * 100) + '%"></span></div>';
       }).join('') +
       '<p class="t-caption-1 quiet mt-2">Heart rate reserve, ' + rest + ' to ' + mx + ' bpm' +
@@ -19208,6 +19259,10 @@ DEMO.define("coach", function (document, window, location, fetch) {
     '</div>';
   }
 
+  /* How many messages the last paint drew, so the next one can tell whether
+     the thread actually grew. */
+  var lastMsgCount = -1;
+
   function render() {
     var active = document.activeElement;
     var key = active && active.getAttribute ? active.getAttribute('data-testid') : null;
@@ -19247,7 +19302,14 @@ DEMO.define("coach", function (document, window, location, fetch) {
     if (S.view === 'chat' && S.chat.status !== 'empty') {
       var scroll = phone.querySelector('.body');
       if (scroll) {
-        if (S.chat.pinned) scroll.scrollTop = scroll.scrollHeight;
+        /* Only when the thread GREW. Following it on every render meant any
+           state change -- a toast, a tick of the shelf clock, a dev-state
+           press -- nudged the reader's scroll position to the bottom even
+           when nothing had been said. A message arriving is the only thing
+           that should move the view. */
+        var grew = S.chat.msgs.length !== lastMsgCount;
+        lastMsgCount = S.chat.msgs.length;
+        if (S.chat.pinned && grew) scroll.scrollTop = scroll.scrollHeight;
         if (!scroll.__lkPin) {
           scroll.__lkPin = true;
           scroll.addEventListener('scroll', function () {
@@ -24830,8 +24892,15 @@ DEMO.define("settings", function (document, window, location, fetch) {
                  '</div>' +
                '</div>' +
                '<div class="skel mt-4" style="height: var(--lh-13); width: 55%"></div>' +
+               /* The signed-in card grew when the account rows did -- the
+                  password row and the second sync line -- and the skeleton
+                  did not follow, so everything under it dropped 92px the
+                  moment the account arrived. Measured at 274px loaded
+                  against 182px reserved; these two lines are the difference. */
+               '<div class="skel mt-3" style="height: var(--lh-13); width: 45%"></div>' +
                '<div class="card__foot stack stack--2">' +
                  '<div class="skel" style="height: var(--tap)"></div>' +
+                 '<div class="skel" style="height: calc(var(--tap) + 10px)"></div>' +
                '</div>' +
              '</div>';
     } else {

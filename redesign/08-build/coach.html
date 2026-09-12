@@ -1336,6 +1336,10 @@
     '</div>';
   }
 
+  /* How many messages the last paint drew, so the next one can tell whether
+     the thread actually grew. */
+  var lastMsgCount = -1;
+
   function render() {
     var active = document.activeElement;
     var key = active && active.getAttribute ? active.getAttribute('data-testid') : null;
@@ -1375,7 +1379,14 @@
     if (S.view === 'chat' && S.chat.status !== 'empty') {
       var scroll = phone.querySelector('.body');
       if (scroll) {
-        if (S.chat.pinned) scroll.scrollTop = scroll.scrollHeight;
+        /* Only when the thread GREW. Following it on every render meant any
+           state change -- a toast, a tick of the shelf clock, a dev-state
+           press -- nudged the reader's scroll position to the bottom even
+           when nothing had been said. A message arriving is the only thing
+           that should move the view. */
+        var grew = S.chat.msgs.length !== lastMsgCount;
+        lastMsgCount = S.chat.msgs.length;
+        if (S.chat.pinned && grew) scroll.scrollTop = scroll.scrollHeight;
         if (!scroll.__lkPin) {
           scroll.__lkPin = true;
           scroll.addEventListener('scroll', function () {

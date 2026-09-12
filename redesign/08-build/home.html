@@ -628,6 +628,7 @@
           '<span class="ico-well">' + icon + '</span>' +
           '<h3 class="t-label grow">' + esc(title) + '</h3>' +
           '<button class="iconbtn feedcard__dismiss" data-act="dismiss-card" data-card="' + id + '" ' +
+            'data-testid="dismiss-' + id + '" ' +
             'aria-label="Put the ' + esc(title) + ' card away">' + ICO.close + '</button>' +
         '</div>' +
         bodyHTML +
@@ -952,6 +953,16 @@
         '</div>' +
         '<div class="week grow">' + days + '</div>' +
       '</div>' +
+      /* The week summary line -- "3 days this week, solid week" -- was added
+         to the loaded view and not to this skeleton, so everything below it
+         dropped 31px the moment the week arrived. A skeleton is a promise
+         about the shape that is coming; it has to include every line the
+         shape has. */
+      '<div class="skel mt-3" style="height: var(--lh-13); width: 58%"></div>' +
+      /* The answer card gained a line when it started naming where the
+         session's shape came from ("from your last Push sessions"), and the
+         skeleton did not follow: 108px reserved against 139px loaded, so
+         everything under it dropped 31px the moment the day arrived. */
       '<div class="card card--raised mt-4" data-testid="card-answer" data-answer="loading">' +
         '<div class="skel" style="height: var(--sp-5); width: 45%"></div>' +
         '<div class="skel mt-3" style="height: var(--sp-4); width: 80%"></div>' +
@@ -1034,12 +1045,34 @@
   }
 
   var rendering = false;
+  /* Set by an action whose own control disappears in the render it triggers. */
+  var focusAfterRender = null;
+  /* The first card that will be on screen after a restore. Restoring puts
+     every card back, so the first id in the list is the first card, and its
+     dismiss button is a real control that is certain to exist. */
+  function firstVisibleCardDismiss() { return 'dismiss-' + CARD_IDS[0]; }
+
   function render(state) {
     if (rendering) return;
     rendering = true;
     try { paint(state); } finally { rendering = false; }
   }
   function paint(state) {
+    /* What had focus, and where the caret was, so a re-render does not throw
+       both away. Dismissing a card used to scroll the page to the top and
+       drop focus to the body -- on a keyboard that is the whole screen to
+       walk again, and it is invisible to everybody else. */
+    var active = document.activeElement;
+    var key = active && active.getAttribute ? active.getAttribute('data-testid') : null;
+    var caret = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
+    var wasScroll = body.scrollTop;
+    /* An action can name where focus should land when the control it was on
+       is about to vanish. */
+    if (focusAfterRender) { key = focusAfterRender; caret = null; focusAfterRender = null; }
+    /* A dev-state press is a different screen and starts at the top. An
+       ordinary re-render is the same screen and keeps its place. */
+    var switching = !!state;
+
     if (state) current = (state === 'auto' || VIEWS[state]) ? state : 'auto';
     var blank = current === 'empty';
     MODEL = buildModel(blank);
@@ -1052,7 +1085,16 @@
     LKPatch(body, VIEWS[view](MODEL));
     seedDemoSession(view === 'live');
     LKPatch(document.getElementById('shelf-slot'), shelfHTML());
-    body.scrollTop = 0;
+    body.scrollTop = switching ? 0 : wasScroll;
+    if (key) {
+      var next = document.querySelector('[data-testid="' + key + '"]');
+      if (next && !next.disabled) {
+        next.focus({ preventScroll: true });
+        if (caret !== null && typeof next.setSelectionRange === 'function') {
+          try { next.setSelectionRange(caret, caret); } catch (e) {}
+        }
+      }
+    }
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.state === current));
     });
@@ -1068,6 +1110,12 @@
     }
     if (name === 'restore-cards') {
       CARD_IDS.forEach(function (id) { hideCard(id, false); });
+      /* This control removes itself: once the cards are back there is
+         nothing left to restore. A button that disappears under the finger
+         drops focus to the body, which restarts the next Tab at the top of
+         the document, so the screen says where focus goes instead. The first
+         restored card is the thing the press just produced. */
+      focusAfterRender = firstVisibleCardDismiss();
       return true;
     }
     if (name === 'supp-taken') {
