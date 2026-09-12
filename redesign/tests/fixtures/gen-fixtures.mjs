@@ -263,20 +263,22 @@ const TARGETS = { kcal: 2980, pro: 160, carb: 380, fat: 80, waterMl: 3000 };
 /* src is the provenance of the figures, and it is the only thing that earns
    a Verified badge: 'verified' means a barcode matched a database row,
    'estimate' means a model read a photo, 'recipe' means your own recipe,
-   'repeat' means a meal you logged before, logged again. Re-logging used to
-   stamp 'verified' on a home-cooked meal and tell the reader a barcode had
-   read it. */
+   'repeat' means a meal you logged before, logged again, and 'table' means a
+   row picked out of the built-in food table. Re-logging used to stamp
+   'verified' on a home-cooked meal and tell the reader a barcode had read it,
+   and so did every search result. Eggs, toast and butter is a plate somebody
+   assembled; it carries no barcode, so it is 'table'. */
 const DAY_LOG = {
   '2026-09-09': { water: 1750, supps: [true, true], meals: [
-    ['eggs', '8:05', 'verified'], ['bowl', '12:40', 'estimate'], ['shake', '3:15', 'verified'] ] },
+    ['eggs', '8:05', 'table'], ['bowl', '12:40', 'estimate'], ['shake', '3:15', 'verified'] ] },
   '2026-09-08': { water: 3100, supps: [true, true], meals: [
-    ['eggs', '8:10', 'verified'], ['cnr', '12:30', 'recipe'], ['pasta', '7:20', 'estimate'],
+    ['eggs', '8:10', 'table'], ['cnr', '12:30', 'recipe'], ['pasta', '7:20', 'estimate'],
     ['shake', '4:05', 'verified'], ['pancakes', '9:30', 'recipe'] ] },
   '2026-09-07': { water: 2900, supps: [true, false], meals: [
-    ['eggs', '8:00', 'verified'], ['bowl', '12:45', 'estimate'], ['chilli', '7:15', 'recipe'],
+    ['eggs', '8:00', 'table'], ['bowl', '12:45', 'estimate'], ['chilli', '7:15', 'recipe'],
     ['shake', '3:40', 'verified'], ['pancakes', '9:45', 'recipe'], ['skyr', '10:30', 'verified'] ] },
   '2026-09-06': { water: 2600, supps: [false, false], meals: [
-    ['eggs', '9:20', 'verified'], ['cnr', '1:10', 'recipe'], ['chilli', '7:00', 'recipe'],
+    ['eggs', '9:20', 'table'], ['cnr', '1:10', 'recipe'], ['chilli', '7:00', 'recipe'],
     ['shake', '4:30', 'verified'] ] }
 };
 

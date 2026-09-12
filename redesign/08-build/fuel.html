@@ -141,6 +141,81 @@
   var NUT = FX.nutrition || { targets: {}, foods: {}, days: {}, trend: [] };
   var FOODS = NUT.foods;
 
+  /* The store is the truth once a person has touched anything; the fixture is
+     only the seed. Read through LKStore so a target edited on Settings, a
+     weigh-in added on Progress and a meal logged here are all the same data. */
+  var ST = window.LKStore;
+  function stored(key, fb) { return ST ? ST.get(key, fb) : fb; }
+
+  var PROFILE = stored('lk_profile', FX.profile || {});
+  var WEIGHTLOG = stored('lk_weightLog', FX.weightLog || []);
+
+  /* The same three words Settings writes. `lean bulk` was a fourth invented
+     here and printed under every hero, whatever the profile said. */
+  var GOAL_WORD = { cut: 'losing fat', maintain: 'holding steady', build: 'building' };
+  function goalKey() {
+    var g = PROFILE.goal;
+    return GOAL_WORD[g] ? g : 'maintain';
+  }
+
+  function daysBetween(a, b) {
+    return Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
+  }
+
+  /* Rate of weight change per week, read off the log rather than asserted.
+     This screen carried `weekPct: 0.34` as a literal and rendered it as
+     "+0.34% / wk, on target" while the log behind it ran 64.5 -> 64.2 kg over
+     the same week: a loss of 0.47%/wk, under a goal of building. The number
+     was wrong, the sign was wrong and the verdict was printed without looking
+     at either.
+
+     The span is stretched back to at least five days on purpose. Two weigh-ins
+     a day apart turn a glass of water into a 10%/wk trend. */
+  function weekRate() {
+    var log = (WEIGHTLOG || []).filter(function (e) { return e && e.date && e.kg; })
+      .slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+    if (log.length < 2) return null;
+    var last = log[log.length - 1], i = log.length - 2;
+    while (i > 0 && daysBetween(log[i].date, last.date) < 5) i--;
+    var first = log[i], span = daysBetween(first.date, last.date);
+    if (span < 1 || !first.kg) return null;
+    return {
+      pct: ((last.kg - first.kg) / first.kg) * 100 * (7 / span),
+      kg: last.kg - first.kg,
+      days: span,
+      kgNow: last.kg
+    };
+  }
+
+  /* "On target" is a claim, so it has to be checked. The direction has to match
+     the goal and the pace has to be one a body can hold: under 1%/wk either
+     way. Everything else is named plainly, including going the wrong way. */
+  function rateVerdict(pct, goal) {
+    var a = Math.abs(pct);
+    if (a < 0.1) return goal === 'maintain' ? 'steady, on target' : 'flat this week';
+    if (goal === 'build') {
+      if (pct < 0) return 'the wrong way for a build';
+      return a > 1 ? 'faster than a build needs' : 'on target';
+    }
+    if (goal === 'cut') {
+      if (pct > 0) return 'the wrong way for a cut';
+      return a > 1 ? 'faster than a cut should be' : 'on target';
+    }
+    return a > 0.5 ? 'drifting' : 'steady, on target';
+  }
+
+  function signed(v) { return (v > 0 ? '+' : v < 0 ? '\u2212' : '') + Math.abs(v).toFixed(2); }
+
+  /* 35 ml per kg of body weight, rounded to the nearest 50. The water sheet
+     says the target moves with your weight; before this it was a flat 3,000
+     and the sentence was false. Where there is no weight, the fixture target
+     stands and the sheet says which it is. */
+  function waterGoal() {
+    var kg = (weekRate() || {}).kgNow || PROFILE.weightKg || 0;
+    if (!kg) return { ml: (NUT.targets && NUT.targets.waterMl) || 3000, computed: false };
+    return { ml: Math.round(kg * 35 / 50) * 50, computed: true };
+  }
+
   /* Mon 7 Sep, Tue 8 Sep, Wed 9 Sep. */
   var WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -177,9 +252,10 @@
       iso: iso,
       date: dayLabel(iso),
       target: tg.kcal,
-      goal: 'lean bulk',
-      weightKg: (FX.profile && FX.profile.weightKg) || 0,
-      weekPct: 0.34,
+      goal: GOAL_WORD[goalKey()],
+      goalKey: goalKey(),
+      weightKg: (weekRate() || {}).kgNow || PROFILE.weightKg || 0,
+      rate: weekRate(),
       macros: [
         { name: 'Protein', have: 0, want: tg.pro, unit: 'g', key: 'pro' },
         { name: 'Carbs', have: 0, want: tg.carb, unit: 'g', key: 'carb' },
@@ -192,7 +268,8 @@
       /* Not a target and not a nag: a pattern this person already has. */
       closing: { at: '7:30', pro: 40 },
       waterMl: src.waterMl,
-      waterGoalMl: tg.waterMl,
+      waterGoalMl: waterGoal().ml,
+      waterGoalComputed: waterGoal().computed,
       /* Taken, not "due": the app knows what was swallowed, not what was
          intended. Two supplements, because that is what lk_supplements holds.
          This screen used to invent four and Recap a different three. */
@@ -213,13 +290,30 @@
      a literal inside the sheet's own render function and every row closed the
      sheet without logging anything, under copy that says "one tap logs it
      again with the same portion". */
-  var OFTEN = [
-    { key: 'shake', n: 63 }, { key: 'eggs', n: 41 },
-    { key: 'bowl', n: 28 }, { key: 'pasta', n: 19 }
-  ].map(function (o) {
-    var f = FOODS[o.key];
-    return { icon: f.icon, name: f.name, n: o.n, kcal: f.kcal, pro: f.pro, carb: f.carb, fat: f.fat };
-  });
+  /* Counted, not asserted. These were four literals -- 63, 41, 28, 19 -- under
+     copy that calls them "how often you log this", beside a log holding four
+     days. Now they are the real tallies across every day on file, so a row
+     that says 4 has been logged four times and the list reorders itself as
+     that changes. */
+  function frequent() {
+    var tally = {};
+    var days = (ST ? ST.get('lk_fuelLog', null) : null) || NUT.days || {};
+    Object.keys(days).forEach(function (iso) {
+      ((days[iso] || {}).meals || []).forEach(function (m) {
+        var k = m.key;
+        if (!k || !FOODS[k]) return;
+        tally[k] = (tally[k] || 0) + 1;
+      });
+    });
+    return Object.keys(tally).sort(function (a, b) {
+      return tally[b] - tally[a] || (FOODS[a].name < FOODS[b].name ? -1 : 1);
+    }).slice(0, 4).map(function (k) {
+      var f = FOODS[k];
+      return { key: k, icon: f.icon, name: f.name, n: tally[k],
+               kcal: f.kcal, pro: f.pro, carb: f.carb, fat: f.fat };
+    });
+  }
+  var OFTEN = frequent();
 
   /* Saved recipes. A recipe is a food you assembled yourself: it carries its
      own ingredients and yields a number of servings, so logging one serving
@@ -376,7 +470,8 @@
           '<p class="fuel-hero__num num" data-testid="hero-value">' + n(Math.abs(left)) + '</p>' +
           '<p class="t-footnote quiet">' + (left < 0 ? 'kcal over ' : 'kcal left of ') +
             n(DAY.target) + ' &middot; ' +
-            'a starting formula, not your trend yet. It updates once there are two weeks to read.</p>' +
+            'the target you set. Nothing has been read off your own trend yet: that needs two ' +
+            'weeks of weigh-ins against two weeks of logs.</p>' +
         '</div></div>';
     }
 
@@ -393,7 +488,10 @@
       '</div>' +
       '<div class="fuel-hero__side stack stack--1">' +
         '<p class="t-subheadline num">' + DAY.weightKg.toFixed(1) + ' kg</p>' +
-        '<p class="t-caption-2 quiet">+' + DAY.weekPct.toFixed(2) + '% / wk, on target</p>' +
+        (DAY.rate
+          ? '<p class="t-caption-2 quiet" data-testid="hero-rate">' + signed(DAY.rate.pct) +
+              '% / wk, ' + esc(rateVerdict(DAY.rate.pct, DAY.goalKey)) + '</p>'
+          : '<p class="t-caption-2 quiet" data-testid="hero-rate">No rate yet &middot; needs two weigh-ins five days apart</p>') +
       '</div></div>';
   }
 
@@ -430,7 +528,7 @@
     Object.keys(FOODS).forEach(function (k) {
       var f = FOODS[k];
       out.push({ key: k, icon: f.icon, name: f.name, kcal: f.kcal, pro: f.pro,
-                 carb: f.carb, fat: f.fat, from: 'Food table', src: 'verified' });
+                 carb: f.carb, fat: f.fat, from: 'Food table', src: 'table' });
     });
     RECIPES.forEach(function (r, i) {
       out.push({ recipe: i, icon: r.icon, name: r.name + ', one serving',
@@ -484,6 +582,14 @@
     estimate: { word: 'Estimate', cls: 'badge--est', testid: 'badge-estimate',
       why: 'A model read the photo and estimated the portion. Expect it to be within about 15%, ' +
            'and correct it with the portion controls if it looks wrong.' },
+    /* A food-table row is not barcode evidence. Every row of the search sheet
+       used to be stamped 'verified', so logging Chilli from a typed search
+       earned a Verified badge and the sheet told the reader "a barcode matched
+       a database row". Nothing was scanned. */
+    table: { word: 'Table', cls: 'badge--est', testid: 'badge-table',
+      why: 'Picked from the built-in food table. The figures are that table\u2019s standard ' +
+           'portion, not a measurement of what was on your plate, so correct the portion if ' +
+           'yours was bigger or smaller.' },
     recipe: { word: 'Recipe', cls: 'badge--est', testid: 'badge-recipe',
       why: 'One serving of a recipe you built. The figures are your own ingredients divided by ' +
            'the number of servings you said it makes.' },
@@ -710,8 +816,12 @@
               '<button class="btn btn--primary grow" type="button" data-action="water-add" data-testid="water-add">' +
                 '<span class="btn__label">+ 250 ml</span></button>' +
             '</div>' +
-            '<p class="t-caption-1 quiet mt-3">A glass is about 250 ml. The target moves with your weight and ' +
-              'the weather, not with a round number somebody picked.</p>' +
+            '<p class="t-caption-1 quiet mt-3">A glass is about 250 ml. ' +
+              (DAY.waterGoalComputed
+                ? 'The target is 35 ml for every kilo you weigh, rounded to the nearest 50, so it ' +
+                  'moves when your weight does rather than sitting on a round number somebody picked.'
+                : 'There is no weight on file yet, so this target is the stored one. Add a weigh-in ' +
+                  'and it becomes 35 ml per kilo.') + '</p>' +
           '</div>' +
         '</div>';
     }
@@ -1134,8 +1244,8 @@
         return !q2 || f.name.toLowerCase().indexOf(q2) !== -1;
       })[+act.getAttribute('data-i')];
       if (!hit) return;
-      addMeal({ icon: hit.icon, name: hit.name, kcal: hit.kcal, pro: hit.pro,
-                carb: hit.carb, fat: hit.fat, src: hit.src });
+      addMeal({ key: hit.key || null, icon: hit.icon, name: hit.name, kcal: hit.kcal,
+                pro: hit.pro, carb: hit.carb, fat: hit.fat, src: hit.src });
       S.sheet = null;
       say(esc(hit.name) + ' logged, ' + n(hit.kcal) + ' kcal.');
       return;
@@ -1181,7 +1291,7 @@
       /* With the slot's own macros. A planned meal logged without them moved
          the calorie figure and left all three bars where they were, so the
          same chilli was 41 g of protein from Recipes and 0 g from the plan. */
-      addMeal({ icon: ps.icon || FOODS[ps.key].icon, name: ps.name, at: ps.at, kcal: ps.kcal,
+      addMeal({ key: ps.key || null, icon: ps.icon || FOODS[ps.key].icon, name: ps.name, at: ps.at, kcal: ps.kcal,
                 pro: ps.pro, carb: ps.carb, fat: ps.fat, src: 'plan' });
       render();
       say(ps.name + ' logged, ' + ps.kcal + ' kcal.');
@@ -1230,7 +1340,8 @@
      -- structurally, not as a missed line: there was nothing on the record
      to subtract. Rescaling a portion had the same hole. */
   function addMeal(meal) {
-    DAY.meals.push({ icon: meal.icon, name: meal.name, at: meal.at || nowLabel(),
+    DAY.meals.push({ key: meal.key || null, icon: meal.icon, name: meal.name,
+                     at: meal.at || nowLabel(),
                      pro: meal.pro || 0, carb: meal.carb || 0, fat: meal.fat || 0,
                      kcal: meal.kcal, src: meal.src || 'estimate' });
     recount(DAY);
@@ -1281,7 +1392,7 @@
     /* The two the sheet says it heard, with the times it says it resolved. */
     var heard = [FOODS.bowl, FOODS.shake];
     heard.forEach(function (f) {
-      addMeal({ icon: f.icon, name: f.name, at: '6:15', pro: f.pro, carb: f.carb,
+      addMeal({ key: f === FOODS.bowl ? 'bowl' : 'shake', icon: f.icon, name: f.name, at: '6:15', pro: f.pro, carb: f.carb,
                 fat: f.fat, kcal: f.kcal, src: 'estimate' });
     });
     S.sheet = null;
@@ -1291,12 +1402,12 @@
   function logOften(i) {
     var r = OFTEN[i];
     if (!r) return;
-    r.n += 1;
     /* 'repeat', not 'verified'. Logging a home-cooked meal again earns no new
        evidence, and stamping Verified on it told the reader a barcode had
        matched a database row -- a scan that never happened, on the same food
        the original entry calls an Estimate. */
-    addMeal({ icon: r.icon, name: r.name, pro: r.pro, carb: r.carb, fat: r.fat, kcal: r.kcal, src: 'repeat' });
+    addMeal({ key: r.key, icon: r.icon, name: r.name, pro: r.pro, carb: r.carb,
+              fat: r.fat, kcal: r.kcal, src: 'repeat' });
     S.sheet = null;
     say(esc(r.name) + ' logged again.');
   }
@@ -1305,14 +1416,27 @@
      honest edit: the plate was the plate, there was just more or less of it. */
   /* `by` is the factor itself, not a delta. 0.8 and 1.25 are reciprocals, so
      one then the other returns the meal to where it started. */
+  /* Scaled from the portion the meal was logged at, never from the last
+     rounded figure. Compounding rounded steps is not reciprocal: 52 g of
+     protein taken down a fifth and back up a quarter came home as 53, and
+     several steps drifted further each time. The meal keeps its original
+     macros in `base` and every step is `base x scale`, so a fifth less then a
+     quarter more is base x 0.8 x 1.25 = base, exactly. */
   function portion(i, f) {
     var m = DAY.meals[i];
     if (!m || !f) return;
-    var d = {};
+    if (!m.base) {
+      m.base = { kcal: m.kcal || 0, pro: m.pro || 0, carb: m.carb || 0, fat: m.fat || 0 };
+      m.scale = 1;
+    }
+    m.scale = Math.round(m.scale * f * 1000) / 1000;
+    /* A portion cannot go to nothing or to ten plates. */
+    if (m.scale < 0.1) m.scale = 0.1;
+    if (m.scale > 10) m.scale = 10;
     ['kcal', 'pro', 'carb', 'fat'].forEach(function (k) {
-      d[k] = Math.round((m[k] || 0) * f) - (m[k] || 0);
-      m[k] = (m[k] || 0) + d[k];
+      m[k] = Math.round(m.base[k] * m.scale * 10) / 10;
     });
+    m.kcal = Math.round(m.kcal);
     recount(DAY);
     /* say() renders. Rendering here as well was two full passes a tap. */
     say(esc(m.name) + ' is now ' + n(m.kcal) + ' kcal.');
