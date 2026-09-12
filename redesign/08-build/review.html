@@ -248,6 +248,77 @@
     return { name: name, top: [tw, tr], vol: tvol, priorTop: null, priorVol: 0, delta: null };
   }
 
+  /* THE SESSION JUST FINISHED, if the workout log handed one over.
+
+     Review used to be a fixture and only a fixture: whatever you logged --
+     seven sets, or none at all after a discard -- it reported 16 working
+     sets, 4,383 kg, 52 min and awarded a bench record of 75 kg x 8 that
+     nobody had set. The log now writes lk_lastSession on Finish and this
+     reads it once. The dev states below are untouched; they are what this
+     screen shows when no session was handed over, which is how it is opened
+     from the index and from a screenshot run. */
+  function handed() {
+    var raw = null;
+    try { raw = localStorage.getItem('lk_lastSession'); } catch (e) { return null; }
+    if (!raw) return null;
+    var r;
+    try { r = JSON.parse(raw); } catch (e) { return null; }
+    if (!r || !r.lifts || !r.lifts.length) return null;
+    var FX = window.LKFixtures;
+
+    var lifts = r.lifts.map(function (l) {
+      /* The prior column is the last session that actually contains this
+         lift, found in the shared history. A lift with no prior session gets
+         no delta rather than an invented one. */
+      var last = FX && FX.lastTime ? FX.lastTime(l.id, r.dateISO) : null;
+      if (!last) return { name: l.name, top: l.top, vol: l.vol, priorTop: null, priorVol: 0,
+                          priorDate: null, delta: null };
+      var st = FX.liftStats(last.exercise);
+      var raw2 = l.vol - st.vol;
+      return { name: l.name, top: l.top, vol: l.vol, priorTop: st.top, priorVol: st.vol,
+               priorDate: last.date,
+               delta: (raw2 < 0 ? -1 : 1) * Math.round(Math.abs(raw2)) };
+    });
+
+    /* A record is claimed only when a top set actually beats the stored one
+       for that lift. */
+    var rec = null;
+    (FX && FX.prs ? FX.prs : []).forEach(function (p) {
+      if (rec) return;
+      r.lifts.forEach(function (l) {
+        if (rec || l.id !== p.exId || !l.top) return;
+        var beats = l.top[0] > p.kg || (l.top[0] === p.kg && l.top[1] > p.reps);
+        if (beats) rec = { lift: l.name, w: l.top[0], r: l.top[1], prevW: p.kg, prevDate: p.date };
+      });
+    });
+
+    return {
+      title: r.title || 'Workout',
+      dateISO: r.dateISO,
+      date: r.dateISO ? longDate(r.dateISO) : '',
+      sets: r.sets, volumeKg: r.volumeKg, minutes: r.minutes,
+      lifts: lifts,
+      record: rec,
+      /* No insight. The insight lines below are written about the fixture's
+         own sessions; generating one about a session this screen has only
+         totals for would be the screen inventing a reading of your training. */
+      insight: null
+    };
+  }
+
+  var MONTHS_SHORT = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  var DOW_SHORT = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  function longDate(iso) {
+    var a = iso.split('-');
+    var d = new Date(Date.UTC(+a[0], +a[1] - 1, +a[2]));
+    return DOW_SHORT[d.getUTCDay()] + ', ' + MONTHS_SHORT[+a[1] - 1] + ' ' + (+a[2]);
+  }
+  function shortDate(iso) {
+    var a = iso.split('-');
+    return MONTHS_SHORT[+a[1] - 1].charAt(0) + MONTHS_SHORT[+a[1] - 1].slice(1).toLowerCase() +
+      ' ' + (+a[2]);
+  }
+
   var DATA = {
     record: {
       title: 'Push', date: 'WED, SEP 9',
@@ -622,7 +693,11 @@
               '<button class="btn btn--secondary btn--block mt-3" data-testid="ai-retry">' +
                 '<span class="btn__label">Try again</span></button>';
     } else {
-      inner = '<p class="t-detail" data-testid="ai-text">' + d.insight + '</p>';
+      inner = d.insight
+        ? '<p class="t-detail" data-testid="ai-text">' + d.insight + '</p>'
+        : '<p class="t-detail" data-testid="ai-text">Nothing was written about this session. ' +
+          'The figures above are yours and are computed on this phone; a read on them is not, ' +
+          'and this build does not fetch one.</p>';
     }
     return '' +
       '<div class="section">' +
@@ -833,6 +908,32 @@
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.state === S.view));
     });
+  }
+
+  /* Read once, at boot. Reading it on every paint would mean the screen
+     changed under a reader who had only pressed a dev-state button. */
+  var HANDED = handed();
+  if (HANDED) {
+    /* The prior column has to be the same lifts. Left at the fixture's whole
+       5-lift Push, a session of one bench read "-2,671 kg, -62.6%" against a
+       workout it shares one exercise with. Comparing like for like means
+       summing the prior volume of the lifts that are actually in this
+       session, and naming the session it came from. */
+    var pv = 0, pd = null;
+    HANDED.lifts.forEach(function (l) {
+      pv += l.priorVol || 0;
+      if (l.priorDate && (!pd || l.priorDate > pd)) pd = l.priorDate;
+    });
+    if (pv > 0) {
+      PRIOR = { name: HANDED.lifts.length === 1 ? HANDED.lifts[0].name : 'the same lifts',
+                dateLabel: pd ? shortDate(pd) : 'last time', volumeKg: pv };
+    }
+    DATA.record = HANDED;
+    DATA.populated = HANDED;
+    DATA.error = { title: HANDED.title, date: HANDED.date, sets: HANDED.sets,
+                   volumeKg: HANDED.volumeKg, minutes: HANDED.minutes };
+    DATA.empty = { title: HANDED.title, date: HANDED.date };
+    DATA.loading = DATA.empty;
   }
 
   function show(view) {

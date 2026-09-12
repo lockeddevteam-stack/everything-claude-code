@@ -125,6 +125,11 @@
     return Math.round((Date.UTC(y.y, y.m - 1, y.d) - Date.UTC(x.y, x.m - 1, x.d)) / 86400000);
   }
   function pretty(iso) { var p = parts(iso); return p.d + ' ' + MONTHS[p.m - 1] + ' ' + p.y; }
+  /* The last day OF the cycle, not the day after it. A twelve-week cycle
+     starting 11 Aug runs to 2 Nov -- eighty-four days counting the first one.
+     Saving an unchanged cycle used to push the date to 3 Nov, so opening the
+     edit sheet and pressing Save moved the end of the cycle by a day. */
+  function endFrom(startIso, weeks) { return addDays(startIso, weeks * 7 - 1); }
   function dow(iso) { var p = parts(iso); return new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay(); }
 
   /* THE ONE FREQUENCY FUNCTION. The shipped app had this rule written out
@@ -135,8 +140,18 @@
     if (f === 'daily') return true;
     if (f === 'eod') return daysBetween(comp.since || iso, iso) % 2 === 0;
     if (f === 'e3d') return daysBetween(comp.since || iso, iso) % 3 === 0;
-    if (f === 'weekly') return dow(iso) === (comp.day === undefined ? 1 : comp.day);
-    if (f === 'twice-weekly') return dow(iso) === 1 || dow(iso) === 4;
+    /* The weekday comes from when the compound STARTED, the way every other
+       frequency here does. Both of these were hardcoded to Monday (and
+       Monday/Thursday), so a compound begun on a Wednesday was due on days
+       nobody had pinned and not due on the day they had. */
+    if (f === 'weekly') {
+      if (comp.day !== undefined) return dow(iso) === comp.day;
+      return dow(iso) === dow(comp.since || iso);
+    }
+    if (f === 'twice-weekly') {
+      var d0 = comp.day !== undefined ? comp.day : dow(comp.since || iso);
+      return dow(iso) === d0 || dow(iso) === (d0 + 3) % 7;
+    }
     return false;
   }
   var FREQ_LABEL = { daily: 'Every day', eod: 'Every other day', e3d: 'Every third day',
@@ -275,7 +290,12 @@
     if (!m) return null;
     var total = parseFloat(m[1]) * perWeek(comp);
     if (!total) return null;
-    return (Math.round(total * 10) / 10) + ' ' + m[2];
+    /* As precise as the dose it came from. 0.5 mg every other day is 1.75 mg
+       a week, and rounding that to 1.8 quietly reported a dose nobody takes:
+       for an aromatase inhibitor a tenth of a milligram is a real difference.
+       Two decimals, trailing zeroes trimmed. */
+    var out = (Math.round(total * 100) / 100).toFixed(2).replace(/\.?0+$/, '');
+    return out + ' ' + m[2];
   }
 
   function overview(c) {
@@ -332,14 +352,22 @@
       '</div>';
     }
     if (active.length) {
-      var c0 = active[0][0];
-      var due = dueToday(c0), took = takenToday(c0);
+      /* EVERY active cycle, not active[0]. Two cycles running at once -- a
+         blast and a peptide protocol, which is the ordinary case this screen
+         exists for -- showed only the first one's doses under a heading that
+         counted only its own, so half of today was invisible. */
+      var due = [], took = [];
+      active.forEach(function (a0) {
+        dueToday(a0[0]).forEach(function (x) { due.push([x, a0[1]]); });
+        takenToday(a0[0]).forEach(function (x) { took.push(x); });
+      });
       out += head('Today', n(took.length) + ' of ' + n(due.length) + ' taken');
       if (due.length) {
-        out += listCard(due.sort(function (a, b) { return (a.at || '').localeCompare(b.at || ''); })
-          .map(function (x) {
+        out += listCard(due.sort(function (a, b) { return ((a[0].at || '')).localeCompare(b[0].at || ''); })
+          .map(function (pair) {
+            var x = pair[0];
             var isTaken = (x.taken || []).indexOf(TODAY) >= 0;
-            return '<button class="row" type="button" data-action="take" data-c="' + active[0][1] +
+            return '<button class="row" type="button" data-action="take" data-c="' + pair[1] +
               '" data-n="' + esc(x.name) + '" data-testid="take-' + esc(x.name).replace(/\W+/g, '-') + '"' +
               (isTaken ? ' aria-pressed="true"' : '') + '>' +
               '<span class="ico-well">' + (isTaken ? ICO.tick : ICO.dot) + '</span>' +
@@ -498,6 +526,13 @@
         }).join('') + '</div></div>' +
       field('cp-at', 'Time', f.at || '08:00', 'time',
         'Compounds had no time of day at all before, so everything read as due from midnight.') +
+      /* Enterable, because a compound typed in by hand could otherwise never
+         have one -- only the presets carried it -- and without it this screen
+         cannot show a clearance date for that compound at all. Blank is a
+         real answer: no half-life means no clearance line, not a guess. */
+      field('cp-hl', 'Half-life, hours', f.halfLifeH == null ? '' : String(f.halfLifeH), 'number',
+        'Leave it blank if you do not know it. Clearance dates are worked out from this and ' +
+        'are only as good as it is.') +
       '<button class="btn btn--primary btn--block mt-4" type="button" data-action="save-comp" data-testid="save-comp">' +
         '<span class="btn__label">Save</span></button>' +
       (S.compIdx !== null
@@ -651,10 +686,18 @@
 
     if (a === 'back') {
       if (S.view === 'list') { location.href = 'fuel.html'; return; }
-      S.view = S.view === 'presets' ? 'comp' : (S.view === 'list' ? 'list' : 'detail');
+      /* Detail goes back to the LIST. It went back to itself, so the only way
+         out of a cycle was the browser's own back button, which the demo does
+         not give this screen. */
+      S.view = S.view === 'presets' ? 'comp'
+             : (S.view === 'detail' ? 'list' : 'detail');
+      if (S.view === 'list') S.sel = null;
       S.err = null; render({ scrollTop: true }); return;
     }
-    if (a === 'enable') { S.status = 'ready'; S.view = 'list'; render(); toast('Stack tracking is on.'); return; }
+    if (a === 'enable') {
+      setPerfTracking(true);
+      S.status = 'ready'; S.view = 'list'; render(); toast('Stack tracking is on.'); return;
+    }
     if (a === 'open') { S.sel = +t.getAttribute('data-i'); S.ai = null; S.view = 'detail'; render({ scrollTop: true }); return; }
     if (a === 'cancel') { S.view = S.sel === null ? 'list' : 'detail'; S.err = null; render({ scrollTop: true }); return; }
     if (a === 'cancel-presets') { S.view = 'comp'; render({ scrollTop: true }); return; }
@@ -678,11 +721,11 @@
       if (c) {
         /* Status is untouched on purpose. */
         c.name = nm.trim(); c.start = st; c.weeks = wk; c.note = nt.trim();
-        c.endPlanned = addDays(st, wk * 7);
+        c.endPlanned = endFrom(st, wk);
         toast('Saved.');
       } else {
         CYCLES.unshift({ id: 'c' + Date.now(), name: nm.trim(), status: 'active', start: st,
-          weeks: wk, endPlanned: addDays(st, wk * 7), endActual: null, note: nt.trim(), comps: [] });
+          weeks: wk, endPlanned: endFrom(st, wk), endActual: null, note: nt.trim(), comps: [] });
         S.sel = 0;
         toast('Cycle started.');
       }
@@ -711,7 +754,12 @@
     if (a === 'open-comp') {
       S.compIdx = +t.getAttribute('data-i');
       var x = c.comps[S.compIdx];
-      S.form = { name: x.name, dose: x.dose, cat: x.cat, freq: x.freq, route: x.route, at: x.at || '08:00' };
+      /* halfLifeH travels with the form. It did not, so editing a compound --
+         changing its time of day, say -- wrote the record back with no
+         half-life at all, and the clearance date, the overview's tail and
+         every "clears on" line for it silently disappeared. */
+      S.form = { name: x.name, dose: x.dose, cat: x.cat, freq: x.freq, route: x.route,
+                 at: x.at || '08:00', halfLifeH: x.halfLifeH || null };
       S.view = 'comp'; S.err = null; render({ scrollTop: true }); return;
     }
     if (a === 'cp-cat') { S.form.cat = t.getAttribute('data-v'); render(); return; }
@@ -738,9 +786,21 @@
       var ca = (document.getElementById('cp-at') || {}).value || '08:00';
       if (!cn.trim()) { S.err = 'Name the compound.'; render(); return; }
       if (!cd.trim()) { S.err = 'A dose is the point of logging it.'; render(); return; }
+      /* Typed if you typed one, otherwise whatever the compound already had.
+         A compound entered by hand rather than from a preset could never get
+         a half-life at all, so it could never show a clearance date. */
+      var chRaw = (document.getElementById('cp-hl') || {}).value;
+      var ch = chRaw === undefined || chRaw === '' ? null : parseFloat(chRaw);
+      if (ch !== null && (isNaN(ch) || ch <= 0 || ch > 2000)) {
+        S.err = 'A half-life is in hours, between 0 and 2,000. Leave it blank if you do not know it.';
+        render(); return;
+      }
+      var prev = S.compIdx === null ? null : c.comps[S.compIdx];
       var rec = { name: cn.trim(), dose: cd.trim(), cat: S.form.cat, freq: S.form.freq,
-                  route: S.form.route, at: ca, since: c.start,
-                  halfLifeH: S.form.halfLifeH || null, taken: [] };
+                  route: S.form.route, at: ca,
+                  since: prev && prev.since ? prev.since : c.start,
+                  halfLifeH: ch !== null ? ch : (S.form.halfLifeH || (prev && prev.halfLifeH) || null),
+                  taken: [] };
       if (S.compIdx === null) c.comps.push(rec);
       else { rec.taken = c.comps[S.compIdx].taken || []; c.comps[S.compIdx] = rec; }
       S.err = null; S.view = 'detail'; S.compIdx = null;
@@ -777,15 +837,32 @@
     if (a === 'read-stack') {
       S.ai = 'thinking'; render();
       setTimeout(function () {
+        /* Built from THIS cycle's own compounds. The line used to be one
+           fixed paragraph that named an aromatase inhibitor at 0.5 mg every
+           other day whatever was actually in the cycle -- advice about a
+           stack the reader is not running, in the voice of the app. */
         var ovx = overview(c);
-        S.ai = 'Twelve weeks with a long ester in it runs longer than twelve weeks. ' +
-          (ovx.tail ? ovx.tail.name + ' is still working ' + ovx.tail.after + ' days after the end date, so ' +
-            'anything planned for the week after the last pin is happening on a full dose. ' : '') +
-          'Bloods are worth pulling at week 6 and again three to four weeks after clearance, ' +
-          'not on the last day of the cycle: lipids and haematocrit move first and both read ' +
-          'high while the ester is still in you. The AI at 0.5 mg every other day is a ' +
-          'starting point rather than a setting \u2014 it is titrated against symptoms and ' +
-          'oestradiol, and running it blind is how people end up crashed.';
+        var anc = c.comps.filter(function (x) { return x.cat === 'anc'; });
+        var half = c.weeks ? Math.max(1, Math.round(c.weeks / 2)) : 6;
+        var bits = [];
+        bits.push(c.weeks + ' weeks with ' + (c.comps.length === 1 ? 'one compound' :
+          c.comps.length + ' compounds') + ' in it.');
+        if (ovx.tail) {
+          bits.push(ovx.tail.name + ' is still working ' + ovx.tail.after + ' days after the end date, ' +
+            'so anything planned for the week after the last dose is happening on a full dose.');
+        } else {
+          bits.push('Nothing here carries past the end date on the half-lives recorded, so the ' +
+            'cycle and its effects end together \u2014 which is only as true as the half-lives you entered.');
+        }
+        bits.push('Bloods are worth pulling at week ' + half + ' and again three to four weeks after ' +
+          'clearance, not on the last day: lipids and haematocrit move first and both read high ' +
+          'while anything long-estered is still in you.');
+        anc.forEach(function (x) {
+          bits.push(x.name + ' at ' + x.dose + ' ' + (FREQ_LABEL[x.freq] || '').toLowerCase() +
+            ' is a starting point rather than a setting \u2014 it is titrated against symptoms and ' +
+            'bloods, and running it blind is how people end up crashed.');
+        });
+        S.ai = bits.join(' ');
         render();
       }, 900);
       return;
@@ -849,9 +926,34 @@
     });
   }
 
+  /* THE GATE IS THE STORED FLAG. This screen never read it: it opened
+     populated whatever Settings said, so Settings could show "Stack tracking
+     Off" while a URL to this screen showed a full cycle. And its own enable
+     button only changed a local variable, so turning tracking on here left
+     Settings and Fuel's chip still saying off. */
+  function perfTracking() {
+    try { return localStorage.getItem('lk_perfTracking') === 'true'; } catch (e) { return false; }
+  }
+  function setPerfTracking(on) {
+    try { localStorage.setItem('lk_perfTracking', on ? 'true' : 'false'); } catch (e) {}
+  }
+  if (!perfTracking()) S.status = 'gated';
+
   var q = new URLSearchParams(location.search);
   var want = q.get('state');
   if (want === 'gated') S.status = 'gated';
+  /* Toggled in Settings, in another tab or on the way back to this one. */
+  window.addEventListener('storage', function (ev) {
+    if (ev.key !== 'lk_perfTracking') return;
+    S.status = perfTracking() ? 'ready' : 'gated';
+    S.view = 'list';
+    render();
+  });
+  document.addEventListener('lk:enter', function () {
+    var should = perfTracking() ? 'ready' : 'gated';
+    if (S.status === should || S.status === 'loading' || S.status === 'error') return;
+    S.status = should; S.view = 'list'; render();
+  });
   render();
   window.__ready = true;
 })();

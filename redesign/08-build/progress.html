@@ -203,16 +203,61 @@
      Ordering is newest first throughout. The shipped grid reversed the
      months but left photos inside a month in insertion order, so the list
      ran new-to-old between headings and old-to-new under them. */
-  var PHOTOS = [
-    { date: '2026-08-26', note: 'Week 5', tone: 3 },
-    { date: '2026-07-29', note: 'Week 1, relaxed', tone: 1 }
-  ];
+  var PHOTOS = ((window.LKFixtures && LKFixtures.photos) || [])
+    .map(function (p, i) { return { date: p.date.slice(0, 10), note: p.note, tone: i % 4 }; })
+    .sort(function (a, b) { return a.date < b.date ? 1 : -1; });
 
-  var GOALS = [
-    { name: 'Bench press 100 kg for 5', by: 'Nov 7', now: '87.5 kg for 8', pct: 74 },
-    { name: 'Body weight 62 kg', by: 'Dec 1', now: '64.2 kg', pct: 55 },
-    { name: 'Train 4 times a week', by: 'Ongoing', now: '3.4 a week over 8 weeks', pct: 85 }
-  ];
+  /* Goals, from lk_goals, with the percentage COMPUTED. The three figures
+     here used to be hand-written literals -- 74, 55, 85 -- that matched no
+     arithmetic anyone could redo from the numbers printed beside them, and
+     the body-weight one did not move after a weigh-in. Progress towards a
+     goal is (where you are now - where you started) / (target - start),
+     clamped, which works the same whether the number is meant to go up or
+     down. `now` is read live, so logging a weight moves the bar. */
+  var GOALS = ((window.LKFixtures && LKFixtures.goals) || []).map(function (g) {
+    return { type: g.type, name: g.name, exId: g.exId, target: g.target,
+             start: g.start, unit: g.unit || 'kg', by: g.targetDate };
+  });
+
+  function goalNow(g) {
+    if (g.now !== undefined) return g.now;                 /* one added by hand */
+    if (g.type === 'weight') {
+      var w = WEIGHT_LOG[WEIGHT_LOG.length - 1];
+      return w ? w[1] : null;
+    }
+    if (g.type === 'lift') {
+      var best = null;
+      RECORDS.forEach(function (r) {
+        if (r.id !== g.exId) return;
+        if (best === null || r.kg > best) best = r.kg;
+      });
+      return best;
+    }
+    return null;
+  }
+  function goalPct(g) {
+    var now = goalNow(g);
+    if (now === null || now === undefined || g.start === undefined || g.target === undefined) return 0;
+    var span = g.target - g.start;
+    if (!span) return now === g.target ? 100 : 0;
+    return Math.max(0, Math.min(100, Math.round(((now - g.start) / span) * 100)));
+  }
+  function goalNowText(g) {
+    if (typeof g.now === 'string') return g.now;
+    var now = goalNow(g);
+    return now === null || now === undefined ? 'Not started' : num1(now) + ' ' + (g.unit || 'kg');
+  }
+  function goalBy(g) {
+    if (!g.by || g.by === 'Ongoing') return g.by || 'Ongoing';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(g.by)) return g.by;
+    return dayLabel(g.by);
+  }
+  /* The soonest date among the goals, rather than a date typed once. */
+  function nextGoalDue() {
+    var dates = GOALS.map(function (g) { return g.by; })
+      .filter(function (d) { return /^\d{4}-\d{2}-\d{2}$/.test(d || ''); }).sort();
+    return dates.length ? dayLabel(dates[0]) : null;
+  }
 
   var RANGES = [
     { id: '4w', label: '4 weeks', days: 28 },
@@ -298,9 +343,16 @@
       if (seen[r.id]) return;
       seen[r.id] = 1;
       var rs = recordsFor(r.id), l = liftById(r.id);
-      out.push({ id: r.id, name: l ? l.name : '', muscle: l ? l.muscle : '', best: rs[0], count: rs.length });
+      /* The list sorts by date, so the date on the row has to be the lift's
+         most recent record. It was the date of its heaviest one, which for
+         the deadlift meant a row dated Aug 29 sorting below three Sep 5 rows
+         when the deadlift's own latest record is Sep 5 as well. The heaviest
+         set is still what the row and the est. 1RM report. */
+      var latest = rs.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; })[0];
+      out.push({ id: r.id, name: l ? l.name : '', muscle: l ? l.muscle : '',
+                 best: rs[0], date: latest.date, count: rs.length });
     });
-    out.sort(function (a, b) { return a.best.date < b.best.date ? 1 : a.best.date > b.best.date ? -1 : 0; });
+    out.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
     return out;
   }
   function e1rm(w, r) { return w * (1 + r / 30); }
@@ -402,7 +454,14 @@
   var S = {
     view: 'populated',
     range: '12w',
-    liftId: 111,      /* lk_featuredLifts[0] */
+    /* lk_featuredLifts[0], unless a screen said which lift it meant. */
+    liftId: (function () {
+      var want = null;
+      try { want = localStorage.getItem('lk_openLift'); } catch (e) {}
+      try { localStorage.removeItem('lk_openLift'); } catch (e) {}
+      var id = want ? Number(want) : NaN;
+      return isNaN(id) ? 111 : id;
+    })(),
     sheet: false,
     photoIdx: null,      /* which photo the lightbox is showing */
     confirmDel: false,   /* a photo cannot be recreated, so delete asks twice */
@@ -540,7 +599,7 @@
               '" data-testid="record-' + r.id + '">' +
               '<span class="row__main stack">' +
                 '<span class="row__title">' + esc(r.name) + '</span>' +
-                '<span class="row__sub">' + dayLabel(r.best.date) + ' &middot; ' + kg(r.best.kg) +
+                '<span class="row__sub">' + dayLabel(r.date) + ' &middot; ' + kg(r.best.kg) +
                   ' &times; ' + n(r.best.reps) + (r.count > 1 ? ' &middot; ' + n(r.count) + ' records' : '') + '</span>' +
               '</span>' +
               '<span class="row__value stack" style="text-align: right">' +
@@ -588,7 +647,8 @@
             '<span class="ico-well">' + ICO.flag + '</span>' +
             '<span class="row__main stack">' +
               '<span class="row__title">Goals</span>' +
-              '<span class="row__sub">' + n(GOALS.length) + ' active, next due Nov 7</span>' +
+              '<span class="row__sub">' + n(GOALS.length) + ' active' +
+                (nextGoalDue() ? ', next due ' + nextGoalDue() : '') + '</span>' +
             '</span>' +
             '<span class="row__chev">' + ICO.chev + '</span>' +
           '</button>' +
@@ -665,7 +725,13 @@
     var log = WEIGHT_LOG.slice().reverse();
     var first = WEIGHT_LOG[0], last = WEIGHT_LOG[WEIGHT_LOG.length - 1];
     var d = last[1] - first[1];
-    var weeks = (WEIGHT_LOG.length - 1) || 1;
+    /* Weeks between the first and last reading, not the number of readings.
+       Counting entries made a second weigh-in in the same week add a week to
+       the span, so the per-week figure -- the one this card says is "the only
+       one worth reading" -- moved because you stepped on the scale twice. */
+    var wkMs = 7 * 86400000;
+    var spanMs = Math.max(0, ms(WEIGHT_LOG[WEIGHT_LOG.length - 1][0]) - ms(WEIGHT_LOG[0][0]));
+    var weeks = Math.max(1, Math.round(spanMs / wkMs));
     return '' +
       '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
       '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="wt-title" ' +
@@ -717,12 +783,15 @@
             ICO.close + '</button></div>' +
         '<div class="sheet__body">' +
           goals.map(function (g, i) {
+            var pct = goalPct(g);
             return '<div class="card' + (i ? ' mt-3' : '') + '" data-testid="goal-' + i + '">' +
               '<div class="hstack hstack--3"><span class="t-section grow">' + g.name + '</span>' +
-                '<span class="t-meta num">' + g.pct + '%</span></div>' +
-              '<div class="meter mt-2" role="img" aria-label="' + g.pct + ' per cent of the way there">' +
-                '<span class="meter__fill" style="width:' + g.pct + '%"></span></div>' +
-              '<p class="t-detail mt-2">Now ' + g.now + ' &middot; by ' + g.by + '</p>' +
+                '<span class="t-meta num">' + pct + '%</span></div>' +
+              '<div class="meter mt-2" role="img" aria-label="' + pct + ' per cent of the way there">' +
+                '<span class="meter__fill" style="width:' + pct + '%"></span></div>' +
+              '<p class="t-detail mt-2">Now ' + goalNowText(g) +
+                (g.start !== undefined ? ' &middot; from ' + num1(g.start) + ' ' + (g.unit || 'kg') : '') +
+                ' &middot; by ' + goalBy(g) + '</p>' +
             '</div>';
           }).join('') +
         '</div>' +
@@ -961,7 +1030,9 @@
         'goal, your body weight and your weekly set volume. It is processed there and the ' +
         'reply comes back here.</p>' +
       '<p class="t-detail muted mt-3">Everything else on this screen stays on the device. ' +
-        'This one action does not, which is why it asks.</p>' +
+        'This one action would not, which is why it asks.</p>' +
+      '<p class="t-detail muted mt-2">In this build it is not wired to anything: nothing is ' +
+        'sent, and the consent step is here so the shape of the flow can be read.</p>' +
       '<button class="btn btn--primary btn--block mt-4" type="button" data-action="analyse-go" ' +
         'data-testid="analyse-go"><span class="btn__label">Send it and analyse</span></button>' +
       /* Declining goes back to the photo, not out of the stack. Closing
@@ -1029,7 +1100,11 @@
       openSheet('photo');
     } else if (a === 'analyse-go') {
       S.sheet = null; render();
-      S.toast = 'Sent for analysis. The reply comes back here.'; render();
+      /* It says what this build does, which is nothing. The old wording
+         claimed a photo had been sent somewhere and a reply was coming; no
+         request is made, and telling somebody their body photo has left the
+         device when it has not is the worst direction for that error. */
+      S.toast = 'Not in this build. No photo has left this device.'; render();
     } else if (a === 'del-photo') {
       if (!S.confirmDel) { S.confirmDel = true; render(); return; }
       var gonePh = PHOTOS.splice(S.photoIdx, 1)[0];
@@ -1103,7 +1178,7 @@
     if (!by) { S.goalError = 'By when? "Ongoing" counts.'; render(); focusIn('gl-by'); return; }
     /* pct 0 and "Not started": a goal added by hand has no measurement
        behind it yet, and inventing a percentage would be inventing data. */
-    GOALS.push({ name: name, by: by, now: 'Not started', pct: 0 });
+    GOALS.push({ name: name, by: by, now: 'Not started' });
     S.goalForm = false; S.goalError = null;
     S.toast = 'Goal added.';
     render();

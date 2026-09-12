@@ -68,7 +68,30 @@ const history = raw.map((w) => {
        kilocalories, so every screen labels it kcal. */
     var c = w.calories;
     rec.cal = c == null ? null : (typeof c === 'object' ? (c.value ?? null) : c);
-  } else { rec.sets = sets; rec.kg = vol; }
+  } else {
+    rec.sets = sets; rec.kg = vol;
+    /* The exercises, set by set. Without them every history row could only
+       open one hand-written workout-detail: tapping any of the eighteen
+       sessions on Train showed the same "Sat, Sep 5 PPL - Pull" with lifts
+       that appear in no session at all. They also give the workout log the
+       real "last time" weights, and Review the session it is reviewing. */
+    rec.exercises = (w.exercises || []).map(function (ex) {
+      return {
+        id: ex.id, name: ex.name, muscle: ex.muscle,
+        sets: (ex.sets || []).map(function (st) {
+          return {
+            kg: st.w === '' || st.w == null ? null : parseFloat(st.w),
+            reps: st.r === '' || st.r == null ? null : parseFloat(st.r),
+            rir: st.rir === '' || st.rir == null ? null : parseFloat(st.rir),
+            warm: st.setType === 'warmup',
+            done: !!st.done
+          };
+        })
+      };
+    });
+    rec.note = w.note || '';
+    rec.reflection = w.reflection || null;
+  }
   return rec;
 }).sort((a, b) => (a.date < b.date ? 1 : -1));
 
@@ -297,6 +320,37 @@ const body = `/* GENERATED — do not edit.
     /* Inclusive both ends. */
     between: function (a, b) {
       return g.LKFixtures.history.filter(function (h) { return h.date >= a && h.date <= b; });
+    },
+    /* One session by id, which is what a history row hands on. */
+    session: function (id) {
+      var h = g.LKFixtures.history;
+      for (var i = 0; i < h.length; i++) { if (h[i].id === id) return h[i]; }
+      return null;
+    },
+    /* The most recent session, older than the date given, that contains this lift, and
+       that lift's rows inside it. This is what "last time" means, and it is
+       the only honest source for it. */
+    lastTime: function (exId, before) {
+      var h = g.LKFixtures.history;
+      for (var i = 0; i < h.length; i++) {
+        var w = h[i];
+        if (w.kind !== 'lift') continue;
+        if (before && w.date >= before) continue;
+        for (var j = 0; j < w.exercises.length; j++) {
+          if (w.exercises[j].id === exId) return { date: w.date, exercise: w.exercises[j] };
+        }
+      }
+      return null;
+    },
+    /* Working volume and top set of one lift inside one session. */
+    liftStats: function (ex) {
+      var vol = 0, top = null;
+      ex.sets.forEach(function (st) {
+        if (!st.done || st.warm || st.kg == null || st.reps == null) return;
+        vol += st.kg * st.reps;
+        if (!top || st.kg > top[0] || (st.kg === top[0] && st.reps > top[1])) top = [st.kg, st.reps];
+      });
+      return { vol: Math.round(vol), top: top };
     }
   };
 })(typeof window !== 'undefined' ? window : this);

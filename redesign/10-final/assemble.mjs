@@ -549,6 +549,16 @@ const RUNTIME = String.raw`
     current = id;
     /* Charts and any other size-derived drawing redraw once visible. */
     window.dispatchEvent(new Event('resize'));
+    /* A screen is entered, not merely un-hidden. In the demo every screen
+       stays mounted for the life of the page, so a screen with a lifecycle --
+       the workout log, which has to know it is being opened for a new session
+       rather than still showing a finished one -- has no other way to hear it.
+       Screens listen with document.addEventListener('lk:enter'), which their
+       scoped document routes to their own root. */
+    var er = screens[id];
+    if (er && er.booted && er.root) {
+      try { er.root.dispatchEvent(new CustomEvent('lk:enter', { detail: { id: id } })); } catch (e) {}
+    }
   }
 
   function syncTabs(route) {
