@@ -4068,6 +4068,11 @@
                 "portion": 0,
                 "portions": 0
           },
+          "barcodes": {
+                "5060123456789": "skyr",
+                "5012345678900": "shake",
+                "5000112345678": "pancakes"
+          },
           "foods": {
                 "eggs": {
                       "icon": "🍳",
@@ -4128,7 +4133,8 @@
                             "protein shake",
                             "whey shake",
                             "smoothie"
-                      ]
+                      ],
+                      "barcode": "5012345678900"
                 },
                 "pasta": {
                       "icon": "🍝",
@@ -4202,7 +4208,8 @@
                             "pancakes",
                             "pancake",
                             "protein pancakes"
-                      ]
+                      ],
+                      "barcode": "5000112345678"
                 },
                 "skyr": {
                       "icon": "🥫",
@@ -4222,7 +4229,8 @@
                             "yogurt",
                             "greek yoghurt",
                             "quark"
-                      ]
+                      ],
+                      "barcode": "5060123456789"
                 }
           },
           "days": {

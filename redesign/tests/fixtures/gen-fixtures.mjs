@@ -313,6 +313,22 @@ const UNIT_G = {
   serving: 0, servings: 0, plate: 0, plates: 0, portion: 0, portions: 0
 };
 
+/* The barcodes this build can resolve. Three, and that is the honest number:
+   a barcode is a lookup into a database of millions and this app carries a
+   table of eight, so the scan sheet has to be able to say "not found" and
+   mean it. Packaged things only -- a plate of eggs and toast has no barcode,
+   and giving it one would be the same lie the Verified badge used to tell. */
+const BARCODES = {
+  '5060123456789': 'skyr',
+  '5012345678900': 'shake',
+  '5000112345678': 'pancakes'
+};
+for (const [code, k] of Object.entries(BARCODES)) {
+  if (!FOODS[k]) throw new Error('barcode for a food that does not exist: ' + k);
+  if (!/^[0-9]{8,14}$/.test(code)) throw new Error('not a barcode: ' + code);
+  FOODS[k].barcode = code;
+}
+
 /* Every food has to carry all of it, or a screen reading a micronutrient
    gets undefined and prints NaN. */
 for (const [k, f] of Object.entries(FOODS)) {
@@ -404,6 +420,7 @@ const nutrition = {
   targets: TARGETS,
   microRef: MICRO_REF,
   unitG: UNIT_G,
+  barcodes: BARCODES,
   foods: FOODS,
   days: nutritionDays,
   /* Kept for anything still reading a bare array of the last fourteen. */
