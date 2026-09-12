@@ -81,7 +81,11 @@ const MANIFEST = {
        index, which pushes; the one tap that led to it from a screen was
        declared as a tab and there is no Progress tab, so it wrote a route
        nothing owned and the app went blank. */
-    progress: { parent: 'home' }
+    progress: { parent: 'home' },
+    /* Three surfaces the rebuild cut -- the Weekly Recap, the month
+       calendar and a daily view the old app never had -- restored as one
+       screen with three segments, so Home gains one row rather than three. */
+    recap: { parent: 'home', backSelector: '[data-testid="back"]' }
   },
 
   /* Taps that leave a screen. Selector is matched with closest() inside the
@@ -92,6 +96,10 @@ const MANIFEST = {
     { from: 'home', selector: '[data-testid="action-choose-session"]', to: 'train', mode: 'tab' },
     { from: 'home', selector: '[data-testid="row-last-session"]', to: 'train', mode: 'tab' },
     { from: 'home', selector: '[data-testid="row-climbing-lift"]', to: 'progress', mode: 'push' },
+    { from: 'home', selector: '[data-testid="row-recap"]', to: 'recap', mode: 'push' },
+    /* Every session row on the recap, at all three scales, opens that
+       session. Same destination as a history row on Train. */
+    { from: 'recap', selector: '[data-action="open-session"]', to: 'workout-detail', mode: 'push' },
     { from: 'train', selector: '[data-action="open-library"]', to: 'exercise-library', mode: 'push' },
     { from: 'train', selector: '[data-action="new-split"]', to: 'split-builder', mode: 'push' },
     { from: 'train', selector: '[data-action="edit-split"]', to: 'split-builder', mode: 'push' },
@@ -127,6 +135,7 @@ const MANIFEST = {
     { from: 'split-builder', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'workout-detail', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'review', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    { from: 'recap', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     /* Coach's "open this lift in Progress", and Train's session-picker day.
        Both toasted a sentence describing what a working button would do. */
     { from: 'coach', selector: '[data-act="target"]', to: 'progress', mode: 'push' },

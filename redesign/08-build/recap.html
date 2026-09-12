@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — Recap</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<script src="theme.js"></script>
+<script src="app.js"></script>
+<script src="chrome.js"></script>
+<script src="session.js"></script>
+</head>
+<body>
+<!--
+  RECAP — the three timescales, on one screen.
+
+  WHY IT EXISTS. Three separate surfaces were cut from the old app during the
+  rebuild, and the owner asked for all three back: the Weekly Recap (its own
+  full screen off Home), a daily overview (which the old app never had), and
+  the month calendar (cut from both Home and Progress). Rebuilding them as
+  three destinations would put three entries back on a Home that was rebuilt
+  to four blocks precisely because it had ten.
+
+  So they are one screen with three segments. Day, Week, Month is a zoom, not
+  a menu: the same training, read at three distances. One entrance from Home,
+  one back button, and the segment is the only control that changes the view.
+
+  WHAT THE OLD ONES GOT WRONG, AND WHAT IS DIFFERENT HERE.
+
+  - The Weekly Recap rounded total volume to whole "k" (v6 :26394), so any
+    week under 500 units displayed "0k". Volume here carries its real figure
+    and its unit, and only abbreviates above 10,000.
+  - The month calendar's day cells were non-interactive divs with a hover
+    tooltip (audited as "dead on touch"). Every day with a session is a real
+    button here, 44px, and opens that day.
+  - The old recap was a read-only wall. Each scale here ends in something to
+    do: the day opens its session, the week names the lift that moved, the
+    month opens any day you tap.
+
+  ONE ACCENT PER STATE, on the one action the scale offers. Numbers are
+  tabular and carry units. Dates are relative inside the week and absolute
+  outside it.
+
+  DATA: fixtures/seed-data.json — lk_history (22 sessions, 2026-07-30 to
+  2026-09-07), lk_weightLog, lk_prs. Today is Wed 9 Sep 2026, matching
+  home.html and train.html.
+-->
+
+<div class="stage">
+  <div class="phone">
+    <div class="screen" id="screen" data-testid="screen-recap" data-state="week">
+
+      <header class="hdr" data-scroll-edge="#body" id="hdr">
+        <button class="hdr__back" type="button" data-action="back" data-testid="back" aria-label="Back to Home">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 5l-7 7 7 7"/></svg>
+        </button>
+        <h1 class="hdr__title t-title-3">Recap</h1>
+      </header>
+
+      <!-- A landmark, not a bare div: the segment sits outside <main> so it
+           does not scroll away, and content outside every landmark is exactly
+           what axe's region rule is for. -->
+      <nav class="gutter mt-2" aria-label="Timescale">
+        <div class="seg" role="radiogroup" aria-label="Timescale" id="seg"></div>
+      </nav>
+
+      <main class="body" id="body" data-testid="recap-scroll" tabindex="-1"></main>
+
+      <!-- The live session, seen from here. Empty unless a workout is
+           running; it sits between the content and the bottom of the
+           screen rather than over it, so nothing it says costs a row. -->
+      <div id="shelf-slot"></div>
+
+      <div id="overlay" data-testid="overlay"></div>
+      <div id="live" class="vis-hidden" role="status" aria-live="polite"></div>
+
+    </div>
+  </div>
+</div>
+
+<div class="dev">
+  <button class="dev__toggle" id="dev-toggle" aria-expanded="false" aria-controls="dev-menu" data-testid="dev-toggle">State</button>
+  <div class="dev__menu" id="dev-menu" hidden data-testid="dev-menu"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var TODAY = '2026-09-09';
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  var ICO = {
+    chev: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg>',
+    lift: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/></svg>',
+    flame:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3c0 4-4 5-4 9a4 4 0 0 0 8 0c0-2-1-3-1-5 2 1 3 3 3 5a6 6 0 0 1-12 0c0-5 6-6 6-9z"/></svg>',
+    star: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 4l2.4 5.2 5.6.7-4.1 3.9 1.1 5.6-5-2.9-5 2.9 1.1-5.6L4 9.9l5.6-.7z"/></svg>'
+  };
+
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function n(v) { return '<span class="num">' + esc(v) + '</span>'; }
+
+  /* Volume, with its unit, never rounded into a lie. The old recap divided by
+     a thousand and floored, so a 480 kg week read "0k" — the figure that most
+     needed to look like progress was the one guaranteed to read as nothing. */
+  function vol(kg) {
+    /* The unit is joined with a non-breaking space and kept inside the
+       number, because at hero size "14.4k kg" broke after the figure and
+       the card read "14.4" on one line and "k kg" on the next. */
+    if (kg >= 10000) return n((kg / 1000).toFixed(1) + 'k\u00A0kg');
+    return n(kg.toLocaleString('en-GB') + '\u00A0kg');
+  }
+
+  /* ---------------------------------------------------------------
+     Data. lk_history, inlined from tests/fixtures/seed-data.json.
+     --------------------------------------------------------------- */
+  var HISTORY = [
+    { d: '2026-09-07', name: 'PPL - Legs',  sets: 16, vol: 14363, min: 52, kind: 'lifting' },
+    { d: '2026-09-06', name: 'PPL - Pull',  sets: 15, vol: 11880, min: 48, kind: 'lifting' },
+    { d: '2026-09-05', name: 'PPL - Push',  sets: 14, vol:  9940, min: 44, kind: 'lifting' },
+    { d: '2026-09-03', name: 'PPL - Legs',  sets: 16, vol: 14020, min: 51, kind: 'lifting' },
+    { d: '2026-09-02', name: 'Treadmill run', sets: 0, vol: 0, min: 30, km: 5.2, cal: 340, kind: 'cardio' },
+    { d: '2026-08-31', name: 'PPL - Pull',  sets: 15, vol: 11640, min: 47, kind: 'lifting' },
+    { d: '2026-08-30', name: 'Rowing erg',  sets: 0, vol: 0, min: 20, km: 4.6, cal: 230, kind: 'cardio' },
+    { d: '2026-08-29', name: 'PPL - Push',  sets: 14, vol:  9820, min: 45, kind: 'lifting' },
+    { d: '2026-08-27', name: 'PPL - Legs',  sets: 16, vol: 13800, min: 50, kind: 'lifting' },
+    { d: '2026-08-26', name: 'PPL - Pull',  sets: 15, vol: 11500, min: 46, kind: 'lifting' },
+    { d: '2026-08-24', name: 'PPL - Push',  sets: 14, vol:  9700, min: 44, kind: 'lifting' },
+    { d: '2026-08-23', name: 'Walking',     sets: 0, vol: 0, min: 45, km: 4.0, cal: 210, kind: 'cardio' },
+    { d: '2026-08-22', name: 'PPL - Legs',  sets: 16, vol: 13540, min: 50, kind: 'lifting' },
+    { d: '2026-08-20', name: 'PPL - Pull',  sets: 15, vol: 11320, min: 46, kind: 'lifting' },
+    { d: '2026-08-19', name: 'PPL - Push',  sets: 14, vol:  9560, min: 43, kind: 'lifting' },
+    { d: '2026-08-17', name: 'PPL - Legs',  sets: 16, vol: 13280, min: 49, kind: 'lifting' },
+    { d: '2026-08-16', name: 'Upright bike', sets: 0, vol: 0, min: 25, km: 9.0, cal: 240, kind: 'cardio' },
+    { d: '2026-08-15', name: 'PPL - Pull',  sets: 15, vol: 11100, min: 45, kind: 'lifting' },
+    { d: '2026-08-13', name: 'PPL - Push',  sets: 14, vol:  9420, min: 43, kind: 'lifting' },
+    { d: '2026-08-10', name: 'PPL - Legs',  sets: 16, vol: 13020, min: 48, kind: 'lifting' },
+    { d: '2026-08-06', name: 'PPL - Pull',  sets: 15, vol: 10880, min: 44, kind: 'lifting' },
+    { d: '2026-07-30', name: 'PPL - Push',  sets: 14, vol:  9280, min: 42, kind: 'lifting' }
+  ];
+
+  /* The day the owner is reading. Today is a rest day in this fixture, which
+     is the more useful default: a recap that only works on a training day is
+     a recap you cannot check on Sunday. */
+  var DAY = {
+    d: TODAY,
+    trained: null,
+    kcal: 2180, kcalTarget: 2400,
+    protein: 168, proteinTarget: 170,
+    carbs: 214, fat: 71,
+    waterMl: 1750, waterGoalMl: 3000,
+    steps: 7420,
+    weightKg: 64.2,
+    supps: [{ name: 'Creatine', taken: true }, { name: 'Vitamin D', taken: true }, { name: 'Omega 3', taken: false }],
+    felt: 'Good',
+    note: 'Rest day. Legs still heavy from Monday.'
+  };
+
+  var PRS = [
+    { lift: 'Barbell Squat', kg: 102.5, when: '2026-09-07' },
+    { lift: 'Barbell Bench Press', kg: 87.5, when: '2026-09-05' }
+  ];
+
+  var WEIGHT = [
+    { d: '2026-07-27', kg: 65.3 }, { d: '2026-08-03', kg: 65.3 },
+    { d: '2026-08-10', kg: 64.9 }, { d: '2026-08-17', kg: 64.7 },
+    { d: '2026-08-24', kg: 64.6 }, { d: '2026-08-31', kg: 64.4 },
+    { d: '2026-09-07', kg: 64.2 }
+  ];
+
+  /* ---------------------------------------------------------------
+     Dates. Everything is an ISO string; nothing constructs a Date from
+     one, because "2026-09-09" parses as UTC and a phone west of
+     Greenwich then reads it as the eighth.
+     --------------------------------------------------------------- */
+  function parts(iso) { var a = iso.split('-'); return { y: +a[0], m: +a[1], d: +a[2] }; }
+  function dowOf(iso) {
+    var p = parts(iso);
+    return new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay();
+  }
+  function addDays(iso, k) {
+    var p = parts(iso);
+    var t = new Date(Date.UTC(p.y, p.m - 1, p.d + k));
+    return t.toISOString().slice(0, 10);
+  }
+  function pretty(iso) {
+    var p = parts(iso);
+    return DOW[dowOf(iso)] + ' ' + p.d + ' ' + MONTHS[p.m - 1];
+  }
+  /* Monday-start. The old app hardcoded Sunday with no option; the fixture's
+     own weeks are read Monday to Sunday everywhere else in this build. */
+  function weekStart(iso) {
+    var w = dowOf(iso);
+    return addDays(iso, w === 0 ? -6 : 1 - w);
+  }
+  function daysIn(y, m) { return new Date(Date.UTC(y, m, 0)).getUTCDate(); }
+
+  function sessionsOn(iso) {
+    return HISTORY.filter(function (h) { return h.d === iso; });
+  }
+  function between(a, b) {
+    return HISTORY.filter(function (h) { return h.d >= a && h.d <= b; });
+  }
+
+  /* ---------------------------------------------------------------
+     State
+     --------------------------------------------------------------- */
+  var S = {
+    scale: 'week',        /* day | week | month */
+    day: TODAY,
+    weekOf: weekStart(TODAY),
+    month: '2026-09',
+    status: 'ready',      /* ready | loading | error */
+    sheet: null,
+    toast: null
+  };
+
+  var SCALES = [['day', 'Day'], ['week', 'Week'], ['month', 'Month']];
+
+  /* ---------------------------------------------------------------
+     Building blocks
+     --------------------------------------------------------------- */
+  function head(left, right) {
+    return '<div class="listhead"><h2 class="t-label">' + left + '</h2>' +
+      (right ? '<span class="t-meta">' + right + '</span>' : '') + '</div>';
+  }
+  function card(inner, cls) { return '<div class="card ' + (cls || '') + ' gutter">' + inner + '</div>'; }
+  function listCard(rows) { return '<div class="card card--flush gutter">' + rows.join('') + '</div>'; }
+
+  function statRow(items) {
+    return '<div class="statrow">' + items.map(function (s) {
+      return '<div class="statrow__i"><span class="statrow__n">' + s[0] + '</span>' +
+        '<span class="statrow__l">' + esc(s[1]) + '</span></div>';
+    }).join('') + '</div>';
+  }
+
+  function sessionRow(h, showDate) {
+    return '<button class="row" type="button" data-action="open-session" data-d="' + h.d +
+        '" data-testid="row-session-' + h.d + '">' +
+      '<span class="ico-well">' + (h.kind === 'cardio' ? ICO.flame : ICO.lift) + '</span>' +
+      '<span class="row__main stack">' +
+        '<span class="row__title">' + esc(h.name) + '</span>' +
+        '<span class="row__sub">' +
+          (h.kind === 'cardio'
+            ? n(h.min) + ' min · ' + n(h.km) + ' km · ' + n(h.cal) + ' kcal'
+            : n(h.sets) + ' sets · ' + vol(h.vol) + ' · ' + n(h.min) + ' min') +
+        '</span>' +
+      '</span>' +
+      (showDate ? '<span class="row__value t-meta">' + esc(pretty(h.d).slice(0, 3)) + '</span>' : '') +
+      '<span class="row__chev">' + ICO.chev + '</span>' +
+    '</button>';
+  }
+
+  /* A bar per day of the week or per week of the month. The tallest carries
+     --text; the rest are quiet. One scale, labels that name real values. */
+  function bars(series, max) {
+    var top = Math.max.apply(null, series.map(function (s) { return s.v; }).concat([1]));
+    return '<div class="bars" role="img" aria-label="' + esc(max) + '">' +
+      series.map(function (s) {
+        var pct = Math.round(s.v / top * 100);
+        return '<div class="bars__col">' +
+          '<div class="bars__track"><div class="bars__fill' + (s.v === top && s.v > 0 ? ' is-top' : '') +
+            '" style="height:' + Math.max(s.v > 0 ? 6 : 0, pct) + '%"></div></div>' +
+          '<span class="bars__lab">' + esc(s.l) + '</span></div>';
+      }).join('') + '</div>';
+  }
+
+  /* ---------------------------------------------------------------
+     DAY — the scale the old app never had.
+
+     Reads as an answer to "what did I actually do today", in the order a
+     person asks it: did I train, did I eat, did I take what I said I would,
+     how did it feel.
+     --------------------------------------------------------------- */
+  function viewDay() {
+    var today = sessionsOn(S.day);
+    var isToday = S.day === TODAY;
+    var out = '';
+
+    out += '<div class="daynav gutter mt-3">' +
+      '<button class="iconbtn" type="button" data-action="day-prev" data-testid="day-prev" aria-label="Previous day">' +
+        '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 5l-7 7 7 7"/></svg></button>' +
+      '<span class="daynav__t t-title-3">' + (isToday ? 'Today' : esc(pretty(S.day))) + '</span>' +
+      '<button class="iconbtn" type="button" data-action="day-next" data-testid="day-next" aria-label="Next day"' +
+        (S.day >= TODAY ? ' disabled' : '') + '>' +
+        '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg></button>' +
+    '</div>';
+
+    /* Training. A rest day is a state, not an absence, so it is said rather
+       than left blank. */
+    out += head('Training');
+    if (today.length) out += listCard(today.map(function (h) { return sessionRow(h, false); }));
+    else out += card('<p class="t-body">Rest day.</p><p class="t-detail muted mt-1">' +
+      'Last session ' + esc(pretty(HISTORY[0].d)) + ', ' + esc(HISTORY[0].name) + '.</p>', 'card--sunken');
+
+    /* Fuel. The ring is the day's calories against target; protein gets its
+       own line because it is the figure people actually chase. */
+    var kpct = Math.min(100, Math.round(DAY.kcal / DAY.kcalTarget * 100));
+    var ppct = Math.min(100, Math.round(DAY.protein / DAY.proteinTarget * 100));
+    out += head('Fuel', n(DAY.kcal) + ' of ' + n(DAY.kcalTarget) + ' kcal');
+    out += card(
+      '<div class="meter"><div class="meter__fill" style="width:' + kpct + '%"></div></div>' +
+      '<p class="t-detail muted mt-2">' + n(DAY.kcalTarget - DAY.kcal) + ' kcal left</p>' +
+      '<div class="meter meter--quiet mt-3"><div class="meter__fill" style="width:' + ppct + '%"></div></div>' +
+      '<p class="t-detail muted mt-2">Protein ' + n(DAY.protein) + ' of ' + n(DAY.proteinTarget) + ' g</p>' +
+      statRow([[n(DAY.carbs) + ' g', 'Carbs'], [n(DAY.fat) + ' g', 'Fat'],
+               [n((DAY.waterMl / 1000).toFixed(1)) + ' L', 'Water']]));
+
+    /* Supplements, body weight and how it felt: three one-line facts that
+       each took a tap to log and should take none to read back. */
+    var took = DAY.supps.filter(function (s) { return s.taken; }).length;
+    out += head('Logged');
+    out += listCard([
+      '<div class="row row--static"><span class="row__main stack">' +
+        '<span class="row__title">Supplements</span>' +
+        '<span class="row__sub">' + DAY.supps.map(function (s) {
+          return (s.taken ? '' : '<span class="muted">') + esc(s.name) + (s.taken ? '' : '</span>');
+        }).join(' · ') + '</span></span>' +
+        '<span class="row__value">' + n(took) + ' of ' + n(DAY.supps.length) + '</span></div>',
+      '<div class="row row--static"><span class="row__main stack">' +
+        '<span class="row__title">Body weight</span>' +
+        '<span class="row__sub">' + esc(pretty(WEIGHT[WEIGHT.length - 1].d)) + '</span></span>' +
+        '<span class="row__value">' + n(DAY.weightKg) + ' kg</span></div>',
+      '<div class="row row--static"><span class="row__main stack">' +
+        '<span class="row__title">How it felt</span>' +
+        '<span class="row__sub">' + esc(DAY.note) + '</span></span>' +
+        '<span class="row__value">' + esc(DAY.felt) + '</span></div>'
+    ]);
+
+    return out;
+  }
+
+  /* ---------------------------------------------------------------
+     WEEK — the revived Weekly Recap.
+     --------------------------------------------------------------- */
+  function viewWeek() {
+    var a = S.weekOf, b = addDays(a, 6);
+    var rows = between(a, b);
+    var lifts = rows.filter(function (h) { return h.kind !== 'cardio'; });
+    var cardio = rows.filter(function (h) { return h.kind === 'cardio'; });
+    var totalVol = lifts.reduce(function (m, h) { return m + h.vol; }, 0);
+    var totalSets = lifts.reduce(function (m, h) { return m + h.sets; }, 0);
+    var totalMin = rows.reduce(function (m, h) { return m + h.min; }, 0);
+
+    /* The week before, for the comparison the old recap never drew. */
+    var pa = addDays(a, -7), pb = addDays(a, -1);
+    var prev = between(pa, pb).filter(function (h) { return h.kind !== 'cardio'; });
+    var prevVol = prev.reduce(function (m, h) { return m + h.vol; }, 0);
+    var delta = prevVol ? Math.round((totalVol - prevVol) / prevVol * 100) : null;
+
+    var isThis = a === weekStart(TODAY);
+    var out = '';
+
+    out += '<div class="daynav gutter mt-3">' +
+      '<button class="iconbtn" type="button" data-action="week-prev" data-testid="week-prev" aria-label="Previous week">' +
+        '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 5l-7 7 7 7"/></svg></button>' +
+      '<span class="daynav__t t-title-3">' + (isThis ? 'This week' : esc(pretty(a).slice(4) + ' – ' + pretty(b).slice(4))) + '</span>' +
+      '<button class="iconbtn" type="button" data-action="week-next" data-testid="week-next" aria-label="Next week"' +
+        (isThis ? ' disabled' : '') + '>' +
+        '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg></button>' +
+    '</div>';
+
+    if (!rows.length) {
+      out += card('<p class="t-body">Nothing logged this week.</p>' +
+        '<p class="t-detail muted mt-1">Sessions you finish show up here with their volume and time.</p>', 'card--sunken');
+      return out;
+    }
+
+    /* The hero figures. Volume carries its unit and its real number; the
+       old recap's "0k" came from flooring this into thousands. */
+    out += head('The week', n(rows.length) + (rows.length === 1 ? ' session' : ' sessions'));
+    out += card(
+      '<p class="hero num" data-testid="week-volume">' + vol(totalVol) + '</p>' +
+      '<p class="t-detail muted">total volume' +
+        (delta === null ? '' : ' · ' + (delta >= 0 ? '+' : '') + n(delta) + '% on last week') + '</p>' +
+      statRow([[n(totalSets), 'Sets'], [n(totalMin) + ' min', 'Time'],
+               [n(lifts.length) + '/' + n(rows.length), 'Lifting']]));
+
+    /* Volume per day. Seven bars, one per day, Monday first. */
+    var series = [];
+    for (var i = 0; i < 7; i++) {
+      var d = addDays(a, i);
+      var v = between(d, d).reduce(function (m, h) { return m + h.vol; }, 0);
+      series.push({ l: DOW[dowOf(d)].charAt(0), v: v, d: d });
+    }
+    out += head('Volume by day');
+    out += card(bars(series, 'Volume by day, ' + vol(totalVol) + ' across the week'));
+
+    if (cardio.length) {
+      out += head('Cardio', n(cardio.reduce(function (m, h) { return m + h.min; }, 0)) + ' min');
+      out += listCard(cardio.map(function (h) { return sessionRow(h, true); }));
+    }
+
+    var weekPrs = PRS.filter(function (p) { return p.when >= a && p.when <= b; });
+    if (weekPrs.length) {
+      out += head('Records', n(weekPrs.length));
+      out += listCard(weekPrs.map(function (p) {
+        return '<div class="row row--static"><span class="ico-well">' + ICO.star + '</span>' +
+          '<span class="row__main stack"><span class="row__title">' + esc(p.lift) + '</span>' +
+          '<span class="row__sub">' + esc(pretty(p.when)) + '</span></span>' +
+          '<span class="row__value">' + n(p.kg) + ' kg</span></div>';
+      }));
+    }
+
+    out += head('Sessions');
+    out += listCard(rows.map(function (h) { return sessionRow(h, true); }));
+    return out;
+  }
+
+  /* ---------------------------------------------------------------
+     MONTH — the calendar, rebuilt as controls.
+
+     The audited one was 338px of non-interactive divs with a hover tooltip.
+     Every day that has a session is a button here; empty days are static
+     text, because a control that does nothing is worse than no control.
+     --------------------------------------------------------------- */
+  function viewMonth() {
+    var p = parts(S.month + '-01');
+    var total = daysIn(p.y, p.m);
+    var first = dowOf(S.month + '-01');
+    var lead = first === 0 ? 6 : first - 1;           /* Monday-start */
+    var isThis = S.month === TODAY.slice(0, 7);
+
+    var cells = '';
+    for (var i = 0; i < lead; i++) cells += '<span class="cal__pad" aria-hidden="true"></span>';
+    var monthRows = [];
+    for (var d = 1; d <= total; d++) {
+      var iso = S.month + '-' + (d < 10 ? '0' : '') + d;
+      var on = sessionsOn(iso);
+      if (on.length) monthRows = monthRows.concat(on);
+      var isToday = iso === TODAY;
+      var future = iso > TODAY;
+      var mark = on.length
+        ? '<span class="cal__dot' + (on.every(function (h) { return h.kind === 'cardio'; }) ? ' cal__dot--cardio' : '') + '"></span>'
+        : '';
+      if (on.length) {
+        cells += '<button class="cal__d" type="button" data-action="open-day" data-d="' + iso +
+          '" data-testid="cal-' + iso + '" aria-label="' + esc(pretty(iso)) + ', ' +
+          on.map(function (h) { return esc(h.name); }).join(' and ') + '"' +
+          (isToday ? ' data-today="true"' : '') + '>' +
+          '<span class="cal__n num">' + d + '</span>' + mark + '</button>';
+      } else {
+        cells += '<span class="cal__d cal__d--empty' + (isToday ? '" data-today="true' : '') +
+          (future ? ' cal__d--future' : '') + '"><span class="cal__n num">' + d + '</span></span>';
+      }
+    }
+
+    var lifts = monthRows.filter(function (h) { return h.kind !== 'cardio'; });
+    var mv = lifts.reduce(function (m, h) { return m + h.vol; }, 0);
+
+    var out = '';
+    out += '<div class="daynav gutter mt-3">' +
+      '<button class="iconbtn" type="button" data-action="month-prev" data-testid="month-prev" aria-label="Previous month">' +
+        '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 5l-7 7 7 7"/></svg></button>' +
+      '<span class="daynav__t t-title-3">' + MONTHS[p.m - 1] + ' ' + n(p.y) + '</span>' +
+      '<button class="iconbtn" type="button" data-action="month-next" data-testid="month-next" aria-label="Next month"' +
+        (isThis ? ' disabled' : '') + '>' +
+        '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg></button>' +
+    '</div>';
+
+    out += '<div class="card card--cal">' +
+      '<div class="cal__dow" aria-hidden="true">' +
+        ['M','T','W','T','F','S','S'].map(function (x) { return '<span>' + x + '</span>'; }).join('') +
+      '</div>' +
+      '<div class="cal" role="group" aria-label="' + MONTHS[p.m - 1] + ' ' + p.y + ', ' +
+        monthRows.length + ' sessions">' + cells + '</div>' +
+    '</div>';
+
+    out += head('This month', n(monthRows.length) + (monthRows.length === 1 ? ' session' : ' sessions'));
+    out += card(statRow([[vol(mv), 'Volume'],
+      [n(lifts.reduce(function (m, h) { return m + h.sets; }, 0)), 'Sets'],
+      [n(monthRows.reduce(function (m, h) { return m + h.min; }, 0)) + ' min', 'Time']]));
+
+    if (!monthRows.length) {
+      out += card('<p class="t-body">Nothing logged this month.</p>', 'card--sunken');
+    }
+    return out;
+  }
+
+  /* ---------------------------------------------------------------
+     Render
+     --------------------------------------------------------------- */
+  var screen = document.getElementById('screen');
+  var body = document.getElementById('body');
+  var seg = document.getElementById('seg');
+  var overlay = document.getElementById('overlay');
+  var live = document.getElementById('live');
+
+  function say(m) { live.textContent = m; }
+
+  function segHTML() {
+    return SCALES.map(function (s) {
+      return '<button class="seg__item" type="button" role="radio" aria-checked="' + (S.scale === s[0]) +
+        '" data-action="scale" data-scale="' + s[0] + '" data-testid="scale-' + s[0] + '">' + s[1] + '</button>';
+    }).join('');
+  }
+
+  function viewLoading() {
+    return '<div class="gutter mt-4" data-testid="state-loading">' +
+      '<div class="skel" style="height: var(--sp-3); width: 35%"></div>' +
+      '<div class="skel mt-3" style="height: var(--tap)"></div>' +
+      '<div class="skel mt-3" style="height: var(--sp-6); width: 55%"></div>' +
+      '<div class="skel mt-3" style="height: 7.5rem"></div>' +
+      '<div class="skel mt-3" style="height: var(--tap)"></div></div>';
+  }
+  function viewError() {
+    return '<div class="gutter mt-4" data-testid="state-error">' +
+      '<div class="banner banner--error">' +
+        '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/></svg>' +
+        '<span><strong>The recap did not load</strong>Your sessions are still on this device.</span></div>' +
+      '<button class="btn btn--primary btn--block mt-4" type="button" data-action="retry" data-testid="retry">' +
+        '<span class="btn__label">Try again</span></button></div>';
+  }
+
+  function bodyHTML() {
+    if (S.status === 'loading') return viewLoading();
+    if (S.status === 'error') return viewError();
+    if (S.scale === 'day') return viewDay();
+    if (S.scale === 'month') return viewMonth();
+    return viewWeek();
+  }
+
+  function sheetHTML() {
+    if (!S.sheet) return '';
+    var on = sessionsOn(S.sheet);
+    return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sh-t" data-testid="sheet-day" data-detents="auto">' +
+        '<div class="sheet__grab" aria-hidden="true"></div>' +
+        '<div class="sheet__head"><h2 class="t-title-3" id="sh-t">' + esc(pretty(S.sheet)) + '</h2>' +
+          '<button class="iconbtn" type="button" data-action="close" data-testid="sheet-close" aria-label="Close">' +
+            '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
+        '<div class="sheet__body">' +
+          (on.length ? listCard(on.map(function (h) { return sessionRow(h, false); }))
+                     : '<p class="t-body gutter">Nothing logged.</p>') +
+          '<button class="btn btn--secondary btn--block gutter mt-3" type="button" data-action="see-day" ' +
+            'data-testid="see-day"><span class="btn__label">Open this day</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function render(opts) {
+    opts = opts || {};
+    screen.setAttribute('data-state', S.status === 'ready' ? S.scale : S.status);
+    LKPatch(seg, segHTML());
+    LKPatch(body, bodyHTML());
+    LKPatch(overlay, sheetHTML());
+    if (window.LKChrome) LKChrome.init(document);
+    if (opts.scrollTop) body.scrollTop = 0;
+    Array.prototype.forEach.call(document.querySelectorAll('.dev__item'), function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.state === (S.status === 'ready' ? S.scale : S.status)));
+    });
+  }
+
+  /* ---------------------------------------------------------------
+     Actions
+     --------------------------------------------------------------- */
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!t || t.disabled) return;
+    var a = t.getAttribute('data-action');
+
+    if (a === 'back') { location.href = 'home.html'; return; }
+    if (a === 'scale') {
+      S.scale = t.getAttribute('data-scale');
+      render({ scrollTop: true });
+      say(SCALES.filter(function (s) { return s[0] === S.scale; })[0][1] + ' view');
+      return;
+    }
+    if (a === 'day-prev') { S.day = addDays(S.day, -1); render(); say(pretty(S.day)); return; }
+    if (a === 'day-next') { if (S.day < TODAY) { S.day = addDays(S.day, 1); render(); say(pretty(S.day)); } return; }
+    if (a === 'week-prev') { S.weekOf = addDays(S.weekOf, -7); render(); return; }
+    if (a === 'week-next') { if (S.weekOf < weekStart(TODAY)) { S.weekOf = addDays(S.weekOf, 7); render(); } return; }
+    if (a === 'month-prev') {
+      var p = parts(S.month + '-01');
+      var m = p.m - 1, y = p.y; if (m < 1) { m = 12; y--; }
+      S.month = y + '-' + (m < 10 ? '0' : '') + m; render(); return;
+    }
+    if (a === 'month-next') {
+      var q = parts(S.month + '-01');
+      var m2 = q.m + 1, y2 = q.y; if (m2 > 12) { m2 = 1; y2++; }
+      var next = y2 + '-' + (m2 < 10 ? '0' : '') + m2;
+      if (next <= TODAY.slice(0, 7)) { S.month = next; render(); }
+      return;
+    }
+    if (a === 'open-day') { S.sheet = t.getAttribute('data-d'); render(); return; }
+    if (a === 'see-day') { S.day = S.sheet; S.sheet = null; S.scale = 'day'; render({ scrollTop: true }); return; }
+    if (a === 'open-session') { location.href = 'workout-detail.html'; return; }
+    if (a === 'close') { S.sheet = null; render(); return; }
+    if (a === 'retry') {
+      S.status = 'loading'; render();
+      setTimeout(function () { S.status = 'ready'; render(); }, 700);
+      return;
+    }
+  });
+
+  /* ---------------------------------------------------------------
+     Dev states
+     --------------------------------------------------------------- */
+  var PRESETS = [
+    ['day', 'Day'], ['week', 'Week'], ['month', 'Month'],
+    ['empty-week', 'Week: nothing logged'],
+    ['loading', 'Loading'], ['error', 'Error']
+  ];
+  var menu = document.getElementById('dev-menu');
+  var toggle = document.getElementById('dev-toggle');
+  LKPatch(menu, PRESETS.map(function (p) {
+    return '<button class="dev__item" type="button" data-state="' + p[0] +
+      '" aria-pressed="false" data-testid="dev-state-' + p[0] + '">' + p[1] + '</button>';
+  }).join(''));
+  toggle.addEventListener('click', function () {
+    var open = toggle.getAttribute('aria-expanded') === 'true';
+    toggle.setAttribute('aria-expanded', String(!open));
+    menu.hidden = open;
+  });
+  menu.addEventListener('click', function (e) {
+    var b = e.target.closest('.dev__item');
+    if (!b) return;
+    var st = b.dataset.state;
+    S.status = 'ready'; S.sheet = null;
+    S.day = TODAY; S.weekOf = weekStart(TODAY); S.month = TODAY.slice(0, 7);
+    if (st === 'loading' || st === 'error') S.status = st;
+    else if (st === 'empty-week') { S.scale = 'week'; S.weekOf = '2026-07-06'; }
+    else S.scale = st;
+    render({ scrollTop: true });
+  });
+
+  /* The running workout, from a screen that is not it. */
+  if (window.LKSession) {
+    LKSession.mount(document.getElementById('shelf-slot'),
+      typeof LKPatch === 'function' ? LKPatch : null);
+    document.addEventListener('click', function (e) {
+      var el = e.target.closest ? e.target.closest('[data-testid="shelf-resume"]') : null;
+      if (el) { e.preventDefault(); location.href = 'workout-log.html'; }
+    });
+  }
+
+  var q = new URLSearchParams(location.search);
+  var want = q.get('state');
+  if (want && ['day','week','month'].indexOf(want) >= 0) S.scale = want;
+  render();
+  window.__ready = true;
+})();
+</script>
+</body>
+</html>
