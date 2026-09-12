@@ -46,13 +46,14 @@ media-retry             open                    retry                   save-cus
 try                     undo
 ```
 
-**fuel.html** — 21
+**fuel.html** — 26
 
 ```
 ' + c[0] +
           '  cam                     cam-log                 cam-oil                 close
-log-often               meal                    meal-delete             meal-portion            meals
-mic                     mic-log                 retry                   scan                    scan-log
+log-often               log-recipe              meal                    meal-delete             meal-portion
+meals                   mic                     mic-log                 new-recipe              open-recipe
+plan-log                recipes-back            retry                   scan                    scan-log
 supp                    targets                 targets-save            undo                    water-add
 water-sub
 ```
@@ -63,12 +64,22 @@ water-sub
 retry                   settings                signup                  start
 ```
 
-**progress.html** — 15
+**progress.html** — 22
 
 ```
-add-goal                close-sheet             dismiss-toast           log-record              log-weight
-open-goals              open-picker             open-weight             pick-lift               range
-retry                   save-goal               save-record             show-cached             start-workout
+add-goal                add-photo               analyse                 analyse-go              analyse-no
+close-sheet             del-photo               dismiss-toast           log-record              log-weight
+open-goals              open-photo              open-photos             open-picker             open-weight
+pick-lift               range                   retry                   save-goal               save-record
+show-cached             start-workout
+```
+
+**recap.html** — 13
+
+```
+back                    close                   day-next                day-prev                month-next
+month-prev              open-day                open-session            retry                   scale
+see-day                 week-next               week-prev
 ```
 
 **settings.html** — 15
@@ -105,6 +116,16 @@ manual-back             move-' + kind + '       open-swap               pick-add
 save                    split-name              toast-action
 ```
 
+**stack.html** — 23
+
+```
+add-comp                add-cycle               back                    cancel                  cancel-presets
+cp-cat                  cp-freq                 cp-route                del-comp                delete
+edit                    enable                  end                     open                    open-comp
+pr-cat                  presets                 reopen                  retry                   save-comp
+save-cycle              take                    use-preset
+```
+
 **train.html** — 18
 
 ```
@@ -112,6 +133,12 @@ back                    cardio-cancel           cardio-save             close-sh
 filter                  log-cardio              new-split               open-activities         open-history
 open-library            open-session            open-split              retry                   start-day
 start-today             undo                    use-cached
+```
+
+**tutorial.html** — 4
+
+```
+begin                   finish                  next                    skip
 ```
 
 **workout-detail.html** — 9
@@ -149,16 +176,19 @@ The selectors every test and every audit script addresses.
 | `coach.html` | 99 |
 | `cycle.html` | 43 |
 | `exercise-library.html` | 51 |
-| `fuel.html` | 68 |
-| `home.html` | 20 |
+| `fuel.html` | 79 |
+| `home.html` | 21 |
 | `onboarding.html` | 65 |
 | `profile.html` | 23 |
-| `progress.html` | 62 |
+| `progress.html` | 71 |
+| `recap.html` | 25 |
 | `review.html` | 47 |
 | `settings.html` | 31 |
 | `shopping.html` | 117 |
 | `split-builder.html` | 69 |
+| `stack.html` | 40 |
 | `train.html` | 52 |
+| `tutorial.html` | 12 |
 | `workout-detail.html` | 31 |
 | `workout-log.html` | 94 |
 | `app.js` | 1 |
@@ -167,11 +197,11 @@ The selectors every test and every audit script addresses.
 | `session.js` | 1 |
 | `theme.js` | 0 |
 
-## Storage keys — 5
+## Storage keys — 7
 
 ```
 lk_                       lk_badges                 lk_cycle                  lk_fuelNumbers
-lk_libBrowse
+lk_libBrowse              lk_perfTracking           lk_tutorialSeen
 ```
 
 ## Per-screen totals
@@ -184,16 +214,19 @@ five columns after them are.
 | `coach.html` | 1565 | 6 | 46 | 53 | 3 | 99 |
 | `cycle.html` | 662 | 5 | 16 | 19 | 6 | 43 |
 | `exercise-library.html` | 1629 | 7 | 22 | 31 | 4 | 51 |
-| `fuel.html` | 1022 | 5 | 21 | 38 | 3 | 68 |
-| `home.html` | 515 | 3 | 0 | 17 | 0 | 20 |
+| `fuel.html` | 1238 | 5 | 26 | 46 | 3 | 79 |
+| `home.html` | 530 | 3 | 0 | 18 | 0 | 21 |
 | `onboarding.html` | 1152 | 10 | 0 | 31 | 5 | 65 |
 | `profile.html` | 402 | 4 | 4 | 12 | 0 | 23 |
-| `progress.html` | 1057 | 6 | 15 | 26 | 6 | 62 |
+| `progress.html` | 1192 | 6 | 22 | 34 | 6 | 71 |
+| `recap.html` | 649 | 4 | 13 | 15 | 0 | 25 |
 | `review.html` | 1015 | 5 | 0 | 23 | 0 | 47 |
-| `settings.html` | 1049 | 5 | 15 | 23 | 4 | 31 |
+| `settings.html` | 1058 | 5 | 15 | 23 | 4 | 31 |
 | `shopping.html` | 1587 | 6 | 44 | 60 | 16 | 117 |
 | `split-builder.html` | 1179 | 12 | 28 | 36 | 4 | 69 |
+| `stack.html` | 735 | 5 | 23 | 28 | 3 | 40 |
 | `train.html` | 989 | 6 | 18 | 28 | 2 | 52 |
+| `tutorial.html` | 277 | 3 | 4 | 7 | 0 | 12 |
 | `workout-detail.html` | 536 | 4 | 9 | 12 | 1 | 31 |
 | `workout-log.html` | 1249 | 6 | 38 | 50 | 5 | 94 |
 | `app.js` | 708 | 0 | 0 | 0 | 1 | 1 |
@@ -201,4 +234,4 @@ five columns after them are.
 | `chrome.js` | 585 | 10 | 0 | 1 | 0 | 1 |
 | `session.js` | 211 | 2 | 1 | 1 | 0 | 1 |
 | `theme.js` | 67 | 1 | 0 | 0 | 0 | 0 |
-| **total** | **17622** | **107** | **277** | **462** | **60** | **875** |
+| **total** | **19658** | **119** | **329** | **529** | **63** | **973** |
