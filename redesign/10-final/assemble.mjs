@@ -42,7 +42,13 @@ const MANIFEST = {
      objects for every screen, exactly as the two stylesheets are one parsed
      copy adopted by every root. Order matters: bodymap.js reads the art at
      load and throws if it is not there yet. */
-  js: ['theme.js', 'app.js', 'chrome.js', 'vendor/body-art.js', 'bodymap.js'],
+  /* session.js and fixtures.js belong here for the same reason: they define
+     one global each (LKSession, LKFixtures) that sixteen screens read. Both
+     were linked by the standalone screens and missing from this list, so in
+     the demo every `if (window.LKSession)` guard failed silently and the
+     session shelf did not exist on any route. */
+  js: ['theme.js', 'app.js', 'chrome.js', 'vendor/body-art.js', 'bodymap.js',
+       'session.js', 'fixtures.js'],
 
   /* Files in srcDir that are not app screens. */
   exclude: [/^mockup-/],
@@ -116,7 +122,13 @@ const MANIFEST = {
     { from: 'coach', selector: '[data-testid="plan-start"]', to: 'train', mode: 'tab' },
     { from: 'home', selector: '[data-testid="open-account"]', to: 'settings', mode: 'push' },
     { from: 'train', selector: '[data-action="start-today"]', to: 'workout-log', mode: 'push' },
-    { from: 'workout-log', selector: '[data-testid="btn-finish"]', to: 'review', mode: 'push' },
+    /* endsSession: the router swallows this click before the screen's own
+       handler runs -- it has to, because that handler navigates with
+       location.href and would take the whole demo with it. But that handler is
+       also what ends the live session, so swallowing it left every route
+       offering to Resume the workout you had just finished. The router does
+       the ending itself instead. */
+    { from: 'workout-log', selector: '[data-testid="btn-finish"]', to: 'review', mode: 'push', endsSession: true },
     { from: 'fuel', selector: '[data-testid="chip-more"]', to: 'shopping', mode: 'push' },
     { from: 'progress', selector: '[data-testid="empty-action"]', to: 'train', mode: 'tab' },
     { from: 'profile', selector: '[data-testid="open-settings"]', to: 'settings', mode: 'push' },
@@ -641,6 +653,7 @@ const RUNTIME = String.raw`
         if (n.from !== rec.id) continue;
         if (hit(n.selector)) {
           e.preventDefault(); e.stopPropagation();
+          if (n.endsSession && window.LKSession) window.LKSession.end();
           if (n.mode === 'push') push(n.to); else goTab(n.to);
           return;
         }

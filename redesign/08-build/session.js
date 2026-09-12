@@ -159,23 +159,43 @@
     html: function () {
       var r = API.get();
       if (!r) return '';
+      var nm = String(r.name).replace(/&/g, '&amp;').replace(/</g, '&lt;');
       var count = r.total ? r.done + ' of ' + r.total + ' sets' : (r.done ? r.done + ' sets' : null);
-      var sub = r.stale
-        ? 'Left ' + r.idleText
-        : (count ? count + ' · ' + r.elapsedText : r.elapsedText);
-      var label = r.stale
-        ? 'Return to ' + r.name + ', left ' + r.idleText
-        : 'Return to ' + r.name + (count ? ', ' + r.done + ' of ' + r.total + ' exercises done' : '') +
-          ', ' + r.elapsedText + ' elapsed';
-      return '<button class="shelf" type="button" data-minimize data-action="resume" ' +
-          'data-testid="shelf-resume"' + (r.stale ? ' data-stale="true"' : '') +
-          ' aria-label="' + label.replace(/"/g, '&quot;') + '">' +
-        (r.stale ? '' : '<span class="shelf__live" aria-hidden="true"></span>') +
+      var inner =
         '<span class="shelf__main">' +
-          '<span class="shelf__title">' + String(r.name).replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</span>' +
-          '<span class="shelf__sub">' + sub + '</span>' +
-        '</span>' +
-        '<span class="shelf__action t-body-em" aria-hidden="true">' + (r.stale ? 'Finish' : 'Resume') + '</span>' +
+          '<span class="shelf__title">' + nm + '</span>' +
+          '<span class="shelf__sub">' + (r.stale ? 'Left ' + r.idleText
+            : (count ? count + ' · ' + r.elapsedText : r.elapsedText)) + '</span>' +
+        '</span>';
+
+      /* A session you walked away from gets TWO controls, not one.
+         It used to be a single button whose word said Finish and whose tap
+         went back into the log, where the first paint stamped updatedAt and
+         the five-hour-old session flipped back to live. The word did the
+         opposite of what it said. Now the strip carries the tap-back and a
+         real Finish that ends the record. */
+      if (r.stale) {
+        return '<div class="shelf" data-minimize data-stale="true" data-testid="shelf-stale">' +
+          '<button class="shelf__grab" type="button" data-action="resume" data-testid="shelf-resume" ' +
+            'aria-label="' + ('Return to ' + r.name + ', left ' + r.idleText).replace(/"/g, '&quot;') + '">' +
+            inner +
+          '</button>' +
+          '<button class="shelf__action t-body-em" type="button" data-action="shelf-finish" ' +
+            'data-testid="shelf-finish" aria-label="' +
+            ('Finish ' + r.name + ', left ' + r.idleText).replace(/"/g, '&quot;') + '">Finish</button>' +
+        '</div>';
+      }
+
+      /* Sets, not exercises. The visible sub-line and the log's own header
+         both count sets; saying "3 of 14 exercises" to a screen reader
+         described a five-exercise workout in the wrong unit. */
+      var label = 'Return to ' + r.name +
+        (count ? ', ' + r.done + ' of ' + r.total + ' sets done' : '') +
+        ', ' + r.elapsedText + ' elapsed';
+      return '<button class="shelf" type="button" data-minimize data-action="resume" ' +
+          'data-testid="shelf-resume" aria-label="' + label.replace(/"/g, '&quot;') + '">' +
+        '<span class="shelf__live" aria-hidden="true"></span>' + inner +
+        '<span class="shelf__action t-body-em" aria-hidden="true">Resume</span>' +
       '</button>';
     },
 
@@ -194,6 +214,18 @@
         put(slot, API.html());
       }
       paint();
+      /* Finish is handled here rather than in fifteen screens, so no screen
+         can mount the shelf and quietly leave its Finish inert. */
+      if (!API._finishWired) {
+        API._finishWired = true;
+        document.addEventListener('click', function (e) {
+          var b = e.target && e.target.closest ? e.target.closest('[data-testid="shelf-finish"]') : null;
+          if (!b) return;
+          e.preventDefault();
+          e.stopPropagation();
+          API.end();
+        }, true);
+      }
       var timer = window.setInterval(paint, 1000);
       API.onChange(paint);
       window.addEventListener('storage', function (e) {

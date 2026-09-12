@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
 <script src="theme.js"></script>
+<script src="fixtures.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 <script src="session.js"></script>
@@ -255,6 +256,7 @@
     S.pad = null; S.overlay = null; S.toast = null; S.swapAt = null;
     S.restRunning = false; S.restLeft = 0; S.aiBusyEx = -1; S.liftedEx = -1;
     S.tapCount = 0;
+    S.over = false;
     S.elapsed = 1261;
     if (name === 'first-set') {
       S.name = 'Quick Workout';
@@ -353,7 +355,7 @@
         '<button class="btn btn--sm ' + (S.exercises.length ? 'btn--primary' : 'btn--secondary') +
           '" type="button" data-act="finish" data-testid="btn-finish">Finish</button>' +
         '<div class="sess__meta">' +
-          '<span class="t-detail sess__time" data-testid="session-timer">' + n(hhmm(S.elapsed)) + '</span>' +
+          '<span class="t-detail sess__time" data-testid="session-timer">' + n(hhmm(elapsedSec())) + '</span>' +
           '<span class="t-detail muted" data-testid="session-sets">' + n(sets) + ' ' + (sets === 1 ? 'set' : 'sets') + '</span>' +
           '<span class="t-detail muted" data-testid="session-volume">' + n(vol.toLocaleString('en-US')) + ' ' + unitLabel() + '</span>' +
         '</div>' +
@@ -867,8 +869,22 @@
      change the session and remembering to write in all eighteen is a thing
      a person forgets once and loses a workout to. Painting is the one thing
      they all do. */
+  /* The one clock. The record's startedAt is the truth once a session is
+     running, and this screen reads it rather than counting: a counter of its
+     own restarted at the fixture's 21:01 on every load, so the header and the
+     shelf for the same session could sit four hours apart on screen. */
+  function elapsedSec() {
+    var r = window.LKSession && LKSession.get();
+    return r ? Math.floor(r.elapsed / 1000) : (S.elapsed || 0);
+  }
+
   function record() {
     if (!window.LKSession) return;
+    /* Finish and discard both end the session. Finish leaves the exercises on
+       screen, so without this the very next paint saw a full workout with no
+       record and started a brand new one -- every screen in the app then
+       offered to Resume the workout you had just finished. */
+    if (S.over) { return; }
     if (!S.exercises.length || S.state === 'empty') { LKSession.end(); return; }
     /* Seeded from the elapsed time already on screen the first time, so a
        session opened twenty-one minutes in does not restart its clock at
@@ -1093,6 +1109,7 @@
          is gone and it is not. The session empties and the screen says so;
          Undo is not offered, because the dialog already asked. */
       case 'discard-confirm':
+        S.over = true;
         S.overlay = null;
         S.exercises = [];
         S.blocks = [];
@@ -1108,6 +1125,7 @@
          it here is what stops a finished workout following you around the
          app on a shelf that says Resume. */
       case 'finish':
+        S.over = true;
         if (window.LKSession) LKSession.end();
         location.href = 'review.html';
         break;
@@ -1194,13 +1212,25 @@
     else if (S.overlay) { S.overlay = null; paint(); }
   });
 
+  /* The record can end from outside this screen -- the demo's router ends it
+     on Finish, because it has to swallow the click that would otherwise
+     navigate the whole demo away, and a stale shelf's Finish ends it from
+     another screen entirely. Either way this screen is now looking at a
+     workout that is over, and the next paint would helpfully start a brand
+     new session from the exercises still on the page. */
+  if (window.LKSession) {
+    LKSession.onChange(function (r) { if (!r) S.over = true; });
+  }
+
   /* Clocks. One interval, no per-row timers. */
   setInterval(function () {
     var dirty = false;
-    S.elapsed++;
+    /* Only the fallback counter ticks. With a record running, elapsed is
+       derived from startedAt and incrementing here would double-count. */
+    if (!(window.LKSession && LKSession.get())) S.elapsed++;
     if (S.restRunning && S.restLeft > 0) { S.restLeft--; dirty = true; if (S.restLeft === 0) { S.restRunning = false; say('Rest done'); } }
     var el = document.querySelector('[data-testid="session-timer"] .num');
-    if (el) el.textContent = hhmm(S.elapsed);
+    if (el) el.textContent = hhmm(elapsedSec());
     var rl = document.querySelector('[data-testid="rest-remaining"] .num');
     if (rl) rl.textContent = clock(S.restLeft);
     if (dirty && !S.restRunning) paint();

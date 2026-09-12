@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
 <script src="theme.js"></script>
+<script src="fixtures.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 <script src="session.js"></script>
@@ -126,43 +127,84 @@
      something. */
   /* A function, not a literal: the dev switcher rebuilds it so one state's
      edits do not leak into the next. */
-  function day() { return {
-    date: 'Mon 7 Sep',
-    target: 2980,
-    eaten: 1570,
-    goal: 'lean bulk',
-    weightKg: 78.3,
-    weekPct: 0.34,
-    macros: [
-      { name: 'Protein', have: 121, want: 160, unit: 'g', key: 'pro' },
-      { name: 'Carbs', have: 178, want: 380, unit: 'g', key: 'carb' },
-      { name: 'Fat', have: 58, want: 80, unit: 'g', key: 'fat' }
-    ],
-    meals: [
-      { icon: '🍳', name: 'Eggs, toast, butter', at: '8:05', pro: 38, carb: 46, fat: 24, kcal: 540, src: 'verified' },
-      { icon: '🥗', name: 'Chicken rice bowl', at: '12:40', pro: 52, carb: 84, fat: 16, kcal: 720, src: 'estimate' },
-      { icon: '🥤', name: 'Whey shake, banana', at: '3:15', pro: 31, carb: 38, fat: 4, kcal: 310, src: 'verified' }
-    ],
-    /* Not a target and not a nag: a pattern this person already has. */
-    closing: { at: '7:30', pro: 40 },
+  /* One source. Every figure below comes from window.LKFixtures, which is
+     generated from tests/fixtures/seed-data.json -- the same file Home,
+     Train, Recap, Progress and Settings read. This screen used to carry its
+     own literals, and the cross-screen audit found it showing a body weight
+     22% heavier than Settings and Progress, a calorie target 580 kcal from
+     Recap's for the same day, a date two days behind the rest of the app,
+     and macro bars carrying 10 g of carbs and 14 g of fat that belonged to
+     no meal on the list. */
+  var FX = window.LKFixtures || {};
+  var NUT = FX.nutrition || { targets: {}, foods: {}, days: {}, trend: [] };
+  var FOODS = NUT.foods;
 
-    waterMl: 1750,
-    waterGoalMl: 3000,
-    /* Taken, not "due": the app knows what was swallowed, not what was
-       intended. Timing is what the row says, because timing is the only
-       thing about a supplement that is worth a reminder. */
-    supps: [
-      { name: 'Creatine monohydrate', dose: '5 g', when: 'Any time, daily', taken: true },
-      { name: 'Vitamin D3', dose: '2000 IU', when: 'With a meal containing fat', taken: true },
-      { name: 'Whey', dose: '30 g', when: 'Counted as food, not a supplement', taken: false },
-      { name: 'Magnesium glycinate', dose: '200 mg', when: 'Evening', taken: false }
-    ],
-    /* Fourteen days of intake against target. A trend is the only thing a
-       single day cannot tell you, which is the whole reason this sheet
-       exists. */
-    trend: [2980, 3120, 2740, 2880, 3310, 2610, 2950,
-            2870, 3040, 2790, 3180, 2900, 2680, 2985]
-  }; }
+  /* Mon 7 Sep, Tue 8 Sep, Wed 9 Sep. */
+  var WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function dayLabel(iso) {
+    var p = iso.split('-'), d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+    return WD[d.getUTCDay()] + ' ' + (+p[2]) + ' ' + MON[+p[1] - 1];
+  }
+
+  /* NOT a stored total. eaten and the three macro `have` figures are added up
+     from DAY.meals every time the list changes, so a meal that is logged,
+     rescaled or deleted cannot leave anything behind. The bars used to be
+     stored figures nudged by each action, which is how they came to be 10 g
+     and 14 g ahead of the meals that produced them and stayed there after the
+     log was emptied. */
+  function recount(d) {
+    var t = { kcal: 0, pro: 0, carb: 0, fat: 0 };
+    d.meals.forEach(function (m) {
+      t.kcal += m.kcal || 0; t.pro += m.pro || 0; t.carb += m.carb || 0; t.fat += m.fat || 0;
+    });
+    d.eaten = Math.round(t.kcal);
+    d.macros[0].have = Math.round(t.pro);
+    d.macros[1].have = Math.round(t.carb);
+    d.macros[2].have = Math.round(t.fat);
+    return d;
+  }
+
+  /* A function, not a literal: the dev switcher rebuilds it so one state's
+     edits do not leak into the next. */
+  function day() {
+    var iso = FX.today;
+    var src = (NUT.days && NUT.days[iso]) || { meals: [], waterMl: 0, supps: [] };
+    var tg = NUT.targets;
+    var d = {
+      iso: iso,
+      date: dayLabel(iso),
+      target: tg.kcal,
+      goal: 'lean bulk',
+      weightKg: (FX.profile && FX.profile.weightKg) || 0,
+      weekPct: 0.34,
+      macros: [
+        { name: 'Protein', have: 0, want: tg.pro, unit: 'g', key: 'pro' },
+        { name: 'Carbs', have: 0, want: tg.carb, unit: 'g', key: 'carb' },
+        { name: 'Fat', have: 0, want: tg.fat, unit: 'g', key: 'fat' }
+      ],
+      meals: src.meals.map(function (m) {
+        return { icon: m.icon, name: m.name, at: m.at, pro: m.pro, carb: m.carb,
+                 fat: m.fat, kcal: m.kcal, src: m.src };
+      }),
+      /* Not a target and not a nag: a pattern this person already has. */
+      closing: { at: '7:30', pro: 40 },
+      waterMl: src.waterMl,
+      waterGoalMl: tg.waterMl,
+      /* Taken, not "due": the app knows what was swallowed, not what was
+         intended. Two supplements, because that is what lk_supplements holds.
+         This screen used to invent four and Recap a different three. */
+      supps: (src.supps || []).map(function (sp) {
+        return { name: sp.name, dose: sp.dose, when: sp.when, taken: sp.taken };
+      }),
+      /* Fourteen days of intake against target, the last four of them the
+         days above added up. A trend is the only thing a single day cannot
+         tell you, which is the whole reason this sheet exists. */
+      trend: NUT.trend.slice()
+    };
+    return recount(d);
+  }
+
   var DAY = day();
 
   /* Module scope and with macros on it, because these rows log. The list was
@@ -170,62 +212,88 @@
      sheet without logging anything, under copy that says "one tap logs it
      again with the same portion". */
   var OFTEN = [
-    { icon: '🍳', name: 'Eggs, toast, butter', n: 41, kcal: 540, pro: 38, carb: 46, fat: 24 },
-    { icon: '🥗', name: 'Chicken rice bowl', n: 28, kcal: 720, pro: 52, carb: 84, fat: 16 },
-    { icon: '🥤', name: 'Whey shake, banana', n: 63, kcal: 310, pro: 31, carb: 38, fat: 4 },
-    { icon: '🍝', name: 'Beef mince and pasta', n: 19, kcal: 810, pro: 48, carb: 92, fat: 26 }
-  ];
+    { key: 'shake', n: 63 }, { key: 'eggs', n: 41 },
+    { key: 'bowl', n: 28 }, { key: 'pasta', n: 19 }
+  ].map(function (o) {
+    var f = FOODS[o.key];
+    return { icon: f.icon, name: f.name, n: o.n, kcal: f.kcal, pro: f.pro, carb: f.carb, fat: f.fat };
+  });
 
   /* Saved recipes. A recipe is a food you assembled yourself: it carries its
      own ingredients and yields a number of servings, so logging one serving
      divides rather than making you do arithmetic at the counter.
 
-     Macros here are the recipe's TOTAL. Per-serving is derived on read, never
-     stored, because a stored per-serving figure and a changed serving count
-     disagree the moment either one moves. */
+     Macros here are the recipe's TOTAL, and the total is servings x the same
+     per-serving food every other path on this screen logs, so one Chilli is
+     one Chilli whether it arrives from the recipe, from the plan or from the
+     often list. Per-serving is derived on read, never stored, because a
+     stored per-serving figure and a changed serving count disagree the moment
+     either one moves. */
+  function recipe(key, name, servings, ing) {
+    var f = FOODS[key];
+    return { icon: f.icon, name: name, servings: servings, key: key,
+             kcal: f.kcal * servings, pro: f.pro * servings,
+             carb: f.carb * servings, fat: f.fat * servings, ing: ing };
+  }
   var RECIPES = [
-    { icon: '🍲', name: 'Chilli, big batch', servings: 6,
-      kcal: 3180, pro: 246, carb: 228, fat: 108,
-      ing: ['1 kg beef mince, 5%', '2 tins kidney beans', '2 tins chopped tomatoes',
-            '1 onion', '2 peppers', 'Chilli, cumin, paprika'] },
-    { icon: '🍚', name: 'Chicken and rice, 4 days', servings: 4,
-      kcal: 2760, pro: 244, carb: 296, fat: 52,
-      ing: ['800 g chicken thigh', '400 g rice, dry', '2 tbsp olive oil', 'Soy, garlic, ginger'] },
-    { icon: '🥞', name: 'Protein pancakes', servings: 2,
-      kcal: 720, pro: 62, carb: 74, fat: 16,
-      ing: ['100 g oats', '2 scoops whey', '2 eggs', '150 g skyr', 'Baking powder'] }
+    recipe('chilli', 'Chilli, big batch', 6,
+      ['1 kg beef mince, 5%', '2 tins kidney beans', '2 tins chopped tomatoes',
+       '1 onion', '2 peppers', 'Chilli, cumin, paprika']),
+    recipe('cnr', 'Chicken and rice, 4 days', 4,
+      ['800 g chicken thigh', '400 g rice, dry', '2 tbsp olive oil', 'Soy, garlic, ginger']),
+    recipe('pancakes', 'Protein pancakes', 2,
+      ['100 g oats', '2 scoops whey', '2 eggs', '150 g skyr', 'Baking powder'])
   ];
 
-  /* The week's plan. Each slot is either planned or logged; a logged slot
-     carries the figure it actually cost, which is the only way the plan can
-     ever be compared with the week that happened.
+  /* The week's plan. Each slot names a food, and the food carries the
+     figures -- a slot used to carry a bare kcal and nothing else, so logging
+     a planned meal moved the calorie count and left all three macro bars
+     untouched, under-counting 41 g of protein a meal.
+
+     Today's slots are not marked done by hand either. A slot is logged when
+     a meal of that name is on today's list, so the plan and the ledger for
+     the same day cannot disagree -- and they did: the plan called Monday
+     1,760 kcal while the ledger for that Monday held 1,570.
 
      NOT BUILT, deliberately: the swap-by-AI path. In the shipped app a failed
      swap invented four meals and wrote them into the saved plan as though a
      model had returned them (audit H2). Swapping here picks from your own
      recipes and often-logged meals, which cannot fabricate anything. */
+  function slot(at, key) {
+    var f = FOODS[key];
+    return { at: at, key: key, name: f.name, kcal: f.kcal, pro: f.pro, carb: f.carb, fat: f.fat };
+  }
   var PLAN = [
-    { d: 'Mon', slots: [ { at: 'Breakfast', name: 'Eggs, toast, butter', kcal: 540, done: true },
-                         { at: 'Lunch', name: 'Chicken and rice', kcal: 690, done: true },
-                         { at: 'Dinner', name: 'Chilli', kcal: 530, done: true } ] },
-    { d: 'Tue', slots: [ { at: 'Breakfast', name: 'Protein pancakes', kcal: 360, done: true },
-                         { at: 'Lunch', name: 'Chicken and rice', kcal: 690, done: true },
-                         { at: 'Dinner', name: 'Chilli', kcal: 530, done: false } ] },
-    { d: 'Wed', slots: [ { at: 'Breakfast', name: 'Eggs, toast, butter', kcal: 540, done: true },
-                         { at: 'Lunch', name: 'Chicken and rice', kcal: 690, done: false },
-                         { at: 'Dinner', name: 'Chilli', kcal: 530, done: false } ] },
-    { d: 'Thu', slots: [ { at: 'Breakfast', name: 'Whey shake, banana', kcal: 310, done: false },
-                         { at: 'Lunch', name: 'Chilli', kcal: 530, done: false },
-                         { at: 'Dinner', name: 'Beef mince and pasta', kcal: 810, done: false } ] },
-    { d: 'Fri', slots: [ { at: 'Breakfast', name: 'Protein pancakes', kcal: 360, done: false },
-                         { at: 'Lunch', name: 'Chicken and rice', kcal: 690, done: false },
-                         { at: 'Dinner', name: 'Out', kcal: 0, done: false } ] }
+    { d: 'Mon', iso: '2026-09-07', slots: [slot('Breakfast', 'eggs'), slot('Lunch', 'bowl'),
+        slot('Dinner', 'chilli'), slot('Snack', 'shake'), slot('Second breakfast', 'pancakes'),
+        slot('Evening', 'skyr')] },
+    { d: 'Tue', iso: '2026-09-08', slots: [slot('Breakfast', 'eggs'), slot('Lunch', 'cnr'),
+        slot('Dinner', 'pasta'), slot('Snack', 'shake'), slot('Evening', 'pancakes')] },
+    { d: 'Wed', iso: '2026-09-09', slots: [slot('Breakfast', 'eggs'), slot('Lunch', 'bowl'),
+        slot('Snack', 'shake'), slot('Dinner', 'chilli')] },
+    { d: 'Thu', iso: '2026-09-10', slots: [slot('Breakfast', 'pancakes'), slot('Lunch', 'cnr'),
+        slot('Dinner', 'pasta')] },
+    { d: 'Fri', iso: '2026-09-11', slots: [slot('Breakfast', 'shake'), slot('Lunch', 'chilli'),
+        slot('Dinner', 'bowl')] }
   ];
+
+  /* A past day is logged from the record; today is logged from what is on
+     the list right now. */
+  function slotDone(pd, sl) {
+    if (pd.iso === DAY.iso) {
+      return DAY.meals.some(function (m) { return m.name === sl.name; });
+    }
+    var rec = NUT.days && NUT.days[pd.iso];
+    if (!rec) return false;
+    return rec.meals.some(function (m) { return m.name === sl.name; });
+  }
 
   /* What the scanner resolved. One product, because a fixture that changes
      per run makes a screenshot diff meaningless. */
-  var SCAN = { icon: '🥫', name: 'Skyr, plain', code: '5 060 123 456 789',
-               serving: '150 g pot', kcal: 96, pro: 17, carb: 6, fat: 0.3 };
+  var SCAN = (function (f) {
+    return { icon: f.icon, name: f.name, code: '5 060 123 456 789', key: 'skyr',
+             serving: '150 g pot', kcal: f.kcal, pro: f.pro, carb: f.carb, fat: f.fat };
+  })(FOODS.skyr);
 
   /* lk_perfTracking, the switch that makes Stack exist. Read rather than
      cached, so turning it on in Settings and coming back shows the chip. */
@@ -235,7 +303,7 @@
 
   var S = { state: 'populated', sheet: null, listening: false, scanServings: 1,
             /* The camera sheet's one question. null until it is answered. */
-            camOil: null, toast: null, undo: null, targetError: null,
+            camOil: null, toast: null, undo: null, targetError: null, searchQ: '',
             /* Which recipe is open inside the recipes sheet. The list and the
                detail are one sheet with two faces rather than two sheets, so
                Back returns to the list without closing and losing the place. */
@@ -341,7 +409,34 @@
         ICO.cam + '<span class="t-headline">Snap it</span>' +
       '</button>' +
     '</div>' +
-    '<p class="t-caption-1 quiet fuel-log__hint">Say what you ate, or snap the plate.</p>';
+    /* The fourth way, and the ordinary one. Scan, Say it and Snap it each
+       need the food to be in front of you; a person eating something new,
+       remembered, or already eaten had nowhere to put it. A DOM sweep of
+       this screen for a search field returned nothing -- every search box in
+       the build belonged to an exercise picker. */
+    '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="search" ' +
+      'data-testid="log-search"><span class="btn__label">Search foods</span></button>' +
+    '<p class="t-caption-1 quiet fuel-log__hint">Search by name, say what you ate, or snap the plate.</p>';
+  }
+
+  /* Everything this build can log by name, in one list: the food table the
+     rest of the screen logs from, plus your own recipes at one serving. It is
+     a demo food table, not a database, and the sheet says so rather than
+     implying a search that reaches further than it does. */
+  function searchable() {
+    var out = [];
+    Object.keys(FOODS).forEach(function (k) {
+      var f = FOODS[k];
+      out.push({ key: k, icon: f.icon, name: f.name, kcal: f.kcal, pro: f.pro,
+                 carb: f.carb, fat: f.fat, from: 'Food table', src: 'verified' });
+    });
+    RECIPES.forEach(function (r, i) {
+      out.push({ recipe: i, icon: r.icon, name: r.name + ', one serving',
+                 kcal: Math.round(r.kcal / r.servings), pro: Math.round(r.pro / r.servings),
+                 carb: Math.round(r.carb / r.servings), fat: Math.round(r.fat / r.servings),
+                 from: 'Your recipes', src: 'recipe' });
+    });
+    return out;
   }
 
   function macros() {
@@ -378,10 +473,28 @@
 
   /* A badge is a claim about where a number came from. Verified means a
      barcode or a database row; Estimate means a model looked at a photo. */
+  /* Four provenances, four words. 'recipe', 'plan' and 'repeat' used to fall
+     through to Estimate, whose detail copy says a model read a photo -- so a
+     meal built from weighed ingredients was captioned as a camera guess. */
+  var SRC = {
+    verified: { word: 'Verified', cls: 'badge--ok', testid: 'badge-verified',
+      why: 'A barcode matched a database row, so the figures are the manufacturer\u2019s own.' },
+    estimate: { word: 'Estimate', cls: 'badge--est', testid: 'badge-estimate',
+      why: 'A model read the photo and estimated the portion. Expect it to be within about 15%, ' +
+           'and correct it with the portion controls if it looks wrong.' },
+    recipe: { word: 'Recipe', cls: 'badge--est', testid: 'badge-recipe',
+      why: 'One serving of a recipe you built. The figures are your own ingredients divided by ' +
+           'the number of servings you said it makes.' },
+    plan: { word: 'Planned', cls: 'badge--est', testid: 'badge-plan',
+      why: 'Logged from this week\u2019s plan. The figures are the ones the planned meal carries.' },
+    repeat: { word: 'Repeat', cls: 'badge--est', testid: 'badge-repeat',
+      why: 'A meal you have logged before, logged again with the same portion. The figures are ' +
+           'the ones saved then, and no new measurement was taken.' }
+  };
+  function srcOf(src) { return SRC[src] || SRC.estimate; }
   function badge(src) {
-    return src === 'verified'
-      ? '<span class="badge badge--ok" data-testid="badge-verified">Verified</span>'
-      : '<span class="badge badge--est" data-testid="badge-estimate">Estimate</span>';
+    var d = srcOf(src);
+    return '<span class="badge ' + d.cls + '" data-testid="' + d.testid + '">' + d.word + '</span>';
   }
 
   function mealRow(m, i) {
@@ -390,7 +503,11 @@
       '<span class="fuel-thumb" aria-hidden="true">' + m.icon + '</span>' +
       '<span class="row__main stack">' +
         '<span class="row__title">' + esc(m.name) + '</span>' +
-        '<span class="row__sub">' + esc(m.at) + ' &middot; ' + m.pro + ' g protein</span>' +
+        /* All three macros, not protein alone. Two of the three bars on this
+           screen could not be checked against anything a meal showed, which
+           is why a 10 g carb and 14 g fat discrepancy sat there unseen. */
+        '<span class="row__sub">' + esc(m.at) + ' &middot; ' + n(m.pro) + ' P &middot; ' +
+          n(m.carb) + ' C &middot; ' + n(m.fat) + ' F</span>' +
       '</span>' +
       /* The badge belongs with the number, not with the time: it is a claim
          about where that number came from. It also stays when the numbers are
@@ -414,12 +531,28 @@
        and this row has no food in it. It is an instruction about a meal that
        has not happened. A flat grey 🍽 next to three colour glyphs read as a
        rendering failure; a clock from the icon family reads as what it is. */
+    /* It reads the day it sits under. The row used to be a fixed string, so
+       after logging 4,000 kcal with protein at 265 of 160 g it still said
+       "about 40 g protein closes today" -- advice, in the voice of the app,
+       about a day that had already finished. */
+    var proLeft = DAY.macros[0].want - DAY.macros[0].have;
+    var kcalLeft = DAY.target - DAY.eaten;
+    var closingSub;
+    if (kcalLeft <= 0 && proLeft <= 0) {
+      closingSub = 'Both closed. Nothing has to go in after this.';
+    } else if (proLeft <= 0) {
+      closingSub = 'Protein is closed. ' + n(kcalLeft) + ' kcal left if you want them.';
+    } else if (kcalLeft <= 0) {
+      closingSub = n(proLeft) + ' g of protein short, and the calories are spent.';
+    } else {
+      closingSub = 'Usually ' + esc(DAY.closing.at) + ' \u00b7 ' + n(proLeft) +
+        ' g of protein and ' + n(kcalLeft) + ' kcal left to close today.';
+    }
     var closing = '<div class="row row--quiet" data-testid="meal-closing">' +
       '<span class="fuel-thumb fuel-thumb--ico" aria-hidden="true">' + ICO.clock + '</span>' +
       '<span class="row__main stack">' +
         '<span class="row__title">Dinner</span>' +
-        '<span class="row__sub">Usually ' + esc(DAY.closing.at) + ' &middot; about ' +
-          DAY.closing.pro + ' g protein closes today.</span>' +
+        '<span class="row__sub">' + closingSub + '</span>' +
       '</span>' +
       '<span class="fuel-src"><span class="row__value quiet">&mdash;</span></span>' +
       '<span class="row__chev" aria-hidden="true"></span></div>';
@@ -523,14 +656,14 @@
             '<div class="hstack hstack--3"><span class="t-body grow">Energy</span>' +
               '<span class="t-body-em num">' + n(m.kcal) + ' kcal</span></div>' +
             '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Protein</span>' +
-              '<span class="t-body-em num">' + m.pro + ' g</span></div>' +
+              '<span class="t-body-em num">' + n(m.pro) + ' g</span></div>' +
+            '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Carbs</span>' +
+              '<span class="t-body-em num">' + n(m.carb) + ' g</span></div>' +
+            '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Fat</span>' +
+              '<span class="t-body-em num">' + n(m.fat) + ' g</span></div>' +
           '</div>' +
           '<h3 class="t-label mt-5">Where these numbers came from</h3>' +
-          '<p class="t-detail mt-2">' + (m.src === 'verified'
-            ? 'A barcode matched a database row, so the figures are the manufacturer&rsquo;s own. ' +
-              'They are only wrong if the portion was.'
-            : 'A model read the photo and estimated the portion. Expect it to be within about 15% on a ' +
-              'plate like this one, and further out on anything with a sauce.') + '</p>' +
+          '<p class="t-detail mt-2">' + srcOf(m.src).why + '</p>' +
           '<div class="chiprow mt-4">' +
             /* Symmetric, so a mistake is one tap away from undone: a quarter
                less then a quarter more used to leave the meal 6% smaller,
@@ -631,6 +764,45 @@
               '<span class="t-meta num grow">' + n(mn) + ' low</span>' +
               '<span class="t-meta num">' + n(mx) + ' high</span>' +
             '</div>' +
+          '</div>' +
+        '</div>';
+    }
+    if (S.sheet === 'search') {
+      var q = (S.searchQ || '').trim().toLowerCase();
+      var hits = searchable().filter(function (f) {
+        return !q || f.name.toLowerCase().indexOf(q) !== -1;
+      });
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="fs-title" ' +
+          'data-detents="0.6 0.94" data-testid="sheet-search">' +
+          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="fs-title">Search foods</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="search-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<input class="field" id="fs-q" type="search" autocomplete="off" ' +
+              'placeholder="Chicken, oats, skyr\u2026" aria-label="Search foods" ' +
+              'data-testid="search-input" value="' + esc(S.searchQ || '') + '">' +
+            '<p class="t-detail quiet mt-2">' + hits.length +
+              (hits.length === 1 ? ' food' : ' foods') + ' in this build\u2019s table and your own recipes. ' +
+              'A real search reaches a food database; this one does not pretend to.</p>' +
+            (hits.length
+              ? '<div class="card card--flush mt-3">' + hits.map(function (f, i) {
+                  return '<button class="row" type="button" data-action="log-search" data-i="' + i +
+                    '" data-testid="search-hit-' + i + '">' +
+                    '<span class="fuel-thumb" aria-hidden="true">' + f.icon + '</span>' +
+                    '<span class="row__main stack">' +
+                      '<span class="row__title">' + esc(f.name) + '</span>' +
+                      '<span class="row__sub">' + esc(f.from) + ' \u00b7 ' + n(f.pro) + ' P \u00b7 ' +
+                        n(f.carb) + ' C \u00b7 ' + n(f.fat) + ' F</span>' +
+                    '</span>' +
+                    '<span class="row__value num">' + n(f.kcal) +
+                      '<small class="t-caption-2 quiet"> kcal</small></span>' +
+                    '<span class="row__chev">' + ICO.plus + '</span></button>';
+                }).join('') + '</div>'
+              : '<p class="t-body mt-4">Nothing here matches \u201c' + esc(S.searchQ || '') + '\u201d.</p>' +
+                '<p class="t-detail quiet mt-1">Snap the plate instead, or build it as a recipe.</p>') +
           '</div>' +
         '</div>';
     }
@@ -745,7 +917,7 @@
        slot, so they are one row with a check rather than two lists. */
     if (S.sheet === 'plan') {
       var planned = 0, logged = 0;
-      PLAN.forEach(function (d) { d.slots.forEach(function (sl) { planned += sl.kcal; if (sl.done) logged += sl.kcal; }); });
+      PLAN.forEach(function (d) { d.slots.forEach(function (sl) { planned += sl.kcal; if (slotDone(d, sl)) logged += sl.kcal; }); });
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
         '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pl-title" ' +
           'data-detents="0.6 0.94" data-testid="sheet-plan">' +
@@ -757,15 +929,16 @@
             '<p class="t-detail">Tap a meal to log it. A meal you swap is replaced from your own ' +
               'recipes and the things you log often \u2014 nothing here is invented for you.</p>' +
             PLAN.map(function (d, di) {
-              return '<p class="t-label mt-4">' + esc(d.d) + '</p>' +
+              return '<p class="t-label mt-4">' + esc(d.d) + (d.iso === DAY.iso ? ' \u00b7 today' : '') + '</p>' +
                 '<div class="card card--flush mt-2">' + d.slots.map(function (sl, si) {
+                  var done = slotDone(d, sl);
                   return '<button class="row" type="button" data-action="plan-log" data-d="' + di +
                     '" data-s="' + si + '" data-testid="plan-' + di + '-' + si + '"' +
-                    (sl.done ? ' aria-pressed="true"' : '') + '>' +
-                    '<span class="ico-well">' + (sl.done ? ICO.tick : ICO.plus) + '</span>' +
+                    (done ? ' aria-pressed="true"' : '') + '>' +
+                    '<span class="ico-well">' + (done ? ICO.tick : ICO.plus) + '</span>' +
                     '<span class="row__main stack">' +
                       '<span class="row__title">' + esc(sl.name) + '</span>' +
-                      '<span class="row__sub">' + esc(sl.at) + (sl.done ? ' &middot; logged' : '') + '</span>' +
+                      '<span class="row__sub">' + esc(sl.at) + (done ? ' &middot; logged' : '') + '</span>' +
                     '</span>' +
                     '<span class="row__value num">' + (sl.kcal ? n(sl.kcal) + '<small class="t-caption-2 quiet"> kcal</small>' : '&mdash;') + '</span>' +
                   '</button>';
@@ -940,6 +1113,23 @@
     if (a === 'cam-log') { camLog(); return; }
     if (a === 'mic-log') { micLog(); return; }
     if (a === 'log-often') { logOften(+act.getAttribute('data-i')); return; }
+    if (a === 'search') {
+      S.sheet = 'search'; S.searchQ = ''; render();
+      var fq = document.getElementById('fs-q'); if (fq) fq.focus();
+      return;
+    }
+    if (a === 'log-search') {
+      var q2 = (S.searchQ || '').trim().toLowerCase();
+      var hit = searchable().filter(function (f) {
+        return !q2 || f.name.toLowerCase().indexOf(q2) !== -1;
+      })[+act.getAttribute('data-i')];
+      if (!hit) return;
+      addMeal({ icon: hit.icon, name: hit.name, kcal: hit.kcal, pro: hit.pro,
+                carb: hit.carb, fat: hit.fat, src: hit.src });
+      S.sheet = null;
+      say(esc(hit.name) + ' logged, ' + n(hit.kcal) + ' kcal.');
+      return;
+    }
     if (a === 'meal-portion') { portion(+act.getAttribute('data-i'), parseFloat(act.getAttribute('data-by'))); return; }
     if (a === 'meal-delete') { removeMeal(+act.getAttribute('data-i')); return; }
     if (a === 'undo') { doUndo(); return; }
@@ -975,10 +1165,14 @@
       var pd = PLAN[+act.getAttribute('data-d')];
       var ps = pd && pd.slots[+act.getAttribute('data-s')];
       if (!ps) return;
-      if (ps.done) { say(ps.name + ' is already logged.'); return; }
+      if (slotDone(pd, ps)) { say(ps.name + ' is already logged.'); return; }
       if (!ps.kcal) { say('Nothing planned for ' + ps.at.toLowerCase() + '.'); return; }
-      ps.done = true;
-      addMeal({ icon: '🍽️', name: ps.name, at: ps.at, kcal: ps.kcal, src: 'plan' });
+      if (pd.iso !== DAY.iso) { say(ps.name + ' is planned for ' + pd.d + ', not today.'); return; }
+      /* With the slot's own macros. A planned meal logged without them moved
+         the calorie figure and left all three bars where they were, so the
+         same chilli was 41 g of protein from Recipes and 0 g from the plan. */
+      addMeal({ icon: ps.icon || FOODS[ps.key].icon, name: ps.name, at: ps.at, kcal: ps.kcal,
+                pro: ps.pro, carb: ps.carb, fat: ps.fat, src: 'plan' });
       render();
       say(ps.name + ' logged, ' + ps.kcal + ' kcal.');
       return;
@@ -1029,14 +1223,7 @@
     DAY.meals.push({ icon: meal.icon, name: meal.name, at: meal.at || nowLabel(),
                      pro: meal.pro || 0, carb: meal.carb || 0, fat: meal.fat || 0,
                      kcal: meal.kcal, src: meal.src || 'estimate' });
-    DAY.eaten += meal.kcal;
-    bump('pro', meal.pro); bump('carb', meal.carb); bump('fat', meal.fat);
-  }
-  function bump(key, by) {
-    if (!by) return;
-    for (var i = 0; i < DAY.macros.length; i++) {
-      if (DAY.macros[i].key === key) { DAY.macros[i].have = Math.max(0, DAY.macros[i].have + by); return; }
-    }
+    recount(DAY);
   }
 
   function saveTargets() {
@@ -1045,13 +1232,18 @@
       S.targetError = 'Calories between 800 and 8,000.';
       render(); return;
     }
-    var bad = null;
+    /* Read every field, validate every field, then write. It used to write
+       each macro as it read it and bail on the first bad one, so a rejected
+       save still moved the targets either side of the bad field -- the day
+       was then measured against a figure nobody had confirmed. */
+    var bad = null, want = [];
     DAY.macros.forEach(function (m) {
       var v = parseInt((document.getElementById('tg-' + m.key) || {}).value, 10);
-      if (isNaN(v) || v < 0 || v > 1000) { bad = m.name; return; }
-      m.want = v;
+      if (isNaN(v) || v < 0 || v > 1000) { if (!bad) bad = m.name; return; }
+      want.push([m, v]);
     });
     if (bad) { S.targetError = bad + ' between 0 and 1,000 ' + 'g.'; render(); return; }
+    want.forEach(function (w) { w[0].want = w[1]; });
     DAY.target = kcal;
     S.sheet = null; S.targetError = null;
     say('Targets saved. ' + n(kcal) + ' kcal.');
@@ -1075,17 +1267,24 @@
 
   function micLog() {
     /* The two the sheet says it heard, with the times it says it resolved. */
-    addMeal({ icon: '🥗', name: 'Chicken rice bowl', at: '6:15', pro: 52, carb: 84, fat: 16, kcal: 720 });
-    addMeal({ icon: '🥤', name: 'Whey shake', at: '6:15', pro: 31, carb: 38, fat: 4, kcal: 310, src: 'verified' });
+    var heard = [FOODS.bowl, FOODS.shake];
+    heard.forEach(function (f) {
+      addMeal({ icon: f.icon, name: f.name, at: '6:15', pro: f.pro, carb: f.carb,
+                fat: f.fat, kcal: f.kcal, src: 'estimate' });
+    });
     S.sheet = null;
-    say('Two meals logged, 1,030 kcal.');
+    say('Two meals logged, ' + n(heard[0].kcal + heard[1].kcal) + ' kcal.');
   }
 
   function logOften(i) {
     var r = OFTEN[i];
     if (!r) return;
     r.n += 1;
-    addMeal({ icon: r.icon, name: r.name, pro: r.pro, carb: r.carb, fat: r.fat, kcal: r.kcal, src: 'verified' });
+    /* 'repeat', not 'verified'. Logging a home-cooked meal again earns no new
+       evidence, and stamping Verified on it told the reader a barcode had
+       matched a database row -- a scan that never happened, on the same food
+       the original entry calls an Estimate. */
+    addMeal({ icon: r.icon, name: r.name, pro: r.pro, carb: r.carb, fat: r.fat, kcal: r.kcal, src: 'repeat' });
     S.sheet = null;
     say(esc(r.name) + ' logged again.');
   }
@@ -1102,8 +1301,7 @@
       d[k] = Math.round((m[k] || 0) * f) - (m[k] || 0);
       m[k] = (m[k] || 0) + d[k];
     });
-    DAY.eaten += d.kcal;
-    bump('pro', d.pro); bump('carb', d.carb); bump('fat', d.fat);
+    recount(DAY);
     /* say() renders. Rendering here as well was two full passes a tap. */
     say(esc(m.name) + ' is now ' + n(m.kcal) + ' kcal.');
   }
@@ -1112,15 +1310,13 @@
     var m = DAY.meals[i];
     if (!m) return;
     DAY.meals.splice(i, 1);
-    DAY.eaten -= m.kcal;
-    bump('pro', -m.pro); bump('carb', -m.carb); bump('fat', -m.fat);
+    recount(DAY);
     S.sheet = null;
     /* Destructive, so it is undoable rather than confirmed: a confirm asks a
        question the person already answered by pressing a red button. */
     say(esc(m.name) + ' removed.', function () {
       DAY.meals.splice(i, 0, m);
-      DAY.eaten += m.kcal;
-      bump('pro', m.pro); bump('carb', m.carb); bump('fat', m.fat);
+      recount(DAY);
     });
   }
 
@@ -1154,6 +1350,15 @@
   /* The servings field re-renders the figures under it as it is typed, and
      LKPatch keeps the caret. */
   document.addEventListener('input', function (e) {
+    if (e.target.id === 'fs-q') {
+      S.searchQ = e.target.value;
+      render();
+      /* Re-render replaces the field, so the caret has to be put back where
+         the typist left it or every keystroke jumps to the start. */
+      var f = document.getElementById('fs-q');
+      if (f) { f.focus(); try { f.setSelectionRange(f.value.length, f.value.length); } catch (err) {} }
+      return;
+    }
     if (e.target.id !== 'scan-servings') return;
     var v = parseFloat(e.target.value);
     S.scanServings = (isNaN(v) || v <= 0) ? 1 : Math.min(10, v);
