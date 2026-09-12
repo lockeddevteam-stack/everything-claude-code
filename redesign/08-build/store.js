@@ -98,6 +98,11 @@
       case 'lk_customEx':       return F.customEx;
       case 'lk_featuredLifts':  return F.featured;
       case 'lk_nutrition':      return F.nutrition;
+      case 'lk_mcProfile':     return F.mcProfile;
+      case 'lk_mcDays':        return F.mcDays;
+      case 'lk_mcFuelAdjust':  return F.mcFuelAdjust;
+      case 'lk_cardioPrefs':   return F.cardioPrefs;
+      case 'lk_cardioFavorites': return F.cardioFavorites;
       default:                  return undefined;
     }
   }

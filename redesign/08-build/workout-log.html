@@ -1352,16 +1352,25 @@
      all, both produced the same review with the same invented record.
      Written on Finish, read once by Review. */
   function handOff() {
-    var lifts = [];
+    var lifts = [], exercises = [];
     S.exercises.forEach(function (ex) {
       var vol = 0, top = null, sets = 0;
+      /* THE ROWS, not only the totals. The hand-over carried five numbers
+         per lift, so Review could say the volume moved and could not show
+         one set, and the record it saved to history had no sets in it --
+         a workout you could never open again and read. */
+      var rows = [];
       ex.sets.forEach(function (st) {
-        if (!st.done || st.warm || st.kg == null || st.reps == null) return;
+        if (!st.done || st.kg == null || st.reps == null) return;
+        rows.push({ kg: st.kg, reps: st.reps, rir: st.rir, warm: !!st.warm,
+                    partials: st.partials || 0, done: true });
+        if (st.warm) return;
         sets++; vol += st.kg * st.reps;
         if (!top || st.kg > top[0] || (st.kg === top[0] && st.reps > top[1])) top = [st.kg, st.reps];
       });
-      if (!sets) return;
-      lifts.push({ id: ex.id, name: ex.name, sets: sets, vol: Math.round(vol), top: top });
+      if (!rows.length) return;
+      if (sets) lifts.push({ id: ex.id, name: ex.name, sets: sets, vol: Math.round(vol), top: top });
+      exercises.push({ id: ex.id, name: ex.name, muscle: ex.muscle || '', sets: rows });
     });
     var rec = {
       title: S.name,
@@ -1370,9 +1379,11 @@
       warmups: doneWarmups(),
       volumeKg: Math.round(volumeKg()),
       minutes: Math.max(0, Math.round(elapsedSec() / 60)),
-      lifts: lifts
+      lifts: lifts,
+      exercises: exercises
     };
-    try { localStorage.setItem('lk_lastSession', JSON.stringify(rec)); } catch (e) {}
+    if (window.LKStore) LKStore.set('lk_lastSession', rec);
+    else { try { localStorage.setItem('lk_lastSession', JSON.stringify(rec)); } catch (e) {} }
   }
 
   /* Entered, rather than merely still on screen. In the demo the log stays

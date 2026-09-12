@@ -193,7 +193,47 @@
                 "date": "2026-09-06",
                 "min": 30,
                 "km": 5.2,
-                "cal": 340
+                "cal": 340,
+                "calDetail": {
+                      "value": 340,
+                      "net": 304,
+                      "gross": 340,
+                      "range": [
+                            300,
+                            380
+                      ],
+                      "method": "met-lookup",
+                      "tier": 4,
+                      "confidence": "medium",
+                      "basis": "net",
+                      "estimated": true
+                },
+                "modality": "treadmill_run",
+                "cardioType": "run",
+                "distanceM": 5200,
+                "durationSec": 1800,
+                "surface": "machine",
+                "environment": "indoor",
+                "machine": {
+                      "category": "treadmill",
+                      "brand": null,
+                      "model": null
+                },
+                "heartRate": {
+                      "avg": 152
+                },
+                "intensity": {
+                      "rpe": 6,
+                      "estMET": 10.3,
+                      "talkTest": null
+                },
+                "metrics": {
+                      "avgHr": "152",
+                      "rpe": "6"
+                },
+                "fasted": false,
+                "favoriteId": null,
+                "note": ""
           },
           {
                 "id": "w_1788631500000",
@@ -703,7 +743,47 @@
                 "date": "2026-08-30",
                 "min": 20,
                 "km": 4.6,
-                "cal": 230
+                "cal": 230,
+                "calDetail": {
+                      "value": 230,
+                      "net": 206,
+                      "gross": 230,
+                      "range": [
+                            190,
+                            270
+                      ],
+                      "method": "met-lookup",
+                      "tier": 4,
+                      "confidence": "medium",
+                      "basis": "net",
+                      "estimated": true
+                },
+                "modality": "row",
+                "cardioType": "row",
+                "distanceM": 4600,
+                "durationSec": 1200,
+                "surface": "machine",
+                "environment": "indoor",
+                "machine": {
+                      "category": "rower",
+                      "brand": "Concept2",
+                      "model": null
+                },
+                "heartRate": {
+                      "avg": 148
+                },
+                "intensity": {
+                      "rpe": 7,
+                      "estMET": 10.5,
+                      "talkTest": null
+                },
+                "metrics": {
+                      "avgHr": "148",
+                      "rpe": "7"
+                },
+                "fasted": false,
+                "favoriteId": null,
+                "note": ""
           },
           {
                 "id": "w_1788026700000",
@@ -1219,7 +1299,43 @@
                 "date": "2026-08-23",
                 "min": 45,
                 "km": 4,
-                "cal": 210
+                "cal": 210,
+                "calDetail": {
+                      "value": 210,
+                      "net": 156,
+                      "gross": 210,
+                      "range": [
+                            170,
+                            250
+                      ],
+                      "method": "met-lookup",
+                      "tier": 4,
+                      "confidence": "medium",
+                      "basis": "net",
+                      "estimated": true
+                },
+                "modality": "walk",
+                "cardioType": "walk",
+                "distanceM": 4000,
+                "durationSec": 2700,
+                "surface": "road",
+                "environment": "outdoor",
+                "machine": null,
+                "heartRate": {
+                      "avg": 112
+                },
+                "intensity": {
+                      "rpe": 3,
+                      "estMET": 4.2,
+                      "talkTest": null
+                },
+                "metrics": {
+                      "avgHr": "112",
+                      "rpe": "3"
+                },
+                "fasted": false,
+                "favoriteId": null,
+                "note": ""
           },
           {
                 "id": "w_1787421900000",
@@ -1735,7 +1851,47 @@
                 "date": "2026-08-16",
                 "min": 25,
                 "km": 9,
-                "cal": 240
+                "cal": 240,
+                "calDetail": {
+                      "value": 240,
+                      "net": 210,
+                      "gross": 240,
+                      "range": [
+                            200,
+                            280
+                      ],
+                      "method": "met-lookup",
+                      "tier": 4,
+                      "confidence": "medium",
+                      "basis": "net",
+                      "estimated": true
+                },
+                "modality": "bike_upright",
+                "cardioType": "bike",
+                "distanceM": 9000,
+                "durationSec": 1500,
+                "surface": "machine",
+                "environment": "indoor",
+                "machine": {
+                      "category": "bike",
+                      "brand": null,
+                      "model": null
+                },
+                "heartRate": {
+                      "avg": 138
+                },
+                "intensity": {
+                      "rpe": 5,
+                      "estMET": 8.7,
+                      "talkTest": null
+                },
+                "metrics": {
+                      "avgHr": "138",
+                      "rpe": "5"
+                },
+                "fasted": false,
+                "favoriteId": null,
+                "note": ""
           },
           {
                 "id": "w_1786817100000",
@@ -4253,6 +4409,96 @@
                 1570
           ]
     },
+    mcProfile: {
+          "setup": true,
+          "goal": "train",
+          "lastStart": "2026-08-29",
+          "cycleLen": 28,
+          "periodLen": 5,
+          "irregular": false,
+          "birthControl": "none",
+          "discreet": false,
+          "createdAt": "2026-08-01"
+    },
+    mcDays: {
+          "2026-08-29": {
+                "flow": 2,
+                "sym": {
+                      "cramps": 2,
+                      "fatigue": 1
+                },
+                "mood": [
+                      "tired"
+                ],
+                "note": ""
+          },
+          "2026-08-30": {
+                "flow": 3,
+                "sym": {
+                      "cramps": 2,
+                      "fatigue": 1
+                },
+                "mood": [],
+                "note": ""
+          },
+          "2026-08-31": {
+                "flow": 2,
+                "sym": {},
+                "mood": [],
+                "note": ""
+          },
+          "2026-09-01": {
+                "flow": 1,
+                "sym": {},
+                "mood": [],
+                "note": ""
+          },
+          "2026-09-02": {
+                "flow": 1,
+                "sym": {},
+                "mood": [],
+                "note": ""
+          },
+          "2026-09-05": {
+                "flow": 0,
+                "sym": {},
+                "mood": [
+                      "energised"
+                ],
+                "note": "Great squat day"
+          }
+    },
+    mcFuelAdjust: false,
+    cardioPrefs: {
+          "distUnit": "km",
+          "weeklyTargetMin": 150,
+          "maxHrOverride": null,
+          "zoneModel": "5zone",
+          "restingHr": 58
+    },
+    cardioFavorites: [
+          {
+                "id": "fav_1787122800000",
+                "label": "Treadmill run",
+                "emoji": "run",
+                "modality": "treadmill_run",
+                "subType": null,
+                "environment": "indoor",
+                "machine": {
+                      "category": "treadmill",
+                      "brand": null,
+                      "model": null
+                },
+                "defaults": {
+                      "durationSec": 1800,
+                      "surface": "machine"
+                },
+                "order": 0,
+                "useCount": 3,
+                "lastUsedAt": "2026-09-06T07:45:00.000Z",
+                "pinned": true
+          }
+    ],
 
     /* Every session on a date, newest first. */
     on: function (iso) {
@@ -4283,6 +4529,40 @@
       }
       return null;
     },
+    /* The cycle, worked out rather than stated. Every screen that shows a day
+       number, a phase or a next-period date asks here, so they cannot drift.
+       The date argument defaults to today. */
+    cycleOn: function (iso) {
+      var p = g.LKFixtures.mcProfile;
+      if (!p || !p.lastStart) return null;
+      iso = iso || g.LKFixtures.today;
+      var ms = function (s) { var a = s.split('-'); return Date.UTC(+a[0], +a[1] - 1, +a[2]); };
+      var day = Math.round((ms(iso) - ms(p.lastStart)) / 86400000);
+      var len = p.cycleLen || 28, per = p.periodLen || 5;
+      /* Days past the end of a cycle are NOT wrapped. The screen used to take
+         the day count modulo the cycle length, so a period ten days late read
+         "Day 11" and an overdue state could never be reached. */
+      var overdue = day >= len ? day - len + 1 : 0;
+      var inCycle = day < 0 ? null : (overdue ? day + 1 : (day % len) + 1);
+      var phase = inCycle === null ? null
+        : inCycle <= per ? 'menstrual'
+        : inCycle <= Math.round(len / 2) - 2 ? 'follicular'
+        : inCycle <= Math.round(len / 2) + 1 ? 'ovulatory'
+        : 'luteal';
+      var nextMs = ms(p.lastStart) + len * 86400000;
+      var next = new Date(nextMs).toISOString().slice(0, 10);
+      return {
+        day: inCycle,
+        phase: overdue ? 'late' : phase,
+        overdue: overdue,
+        cycleLen: len,
+        periodLen: per,
+        irregular: !!p.irregular,
+        nextStart: next,
+        daysToNext: Math.round((nextMs - ms(iso)) / 86400000)
+      };
+    },
+
     /* Working volume and top set of one lift inside one session. */
     liftStats: function (ex) {
       var vol = 0, top = null;

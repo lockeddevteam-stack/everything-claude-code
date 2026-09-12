@@ -205,47 +205,399 @@
      screen keeps a number in display units, which is the whole of
      defect 3.
      ============================================================= */
-  /* A shared switch, or its default. localStorage throws in a few contexts
-     and can come back empty, so a miss is the default rather than a crash. */
-  function read(key, dflt) {
-    try {
-      var v = localStorage.getItem(key);
-      return v === null ? dflt : v === 'true';
-    } catch (e) { return dflt; }
+  /* THE DEFECT THIS ANSWERS. Almost nothing on this screen was written
+     down. The toggle handler wrote four keys -- fuelNumbers, badges, cycle,
+     perfTracking -- and every other control was a variable on this page: the
+     display name, every body stat, the workout reminder and its time, the
+     daily check-in, partial reps, the rest timer, the plate rounding, the
+     week start and the distance unit all reverted on reload and reached no
+     other screen, which is why workout-log.html hardcodes the two it needs.
+     Everything is read and written through LKStore now, under the shipped
+     app's own key names, so a setting changed here is the setting every
+     other screen reads. */
+  var ST = window.LKStore;
+  function get(key, dflt) { return ST ? ST.get(key, dflt) : dflt; }
+  function put(key, v) { if (ST) ST.set(key, v); }
+  function patchKey(key, o) { if (ST) ST.patch(key, o); }
+  /* A switch is written as a real boolean here, but the shipped app wrote
+     some of these keys as the strings "true" and "false" and store.js hands
+     back whatever is there. Both readings are accepted; only the boolean is
+     ever written. */
+  function bool(key, dflt) {
+    var v = get(key, dflt);
+    return v === true || v === 'true';
   }
 
-  var S = {
-    view: 'signed-in',
-    name: 'Cesco',
-    username: 'cesco',
-    email: 'cesco@locked.app',
+  /* The check-in is one choice on this screen and a count per day in
+     lk_checkinPerDay, which is the key the coach reads. Both are written, so
+     the two can never disagree. */
+  var PER_DAY = { off: 0, morning: 1, evening: 1, both: 2 };
+  function checkinFromCount(c) {
+    var n = Number(c);
+    return n === 0 ? 'off' : n >= 2 ? 'both' : 'evening';
+  }
+
+  /* The six things the app would notify about. They are preferences, not
+     schedules: see the note on the Reminders group. */
+  var NOTIF = [
+    ['workout', 'Workout reminder', 'On the days your split says you train'],
+    ['rest', 'Rest timer finished', 'When the timer between sets runs out'],
+    ['checkin', 'Daily check-in', 'The question the coach asks'],
+    ['streak', 'Streak at risk', 'Late in the day, if you have not trained'],
+    ['goal', 'Goal deadline', 'A week before a goal is due'],
+    ['supps', 'Supplements', 'At the time of day each one is set to']
+  ];
+  function defaultNotif() {
+    var o = {};
+    NOTIF.forEach(function (r) { o[r[0]] = true; });
+    return o;
+  }
+
+  /* One reader, called at boot and again whenever something outside these
+     rows rewrites the store -- a restore, or an erase. The dev switcher does
+     NOT come through here: it is showing a state, not reading one back over
+     the state it is showing. */
+  function freshState() {
+  var PROF = get('lk_profile', {}) || {};
+  return {
+    /* The account state, from lk_guestMode rather than from the dev
+       switcher alone. It was read nowhere in the build. */
+    view: String(get('lk_guestMode', '0')) === '1' ? 'guest' : 'signed-in',
+    /* lk_profile.displayName is what Save Name writes; name is the seed's
+       own name until somebody changes it. */
+    name: PROF.displayName || PROF.name || 'Cesco',
+    username: PROF.username || 'cesco',
+    email: PROF.email || 'cesco@locked.app',
     /* lk_profile.useKg, through LKUnits. This screen converted its own rows
        correctly and stored nothing, so the choice reached no other screen and
        did not survive a reload. */
     unit: (window.LKUnits && !LKUnits.useKg()) ? 'lb' : 'kg',
-    dist: 'km',
-    weekStart: 'mon',
+    dist: (get('lk_cardioPrefs', {}) || {}).distUnit === 'mi' ? 'mi' : 'km',
+    weekStart: get('lk_weekStart', 'mon') === 'sun' ? 'sun' : 'mon',
     theme: (window.LKTheme ? window.LKTheme.get() : 'dark'),
     /* Named by Fuel's hidden state and Profile's own source comment, and
        until now existing on neither screen. */
-    fuelNumbers: read('lk_fuelNumbers', true),
-    badges: read('lk_badges', false),
-    cycle: read('lk_cycle', false),
-    perfTracking: read('lk_perfTracking', false),
-    restTimer: true,
-    restSec: 90,
-    partials: false,
-    plateKg: 2.5,
-    reminder: true,
-    reminderAt: '18:30',
-    checkin: 'evening',
-    body: { age: 29, sex: 'female', heightCm: 168, weightKg: 64.2, goal: 'build' },
+    fuelNumbers: bool('lk_fuelNumbers', true),
+    badges: bool('lk_badges', false),
+    cycle: bool('lk_cycle', false),
+    perfTracking: bool('lk_perfTracking', false),
+    restTimer: bool('lk_restEnabled', true),
+    restSec: Number(get('lk_restSec', 90)) || 90,
+    /* The stored key is the negative one the app ships: hiding partials is
+       what it records, counting them is what the row offers. */
+    partials: !bool('lk_hidePartials', false),
+    plateKg: Number(get('lk_plateKg', 2.5)) || 2.5,
+    reminder: bool('lk_reminderOn', true),
+    reminderAt: get('lk_reminderAt', '18:30'),
+    checkin: get('lk_checkin', checkinFromCount(get('lk_checkinPerDay', 1))),
+    notif: (function () {
+      var d = defaultNotif(), st = get('lk_notifPrefs', null) || {};
+      Object.keys(st).forEach(function (k) { if (d[k] !== undefined) d[k] = !!st[k]; });
+      return d;
+    })(),
+    notifOn: bool('lk_notifOn', false),
+    restSound: get('lk_restSound', 'beep'),
+    body: {
+      age: Number(PROF.age) || 29,
+      sex: PROF.sex === 'male' ? 'male' : 'female',
+      heightCm: Number(PROF.heightCm) || 168,
+      weightKg: Number(PROF.weightKg) || 64.2,
+      goal: PROF.goal || 'build'
+    },
     sync: 'idle',          /* idle | busy | ok | failed */
-    syncedAt: '2 minutes ago',
+    /* A real timestamp or nothing at all. It was the literal string
+       "2 minutes ago" on a build that has never synced anything. */
+    syncedAt: get('lk_lastSync', null),
+    pwError: null,
+    pwDone: false,
+    restoreError: null,
     sheet: null,
     dialog: null,
     toast: null
   };
+  }
+  var S = freshState();
+  function reseed() {
+    var f = freshState();
+    Object.keys(f).forEach(function (k) {
+      if (k === 'sheet' || k === 'dialog' || k === 'toast') return;
+      S[k] = f[k];
+    });
+  }
+
+  /* =============================================================
+     Persistence. One place writes, so a row and the key behind it
+     cannot drift. Every one of these keys is the shipped app's own.
+     ============================================================= */
+  function persist(k) {
+    if (k === 'unit') { if (window.LKUnits) LKUnits.set(S.unit === 'kg'); return; }
+    if (k === 'theme') { if (window.LKTheme) LKTheme.set(S.theme); return; }
+    if (k === 'dist') {
+      /* Merged into lk_cardioPrefs rather than written over it: the same key
+         holds the weekly target, the resting heart rate and the zone model,
+         and replacing it would quietly erase all three. */
+      patchKey('lk_cardioPrefs', { distUnit: S.dist });
+      return;
+    }
+    if (k === 'weekStart') { put('lk_weekStart', S.weekStart); return; }
+    if (k === 'restTimer') { put('lk_restEnabled', S.restTimer); return; }
+    if (k === 'restSec') { put('lk_restSec', S.restSec); return; }
+    if (k === 'partials') { put('lk_hidePartials', !S.partials); return; }
+    if (k === 'plateKg') { put('lk_plateKg', S.plateKg); return; }
+    if (k === 'reminder') { put('lk_reminderOn', S.reminder); return; }
+    if (k === 'reminderAt') { put('lk_reminderAt', S.reminderAt); return; }
+    if (k === 'checkin') {
+      put('lk_checkin', S.checkin);
+      put('lk_checkinPerDay', PER_DAY[S.checkin]);
+      return;
+    }
+    if (k === 'fuelNumbers' || k === 'badges' || k === 'cycle' || k === 'perfTracking') {
+      put('lk_' + k, S[k]);
+      return;
+    }
+  }
+
+  /* =============================================================
+     How much of this phone the app is using. The row read
+     "1.2 MB of 5.0 MB" as a literal string on a build whose whole
+     store is a few tens of kilobytes. It is measured now, from the
+     same dump the backup writes, and it says how it was measured.
+     ============================================================= */
+  var QUOTA = 5 * 1024 * 1024;
+  function storageBytes() {
+    if (!ST) return 0;
+    var d = ST.dump(), total = 0;
+    Object.keys(d).forEach(function (k) {
+      total += byteLen(k) + byteLen(String(d[k] === null || d[k] === undefined ? '' : d[k]));
+    });
+    return total;
+  }
+  function byteLen(str) {
+    try { return new Blob([str]).size; }
+    catch (e) { return str.length; }      /* no Blob: characters, near enough */
+  }
+  function storedKeys() {
+    return ST ? Object.keys(ST.dump()).length : 0;
+  }
+  function bytesLabel(b) {
+    if (b < 1024) return b + ' bytes';
+    if (b < 1024 * 1024) return round1(b / 1024) + ' KB';
+    return round1(b / (1024 * 1024)) + ' MB';
+  }
+
+  /* =============================================================
+     Backup. "Export a backup" toasted a filename and built no file;
+     "Restore from a backup" had no file input behind it at all, and
+     its confirmation ended by saying nothing had been replaced.
+     Both do the thing now, with LKStore.dump() and LKStore.load().
+     ============================================================= */
+  function todayStamp() {
+    var t = (window.LKFixtures && LKFixtures.today) || '';
+    return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : new Date().toISOString().slice(0, 10);
+  }
+  function exportBackup() {
+    if (!ST) { toast('This phone will not let the app store anything, so there is nothing to back up.'); return; }
+    var dump = ST.dump();
+    var keys = Object.keys(dump).length;
+    if (!keys) { toast('Nothing to back up yet. Log something first.'); return; }
+    var name = 'LOCKED-backup-' + todayStamp() + '.json';
+    var text = JSON.stringify({ app: 'LOCKED', exported: todayStamp(), keys: keys, data: dump }, null, 2);
+    var url;
+    try {
+      url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    } catch (e) {
+      toast('This browser would not build the file. Nothing was exported.');
+      return;
+    }
+    var a = document.createElement('a');
+    a.href = url; a.download = name; a.rel = 'noopener';
+    a.setAttribute('data-testid', 'backup-link');
+    a.style.position = 'absolute'; a.style.left = '-9999px';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () {
+      document.body.removeChild(a);
+      try { URL.revokeObjectURL(url); } catch (e) {}
+    }, 0);
+    toast(name + ' saved. ' + keys + (keys === 1 ? ' key' : ' keys') + ', ' + bytesLabel(byteLen(text)) + '.');
+  }
+
+  /* The file input lives in the page rather than in the dialog, because the
+     dialog closes the moment the picker opens and a detached input never
+     fires its change event. */
+  function restoreInput() {
+    var el = document.getElementById('restore-file');
+    if (el) return el;
+    el = document.createElement('input');
+    el.type = 'file';
+    el.accept = 'application/json,.json';
+    el.id = 'restore-file';
+    el.setAttribute('data-testid', 'restore-file');
+    el.setAttribute('aria-label', 'Choose a backup file');
+    el.className = 'vis-hidden';
+    el.addEventListener('change', function () {
+      var f = el.files && el.files[0];
+      el.value = '';
+      if (!f) return;
+      var r = new FileReader();
+      r.onerror = function () { toast('That file could not be read. Nothing was replaced.'); };
+      r.onload = function () { restoreFrom(String(r.result), f.name); };
+      r.readAsText(f);
+    });
+    document.body.appendChild(el);
+    return el;
+  }
+  function restoreFrom(text, filename) {
+    var parsed;
+    try { parsed = JSON.parse(text); }
+    catch (e) { toast('That is not a LOCKED backup. Nothing was replaced.'); return; }
+    var data = parsed && parsed.data ? parsed.data : parsed;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      toast('That is not a LOCKED backup. Nothing was replaced.');
+      return;
+    }
+    var mine = Object.keys(data).filter(function (k) { return k.indexOf('lk_') === 0; });
+    if (!mine.length) {
+      toast('No LOCKED data in ' + filename + '. Nothing was replaced.');
+      return;
+    }
+    var n = ST ? ST.load(data) : 0;
+    reload();
+    toast(n + (n === 1 ? ' key' : ' keys') + ' restored from ' + filename + '.');
+  }
+
+  /* Back to what the store holds, after something outside these rows has
+     rewritten it -- a restore, or an erase. The dev switcher does NOT go
+     through here: it is showing a state, not reading one. */
+  function reload() { reseed(); render(); }
+
+  /* =============================================================
+     Notifications. The permission prompt is real; the scheduling
+     half is not, and the screen says so where it would matter.
+     ============================================================= */
+  function notifSupported() { return typeof window.Notification === 'function'; }
+  function notifPermission() {
+    try { return notifSupported() ? Notification.permission : 'unsupported'; }
+    catch (e) { return 'unsupported'; }
+  }
+  function askPermission() {
+    if (!notifSupported()) { toast('This browser has no notifications to ask for.'); return; }
+    if (notifPermission() === 'denied') {
+      toast('Notifications are blocked for this app in your browser settings. Only you can undo that.');
+      return;
+    }
+    if (notifPermission() === 'granted') {
+      /* Granted is the browser's answer and cannot be taken back from here.
+         The app-level switch is ours, and that is what this flips. */
+      S.notifOn = !S.notifOn;
+      put('lk_notifOn', S.notifOn);
+      render();
+      say('Notifications ' + (S.notifOn ? 'on' : 'off'));
+      return;
+    }
+    var res;
+    try { res = Notification.requestPermission(); } catch (e) { res = null; }
+    var done = function (perm) {
+      S.notifOn = perm === 'granted';
+      put('lk_notifOn', S.notifOn);
+      render();
+      toast(perm === 'granted'
+        ? 'Allowed. Nothing is scheduled in this build: see the note under the switches.'
+        : 'Not allowed. Nothing will be sent.');
+    };
+    if (res && typeof res.then === 'function') res.then(done, function () { done('denied'); });
+    else done(notifPermission());
+  }
+  function testNotification() {
+    if (notifPermission() !== 'granted') { toast('Allow notifications first.'); return; }
+    try {
+      new Notification('LOCKED', { body: 'This is what one looks like. Sent from this phone, by this page.' });
+      toast('Sent from this page. A real reminder needs a service worker, which this build has none of.');
+    } catch (e) {
+      /* Chrome refuses a page-constructed Notification on some origins and
+         tells you to use a service worker. That is the truth about this
+         build too, so it is what the row says. */
+      toast('Your browser will only send one from a service worker. This build has none.');
+    }
+  }
+  /* A sound the page makes itself, rather than a file it does not ship.
+     Each one is a different shape so the preview is worth pressing. */
+  var SOUNDS = [
+    ['beep', 'Beep', [880]],
+    ['chime', 'Chime', [660, 990]],
+    ['thud', 'Thud', [160]],
+    ['none', 'Silent', []]
+  ];
+  function playSound(id) {
+    var spec = null;
+    SOUNDS.forEach(function (r) { if (r[0] === id) spec = r[2]; });
+    if (!spec || !spec.length) return;
+    var Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    try {
+      var ctx = new Ctx();
+      spec.forEach(function (hz, i) {
+        var o = ctx.createOscillator(), g = ctx.createGain();
+        var t0 = ctx.currentTime + i * 0.14;
+        o.frequency.value = hz;
+        o.type = id === 'thud' ? 'sine' : 'triangle';
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(0.25, t0 + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.13);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(t0); o.stop(t0 + 0.15);
+      });
+      setTimeout(function () { try { ctx.close(); } catch (e) {} }, 600);
+    } catch (e) {}
+  }
+
+  /* =============================================================
+     A nutrition export, from the same numbers Fuel shows.
+     ============================================================= */
+  function nutritionCSV() {
+    var nut = get('lk_nutrition', null) || {};
+    var foods = nut.foods || {};
+    var ids = Object.keys(foods);
+    if (!ids.length) { toast('No meals on this phone yet, so there is nothing to export.'); return; }
+    var rows = [['name', 'kcal', 'protein_g', 'carbs_g', 'fat_g']];
+    ids.forEach(function (id) {
+      var f = foods[id];
+      rows.push([f.name, f.kcal, f.pro, f.carb, f.fat]);
+    });
+    var t = nut.targets || {};
+    if (t.kcal) rows.push(['DAILY TARGET', t.kcal, t.pro, t.carb, t.fat]);
+    var csv = rows.map(function (r) {
+      return r.map(function (c) {
+        var v = c === undefined || c === null ? '' : String(c);
+        return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+      }).join(',');
+    }).join('\r\n');
+    var name = 'LOCKED-nutrition-' + todayStamp() + '.csv';
+    var url;
+    try { url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); }
+    catch (e) { toast('This browser would not build the file. Nothing was exported.'); return; }
+    var a = document.createElement('a');
+    a.href = url; a.download = name; a.setAttribute('data-testid', 'csv-link');
+    a.style.position = 'absolute'; a.style.left = '-9999px';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { document.body.removeChild(a); try { URL.revokeObjectURL(url); } catch (e) {} }, 0);
+    toast(name + ' saved. ' + (rows.length - 1) + ' rows.');
+  }
+
+  /* =============================================================
+     Force refresh. Clears whatever the browser cached for this app
+     and loads the page again. It touches no stored data, and the
+     row says so, because "refresh" next to "erase" needs to.
+     ============================================================= */
+  function forceRefresh() {
+    var done = function () { location.reload(); };
+    if (window.caches && caches.keys) {
+      caches.keys().then(function (names) {
+        return Promise.all(names.map(function (k) { return caches['delete'](k); }));
+      }).then(done, done);
+    } else done();
+  }
 
   /* =============================================================
      Formatting. One place converts, so a label can never disagree
@@ -420,8 +772,15 @@
     return navRow('body', 'Body and goal', bodyLine(), 'row-body');
   }
 
-  /* The one network action on this screen. Every state it can be in is
-     printed, including the one the old build could not show. */
+  /* The one network-shaped action on this screen. Every state it can be in
+     is printed, including the one the old build could not show -- and the
+     line above the button is a stored timestamp or the words "Never synced",
+     never the literal "2 minutes ago" it used to be on a build that has
+     never reached a server. */
+  function syncedLine() {
+    if (!S.syncedAt) return 'Never synced. This build has no server to sync with.';
+    return 'Last sync ' + S.syncedAt;
+  }
   function syncRow() {
     var sub, btn;
     if (S.sync === 'busy') {
@@ -435,7 +794,7 @@
       btn = '<button class="btn btn--sm btn--secondary" data-action="sync" data-testid="sync-now">' +
               '<span class="btn__label">Try again</span></button>';
     } else {
-      sub = S.sync === 'ok' ? 'Synced just now' : 'Synced ' + S.syncedAt;
+      sub = syncedLine();
       btn = '<button class="btn btn--sm btn--secondary" data-action="sync" data-testid="sync-now">' +
               '<span class="btn__label">Sync now</span></button>';
     }
@@ -512,7 +871,7 @@
       card = '<div class="card">' +
                '<div class="banner banner--error" role="alert">' + ICO.alert +
                  '<span><strong>Can’t reach your account</strong>' +
-                 'Your settings on this phone are unchanged. Nothing has synced since 2:14 PM.</span>' +
+                 'Your settings on this phone are unchanged. ' + esc(syncedLine()) + '</span>' +
                '</div>' +
                '<button class="btn btn--primary btn--block mt-4" data-action="sync" data-testid="retry-account"' +
                  (busy ? ' aria-busy="true" disabled' : '') + '>' +
@@ -599,11 +958,24 @@
      each behind a confirmation that names what it costs.
      ============================================================= */
   function dataSection() {
+    /* Measured, not asserted. This row said "1.2 MB of 5.0 MB" as a literal
+       string; the whole store is a few tens of kilobytes. The figure is the
+       same dump the backup writes, the count says how many keys it is, and
+       the bar turns amber at 80% rather than only at the point where a write
+       has already failed. */
+    var used = storageBytes();
+    var pct = Math.min(100, Math.round(used / QUOTA * 1000) / 10);
+    var tight = pct >= 80;
     var storage =
-      '<div class="row row--static">' +
+      '<div class="row row--static" data-testid="row-storage" data-bytes="' + used + '">' +
         '<span class="row__main">' +
           '<span class="row__title">Storage used</span>' +
-          '<span class="row__sub">' + n('1.2') + ' MB of ' + n('5.0') + ' MB on this phone</span>' +
+          '<span class="row__sub">' + n(bytesLabel(used)) + ' of ' + n('5.0') + ' MB on this phone, in ' +
+            n(storedKeys()) + (storedKeys() === 1 ? ' key' : ' keys') + '</span>' +
+          '<span class="meter mt-2' + (tight ? ' meter--warn' : '') + '" role="img" ' +
+            'aria-label="' + pct + ' per cent of the space this app may use">' +
+            '<span class="meter__fill" style="width:' + Math.max(1, pct) + '%"></span></span>' +
+          (tight ? '<span class="row__sub" style="color: var(--warning)">Close to full. Export a backup, then erase what you do not need.</span>' : '') +
         '</span>' +
       '</div>';
 
@@ -611,6 +983,8 @@
       '<div class="card card--flush">' + storage +
         actionRow('export', 'Export a backup', 'One file with every workout, split and record', 'row-export') +
         actionRow('confirm-restore', 'Restore from a backup', 'Replaces what is on this phone', 'row-restore') +
+        actionRow('export-nutrition', 'Export your food log', 'A CSV of every meal and your daily targets', 'row-export-nutrition') +
+        actionRow('force-refresh', 'Force refresh', 'Clears what the browser cached and loads the app again. Your data is untouched', 'row-force-refresh') +
       '</div>';
 
     var danger = '<div class="card card--flush">';
@@ -872,9 +1246,14 @@
         render();
         say('Sync failed. Nothing was sent.');
       } else {
-        S.sync = 'ok';
+        /* It says what this build does, which is nothing. "Everything is up
+           to date" reads as a completed sync on a build with no server and
+           no request; no timestamp is written either, because a sync
+           timestamp for a sync that did not happen is the same lie one
+           screen further on. */
+        S.sync = 'idle';
         render();
-        toast('Everything is up to date.');
+        toast('Not in this build. Nothing has left this device.');
       }
     }, 1200);
   }
@@ -903,24 +1282,44 @@
     } else if (a === 'toggle') {
       var k = t.dataset.key;
       S[k] = !S[k];
+      persist(k);
       render();
       var el = document.querySelector('[data-testid="' + t.dataset.testid + '"]');
       if (el) el.focus();
-      /* These two are read by other screens, so they are written where those
-         screens can see them -- the same way the theme is shared. Everything
-         else in this file is a per-screen fixture and stays one. */
-      if (k === 'fuelNumbers' || k === 'badges' || k === 'cycle' || k === 'perfTracking') {
-        try { localStorage.setItem('lk_' + k, String(S[k])); } catch (e) {}
-      }
       var LABEL = { restTimer: 'Rest timer ', partials: 'Count partial reps ',
                     reminder: 'Workout reminder ', fuelNumbers: 'Calorie numbers ',
-                    badges: 'Streaks and badges ', cycle: 'Cycle tracking ' };
+                    badges: 'Streaks and badges ', cycle: 'Cycle tracking ',
+                    perfTracking: 'Stack tracking ' };
       say((LABEL[k] || 'Setting ') + (S[k] ? 'on' : 'off'));
+
+    } else if (a === 'notif-toggle') {
+      var nk = t.dataset.key;
+      S.notif[nk] = !S.notif[nk];
+      put('lk_notifPrefs', S.notif);
+      render();
+      var nel = document.querySelector('[data-testid="' + t.dataset.testid + '"]');
+      if (nel) nel.focus();
+      say(t.dataset.name + ' ' + (S.notif[nk] ? 'on' : 'off'));
+
+    } else if (a === 'notif-master') {
+      askPermission();
+
+    } else if (a === 'notif-test') {
+      testNotification();
+
+    } else if (a === 'sound-pick') {
+      S.restSound = t.dataset.value;
+      put('lk_restSound', S.restSound);
+      playSound(S.restSound);
+      render();
+      var sel = document.querySelector('[data-testid="sound-' + S.restSound + '"]');
+      if (sel) sel.focus();
 
     } else if (a === 'pick') {
       var key2 = t.dataset.key, raw = t.dataset.value;
       var before = { weightKg: S.body.weightKg, unit: S.unit };
       S[key2] = (key2 === 'restSec' || key2 === 'plateKg') ? Number(raw) : raw;
+      persist(key2);
       S.sheet = null;
       render();
       var back2 = document.querySelector('[data-testid="' + rowFor(key2) + '"]');
@@ -945,6 +1344,9 @@
     } else if (a === 'save-name') {
       var nv = (document.getElementById('f-name') || {}).value;
       if (nv && nv.trim()) S.name = nv.trim();
+      /* lk_profile.displayName, so Profile's header reads what was typed
+         here. The old Save closed the sheet and wrote nothing at all. */
+      patchKey('lk_profile', { displayName: S.name });
       closeOverlay('row-identity');
       toast('Name saved.');
 
@@ -956,6 +1358,13 @@
       /* Read back into the stored unit, never into the displayed one. */
       if (hv > 0) S.body.heightCm = S.unit === 'kg' ? Math.round(hv) : Math.round(hv * 2.54);
       if (wv > 0) S.body.weightKg = S.unit === 'kg' ? round1(wv) : round1(wv / LB);
+      /* One key, in kilograms and centimetres, which is what every other
+         screen reads. Save Stats used to change four variables on this page
+         and nothing else. */
+      patchKey('lk_profile', {
+        age: S.body.age, sex: S.body.sex, heightCm: S.body.heightCm,
+        weightKg: S.body.weightKg, goal: S.body.goal
+      });
       closeOverlay('row-body');
       toast('Body and goal saved.');
 

@@ -68,6 +68,23 @@ const history = raw.map((w) => {
        kilocalories, so every screen labels it kcal. */
     var c = w.calories;
     rec.cal = c == null ? null : (typeof c === 'object' ? (c.value ?? null) : c);
+    /* Everything else the seed records about the session, so a screen that
+       wants a pace, a split, a heart-rate zone or the machine it was done on
+       has it rather than having to invent one. */
+    rec.calDetail = (c && typeof c === 'object') ? c : null;
+    rec.modality = w.modality || null;
+    rec.cardioType = w.cardioType || null;
+    rec.distanceM = w.distanceM ?? null;
+    rec.durationSec = w.durationSec ?? null;
+    rec.surface = w.surface || null;
+    rec.environment = w.environment || null;
+    rec.machine = w.machine || null;
+    rec.heartRate = w.heartRate || null;
+    rec.intensity = w.intensity || null;
+    rec.metrics = w.metrics || null;
+    rec.fasted = !!w.fasted;
+    rec.favoriteId = w.favoriteId || null;
+    rec.note = w.note || '';
   } else {
     rec.sets = sets; rec.kg = vol;
     /* The exercises, set by set. Without them every history row could only
@@ -173,6 +190,21 @@ const library = {
   custom: customEx.length,
   logged: loggedIds.size
 };
+
+/* CYCLE. The cycle screen carried its own seedProfile with a start date four
+   days off this one, and Home carried a third answer as a hardcoded string,
+   so three surfaces gave three different readings of what day it is. There is
+   one answer and it is here. */
+const mcProfile = JSON.parse(seed.lk_mcProfile);
+const mcDays = JSON.parse(seed.lk_mcDays);
+const mcFuelAdjust = JSON.parse(seed.lk_mcFuelAdjust);
+
+/* CARDIO, in full. The flattened record kept minutes, distance and calories
+   and dropped heartRate, metrics, intensity and machine, so the personal
+   bests, the time-in-zone card and the machine name had no inputs to read
+   even though the seed holds all of them. */
+const cardioPrefs = JSON.parse(seed.lk_cardioPrefs);
+const cardioFavorites = JSON.parse(seed.lk_cardioFavorites);
 
 const supplements = JSON.parse(seed.lk_supplements);
 const shoppingList = JSON.parse(seed.lk_shoppingList);
@@ -317,6 +349,11 @@ const body = `/* GENERATED — do not edit.
     stores: ${JSON.stringify(stores, null, 6).replace(/\n/g, '\n    ')},
     customEx: ${JSON.stringify(customEx, null, 6).replace(/\n/g, '\n    ')},
     nutrition: ${JSON.stringify(nutrition, null, 6).replace(/\n/g, '\n    ')},
+    mcProfile: ${JSON.stringify(mcProfile, null, 6).replace(/\n/g, '\n    ')},
+    mcDays: ${JSON.stringify(mcDays, null, 6).replace(/\n/g, '\n    ')},
+    mcFuelAdjust: ${JSON.stringify(mcFuelAdjust)},
+    cardioPrefs: ${JSON.stringify(cardioPrefs, null, 6).replace(/\n/g, '\n    ')},
+    cardioFavorites: ${JSON.stringify(cardioFavorites, null, 6).replace(/\n/g, '\n    ')},
 
     /* Every session on a date, newest first. */
     on: function (iso) {
@@ -347,6 +384,40 @@ const body = `/* GENERATED — do not edit.
       }
       return null;
     },
+    /* The cycle, worked out rather than stated. Every screen that shows a day
+       number, a phase or a next-period date asks here, so they cannot drift.
+       The date argument defaults to today. */
+    cycleOn: function (iso) {
+      var p = g.LKFixtures.mcProfile;
+      if (!p || !p.lastStart) return null;
+      iso = iso || g.LKFixtures.today;
+      var ms = function (s) { var a = s.split('-'); return Date.UTC(+a[0], +a[1] - 1, +a[2]); };
+      var day = Math.round((ms(iso) - ms(p.lastStart)) / 86400000);
+      var len = p.cycleLen || 28, per = p.periodLen || 5;
+      /* Days past the end of a cycle are NOT wrapped. The screen used to take
+         the day count modulo the cycle length, so a period ten days late read
+         "Day 11" and an overdue state could never be reached. */
+      var overdue = day >= len ? day - len + 1 : 0;
+      var inCycle = day < 0 ? null : (overdue ? day + 1 : (day % len) + 1);
+      var phase = inCycle === null ? null
+        : inCycle <= per ? 'menstrual'
+        : inCycle <= Math.round(len / 2) - 2 ? 'follicular'
+        : inCycle <= Math.round(len / 2) + 1 ? 'ovulatory'
+        : 'luteal';
+      var nextMs = ms(p.lastStart) + len * 86400000;
+      var next = new Date(nextMs).toISOString().slice(0, 10);
+      return {
+        day: inCycle,
+        phase: overdue ? 'late' : phase,
+        overdue: overdue,
+        cycleLen: len,
+        periodLen: per,
+        irregular: !!p.irregular,
+        nextStart: next,
+        daysToNext: Math.round((nextMs - ms(iso)) / 86400000)
+      };
+    },
+
     /* Working volume and top set of one lift inside one session. */
     liftStats: function (ex) {
       var vol = 0, top = null;

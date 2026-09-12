@@ -132,7 +132,7 @@
     date: '2026-09-05',
     min: 51,
     note: 'Left elbow tight on the first two sets of rows. Warmed up longer and it settled.',
-    feel: { energy: 4, pump: 4, strength: 3, sleep: 3, stress: 2 },
+    feel: { energy: 4, focus: 4, pump: 3, difficulty: 3, enjoyment: 4 },
     exercises: [
       { name: 'Barbell Row', muscle: 'Mid Back', note: '', sets: [
         { kg: 60, reps: 10, rir: 3, warm: true },
@@ -167,7 +167,26 @@
     date: '2026-09-06', min: 30, km: 5.2, cal: 340, note: '', feel: null, exercises: []
   };
 
-  var FEEL_LABELS = [['energy','Energy'],['pump','Pump'],['strength','Strength'],['sleep','Sleep'],['stress','Stress']];
+  /* HOW IT FELT, in the keys the data actually uses. This list asked for
+     energy, pump, strength, sleep and stress; the reflection a session
+     carries is {energy, focus, pump, difficulty, enjoyment}. So three chips
+     printed "Strength undefined", "Sleep undefined" and "Stress undefined",
+     and the two figures the lifter did record were never shown at all. The
+     order below is the order the seed writes them in, and a chip is drawn
+     only for a key the reflection has, so a record written by an older
+     build cannot put the word undefined back on the screen. */
+  var FEEL_LABELS = [
+    ['energy', 'Energy'],
+    ['focus', 'Focus'],
+    ['pump', 'Pump'],
+    ['difficulty', 'Difficulty'],
+    ['enjoyment', 'Enjoyment'],
+    /* Names a record from an older build may carry, so it reads rather than
+       being dropped silently. */
+    ['strength', 'Strength'],
+    ['sleep', 'Sleep'],
+    ['stress', 'Stress']
+  ];
 
   var S = {
     state: 'populated',
@@ -176,8 +195,75 @@
     noteDraft: '',
     deleted: false,
     toast: null,
-    undo: null
+    undo: null,
+    /* The edit draft, or null when the screen is being read rather than
+       changed. Nothing is written to history until Save is pressed. */
+    edit: null
   };
+
+  /* ---------------------------------------------------------------
+     HISTORY COMES FROM THE STORE, NOT STRAIGHT FROM THE FIXTURE.
+     This screen read window.LKFixtures and nothing else, so a note written
+     here was gone on the next load, a deleted session came back, and a
+     workout Review had just saved could not be opened at all: it was in
+     lk_history and this screen was not looking there. The fixture is still
+     the seed for a reader who has written nothing.
+     --------------------------------------------------------------- */
+  function history() {
+    var FX = window.LKFixtures;
+    var seed = (FX && FX.history) || [];
+    var list = window.LKStore ? LKStore.get('lk_history', seed) : seed;
+    return Array.isArray(list) ? list : seed;
+  }
+  function saveHistory(list) {
+    if (window.LKStore) LKStore.set('lk_history', list);
+  }
+  function indexOfId(list, id) {
+    for (var i = 0; i < list.length; i++) { if (list[i].id === id) return i; }
+    return -1;
+  }
+  function recordById(id) {
+    var list = history(), i = indexOfId(list, id);
+    return i < 0 ? null : list[i];
+  }
+  /* "Last time" is read from the same list the screen is reading. Taken from
+     the fixture instead, a session saved today would be compared against a
+     history that has never heard of it. */
+  function lastTimeIn(exId, before) {
+    var list = history();
+    for (var i = 0; i < list.length; i++) {
+      var w = list[i];
+      if (w.kind !== 'lift' || !w.exercises) continue;
+      if (before && w.date >= before) continue;
+      for (var j = 0; j < w.exercises.length; j++) {
+        if (w.exercises[j].id === exId) return { date: w.date, exercise: w.exercises[j] };
+      }
+    }
+    return null;
+  }
+  /* Working sets and working volume, recomputed from the rows rather than
+     trusted from the record's own summary, which is what an edit invalidates. */
+  function recount(rec) {
+    var sets = 0, vol = 0;
+    (rec.exercises || []).forEach(function (ex) {
+      (ex.sets || []).forEach(function (st) {
+        if (st.warm || st.kg == null || st.reps == null) return;
+        sets++; vol += st.kg * st.reps;
+      });
+    });
+    rec.sets = sets;
+    rec.kg = Math.round(vol);
+    return rec;
+  }
+  /* One write, used by the note, the edit and the delete alike. */
+  function writeRecord(id, change) {
+    var list = history().slice();
+    var at = indexOfId(list, id);
+    if (at < 0) return false;
+    list[at] = change(JSON.parse(JSON.stringify(list[at])));
+    saveHistory(list);
+    return true;
+  }
 
   function workingSets(w) {
     return w.exercises.reduce(function (a, e) {
@@ -277,7 +363,9 @@
     return '<div class="section mt-5">' +
       '<div class="section__head"><h2 class="t-label">How it felt</h2></div>' +
       '<div class="card"><div class="chiprow">' +
-        FEEL_LABELS.map(function (p) {
+        FEEL_LABELS.filter(function (p) {
+          return f[p[0]] !== null && f[p[0]] !== undefined;
+        }).map(function (p) {
           return '<span class="chip" data-testid="feel-' + p[0] + '">' + p[1] + ' ' + n(f[p[0]]) + '</span>';
         }).join('') +
       '</div>' +
@@ -331,6 +419,104 @@
   }
 
   var VIEWS = {};
+
+  /* ---------------------------------------------------------------
+     EDIT MODE. "Edit the sets" went to workout-log.html, which opens
+     TODAY's session -- so the one control that promised to change the
+     record you were reading opened a different workout and could not
+     change it at all. The record is edited here, where it is being read,
+     and Save writes it to lk_history.
+     --------------------------------------------------------------- */
+  function draftFrom(w) {
+    return {
+      name: w.name,
+      exercises: w.exercises.map(function (e) {
+        return {
+          id: e.id, name: e.name, muscle: e.muscle,
+          sets: e.sets.map(function (s) {
+            return { kg: s.kg, reps: s.reps, rir: s.rir, warm: !!s.warm };
+          })
+        };
+      })
+    };
+  }
+  function draftTotals(d) {
+    var sets = 0, vol = 0;
+    d.exercises.forEach(function (e) {
+      e.sets.forEach(function (s) {
+        if (s.warm || s.kg == null || s.reps == null) return;
+        sets++; vol += s.kg * s.reps;
+      });
+    });
+    return { sets: sets, vol: vol };
+  }
+  function numField(label, testid, value, attrs, act, e, i) {
+    return '<label class="vis-hidden" for="' + testid + '">' + esc(label) + '</label>' +
+      '<input class="input" type="number" inputmode="decimal" id="' + testid + '" ' +
+        'data-testid="' + testid + '" data-act="' + act + '" data-ex="' + e + '" data-set="' + i + '" ' +
+        attrs + ' value="' + (value === null || value === undefined ? '' : esc(value)) + '">';
+  }
+  function editSetRow(s, i, e) {
+    return '<div class="editset" data-testid="eset-' + e + '-' + i + '">' +
+        '<button class="editset__n" type="button" data-act="ed-warm" data-ex="' + e + '" data-set="' + i + '" ' +
+          'data-testid="ed-warm-' + e + '-' + i + '" aria-pressed="' + (s.warm ? 'true' : 'false') + '" ' +
+          'aria-label="Set ' + (i + 1) + (s.warm ? ', a warm-up. Make it a working set' : ', a working set. Make it a warm-up') + '">' +
+          (s.warm ? 'W' : String(i + 1)) + '</button>' +
+        numField('Set ' + (i + 1) + ' weight in ' + LKUnits.label(), 'ed-kg-' + e + '-' + i,
+                 s.kg === null || s.kg === undefined ? '' : LKUnits.v(s.kg), 'step="0.5" min="0"', 'ed-kg', e, i) +
+        numField('Set ' + (i + 1) + ' reps', 'ed-reps-' + e + '-' + i, s.reps, 'step="1" min="0"', 'ed-reps', e, i) +
+        numField('Set ' + (i + 1) + ' reps in reserve', 'ed-rir-' + e + '-' + i, s.rir, 'step="1" min="0" max="5"', 'ed-rir', e, i) +
+        '<button class="iconbtn iconbtn--danger" type="button" data-act="ed-delset" data-ex="' + e + '" data-set="' + i + '" ' +
+          'data-testid="ed-delset-' + e + '-' + i + '" aria-label="Remove set ' + (i + 1) + '">' + ICO.close + '</button>' +
+      '</div>';
+  }
+  VIEWS.edit = function () {
+    var d = S.edit;
+    var t = draftTotals(d);
+    return '<div class="section" data-testid="detail-editor">' +
+        '<label class="field"><span class="field__label t-label">Session name</span>' +
+          '<input class="input" id="ed-name" data-act="ed-name" data-testid="ed-name" ' +
+            'value="' + esc(d.name) + '"></label>' +
+        '<p class="t-detail mt-3" data-testid="ed-totals">' + n(t.sets) + ' working sets &middot; ' +
+          n(LKUnits.fmtTotal(t.vol)) + '</p>' +
+        d.exercises.map(function (e, i) {
+          return '<div class="exc mt-3" data-testid="ed-ex-' + i + '">' +
+              '<div class="exc__head">' +
+                '<span class="stack stack--1 grow">' +
+                  '<span class="t-section">' + esc(e.name) + '</span>' +
+                  '<span class="t-detail quiet">' + esc(e.muscle) + '</span>' +
+                '</span>' +
+                '<button class="iconbtn iconbtn--danger" type="button" data-act="ed-delex" data-ex="' + i + '" ' +
+                  'data-testid="ed-delex-' + i + '" aria-label="Remove ' + esc(e.name) + ' from this session">' +
+                  ICO.close + '</button>' +
+              '</div>' +
+              '<div class="editsets">' +
+                '<div class="editset editset--head" aria-hidden="true">' +
+                  '<span class="t-meta">#</span><span class="t-meta">' + LKUnits.label().toUpperCase() + '</span>' +
+                  '<span class="t-meta">REPS</span><span class="t-meta">RIR</span><span></span>' +
+                '</div>' +
+                e.sets.map(function (s, k) { return editSetRow(s, k, i); }).join('') +
+              '</div>' +
+              '<div class="exc__foot">' +
+                '<button class="btn btn--sm btn--secondary" type="button" data-act="ed-addset" data-ex="' + i + '" ' +
+                  'data-testid="ed-addset-' + i + '"><span class="btn__label">Add set</span></button>' +
+              '</div>' +
+            '</div>';
+        }).join('') +
+        (d.exercises.length ? '' :
+          '<p class="t-detail quiet mt-3" data-testid="ed-empty">Every exercise has been removed. ' +
+          'Saving now would leave a session with nothing in it, so Save asks you to delete it instead.</p>') +
+        '<div class="stack stack--2 mt-4">' +
+          '<button class="btn btn--primary btn--block" type="button" data-act="ed-save" data-testid="ed-save">' +
+            '<span class="btn__label">Save changes</span></button>' +
+          '<button class="btn btn--secondary btn--block" type="button" data-act="ed-cancel" data-testid="ed-cancel">' +
+            '<span class="btn__label">Cancel</span></button>' +
+        '</div>' +
+        '<p class="t-caption-1 quiet mt-3">Changes are written to your history when you save. ' +
+          'The totals above are recomputed from the rows, not carried over.</p>' +
+      '</div>';
+  };
+
   VIEWS.populated = function () {
     return totals() + prBanner() +
       '<div class="section mt-4"><div class="section__head"><h2 class="t-label">What you did</h2>' +
@@ -409,7 +595,7 @@
   function render() {
     screen.setAttribute('data-state', S.state);
     LKPatch(hdr, headerHTML());
-    LKPatch(body, (VIEWS[S.state] || VIEWS.populated)());
+    LKPatch(body, S.edit ? VIEWS.edit() : (VIEWS[S.state] || VIEWS.populated)());
     LKPatch(overlay, toastHTML());
     Array.prototype.forEach.call(menu.querySelectorAll('.dev__item'), function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.state === S.state));
@@ -425,6 +611,7 @@
     render();
   }
 
+
   document.addEventListener('click', function (e) {
     var t = e.target.closest ? e.target.closest('[data-act]') : null;
     if (!t) return;
@@ -433,8 +620,83 @@
     /* These leave the screen. In the demo the router takes the click first;
        each destination is declared in MANIFEST.nav. */
     if (a === 'back') { location.href = 'train.html'; return; }
-    if (a === 'repeat') { location.href = 'workout-log.html'; return; }
-    if (a === 'edit') { location.href = 'workout-log.html'; return; }
+    /* Repeat now HANDS THE SESSION OVER. It opened the workout log, which
+       built today's Push day from the split whatever you had been reading,
+       so "Do this session again" reliably started a different session. The
+       log reads lk_repeatWorkout at boot and starts from these lifts. */
+    if (a === 'repeat') {
+      if (window.LKStore) {
+        LKStore.set('lk_repeatWorkout', {
+          name: S.w.name,
+          from: S.w.id,
+          exercises: S.w.exercises.map(function (e) {
+            return { id: e.id, name: e.name, muscle: e.muscle,
+                     sets: e.sets.filter(function (s) { return !s.warm; }).length };
+          })
+        });
+      }
+      location.href = 'workout-log.html';
+      return;
+    }
+    if (a === 'edit') {
+      if (S.w.kind !== 'lift') { say('A cardio session has no sets to edit.'); return; }
+      S.edit = draftFrom(S.w);
+      render();
+      focusIn('ed-name');
+      return;
+    }
+
+    /* ---- edit mode ---- */
+    if (a === 'ed-warm') {
+      S.edit.exercises[Number(t.dataset.ex)].sets[Number(t.dataset.set)].warm =
+        !S.edit.exercises[Number(t.dataset.ex)].sets[Number(t.dataset.set)].warm;
+      render(); return;
+    }
+    if (a === 'ed-delset') {
+      var dex = S.edit.exercises[Number(t.dataset.ex)];
+      dex.sets.splice(Number(t.dataset.set), 1);
+      render(); say('Set removed. Nothing is written until you save.'); return;
+    }
+    if (a === 'ed-addset') {
+      var aex = S.edit.exercises[Number(t.dataset.ex)];
+      var lastS = aex.sets[aex.sets.length - 1];
+      aex.sets.push({ kg: lastS ? lastS.kg : null, reps: lastS ? lastS.reps : null,
+                      rir: lastS ? lastS.rir : 2, warm: false });
+      render(); say('Set added to ' + aex.name + '.'); return;
+    }
+    if (a === 'ed-delex') {
+      var goneEx = S.edit.exercises.splice(Number(t.dataset.ex), 1)[0];
+      render(); say(goneEx.name + ' removed. Nothing is written until you save.'); return;
+    }
+    if (a === 'ed-cancel') { S.edit = null; render(); focusIn('detail-edit'); say('Edit cancelled. Nothing was changed.'); return; }
+    if (a === 'ed-save') {
+      if (!S.edit.exercises.length) {
+        say('Nothing left to save. Delete the session instead.');
+        return;
+      }
+      var draft = S.edit;
+      var ok = writeRecord(S.w.id, function (rec) {
+        rec.name = draft.name.trim() || rec.name;
+        rec.exercises = draft.exercises.map(function (e) {
+          return { id: e.id, name: e.name, muscle: e.muscle,
+                   sets: e.sets.map(function (s) {
+                     return { kg: s.kg, reps: s.reps, rir: s.rir, warm: !!s.warm, done: true };
+                   }) };
+        });
+        return recount(rec);
+      });
+      S.edit = null;
+      var again = fromFixture(S.w.id);
+      if (again) S.w = again;
+      render();
+      focusIn('detail-edit');
+      /* A session that is not in stored history -- the dev states' own
+         material -- can be edited and read back, but there is nothing to
+         write it to, and saying "saved to your history" would be a lie. */
+      say(ok ? 'Session updated in your history.'
+             : 'Changed on this screen. This one is a demo session, so there is nothing in your history to write to.');
+      return;
+    }
 
     if (a === 'note-edit') {
       S.editingNote = true;
@@ -449,18 +711,36 @@
       var fld = document.getElementById('note-field');
       S.w.note = fld ? fld.value.trim() : S.w.note;
       S.editingNote = false;
+      /* The note was a variable on this page. It said "Note saved." and the
+         next load showed the old one. */
+      var noted = S.w.note;
+      var wrote = writeRecord(S.w.id, function (rec) { rec.note = noted; return rec; });
       render();
       focusIn('note-edit');
-      say(S.w.note ? 'Note saved.' : 'Note cleared.');
+      say(wrote ? (noted ? 'Note saved.' : 'Note cleared.')
+                : 'Kept on this screen. This one is a demo session, so there is nothing in your history to write to.');
       return;
     }
     if (a === 'delete') {
       var was = S.state;
+      /* "Deleting takes it out of your history" was a sentence and nothing
+         else: the row was still in lk_history, so Train and Home still
+         counted a session the screen said was gone. It leaves history now,
+         and Undo puts it back where it was. */
+      var list = history().slice();
+      var at = indexOfId(list, S.w.id);
+      var cut = at > -1 ? list.splice(at, 1)[0] : null;
+      if (cut) saveHistory(list);
       S.state = 'deleted';
       S.deleted = true;
       render();
       say('Session deleted.', function () {
         S.state = was; S.deleted = false;
+        if (cut) {
+          var back = history().slice();
+          back.splice(Math.min(at, back.length), 0, cut);
+          saveHistory(back);
+        }
       });
       return;
     }
@@ -481,6 +761,27 @@
     var el = document.querySelector('[data-testid="' + testid + '"]');
     if (el) el.focus();
   }
+
+  /* Typing in the editor. The draft is updated in place and the totals line
+     is repainted, so the working-set count and the volume track what is on
+     screen rather than what the record said when it was opened. Weights are
+     typed in the profile's unit and stored in kilograms, which is the model. */
+  document.addEventListener('input', function (e) {
+    var t = e.target.closest ? e.target.closest('[data-act]') : null;
+    if (!t || !S.edit) return;
+    var a = t.getAttribute('data-act');
+    if (a === 'ed-name') { S.edit.name = t.value; return; }
+    if (a !== 'ed-kg' && a !== 'ed-reps' && a !== 'ed-rir') return;
+    var st = S.edit.exercises[Number(t.dataset.ex)].sets[Number(t.dataset.set)];
+    var v = t.value === '' ? null : Number(t.value);
+    if (v !== null && isNaN(v)) return;
+    if (a === 'ed-kg') st.kg = v === null ? null : (LKUnits.useKg() ? v : Math.round((v / LKUnits.lbPerKg) * 100) / 100);
+    else if (a === 'ed-reps') st.reps = v === null ? null : Math.round(v);
+    else st.rir = v === null ? null : Math.round(v);
+    var tot = draftTotals(S.edit);
+    var el = document.querySelector('[data-testid="ed-totals"]');
+    if (el) LKPatch(el, n(tot.sets) + ' working sets &middot; ' + n(LKUnits.fmtTotal(tot.vol)));
+  });
 
   /* ---- dev states -------------------------------------------------- */
   var STATES = [
@@ -507,7 +808,7 @@
     /* A fresh session per state, so a note written in one does not appear
        in the next. */
     S.w = b.dataset.state === 'cardio' ? clone(CARDIO) : clone(SESSION);
-    S.editingNote = false; S.toast = null; S.undo = null;
+    S.editingNote = false; S.toast = null; S.undo = null; S.edit = null;
     render();
   });
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
@@ -518,8 +819,8 @@
      different workouts showed one fixed Sep 5 Pull whose lifts and totals
      match no session in the fixture. */
   function fromFixture(id) {
-    var FX = window.LKFixtures;
-    var w = FX && FX.session ? FX.session(id) : null;
+    var FX = window.LKFixtures || {};
+    var w = recordById(id);
     if (!w) return null;
     if (w.kind === 'cardio') {
       return { id: w.id, kind: 'cardio', name: w.name, date: w.date, min: w.min,
@@ -533,10 +834,10 @@
       id: w.id, kind: 'lift', name: w.name, date: w.date, min: w.min,
       note: w.note || '', feel: w.reflection || null,
       exercises: w.exercises.map(function (ex) {
-        var last = FX.lastTime(ex.id, w.date);
+        var last = lastTimeIn(ex.id, w.date);
         var rec = prSet[ex.id];
         return {
-          name: ex.name, muscle: ex.muscle || '', note: '',
+          id: ex.id, name: ex.name, muscle: ex.muscle || '', note: '',
           /* Working sets are compared against working sets, and a warm-up is
              compared against nothing: the first pass indexed the previous
              session's working rows by a counter that included this session's

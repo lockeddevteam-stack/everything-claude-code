@@ -197,6 +197,13 @@
   };
 
   /* ---- formatting ------------------------------------------------ */
+  /* Free text reaches this screen now -- a session name a person typed, a
+     note they wrote -- and it is written into markup, so it is escaped. */
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
   function n(v) { return '<span class="num">' + v + '</span>'; }
   function kg(v) { return n(LKUnits.fmtTotal(Number(v))); }
   /* A signed figure always prints its sign, so the colour is a second
@@ -262,11 +269,13 @@
      screen shows when no session was handed over, which is how it is opened
      from the index and from a screenshot run. */
   function handed() {
-    var raw = null;
-    try { raw = localStorage.getItem('lk_lastSession'); } catch (e) { return null; }
-    if (!raw) return null;
-    var r;
-    try { r = JSON.parse(raw); } catch (e) { return null; }
+    var r = window.LKStore ? LKStore.get('lk_lastSession', null) : null;
+    if (!r) {
+      var raw = null;
+      try { raw = localStorage.getItem('lk_lastSession'); } catch (e) { return null; }
+      if (!raw) return null;
+      try { r = JSON.parse(raw); } catch (e) { return null; }
+    }
     if (!r || !r.lifts || !r.lifts.length) return null;
     var FX = window.LKFixtures;
 
@@ -302,6 +311,9 @@
       date: r.dateISO ? longDate(r.dateISO) : '',
       sets: r.sets, volumeKg: r.volumeKg, minutes: r.minutes,
       lifts: lifts,
+      /* The rows, so the screen can show what was actually done and the
+         record it saves has sets in it. */
+      exercises: r.exercises || [],
       record: rec,
       /* No insight. The insight lines below are written about the fixture's
          own sessions; generating one about a session this screen has only
@@ -410,15 +422,23 @@
   };
   DATA['diff-updated'] = DATA['diff-swap'];
 
-  var FEELINGS = [
-    ['easy',   'Easy'],
-    ['steady', 'Steady'],
-    ['hard',   'Hard'],
-    ['max',    'All out']
+  /* HOW IT FELT. One four-chip question -- easy, steady, hard, all out --
+     was stored nowhere and shown nowhere afterwards: workout-detail's "How
+     it felt" card reads a reflection of five one-to-five ratings, and every
+     session in the seed carries those five. So this asks for the five the
+     data actually has, under the keys the data actually uses, and what is
+     answered here is what that card reads back. Still optional, still below
+     the fold, and it still gates nothing. */
+  var REFLECT = [
+    ['energy',     'Energy'],
+    ['focus',      'Focus'],
+    ['pump',       'Pump'],
+    ['difficulty', 'Difficulty'],
+    ['enjoyment',  'Enjoyment']
   ];
 
   /* ---- screen state ---------------------------------------------- */
-  var S = { view: 'record', saved: false, feel: null, discardArmed: false,
+  var S = { view: 'record', saved: false, reflection: {}, note: '', discardArmed: false,
             ai: 'idle', toast: null,
             /* split: 'pending' | 'updated' | 'kept'. picks: indices chosen
                in the per-change sheet, empty until the lifter picks. */
@@ -715,12 +735,23 @@
       '</div>';
   }
 
-  /* Optional, secondary, and it gates nothing. One question, four
-     answers, one tap, and the screen is savable with or without it. */
+  /* Optional, secondary, and it gates nothing. Five ratings and a line of
+     text, all of it saved with the session and all of it readable again on
+     the session's own screen days later. */
   function feelSection() {
-    var chips = FEELINGS.map(function (f) {
-      return '<button class="chip" type="button" aria-pressed="' + (S.feel === f[0]) + '" ' +
-             'data-feel="' + f[0] + '" data-testid="feel-' + f[0] + '">' + f[1] + '</button>';
+    var rows = REFLECT.map(function (f) {
+      var v = S.reflection[f[0]];
+      var dots = '';
+      for (var i = 1; i <= 5; i++) {
+        dots += '<button class="rate__dot" type="button" aria-pressed="' + (v === i) + '" ' +
+          'data-rate="' + f[0] + '" data-val="' + i + '" data-testid="rate-' + f[0] + '-' + i + '" ' +
+          'aria-label="' + f[1] + ', ' + i + ' of 5">' + i + '</button>';
+      }
+      return '<div class="rate" role="group" aria-label="' + f[1] + ', one to five, optional" ' +
+               'data-testid="rate-' + f[0] + '">' +
+          '<span class="rate__label t-detail">' + f[1] + '</span>' +
+          '<span class="rate__dots">' + dots + '</span>' +
+        '</div>';
     }).join('');
     return '' +
       '<div class="section" data-testid="section-feel">' +
@@ -728,7 +759,48 @@
           '<h2 class="t-label">How did it feel</h2>' +
           '<span class="t-meta">Optional</span>' +
         '</div>' +
-        '<div class="chiprow" role="group" aria-label="How did it feel, optional">' + chips + '</div>' +
+        '<div class="card">' + rows +
+          '<p class="t-meta mt-2">One is low, five is high. Saved with the session.</p>' +
+        '</div>' +
+        '<div class="section__head mt-4">' +
+          '<h2 class="t-label">Note</h2>' +
+          '<span class="t-meta">Optional</span>' +
+        '</div>' +
+        '<div class="card">' +
+          '<label class="vis-hidden" for="session-note">A note about this session</label>' +
+          '<textarea class="input" id="session-note" rows="2" data-testid="session-note" ' +
+            'placeholder="What is worth remembering about this one?">' + esc(S.note) + '</textarea>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* WHAT YOU ACTUALLY DID. The screen compared today against last time and
+     never once showed a set: a lifter asking "how many did I get on the
+     third one" had to leave and find the session in their history, which is
+     the one screen this one is supposed to save them. */
+  function setsSection(d) {
+    if (!d.exercises || !d.exercises.length) return '';
+    return '<div class="section" data-testid="section-sets">' +
+        '<div class="section__head"><h2 class="t-label">Every set</h2>' +
+          '<span class="t-meta num">' + d.exercises.length + '</span></div>' +
+        d.exercises.map(function (e, i) {
+          var wi = 0;
+          return '<div class="card card--flush mt-3" data-testid="rex-' + i + '">' +
+              '<div class="card__head"><span class="t-label grow">' + esc(e.name) + '</span>' +
+                '<span class="t-meta">' + esc(e.muscle || '') + '</span></div>' +
+              '<div style="padding: 0 var(--sp-4) var(--sp-4)">' +
+                e.sets.map(function (s, k) {
+                  if (!s.warm) wi++;
+                  return '<div class="rsetline" data-testid="rset-' + i + '-' + k + '">' +
+                      '<span class="rsetline__n' + (s.warm ? ' rsetline__n--warm' : '') + '">' +
+                        (s.warm ? 'W' : wi) + '</span>' +
+                      '<span class="t-detail num">' + set(s.kg, s.reps) + '</span>' +
+                      '<span class="t-meta num">' + (s.rir != null ? s.rir + ' RIR' : '') + '</span>' +
+                    '</div>';
+                }).join('') +
+              '</div>' +
+            '</div>';
+        }).join('') +
       '</div>';
   }
 
@@ -942,7 +1014,7 @@
 
   function show(view) {
     var v = VIEWS[view] ? view : 'record';
-    S = { view: v, saved: false, feel: null, discardArmed: false, ai: 'idle',
+    S = { view: v, saved: false, reflection: {}, note: '', discardArmed: false, ai: 'idle',
           toast: null, split: 'pending', applied: [], picks: [], sheet: false };
     /* Two of the dev states are a mid-decision snapshot rather than an
        entry state: the sheet already open, and the split already
