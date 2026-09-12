@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="components.css">
 <script src="theme.js"></script>
 <script src="fixtures.js"></script>
+<script src="store.js"></script>
 <script src="units.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
@@ -195,21 +196,44 @@
     'My knee is tight on squats. What now?'
   ];
 
+  /* The keys lk_coachDataPrefs actually holds, and the values it actually
+     holds. This list dropped `cycle` -- a tab-level surface in this build --
+     added a `prs` key the stored preferences have never had, and hard-coded
+     three of them to off, so the card and the chat receipt both read "6 of 9"
+     for a reader whose stored answer is all nine on. Personal records fold
+     into Training history, which is where they come from. */
   var PERMS = [
-    ['training',    'Training history',  'Last 8 weeks of sets, loads and RIR.'],
-    ['prs',         'Personal records',  'Your best set for each lift, with dates.'],
+    ['training',    'Training history',  'Last 8 weeks of sets, loads and RIR, and your best set for each lift.'],
     ['weight',      'Body weight',       'Your logged weight and its trend.'],
     ['checkins',    'Check-ins',         'Energy, sleep, soreness, stress and motivation, as you entered them.'],
     ['goals',       'Goals',             'Target lifts and dates from Progress.'],
     ['plan',        'Coach plan',        'The plan on the Plan tab and its targets.'],
     ['nutrition',   'Nutrition',         'Daily calories and macros from Fuel.'],
     ['supplements', 'Supplements',       'What you take and when you took it.'],
-    ['bodyfat',     'Body fat',          'Logged body fat readings.']
+    ['bodyfat',     'Body fat',          'Logged body fat readings.'],
+    ['cycle',       'Cycle tracking',    'Cycle phase and day, where cycle tracking is on.']
   ];
+  /* Read, not assumed. */
+  function storedPerms() {
+    var out = {};
+    var raw = null;
+    try { raw = localStorage.getItem('lk_coachDataPrefs'); } catch (e) {}
+    var stored = null;
+    if (raw) { try { stored = JSON.parse(raw); } catch (e) {} }
+    PERMS.forEach(function (r) {
+      out[r[0]] = stored && stored[r[0]] !== undefined ? !!stored[r[0]] : true;
+    });
+    return out;
+  }
+  function writePerms() {
+    try { localStorage.setItem('lk_coachDataPrefs', JSON.stringify(S.setup.perms)); } catch (e) {}
+  }
 
   var STYLES = [['direct', 'Direct'], ['encouraging', 'Encouraging'], ['technical', 'Technical'], ['brief', 'Brief']];
 
-  var QUICK = ['Reference my numbers.', 'Keep replies under 80 words.', 'No pep talk.'];
+  var QUICK = ['Reference my numbers.', 'Keep replies under 80 words.', 'No pep talk.',
+               'Explain the why, briefly.', 'Do not suggest supplements.'];
+  var INSTR_MAX = 2000;
 
   /* The interview. Two of the old six asked what the app already knows
      (Settings goal) or what the style picker sets below (tone); both are
@@ -225,46 +249,157 @@
 
   var WRITE_STEPS = ['Reading your six answers', 'Reading your last 8 weeks', 'Writing the instructions'];
 
-  var DRAFT_INSTRUCTIONS = 'Train me 4 days a week on a push, pull, legs split, 60 minutes a session, full gym. ' +
-    'The block is for size. Work around a left knee that gets tight on high-bar squats. ' +
-    'If I miss a session, reshuffle the week rather than pushing everything back. Reference my logged numbers.';
+  /* THE DRAFT IS BUILT FROM THE ANSWERS. It was one constant, so answering
+     "2 days / Add size / Dumbbells only / Left knee / 30 minutes / Reshuffle"
+     produced instructions reading "Train me 4 days a week ... 60 minutes a
+     session, full gym" -- the preview contradicting the six answers the same
+     sheet had just listed, which is the first thing anybody checks.
+
+     It is a sentence builder, not a model: every clause comes from an answer,
+     and an unanswered question contributes nothing rather than a default. */
+  var SPLIT_FOR = { '2 days': 'a full-body split', '3 days': 'a full-body split',
+                    '4 days': 'an upper / lower split', '5 days': 'an upper / lower split',
+                    '6 days': 'a push, pull, legs split' };
+  var AIM_FOR = { 'Add size': 'The block is for size, so rep ranges stay in the 6 to 12 band.',
+                  'Add strength': 'The block is for strength, so the main lifts stay heavy and the accessories carry the volume.',
+                  'Lean out': 'The block is for leaning out, so keep the loads and cut the junk volume rather than the intensity.',
+                  'Come back from a layoff': 'I am coming back from a layoff, so start below what I could do and build back rather than testing me.' };
+  var MISS_FOR = { 'Reshuffle the week': 'If I miss a session, reshuffle the week rather than pushing everything back.',
+                   'Push everything back': 'If I miss a session, push everything back a day rather than dropping it.',
+                   'Leave it and move on': 'If I miss a session, leave it and carry on with the next one.',
+                   'Ask me first': 'If I miss a session, ask me what to do rather than deciding.' };
+  function draftInstructions(a) {
+    a = a || [];
+    var days = a[0], aim = a[1], kit = a[2], around = a[3], mins = a[4], miss = a[5];
+    var out = [];
+
+    var first = [];
+    if (days) first.push('Train me ' + days.toLowerCase() + ' a week' + (SPLIT_FOR[days] ? ' on ' + SPLIT_FOR[days] : ''));
+    if (mins) first.push(mins.toLowerCase() + ' a session');
+    if (kit) first.push(kit.toLowerCase());
+    if (first.length) out.push(first.join(', ') + '.');
+
+    if (aim) out.push(AIM_FOR[aim] || ('The block is for ' + aim.toLowerCase() + '.'));
+
+    if (around && around !== 'Nothing') {
+      out.push('Work around ' + (/^[A-Z]/.test(around) && around.split(' ').length <= 3
+        ? 'my ' + around.toLowerCase() : around.replace(/\.$/, '')) + '.');
+    }
+
+    if (miss) out.push(MISS_FOR[miss] || miss + '.');
+
+    out.push('Reference my logged numbers.');
+    return out.join(' ');
+  }
+  /* What the preview shows before any answer exists, and what the dev state
+     that opens straight into the preview renders. */
+  var DRAFT_INSTRUCTIONS = draftInstructions(['4 days', 'Add size', 'Full gym', 'Left knee', '60 minutes', 'Reshuffle the week']);
 
   /* ---------------------------------------------------------------
      State
      --------------------------------------------------------------- */
   var S;
-  function reset() {
+  /* The seeds, for a reader who has never written anything. Once they have,
+     the stored value wins -- that is the whole point of the store, and it is
+     what makes a sent message still be there tomorrow. */
+  var SEED_MEMORY = [{ text: 'Left knee gets tight on high-bar squats', src: 'added by you, Aug 25' }];
+  var SEED_CHECKINS = [
+    { when: 'Yesterday', v: { energy: 4, sleep: 4, soreness: 2, stress: 2, motivation: 4 } },
+    { when: 'Sun 6 Sep', v: { energy: 3, sleep: 3, soreness: 4, stress: 3, motivation: 3 } }
+  ];
+  var SEED_INSTRUCTIONS = 'Keep replies under 80 words. Reference my actual numbers.';
+
+  function reset(fresh) {
     clearTimers();
+    var st = window.LKStore;
+    /* `fresh` is the dev switcher rebuilding a state from scratch; it must
+       not read a person's stored answers back over the state it is showing. */
+    var rd = function (key, fallback) { return (st && !fresh) ? st.get(key, fallback) : fallback; };
+
+    var msgs = rd('lk_coachLastMsgs', null);
+    if (!Array.isArray(msgs)) msgs = SEED_MSGS.slice();
+    var log = rd('lk_feedback', null);
+    if (!Array.isArray(log)) log = clone(SEED_CHECKINS);
+    var mem = rd('lk_coachMemory', null);
+    if (!Array.isArray(mem)) mem = clone(SEED_MEMORY);
+    var plan = rd('lk_coachPlan', null);
+    if (!plan || !plan.phases) plan = clone(SEED_PLAN);
+
     S = {
       view: 'chat',
       dev: S ? S.dev : false,
-      chat: { status: 'ready', msgs: SEED_MSGS.slice(), draft: '', offer: null, offerSaved: false },
-      plan: { status: 'ready', data: clone(SEED_PLAN) },
+      name: rd('lk_coachName', null) ||
+            ((window.LKFixtures && LKFixtures.profile && LKFixtures.profile.coachName) || 'Coach'),
+      chat: { status: msgs.length ? 'ready' : 'empty', msgs: msgs, draft: '',
+              offer: null, offerSaved: false, trimmed: false, editAt: null, pinned: true },
+      plan: { status: 'ready', data: plan },
       setup: {
         status: 'ready',
-        instructions: 'Keep replies under 80 words. Reference my actual numbers.',
-        style: 'direct',
-        memory: [{ text: 'Left knee gets tight on high-bar squats', src: 'added by you, Aug 25' }],
-        perms: { training: true, prs: true, weight: true, checkins: true, goals: true, plan: true, nutrition: false, supplements: false, bodyfat: false },
+        instructions: rd('lk_coachInstructions', SEED_INSTRUCTIONS),
+        style: rd('lk_coachStyle', 'direct'),
+        memory: mem,
+        memoryOn: rd('lk_coachMemoryOn', true) !== false,
+        perms: fresh ? defaultPerms() : storedPerms(),
         dirty: false
       },
       interview: { open: false, step: 0, phase: 'ask', answers: [null, null, null, null, null, null], draft: '', error: null, writeStep: 0 },
-      /* The daily check-in. Two readings seeded so the pane has a history to
-         show; the draft is what today's answers go into until it is saved. */
-      checkin: {
-        draft: {},
-        saved: false,
-        log: [
-          { when: 'Yesterday', v: { energy: 4, sleep: 4, soreness: 2, stress: 2, motivation: 4 } },
-          { when: 'Sun 6 Sep', v: { energy: 3, sleep: 3, soreness: 4, stress: 3, motivation: 3 } }
-        ]
-      },
+      /* The daily check-in. The draft is what today's answers go into until
+         it is saved; `log` is every day already answered. */
+      checkin: { draft: {}, saved: false, log: log },
       modal: null,
       toast: null,
       openPhase: null
     };
+    /* Today's reading, if one was already saved, comes back into the form so
+       the pane opens on what was answered rather than blank. */
+    if (S.checkin.log.length && S.checkin.log[0].when === 'Today') {
+      S.checkin.draft = clone(S.checkin.log[0].v);
+      S.checkin.saved = true;
+    }
+  }
+  function defaultPerms() {
+    var out = {};
+    PERMS.forEach(function (r) { out[r[0]] = true; });
+    return out;
   }
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
+
+  /* ---------------------------------------------------------------
+     Persistence. None of this screen survived a reload: the thread, the
+     instructions, the tone, the memory, the data switches, the plan and
+     every check-in were variables on this page and nothing else. Storage
+     keys are the shipped app's own, so a screen reading lk_coachLastMsgs
+     here is reading the key the real app reads.
+
+     THE THREAD IS CAPPED AT 40. A conversation that grows without limit
+     eventually fails to write at all, and a silent write failure on a chat
+     is the worst kind: everything looks saved until the day it is not.
+     --------------------------------------------------------------- */
+  var MSG_CAP = 40;
+  function store() { return window.LKStore; }
+
+  function persistChat() {
+    if (!store()) return;
+    var msgs = S.chat.msgs;
+    S.chat.trimmed = msgs.length > MSG_CAP;
+    if (S.chat.trimmed) msgs = msgs.slice(msgs.length - MSG_CAP);
+    store().set('lk_coachLastMsgs', msgs);
+  }
+  function persistSetup() {
+    if (!store()) return;
+    store().set('lk_coachInstructions', S.setup.instructions);
+    store().set('lk_coachStyle', S.setup.style);
+    store().set('lk_coachMemory', S.setup.memory);
+    store().set('lk_coachMemoryOn', !!S.setup.memoryOn);
+    store().set('lk_coachDataPrefs', S.setup.perms);
+    store().set('lk_coachName', S.name);
+  }
+  function persistPlan() {
+    if (store()) store().set('lk_coachPlan', S.plan.data);
+  }
+  function persistCheckins() {
+    if (store()) store().set('lk_feedback', S.checkin.log);
+  }
 
   var timers = [];
   function later(fn, ms) { timers.push(setTimeout(fn, ms)); }
@@ -275,6 +410,7 @@
      --------------------------------------------------------------- */
   function parseDate(s) { var p = s.split('-'); return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])); }
   function dayLabel(s) { var d = parseDate(s); return MONTHS[d.getMonth()] + ' ' + d.getDate(); }
+  function todayLabel() { return MONTHS[TODAY.getMonth()] + ' ' + TODAY.getDate(); }
   function weekOf(plan) {
     var diff = Math.floor((TODAY - parseDate(plan.start)) / 86400000);
     if (diff < 0) return 0;
@@ -309,6 +445,59 @@
   }
 
   /* ---------------------------------------------------------------
+     The empty state, from the data rather than from a constant.
+
+     The intro line claimed "18 sessions over 6 weeks, 9 lifts and your
+     check-ins" as a string, and the three openers were typed in. Both now
+     count what is actually there, and an opener whose subject is absent is
+     not offered -- a suggestion about a stalled bench is only useful to
+     somebody whose bench has stalled.
+     --------------------------------------------------------------- */
+  function introLine() {
+    var F = window.LKFixtures;
+    var bits = [];
+    if (F && F.totals) {
+      var lifts = (F.history || []).filter(function (h) { return h.kind === 'lift'; });
+      bits.push(n(lifts.length) + (lifts.length === 1 ? ' session' : ' sessions'));
+      if (lifts.length) {
+        var first = lifts[lifts.length - 1].date, last = lifts[0].date;
+        var wks = Math.max(1, Math.round((Date.parse(last) - Date.parse(first)) / 604800000) + 1);
+        bits.push('over ' + n(wks) + (wks === 1 ? ' week' : ' weeks'));
+      }
+      if (F.totals.recordLifts) bits.push(n(F.totals.recordLifts) + ' lifts with records');
+    }
+    if (S.checkin.log.length) bits.push(n(S.checkin.log.length) + ' check-ins');
+    if (!bits.length) return 'Nothing is logged yet. Ask me anything, or log a session and ask again.';
+    return 'I can see ' + bits.join(', ').replace(/, ([^,]*)$/, ' and $1') +
+      '. Ask about any of it, or ask for a block and I will write one you can save.';
+  }
+
+  /* The openers, drawn from the same data, minus any the reader has waved
+     away. Dismissal is per-opener and survives a reload. */
+  function openers() {
+    var out = [];
+    var F = window.LKFixtures;
+    var dropped = (window.LKStore && LKStore.get('lk_coachOpenersOff', [])) || [];
+
+    if (F && F.prs && F.prs.length) {
+      /* The lift whose record is oldest is the one that has not moved. */
+      var stale = F.prs.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; })[0];
+      if (stale) out.push('Why has my ' + stale.name.toLowerCase() + ' stalled at ' +
+        LKUnits.fmt(stale.kg) + '?');
+    }
+    out.push('Write me the next 8-week block.');
+    if (S.setup.memory.length) {
+      /* Something the coach has been told to work around is worth asking
+         about; it is the one thing here it already knows. */
+      out.push(S.setup.memory[0].text.replace(/\.$/, '') + '. What now?');
+    }
+    if (S.checkin.log.length && S.checkin.log[0].v.sleep <= 2) {
+      out.push('I have slept badly. Should I still train today?');
+    }
+    return out.filter(function (t) { return dropped.indexOf(t) < 0; }).slice(0, 6);
+  }
+
+  /* ---------------------------------------------------------------
      Shell
      --------------------------------------------------------------- */
   /* Four panes, not three. Check-in was in the shipped app and writing
@@ -336,9 +525,9 @@
       '<div class="hdr hdr--large" data-large-title=".body" data-scroll-edge=".body">' +
         '<div class="hdr__title stack stack--1">' +
           '<span class="t-label">' + eyebrow + '</span>' +
-          '<h1 class="hdr__title-large" data-title-large>Coach</h1>' +
+          '<h1 class="hdr__title-large" data-title-large>' + esc(S.name) + '</h1>' +
         '</div>' + action +
-        '<span class="hdr__title-small" data-title-small aria-hidden="true">Coach</span>' +
+        '<span class="hdr__title-small" data-title-small aria-hidden="true">' + esc(S.name) + '</span>' +
       '</div>' +
       '<div class="viewbar">' +
         '<div class="seg" role="tablist" aria-label="Coach views" data-testid="view-switch">' +
@@ -382,13 +571,34 @@
     var isUser = m.role === 'user';
     var acts = '';
     if (!isUser && !m.error) {
+      /* Copy, and on the last reply a retry. A reply you did not like had no
+         way back except retyping the question. */
+      var isLast = i === S.chat.msgs.length - 1;
       acts = '<div class="msg__acts">' +
         '<button class="iconbtn" data-act="copy" data-i="' + i + '" aria-label="Copy this reply" data-testid="msg-copy-' + i + '">' + ico('copy') + '</button>' +
+        (isLast
+          ? '<button class="iconbtn" data-act="retry-last" data-i="' + i + '" aria-label="Ask again" data-testid="msg-again-' + i + '">' + ico('retry') + '</button>'
+          : '') +
+        '</div>';
+    }
+    /* Edit re-runs from here: the question goes back into the composer and
+       everything after it is dropped, because a thread that keeps the old
+       answer under a changed question is a thread nobody can read. */
+    if (isUser) {
+      acts = '<div class="msg__acts">' +
+        '<button class="btn btn--tertiary btn--sm" data-act="edit-msg" data-i="' + i + '" data-testid="msg-edit-' + i + '">' +
+          '<span class="btn__label">Edit \u00b7 re-runs from here</span></button>' +
         '</div>';
     }
     if (m.error) {
       acts = '<div class="msg__acts">' +
         '<button class="btn btn--secondary btn--sm" data-act="retry" data-testid="msg-retry">' + ico('retry') + '<span class="btn__label">Try again</span></button>' +
+        '</div>';
+    }
+    if (m.stopped) {
+      acts = '<div class="msg__acts">' +
+        '<button class="btn btn--secondary btn--sm" data-act="continue" data-testid="msg-continue">' +
+          ico('retry') + '<span class="btn__label">Continue</span></button>' +
         '</div>';
     }
     return '' +
@@ -441,29 +651,68 @@
             '<div class="grow"><div class="t-body-em">Coach</div>' +
             '<div class="t-detail">Reads your logged sets. Writes plans you can save.</div></div>' +
           '</div>' +
-          '<p class="t-detail mt-3">I can see 18 sessions over 6 weeks, 9 lifts and your check-ins. Ask about any of it, or ask for a block and I will write one you can save.</p>' +
+          '<p class="t-detail mt-3">' + introLine() + '</p>' +
         '</div>' +
-        '<section class="section"><div class="section__head"><h2 class="t-label">Start with</h2></div>' +
-          '<div class="card card--flush">' +
-            SUGGEST.map(function (t, i) {
-              return '<button class="row" data-act="suggest" data-i="' + i + '" data-testid="chat-suggest-' + i + '">' +
-                '<span class="row__main"><span class="row__title">' + esc(t) + '</span></span>' +
-                '<span class="row__chev">' + ico('chev') + '</span></button>';
-            }).join('') +
-          '</div>' +
-        '</section>' +
+        (openers().length
+          ? '<section class="section"><div class="section__head"><h2 class="t-label">Start with</h2></div>' +
+            '<div class="card card--flush">' +
+              openers().map(function (t, i) {
+                return '<div class="row row--withaside">' +
+                  '<button class="row__main row__main--btn" data-act="suggest" data-i="' + i + '" data-testid="chat-suggest-' + i + '">' +
+                    '<span class="row__title">' + esc(t) + '</span></button>' +
+                  '<button class="iconbtn" data-act="dismiss-chip" data-i="' + i + '" ' +
+                    'aria-label="Remove this suggestion" data-testid="chat-dismiss-' + i + '">' + ico('close') + '</button>' +
+                '</div>';
+              }).join('') +
+            '</div>' +
+          '</section>'
+          : '') +
+        /* The caveat, on the screen where a person is about to take advice.
+           v6 carried it and the rebuild dropped it. */
+        '<p class="t-detail quiet mt-4" data-testid="chat-disclaimer">A coach that reads your numbers can ' +
+          'still be wrong. Sanity-check anything that affects your health.</p>' +
         '<section class="section">' +
           '<div class="card card--outline card--flush">' +
-            '<button class="row" data-act="view" data-view="setup" data-testid="chat-data-receipt">' +
+            /* It expands where it stands. One tap used to leave the screen
+               for Setup, so the list of what the coach can actually see --
+               the thing the row is a receipt for -- was never shown. */
+            '<button class="row" data-act="receipt" aria-expanded="' + (S.chat.receipt ? 'true' : 'false') +
+              '" data-testid="chat-data-receipt">' +
               '<span class="ico-well">' + ico('lock') + '</span>' +
               '<span class="row__main"><span class="row__title">Coach can see ' + n(permCount()) + ' of ' + n(PERMS.length) + ' sources</span>' +
-              '<span class="row__sub">Change what it sees in Setup</span></span>' +
+              '<span class="row__sub">' + (S.chat.receipt ? 'Tap to fold it away' : 'Tap to see which') + '</span></span>' +
               '<span class="row__chev">' + ico('chev') + '</span></button>' +
+            (S.chat.receipt
+              ? '<div class="receipt" data-testid="chat-receipt-list">' +
+                  PERMS.map(function (r) {
+                    var on = !!S.setup.perms[r[0]];
+                    return '<p class="t-detail' + (on ? '' : ' quiet') + '">' +
+                      (on ? '\u2713 ' : '\u2014 ') + esc(r[1]) +
+                      (on ? '' : ' \u00b7 off') + '</p>';
+                  }).join('') +
+                  (S.setup.memoryOn && S.setup.memory.length
+                    ? '<p class="t-detail">\u2713 ' + n(S.setup.memory.length) +
+                      (S.setup.memory.length === 1 ? ' saved memory' : ' saved memories') + '</p>'
+                    : '<p class="t-detail quiet">\u2014 Saved memories \u00b7 off</p>') +
+                  (S.setup.instructions.trim()
+                    ? '<p class="t-detail">\u2713 Your instructions</p>'
+                    : '<p class="t-detail quiet">\u2014 Your instructions \u00b7 none written</p>') +
+                  '<button class="btn btn--tertiary btn--block mt-2" data-act="view" data-view="setup" ' +
+                    'data-testid="chat-receipt-change"><span class="btn__label">Change what it sees</span></button>' +
+                '</div>'
+              : '') +
           '</div>' +
         '</section>';
     }
 
-    var html = '<div class="thread" data-testid="chat-thread"><span class="daymark">Today</span>';
+    var html = '<div class="thread" data-testid="chat-thread">';
+    /* Said when it is true. A thread capped at 40 silently drops the top,
+       and a conversation that quietly loses its beginning is worse than one
+       that says it has. */
+    if (c.trimmed) {
+      html += '<p class="daymark" data-testid="chat-trimmed">Earlier messages trimmed</p>';
+    }
+    html += '<span class="daymark">Today</span>';
     html += c.msgs.map(bubble).join('');
     if (c.status === 'thinking') {
       html += '' +
@@ -724,7 +973,7 @@
 
     var instructions = '<section class="section" data-testid="setup-instructions-block">' +
       '<div class="section__head"><h2 class="t-label">Instructions</h2>' +
-        '<span class="t-meta num">' + s.instructions.length + ' / 500</span></div>' +
+        '<span class="t-meta num">' + s.instructions.length + ' / ' + INSTR_MAX + '</span></div>' +
       '<div class="card">' +
         '<label class="field">' +
           '<span class="vis-hidden">Instructions for the coach</span>' +
@@ -745,20 +994,79 @@
         }).join('') +
       '</div></div></section>';
 
+    /* Memory, with a master switch, a typed add and a way to clear the lot.
+       "Add a fact" used to push the same hardcoded sentence every time it was
+       pressed, so the one control that puts something into every reply could
+       only ever put in one thing -- and there was no way to turn the whole
+       store off, which is the control somebody reaches for when they hand the
+       phone to a training partner. */
+    var memOn = !!s.memoryOn;
     var memory = '<section class="section" data-testid="setup-memory-block">' +
       '<div class="section__head"><h2 class="t-label">What it remembers</h2></div>' +
+      '<div class="card card--flush">' +
+        '<div class="row"><span class="row__main"><span class="row__title">Use saved memories</span>' +
+          '<span class="row__sub">' + (memOn
+            ? 'Every fact below goes into every reply.'
+            : 'Off. Nothing here is sent to the coach.') + '</span></span>' +
+          '<button class="switch" role="switch" aria-checked="' + memOn + '" data-act="memory-on" ' +
+            'data-testid="setup-memory-on" aria-label="Use saved memories"><span class="switch__knob"></span></button>' +
+        '</div>' +
+      '</div>' +
       (s.memory.length
-        ? '<div class="card card--flush">' + s.memory.map(function (m, i) {
+        ? '<div class="card card--flush mt-2' + (memOn ? '' : ' is-quiet') + '">' + s.memory.map(function (m, i) {
             return '<div class="row"><span class="row__main"><span class="row__title">' + esc(m.text) + '</span>' +
               '<span class="row__sub">' + esc(m.src) + '</span></span>' +
               '<button class="iconbtn iconbtn--danger-quiet" data-act="forget" data-i="' + i + '" aria-label="Forget: ' + esc(m.text) + '" data-testid="setup-forget-' + i + '">' + ico('trash') + '</button></div>';
           }).join('') + '</div>'
-        : '<div class="card"><p class="t-detail">Nothing remembered yet. Facts you add here go into every reply.</p></div>') +
-      '<button class="btn btn--secondary btn--block mt-3" data-act="add-memory" data-testid="setup-add-memory">' +
-        ico('plus') + '<span class="btn__label">Add a fact</span></button>' +
+        : '<div class="card mt-2"><p class="t-detail">Nothing remembered yet. Facts you add here go into every reply.</p></div>') +
+      (S.setup.memoryForm
+        ? '<div class="card mt-2">' +
+            '<label class="t-label field__label" for="mem-text">What should it remember?</label>' +
+            '<input class="input" id="mem-text" type="text" data-testid="setup-memory-text" ' +
+              'placeholder="e.g. Trains Monday, Wednesday, Friday" value="' + esc(S.setup.memoryDraft || '') + '">' +
+            (S.setup.memoryError ? '<p class="field__error" role="alert" data-testid="setup-memory-error">' +
+              esc(S.setup.memoryError) + '</p>' : '') +
+            '<button class="btn btn--primary btn--block mt-3" data-act="save-memory" data-testid="setup-memory-save">' +
+              '<span class="btn__label">Remember it</span></button>' +
+            '<button class="btn btn--tertiary btn--block mt-2" data-act="cancel-memory" data-testid="setup-memory-cancel">' +
+              '<span class="btn__label">Cancel</span></button>' +
+          '</div>'
+        : '<button class="btn btn--secondary btn--block mt-3" data-act="add-memory" data-testid="setup-add-memory">' +
+            ico('plus') + '<span class="btn__label">Add a fact</span></button>') +
+      (s.memory.length
+        ? '<button class="btn btn--tertiary btn--block mt-2" data-act="clear-memory" data-testid="setup-clear-memory">' +
+            '<span class="btn__label">' + (S.setup.clearArmed ? 'Tap again to forget all ' + s.memory.length : 'Clear all') + '</span></button>'
+        : '') +
     '</section>';
 
     /* --- Data access. Drawn as a permission grant, not a preference. -- */
+    /* The coach's name. lk_profile.coachName existed, the shipped app let you
+       set it, and the rebuilt screen printed the literal string "Coach" with
+       no way to change it -- so a renamed coach rendered under the wrong
+       name everywhere. */
+    var naming = '<section class="section" data-testid="setup-name-block">' +
+      '<div class="section__head"><h2 class="t-label">What to call it</h2></div>' +
+      (S.setup.nameForm
+        ? '<div class="card">' +
+            '<label class="t-label field__label" for="coach-name">Name</label>' +
+            '<input class="input" id="coach-name" type="text" maxlength="24" ' +
+              'data-testid="setup-name-input" value="' + esc(S.name) + '">' +
+            (S.setup.nameError ? '<p class="field__error" role="alert" data-testid="setup-name-error">' +
+              esc(S.setup.nameError) + '</p>' : '') +
+            '<p class="field__help">Up to 24 characters. It is only ever shown to you.</p>' +
+            '<button class="btn btn--primary btn--block mt-3" data-act="save-name" data-testid="setup-name-save">' +
+              '<span class="btn__label">Save the name</span></button>' +
+            '<button class="btn btn--tertiary btn--block mt-2" data-act="cancel-name" data-testid="setup-name-cancel">' +
+              '<span class="btn__label">Cancel</span></button>' +
+          '</div>'
+        : '<div class="card card--flush">' +
+            '<button class="row" data-act="rename" data-testid="setup-rename">' +
+              '<span class="row__main"><span class="row__title">' + esc(S.name) + '</span>' +
+              '<span class="row__sub">Tap to call it something else</span></span>' +
+              '<span class="row__chev">' + ico('chev') + '</span></button>' +
+          '</div>') +
+    '</section>';
+
     var perms = '<section class="section" data-testid="setup-data-block">' +
       '<div class="card card--outline card--flush">' +
         '<div class="card__head"><span class="ico-well">' + ico('lock') + '</span>' +
@@ -787,7 +1095,7 @@
           '<span><strong>The coach knows nothing about you</strong>It can still answer, but it will answer generically. The interview is the fastest way out of that.</span></div>'
       : '';
 
-    return lead + interview + instructions + style + memory + perms;
+    return lead + interview + naming + instructions + style + memory + perms;
   }
 
   function actionbar() {
@@ -846,7 +1154,7 @@
           '<span class="sheet__grab"></span>' +
           head('From your answers', 'This replaces your instructions. Nothing else changes.') +
           '<div class="sheet__body">' +
-            '<div class="card"><p class="t-body">' + esc(DRAFT_INSTRUCTIONS) + '</p></div>' +
+            '<div class="card"><p class="t-body">' + esc(iv.draft || DRAFT_INSTRUCTIONS) + '</p></div>' +
             '<button class="btn btn--primary btn--block mt-4" data-act="iv-use" data-testid="iv-use">' +
               '<span class="btn__label">Use these instructions</span></button>' +
             '<button class="btn btn--secondary btn--block mt-2" data-act="iv-edit-first" data-testid="iv-edit-first">' +
@@ -1049,14 +1357,36 @@
         '<main class="body" tabindex="-1" data-testid="' + S.view + '-scroll">' +
           '<div id="panel-' + S.view + '" role="tabpanel" aria-labelledby="tab-' + S.view + '">' + body + '</div>' +
         '</main>' +
+        (S.view === 'chat' && S.chat.status !== 'empty'
+          ? '<button class="jump" type="button" data-act="jump" data-testid="chat-jump"' +
+            (S.chat.pinned ? ' hidden' : '') + '>Jump to latest</button>'
+          : '') +
         '<footer>' + foot + (window.LKSession ? LKSession.html() : '') + tabbar() + '</footer>' + overlays() +
       '</div>');
 
     if (window.LKChrome) LKChrome.init(phone);
 
+    /* It follows the thread only while the reader is at the bottom of it.
+       Every render used to jam scrollTop to scrollHeight, so reading back
+       through the conversation was undone by any state change -- a toast, a
+       tick of the shelf clock -- and there was no way to get back down
+       either. `pinned` is set when a message is sent and cleared the moment
+       somebody scrolls up. */
     if (S.view === 'chat' && S.chat.status !== 'empty') {
       var scroll = phone.querySelector('.body');
-      scroll.scrollTop = scroll.scrollHeight;
+      if (scroll) {
+        if (S.chat.pinned) scroll.scrollTop = scroll.scrollHeight;
+        if (!scroll.__lkPin) {
+          scroll.__lkPin = true;
+          scroll.addEventListener('scroll', function () {
+            var atEnd = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 48;
+            if (atEnd === S.chat.pinned) return;
+            S.chat.pinned = atEnd;
+            var pill = phone.querySelector('[data-testid="chat-jump"]');
+            if (pill) pill.hidden = atEnd;
+          });
+        }
+      }
     }
     if (key) {
       var next = phone.querySelector('[data-testid="' + key + '"]');
@@ -1082,10 +1412,50 @@
      --------------------------------------------------------------- */
   function setView(v) { S.view = v; S.openPhase = null; render(); }
 
+  /* The clock, not a constant. Every message carried "9:52", so a thread
+     built over an afternoon read as one minute's conversation. */
+  function nowClock() {
+    var d = new Date();
+    var h = d.getHours() % 12 || 12;
+    return h + ':' + (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+  }
+
+  /* What this build answers with. It is a fixture and the screen says so --
+     the Coach note card is labelled "Generated, not measured" -- but it
+     answers the question that was asked rather than the same sentence every
+     time, so a thread reads as a conversation. */
+  function replyFor(text) {
+    var q = String(text || '').toLowerCase();
+    if (/sleep|tired|rest|recover/.test(q)) {
+      return 'Four days at 7 hours and soreness at 3. Train, but drop the last set on ' +
+        'every movement. Recovery is the limiter this week, not strength.';
+    }
+    if (/knee|shoulder|back|pain|tight|hurt/.test(q)) {
+      return 'Tightness without pain after a top set is normal. Warm up with two extra ' +
+        'sets at 50 percent and hold RIR 2 for the week. If it is still there on the ' +
+        'next session, tell me and we drop the load rather than the exercise.';
+    }
+    if (/eat|food|protein|calorie|macro|diet/.test(q)) {
+      return 'You are averaging 2,702 kcal over the last fourteen days against a 2,980 ' +
+        'target. Protein is the one to fix first: close the day at your usual dinner ' +
+        'time and the rest follows.';
+    }
+    if (/bench/.test(q)) {
+      return 'Your bench moved 60 to 72.5 kg for 5 in six weeks. Keep adding 2.5 kg when ' +
+        'every working set hits 8 reps at RIR 2. If the top set stalls twice, hold the ' +
+        'load and add one rep.';
+    }
+    return 'On your logged sets: the lifts that are moving are the ones you run first in ' +
+      'the session, and the ones that have stalled run last. Reorder before you change ' +
+      'anything else.';
+  }
+
   function sendMessage(text) {
-    S.chat.msgs.push({ role: 'user', time: '9:52', text: text });
+    S.chat.msgs.push({ role: 'user', time: nowClock(), text: text });
     S.chat.draft = '';
     S.chat.status = 'thinking';
+    S.chat.pinned = true;
+    persistChat();
     render();
     /* Clearing the state is not enough: LKPatch deliberately keeps what a
        person has typed into a live field, which is right on every other
@@ -1101,12 +1471,12 @@
       if (wantsPlan) {
         S.chat.offer = true;
         S.chat.offerSaved = false;
-        S.chat.msgs.push({ role: 'coach', time: '9:52', offer: true,
+        S.chat.msgs.push({ role: 'coach', time: nowClock(), offer: true,
           text: 'Here is the next block. Eight weeks, three phases, built on the loads you are already hitting.' });
       } else {
-        S.chat.msgs.push({ role: 'coach', time: '9:52',
-          text: 'Your bench moved 60 to 72.5 kg for 5 in six weeks. Keep adding 2.5 kg when every working set hits 8 reps at RIR 2. If the top set stalls twice, hold the load and add one rep.' });
+        S.chat.msgs.push({ role: 'coach', time: nowClock(), text: replyFor(text) });
       }
+      persistChat();
       render();
     }, 1400);
   }
@@ -1134,23 +1504,113 @@
       render();
     },
     'checkin-save': function () {
+      /* Every reading, or none. Save was enabled at one of five and wrote
+         the other four as 0 -- a number off the 1-to-5 scale this pane
+         defines, shown back in Recent as though it had been answered. */
+      var missing = FEEL.filter(function (f) { return !S.checkin.draft[f[0]]; });
+      if (missing.length) {
+        toast(missing.length === 1
+          ? missing[0][1] + ' is the last one.'
+          : missing.length + ' still to answer: ' + missing.map(function (f) { return f[1].toLowerCase(); }).join(', ') + '.');
+        return;
+      }
       var v = {};
-      FEEL.forEach(function (f) { v[f[0]] = S.checkin.draft[f[0]] || 0; });
+      FEEL.forEach(function (f) { v[f[0]] = S.checkin.draft[f[0]]; });
       /* One reading a day. Saving again replaces today's rather than
          stacking two entries on one date. */
       if (S.checkin.log.length && S.checkin.log[0].when === 'Today') S.checkin.log[0].v = v;
       else S.checkin.log.unshift({ when: 'Today', v: v });
       S.checkin.saved = true;
+      persistCheckins();
       render();
       toast('Saved. The coach reads this with your training.');
     },
     'view': function (el) { setView(el.dataset.view); },
+    /* Two taps, and no claim about history. It cleared the whole thread on
+       one tap under the words "The last one is kept in your history" -- there
+       is no history anywhere in this build, so the sentence was a
+       reassurance about something that did not exist. It is undoable
+       instead, which is a promise this screen can keep. */
     'new-chat': function () {
-      S.chat = { status: 'empty', msgs: [], draft: '', offer: null, offerSaved: false };
+      if (!S.chat.msgs.length) { toast('The chat is already empty.'); return; }
+      var was = { status: S.chat.status, msgs: S.chat.msgs.slice(),
+                  offer: S.chat.offer, offerSaved: S.chat.offerSaved };
+      S.chat = { status: 'empty', msgs: [], draft: S.chat.draft, offer: null, offerSaved: false };
+      persistChat();
       render();
-      toast('New chat. The last one is kept in your history.');
+      toast('New chat.', 'Undo', function () {
+        S.chat.status = was.status; S.chat.msgs = was.msgs;
+        S.chat.offer = was.offer; S.chat.offerSaved = was.offerSaved;
+        persistChat();
+      });
     },
-    'suggest': function (el) { sendMessage(SUGGEST[Number(el.dataset.i)]); },
+    'suggest': function (el) { sendMessage(openers()[Number(el.dataset.i)]); },
+    'dismiss-chip': function (el) {
+      var t = openers()[Number(el.dataset.i)];
+      if (!t || !window.LKStore) return;
+      var dropped = LKStore.get('lk_coachOpenersOff', []) || [];
+      dropped.push(t);
+      LKStore.set('lk_coachOpenersOff', dropped);
+      render();
+      toast('Suggestion removed.', 'Undo', function () {
+        var d = LKStore.get('lk_coachOpenersOff', []) || [];
+        var i = d.indexOf(t);
+        if (i > -1) { d.splice(i, 1); LKStore.set('lk_coachOpenersOff', d); }
+      });
+    },
+    'receipt': function () { S.chat.receipt = !S.chat.receipt; render(); },
+    'jump': function () {
+      S.chat.pinned = true;
+      var scroll = phone.querySelector('.body');
+      if (scroll) scroll.scrollTop = scroll.scrollHeight;
+      var pill = phone.querySelector('[data-testid="chat-jump"]');
+      if (pill) pill.hidden = true;
+    },
+
+    /* Edit re-runs from here. The question goes back into the composer and
+       everything from it onwards leaves the thread, because a thread holding
+       the old answer under a changed question cannot be read. */
+    'edit-msg': function (el) {
+      var i = Number(el.dataset.i);
+      var m = S.chat.msgs[i];
+      if (!m || m.role !== 'user') return;
+      var dropped = S.chat.msgs.slice(i);
+      S.chat.msgs = S.chat.msgs.slice(0, i);
+      S.chat.draft = m.text;
+      S.chat.status = S.chat.msgs.length ? 'ready' : 'empty';
+      persistChat();
+      render();
+      var f = phone.querySelector('[data-testid="composer-input"]');
+      if (f) { f.value = m.text; f.focus(); try { f.setSelectionRange(f.value.length, f.value.length); } catch (e) {} }
+      toast(dropped.length === 1 ? 'Edit it and send again.'
+                                 : n(dropped.length) + ' messages removed. Edit it and send again.',
+        'Undo', function () {
+          S.chat.msgs = S.chat.msgs.concat(dropped);
+          S.chat.status = 'ready';
+          S.chat.draft = '';
+          persistChat();
+        });
+    },
+    /* Ask the same question again, on the last reply. */
+    'retry-last': function () {
+      var msgs = S.chat.msgs;
+      var i = msgs.length - 1;
+      if (i < 0 || msgs[i].role === 'user') return;
+      msgs.pop();
+      var q = null;
+      for (var k = msgs.length - 1; k >= 0; k--) { if (msgs[k].role === 'user') { q = msgs[k].text; break; } }
+      persistChat();
+      S.chat.status = 'thinking';
+      render();
+      later(function () {
+        if (S.chat.status !== 'thinking') return;
+        S.chat.status = 'ready';
+        S.chat.msgs.push({ role: 'coach', time: nowClock(),
+          text: replyFor(q || '') });
+        persistChat();
+        render();
+      }, 1200);
+    },
     /* Empties the field. It kept the text, which every chat on the platform
        reads as "it did not send" — and the obvious recovery, tapping send
        again, posted it twice. */
@@ -1162,10 +1622,64 @@
     },
     'stop': function () {
       S.chat.status = 'ready';
+      /* A stopped reply is a stopped reply, and the thread says so with a way
+         on. It used to leave nothing but a toast, so the only route forward
+         was to retype the question. */
+      S.chat.msgs.push({ role: 'coach', time: nowClock(), stopped: true,
+        text: 'Stopped before I answered.' });
+      persistChat();
       render();
-      toast('Stopped. Your question is still in the thread.');
     },
-    'copy': function () { toast('Reply copied.'); render(); },
+    'continue': function () {
+      var i = S.chat.msgs.length - 1;
+      if (S.chat.msgs[i] && S.chat.msgs[i].stopped) S.chat.msgs.pop();
+      var q = null;
+      for (var k = S.chat.msgs.length - 1; k >= 0; k--) {
+        if (S.chat.msgs[k].role === 'user') { q = S.chat.msgs[k].text; break; }
+      }
+      S.chat.status = 'thinking';
+      render();
+      later(function () {
+        if (S.chat.status !== 'thinking') return;
+        S.chat.status = 'ready';
+        S.chat.msgs.push({ role: 'coach', time: nowClock(), text: replyFor(q || '') });
+        persistChat();
+        render();
+      }, 1200);
+    },
+    /* It copies. The handler toasted "Reply copied." and never touched the
+       clipboard, so the one thing the button claims to do was the one thing
+       it did not. Shopping's export does this properly; this is the same
+       shape, including the failure case, because a clipboard write can be
+       refused and saying it worked anyway is the same lie again. */
+    'copy': function (el) {
+      var i = Number(el.getAttribute('data-i'));
+      var m = S.chat.msgs[i];
+      var text = m ? m.text : '';
+      if (!text) return;
+      var done = function () { toast('Reply copied.'); render(); };
+      var fail = function () { toast('Could not reach the clipboard. Nothing was copied.'); render(); };
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done, fail);
+          return;
+        }
+      } catch (e) {}
+      /* file:// and older engines refuse the async API. */
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        var okc = document.execCommand && document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (okc) { done(); return; }
+      } catch (e2) {}
+      fail();
+    },
     'retry': function () {
       var last = S.chat.msgs[S.chat.msgs.length - 1];
       if (last && last.error) S.chat.msgs.pop();
@@ -1174,8 +1688,9 @@
       later(function () {
         if (S.chat.status !== 'thinking') return;
         S.chat.status = 'ready';
-        S.chat.msgs.push({ role: 'coach', time: '9:53',
+        S.chat.msgs.push({ role: 'coach', time: nowClock(),
           text: 'Four days at 7 hours of sleep and soreness at 3. Push tomorrow is fine, but drop the last set on every movement. Recovery is the limiter this week, not strength.' });
+        persistChat();
         render();
       }, 1200);
     },
@@ -1184,6 +1699,8 @@
       S.chat.offerSaved = true;
       S.plan.status = 'ready';
       S.plan.data = clone(NEW_PLAN);
+      persistPlan();
+      persistChat();
       render();
       toast('Plan saved. It needs a split before it can run.', 'Open plan', function () { setView('plan'); });
     },
@@ -1281,10 +1798,66 @@
         render();
       });
     },
-    'add-memory': function () {
-      S.setup.memory.push({ text: 'Trains Monday, Wednesday, Friday, Saturday', src: 'added by you, Sep 9' });
-      S.setup.dirty = true;
+    'rename': function () {
+      S.setup.nameForm = true; S.setup.nameError = null;
       render();
+      var f = phone.querySelector('[data-testid="setup-name-input"]');
+      if (f) { f.focus(); try { f.setSelectionRange(f.value.length, f.value.length); } catch (e) {} }
+    },
+    'cancel-name': function () { S.setup.nameForm = false; S.setup.nameError = null; render(); },
+    'save-name': function () {
+      var f = phone.querySelector('[data-testid="setup-name-input"]');
+      var v = (f ? f.value : '').trim().slice(0, 24);
+      if (!v) { S.setup.nameError = 'Give it a name, or cancel.'; render(); return; }
+      S.name = v;
+      S.setup.nameForm = false; S.setup.nameError = null;
+      persistSetup();
+      /* The profile carries it too, because that is the key the rest of the
+         app reads a coach name from. */
+      if (window.LKStore) LKStore.patch('lk_profile', { coachName: v });
+      render();
+      toast('Saved. It is called ' + v + ' now.');
+    },
+    'memory-on': function () {
+      S.setup.memoryOn = !S.setup.memoryOn;
+      S.setup.dirty = true;
+      persistSetup();
+      render();
+    },
+    'add-memory': function () {
+      S.setup.memoryForm = true; S.setup.memoryDraft = ''; S.setup.memoryError = null;
+      render();
+      var f = phone.querySelector('[data-testid="setup-memory-text"]');
+      if (f) f.focus();
+    },
+    'cancel-memory': function () {
+      S.setup.memoryForm = false; S.setup.memoryError = null;
+      render();
+    },
+    'save-memory': function () {
+      var f = phone.querySelector('[data-testid="setup-memory-text"]');
+      var txt = (f ? f.value : S.setup.memoryDraft || '').trim();
+      if (!txt) { S.setup.memoryError = 'Write the fact first.'; render(); return; }
+      if (txt.length > 140) { S.setup.memoryError = 'Keep it under 140 characters.'; render(); return; }
+      S.setup.memory.push({ text: txt, src: 'added by you, ' + todayLabel() });
+      S.setup.memoryForm = false; S.setup.memoryDraft = ''; S.setup.memoryError = null;
+      S.setup.dirty = true;
+      persistSetup();
+      render();
+      toast('Remembered.');
+    },
+    'clear-memory': function () {
+      if (!S.setup.clearArmed) { S.setup.clearArmed = true; render(); return; }
+      var was = S.setup.memory.slice();
+      S.setup.memory = [];
+      S.setup.clearArmed = false;
+      S.setup.dirty = true;
+      persistSetup();
+      render();
+      toast(was.length === 1 ? 'Forgotten.' : n(was.length) + ' facts forgotten.', 'Undo', function () {
+        S.setup.memory = was;
+        persistSetup();
+      });
     },
     'perm': function (el) {
       var k = el.dataset.key;
@@ -1307,8 +1880,13 @@
       toast('All sources off. The coach can still reply, from nothing but your message.');
       focusTestid('setup-perms-on');
     },
+    /* It writes. Every switch, the instructions and the tone were state on
+       this page and nothing else, so the answer did not survive a reload and
+       no other screen could read it. */
     'save-setup': function () {
       S.setup.dirty = false;
+      writePerms();
+      persistSetup();
       render();
       toast('Saved. The next reply uses it.');
     },
@@ -1356,6 +1934,9 @@
         i += 1;
         if (i < WRITE_STEPS.length) { S.interview.writeStep = i; render(); later(tick, 900); return; }
         S.setup.status = 'ready';
+        /* From the six answers, here, so the preview cannot contradict the
+           review step that produced it. */
+        S.interview.draft = draftInstructions(S.interview.answers);
         S.interview.open = true;
         S.interview.phase = 'preview';
         render();
@@ -1364,16 +1945,17 @@
     },
     'write-again': function () { ACTS['write'](); },
     'iv-use': function () {
-      S.setup.instructions = DRAFT_INSTRUCTIONS;
+      S.setup.instructions = S.interview.draft || DRAFT_INSTRUCTIONS;
       S.setup.status = 'ready';
       S.setup.dirty = false;
       S.interview.open = false;
+      persistSetup();
       render();
       toast('Instructions saved from your answers.');
     },
     'iv-edit-first': function () {
       /* Saves first. The old build dropped the draft on this path. */
-      S.setup.instructions = DRAFT_INSTRUCTIONS;
+      S.setup.instructions = S.interview.draft || DRAFT_INSTRUCTIONS;
       S.setup.status = 'ready';
       S.setup.dirty = false;
       S.interview.open = false;
@@ -1409,10 +1991,19 @@
       return;
     }
     if (el.getAttribute('data-act') === 'instr') {
-      S.setup.instructions = el.value.slice(0, 500);
+      /* The FIELD is clamped, not just the state. It stored `slice(0, 500)`
+         while the textarea kept everything typed, so a reader could see 600
+         characters, press Save, and lose the last hundred with nothing on
+         screen having changed. */
+      if (el.value.length > INSTR_MAX) {
+        var at = el.selectionStart;
+        el.value = el.value.slice(0, INSTR_MAX);
+        try { el.setSelectionRange(Math.min(at, INSTR_MAX), Math.min(at, INSTR_MAX)); } catch (e) {}
+      }
+      S.setup.instructions = el.value;
       S.setup.dirty = true;
       var count = phone.querySelector('[data-testid="setup-instructions-block"] .t-meta');
-      if (count) count.textContent = S.setup.instructions.length + ' / 500';
+      if (count) count.textContent = S.setup.instructions.length + ' / ' + INSTR_MAX;
       return;
     }
     if (el.getAttribute('data-act') === 'iv-free') {

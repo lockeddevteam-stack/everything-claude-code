@@ -48,7 +48,7 @@ const MANIFEST = {
      the demo every `if (window.LKSession)` guard failed silently and the
      session shelf did not exist on any route. */
   js: ['theme.js', 'app.js', 'chrome.js', 'vendor/body-art.js', 'bodymap.js',
-       'session.js', 'fixtures.js', 'units.js'],
+       'session.js', 'fixtures.js', 'store.js', 'units.js'],
 
   /* Files in srcDir that are not app screens. */
   exclude: [/^mockup-/],
