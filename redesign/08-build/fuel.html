@@ -124,7 +124,9 @@
     clock: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
     /* Two arrows passing, for a swap. Not a refresh circle: a circle says
        "do this again" and a swap replaces one thing with another. */
-    swap: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 8h13l-3.5-3.5M20 16H7l3.5 3.5"/></svg>'
+    swap: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 8h13l-3.5-3.5M20 16H7l3.5 3.5"/></svg>',
+    /* A balance, for setting an amount. */
+    scale: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 4v16M5 20h14M7 7h10M7 7l-3 6h6zM17 7l3 6h-6z"/></svg>'
   };
 
   /* The day. Numbers are the fixture's, not invented at render time, so the
@@ -762,7 +764,8 @@
     Object.keys(FOODS).forEach(function (k) {
       var f = FOODS[k];
       out.push({ key: k, icon: f.icon, name: f.name, kcal: f.kcal, pro: f.pro,
-                 carb: f.carb, fat: f.fat, from: 'Food table', src: 'table' });
+                 carb: f.carb, fat: f.fat, g: f.g, fibre: f.fibre, sugar: f.sugar,
+                 satfat: f.satfat, sodium: f.sodium, from: 'Food table', src: 'table' });
     });
     allRecipes().forEach(function (r, i) {
       out.push({ recipe: i, icon: r.icon, name: r.name + ', one serving',
@@ -771,6 +774,47 @@
                  from: 'Your recipes', src: 'recipe' });
     });
     return out;
+  }
+
+  /* How often a food has been logged, which is the one ranking signal this
+     app actually has. A food database ranks by how many people ate a thing;
+     this one can only rank by how often YOU did, and that is the better
+     signal anyway for a list of eight. */
+  function logCount(key) {
+    var nn = 0;
+    Object.keys(FUELLOG).forEach(function (iso) {
+      ((FUELLOG[iso] || {}).meals || []).forEach(function (m) { if (m.key === key) nn++; });
+    });
+    return nn;
+  }
+
+  /* Specific beats generic, and what you eat beats what you do not. A query
+     that matches the start of a name outranks one that matches the middle, a
+     whole-word match outranks a fragment, a shorter name outranks a longer
+     one carrying the same word, and anything you have logged is lifted by how
+     often. The list used to come back in table order whatever was typed, so
+     "chicken" put Chicken rice bowl above Chicken and rice for no reason at
+     all and the ordering carried no information. */
+  function rank(f, q) {
+    if (!q) return logCount(f.key) * 2;
+    var nm = f.name.toLowerCase();
+    var at = nm.indexOf(q);
+    if (at < 0) return -1;
+    var sc = 20;
+    if (at === 0) sc += 30;
+    else if (' ,'.indexOf(nm.charAt(at - 1)) >= 0) sc += 18;
+    if (nm.length === q.length) sc += 25;
+    sc -= Math.min(15, Math.round((nm.length - q.length) / 3));
+    sc += Math.min(20, logCount(f.key) * 3);
+    if (f.recipe !== undefined) sc += 4;   /* your own recipe, over a table row */
+    return sc;
+  }
+
+  function searchHits(q) {
+    return searchable().map(function (f) { return { f: f, s: rank(f, q) }; })
+      .filter(function (e) { return e.s >= 0; })
+      .sort(function (a, b) { return b.s - a.s || (a.f.name < b.f.name ? -1 : 1); })
+      .map(function (e, i) { e.f.best = i === 0 && !!q; return e.f; });
   }
 
   function macros() {
@@ -1291,9 +1335,7 @@
     }
     if (S.sheet === 'search') {
       var q = (S.searchQ || '').trim().toLowerCase();
-      var hits = searchable().filter(function (f) {
-        return !q || f.name.toLowerCase().indexOf(q) !== -1;
-      });
+      var hits = searchHits(q);
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
         '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="fs-title" ' +
           'data-detents="0.6 0.94" data-testid="sheet-search">' +
@@ -1312,17 +1354,31 @@
               'A real search reaches a food database; this one does not pretend to.</p>' +
             (hits.length
               ? '<div class="card card--flush mt-3">' + hits.map(function (f, i) {
-                  return '<button class="row" type="button" data-action="log-search" data-i="' + i +
-                    '" data-testid="search-hit-' + i + '">' +
-                    '<span class="fuel-thumb" aria-hidden="true">' + f.icon + '</span>' +
-                    '<span class="row__main stack">' +
-                      '<span class="row__title">' + esc(f.name) + '</span>' +
-                      '<span class="row__sub">' + esc(f.from) + ' \u00b7 ' + n(f.pro) + ' P \u00b7 ' +
-                        n(f.carb) + ' C \u00b7 ' + n(f.fat) + ' F</span>' +
-                    '</span>' +
-                    '<span class="row__value num">' + n(f.kcal) +
-                      '<small class="t-caption-2 quiet"> kcal</small></span>' +
-                    '<span class="row__chev">' + ICO.plus + '</span></button>';
+                  /* The row logs the standard serving, which is the common
+                     case and should cost one tap. The aside opens the detail
+                     for the times it was not a standard serving. */
+                  return '<div class="row row--withaside">' +
+                    '<button class="row__main row__main--btn" type="button" data-action="log-search" data-i="' + i +
+                      '" data-testid="search-hit-' + i + '">' +
+                      '<span class="fuel-thumb" aria-hidden="true">' + f.icon + '</span>' +
+                      '<span class="row__main stack">' +
+                        '<span class="row__title">' + esc(f.name) +
+                          (f.best ? ' <span class="pill pill--best" data-testid="search-best">Best match</span>' : '') +
+                        '</span>' +
+                        '<span class="row__sub">' + esc(f.from) +
+                          (f.g ? ' \u00b7 ' + n(f.g) + ' g' : '') + ' \u00b7 ' + n(f.pro) + ' P \u00b7 ' +
+                          n(f.carb) + ' C \u00b7 ' + n(f.fat) + ' F</span>' +
+                      '</span>' +
+                      '<span class="row__value num">' + n(f.kcal) +
+                        '<small class="t-caption-2 quiet"> kcal</small></span>' +
+                      '<span class="row__chev">' + ICO.plus + '</span>' +
+                    '</button>' +
+                    (f.key
+                      ? '<button class="iconbtn" type="button" data-action="food-detail" data-k="' + f.key + '" ' +
+                        'aria-label="Set the amount of ' + esc(f.name) + '" data-testid="food-detail-' + i + '">' +
+                        ICO.scale + '</button>'
+                      : '') +
+                  '</div>';
                 }).join('') + '</div>'
               : '<p class="t-body mt-4">Nothing here matches \u201c' + esc(S.searchQ || '') + '\u201d.</p>' +
                 '<p class="t-detail quiet mt-1">Snap the plate instead, or build it as a recipe.</p>') +
@@ -1485,6 +1541,65 @@
        is the sum of real rows rather than a number somebody typed; a free-text
        line is allowed for the things a food table has no row for, and it is
        counted as zero and labelled as counted as zero. */
+    /* One food, at the amount you actually had. The search sheet could only
+       log a standard serving, so "half a bowl" was logged as a bowl and then
+       corrected with a portion chip afterwards, if at all. Everything here
+       scales from the food's own per-100 g figures, so the grams field and
+       the chips cannot disagree: the chips just fill the field. */
+    if (S.sheet && S.sheet.indexOf('food:') === 0) {
+      var fk = S.sheet.slice(5), ff = FOODS[fk];
+      if (!ff) return '';
+      var grams = S.foodG || ff.g;
+      var k100 = grams / 100;
+      var per100 = function (v) { return Math.round(v / ff.g * 100 * 10) / 10; };
+      var at = function (v) { return Math.round(v / ff.g * grams * 10) / 10; };
+      var chips = [
+        ['Half', Math.round(ff.g / 2)], ['Three quarters', Math.round(ff.g * 0.75)],
+        ['One serving', ff.g], ['One and a half', Math.round(ff.g * 1.5)],
+        ['Two servings', ff.g * 2], ['100 g', 100], ['200 g', 200]
+      ];
+      var slotNow = S.logSlot || slotForNow();
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="fd-title" ' +
+          'data-detents="0.6 0.94" data-testid="sheet-food">' +
+          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="fd-title">' + esc(ff.name) + '</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="fd-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<label class="t-label field__label" for="fd-g">How much of it</label>' +
+            '<input class="input num" id="fd-g" type="number" min="1" max="3000" step="5" ' +
+              'inputmode="numeric" value="' + grams + '" data-testid="fd-grams">' +
+            '<p class="t-caption-1 quiet mt-1">Grams. A serving is ' + n(ff.g) + ' g.</p>' +
+            '<div class="chiprow mt-3">' + chips.map(function (c, ci) {
+              return '<button class="chip' + (grams === c[1] ? ' chip--on' : '') + '" type="button" ' +
+                'data-action="fd-chip" data-g="' + c[1] + '" data-testid="fd-chip-' + ci + '">' +
+                esc(c[0]) + '</button>';
+            }).join('') + '</div>' +
+            '<div class="card card--sunken mt-4" data-testid="fd-figures">' +
+              '<div class="hstack hstack--3"><span class="t-body grow">Energy</span>' +
+                '<span class="t-body-em num">' + n(Math.round(at(ff.kcal))) + ' kcal</span></div>' +
+              '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Protein</span>' +
+                '<span class="t-body-em num">' + n(at(ff.pro)) + ' g</span></div>' +
+              '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Carbs</span>' +
+                '<span class="t-body-em num">' + n(at(ff.carb)) + ' g</span></div>' +
+              '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Fat</span>' +
+                '<span class="t-body-em num">' + n(at(ff.fat)) + ' g</span></div>' +
+              '<p class="t-caption-1 quiet mt-2">Per 100 g: ' + n(per100(ff.kcal)) + ' kcal, ' +
+                n(per100(ff.pro)) + ' P, ' + n(per100(ff.carb)) + ' C, ' + n(per100(ff.fat)) + ' F. ' +
+                'Everything above is that, times ' + (Math.round(k100 * 100) / 100) + '.</p>' +
+            '</div>' +
+            slotPicker(slotNow, 'pick-slot', 'fd-slot') +
+          '</div>' +
+          '<div class="sheet__foot">' +
+            '<button class="btn btn--primary btn--block" type="button" data-action="fd-log" ' +
+              'data-testid="fd-log"><span class="btn__label">Log to ' +
+              esc(slotName(slotNow).toLowerCase()) + '</span></button>' +
+          '</div>' +
+        '</div>';
+    }
+
     if (S.sheet === 'build-recipe') {
       var d = S.draft || { name: '', servings: 4, items: [], notes: [], error: null };
       var dt = draftTotals(d);
@@ -1783,13 +1898,11 @@
     }
     if (a === 'log-search') {
       var q2 = (S.searchQ || '').trim().toLowerCase();
-      var hit = searchable().filter(function (f) {
-        return !q2 || f.name.toLowerCase().indexOf(q2) !== -1;
-      })[+act.getAttribute('data-i')];
+      var hit = searchHits(q2)[+act.getAttribute('data-i')];
       if (!hit) return;
-      addMeal({ key: hit.key || null, icon: hit.icon, name: hit.name, kcal: hit.kcal,
+      addMeal(withMicros({ key: hit.key || null, icon: hit.icon, name: hit.name, kcal: hit.kcal,
                 pro: hit.pro, carb: hit.carb, fat: hit.fat, src: hit.src,
-                slot: S.logSlot || slotForNow() });
+                slot: S.logSlot || slotForNow() }, hit));
       S.sheet = null;
       say(esc(hit.name) + ' logged, ' + n(hit.kcal) + ' kcal.');
       return;
@@ -1814,6 +1927,33 @@
       return;
     }
     if (a === 'trend-range') { S.trendRange = +act.getAttribute('data-r'); render(); return; }
+    if (a === 'food-detail') {
+      var fdk = act.getAttribute('data-k');
+      S.foodG = (FOODS[fdk] || {}).g;
+      S.sheet = 'food:' + fdk; render(); return;
+    }
+    if (a === 'fd-chip') { S.foodG = +act.getAttribute('data-g'); render(); return; }
+    if (a === 'fd-log') {
+      var lk = String(S.sheet).slice(5), lf = FOODS[lk];
+      if (!lf) return;
+      var gEl = document.getElementById('fd-g');
+      var gv = parseInt(gEl ? gEl.value : S.foodG, 10);
+      if (isNaN(gv) || gv < 1 || gv > 3000) { say('Grams between 1 and 3,000.'); return; }
+      var f2 = gv / lf.g;
+      var meal = { key: lk, icon: lf.icon,
+                   name: lf.name + (gv === lf.g ? '' : ', ' + n(gv) + ' g'),
+                   kcal: Math.round(lf.kcal * f2), pro: Math.round(lf.pro * f2 * 10) / 10,
+                   carb: Math.round(lf.carb * f2 * 10) / 10, fat: Math.round(lf.fat * f2 * 10) / 10,
+                   src: 'table', slot: S.logSlot || slotForNow() };
+      MICROS.forEach(function (mi) {
+        if (typeof lf[mi.key] === 'number') meal[mi.key] = Math.round(lf[mi.key] * f2 * 10) / 10;
+      });
+      addMeal(meal);
+      S.sheet = null; S.foodG = null;
+      render();
+      say(esc(lf.name) + ', ' + n(gv) + ' g logged, ' + n(meal.kcal) + ' kcal.');
+      return;
+    }
     if (a === 'micros') { S.microOpen = !S.microOpen; render(); return; }
     if (a === 'pick-slot') { S.logSlot = act.getAttribute('data-slot'); render(); return; }
     if (a === 'move-slot') {
@@ -2174,6 +2314,15 @@
        is typed. The name keeps its own value across that repaint through
        readDraft, and the caret is put back the same way the search field
        does it. */
+    if (e.target.id === 'fd-g') {
+      var gv2 = parseInt(e.target.value, 10);
+      if (isNaN(gv2) || gv2 < 1) return;      /* mid-edit, not yet a number */
+      S.foodG = Math.min(3000, gv2);
+      render();
+      var gf = document.getElementById('fd-g');
+      if (gf) { gf.focus(); try { gf.setSelectionRange(gf.value.length, gf.value.length); } catch (err) {} }
+      return;
+    }
     if (e.target.id === 'br-servings' || e.target.id === 'br-name') {
       var wasId = e.target.id;
       readDraft();
