@@ -310,16 +310,34 @@ for (const iso of Object.keys(DAY_LOG)) {
   };
 }
 
-/* Fourteen days of intake. The last four are the days above, added up, not
-   typed again: a trend that disagrees with the day it ends on is the same
-   defect one screen further out. */
-const trendHead = [2870, 3040, 2790, 3180, 2900, 2680, 2985, 2740, 3120, 2610];
+/* Thirty days of intake, so the Trends sheet's 7, 14 and 30 day ranges are
+   all real slices of one series rather than three separate numbers. The last
+   four are the days above, added up, not typed again: a trend that disagrees
+   with the day it ends on is the same defect one screen further out.
+
+   The series carries dates, because a chart that cannot say which day a point
+   belongs to cannot put today's live total on the end of it. */
+const trendHead = [
+  2740, 3105, 2880, 2650, 3210, 2795, 2960, 2830, 3060, 2710,
+  2905, 3140, 2760, 2680, 3020, 2870,
+  2870, 3040, 2790, 3180, 2900, 2680, 2985, 2740, 3120, 2610
+];
+const TREND_END = '2026-09-09';
+const trendDates = [];
+for (let i = 29; i >= 0; i--) {
+  const d = new Date(Date.parse(TREND_END + 'T00:00:00Z') - i * 86400000);
+  trendDates.push(d.toISOString().slice(0, 10));
+}
 const trendTail = ['2026-09-06', '2026-09-07', '2026-09-08', '2026-09-09'].map((iso) => nutritionDays[iso].eaten);
+const trendValues = trendHead.concat(trendTail);
+if (trendValues.length !== 30) throw new Error('trend is ' + trendValues.length + ' days, want 30');
 const nutrition = {
   targets: TARGETS,
   foods: FOODS,
   days: nutritionDays,
-  trend: trendHead.concat(trendTail)
+  /* Kept for anything still reading a bare array of the last fourteen. */
+  trend: trendValues.slice(-14),
+  trendSeries: trendDates.map((date, i) => ({ date, kcal: trendValues[i] }))
 };
 
 if (profile.weightKg !== weightLog[weightLog.length - 1].kg) {

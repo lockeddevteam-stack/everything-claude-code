@@ -364,12 +364,41 @@
       /* Fourteen days of intake against target, the last four of them the
          days above added up. A trend is the only thing a single day cannot
          tell you, which is the whole reason this sheet exists. */
-      trend: NUT.trend.slice()
+      trend: NUT.trend.slice(),
+      /* Dated, and ending on the day the screen is showing. The old series
+         was the fixture array, so logging 890 kcal left the last point at
+         1,570 and the average at 2,702 under a heading reading "Last fourteen
+         days" -- a chart of a day that had already changed. */
+      series: (NUT.trendSeries || []).map(function (e) { return { date: e.date, kcal: e.kcal }; })
     };
     return recount(d);
   }
 
   var DAY = day();
+
+  /* The series, with every day the store knows about laid over the seed and
+     today's running total on the end. Read at render time, never stored, so
+     it cannot drift from the diary above it. */
+  function series(n) {
+    var out = (DAY.series || []).map(function (e) { return { date: e.date, kcal: e.kcal }; });
+    var byDate = {};
+    out.forEach(function (e, i) { byDate[e.date] = i; });
+    Object.keys(FUELLOG).forEach(function (iso) {
+      var rec = FUELLOG[iso];
+      var k = (rec.meals || []).reduce(function (a, m) { return a + (m.kcal || 0); }, 0);
+      if (byDate[iso] !== undefined) out[byDate[iso]].kcal = Math.round(k);
+    });
+    if (byDate[DAY.iso] !== undefined) out[byDate[DAY.iso]].kcal = DAY.eaten;
+    return out.slice(-n);
+  }
+
+  /* Body weight over the same window, so the two lines can be read against
+     each other: intake alone says nothing about whether it is enough. */
+  function weightAt(iso) {
+    var log = (WEIGHTLOG || []).filter(function (e) { return e && e.date && e.kg && e.date <= iso; });
+    if (!log.length) return null;
+    return log[log.length - 1].kg;
+  }
 
   /* Module scope and with macros on it, because these rows log. The list was
      a literal inside the sheet's own render function and every row closed the
@@ -1082,31 +1111,80 @@
         '</div>';
     }
     if (S.sheet === 'trends') {
-      var t = DAY.trend, mx = Math.max.apply(null, t), mn = Math.min.apply(null, t);
+      /* 7, 14 or 30 -- three slices of one series, not three numbers. */
+      var range = S.trendRange || 14;
+      var se = series(range);
+      var t = se.map(function (e) { return e.kcal; });
+      var mx = Math.max.apply(null, t.concat([DAY.target]));
+      var mn = Math.min.apply(null, t.concat([DAY.target]));
+      var span = mx - mn || 1;
       var avg = Math.round(t.reduce(function (a, b) { return a + b; }, 0) / t.length);
-      var pts = t.map(function (v, i) {
-        return (i / (t.length - 1) * 300).toFixed(1) + ',' + (70 - (v - mn) / (mx - mn) * 60).toFixed(1);
-      }).join(' ');
+      var y = function (v) { return (70 - (v - mn) / span * 60).toFixed(1); };
+      var x = function (i) { return (i / (t.length - 1 || 1) * 300).toFixed(1); };
+      var pts = t.map(function (v, i) { return x(i) + ',' + y(v); }).join(' ');
+      var targetY = y(DAY.target);
+      /* The weight line shares the x axis and gets its own scale, because a
+         kilo and a kilocalorie are not comparable quantities and drawing them
+         on one scale would flatten the weight to a straight line. */
+      var wk = se.map(function (e) { return weightAt(e.date); });
+      var wHas = wk.filter(function (v) { return v; });
+      var wPts = '';
+      if (wHas.length > 1) {
+        var wMx = Math.max.apply(null, wHas), wMn = Math.min.apply(null, wHas);
+        var wSpan = wMx - wMn || 1;
+        wPts = wk.map(function (v, i) {
+          return v ? x(i) + ',' + (70 - (v - wMn) / wSpan * 60).toFixed(1) : null;
+        }).filter(Boolean).join(' ');
+      }
+      var over = t.filter(function (v) { return v > DAY.target; }).length;
+      var hi = Math.max.apply(null, t), lo = Math.min.apply(null, t);
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
-        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="tr-title" data-testid="sheet-trends">' +
-          '<div class="sheet__head"><h2 class="t-headline grow" id="tr-title">Last fourteen days</h2>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="tr-title" ' +
+          'data-detents="0.6 0.94" data-testid="sheet-trends">' +
+          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="tr-title">Last ' + range + ' days</h2>' +
             '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="trends-close">' +
               '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
             '</button></div>' +
           '<div class="sheet__body">' +
-            '<div class="hstack hstack--2" style="align-items: baseline">' +
+            '<div class="seg seg--lg" role="radiogroup" aria-label="How far back" data-testid="trend-range">' +
+              [7, 14, 30].map(function (r) {
+                return '<button class="seg__item" type="button" role="radio" ' +
+                  'aria-checked="' + (range === r) + '" data-action="trend-range" data-r="' + r + '" ' +
+                  'data-testid="trend-range-' + r + '">' + r + ' days</button>';
+              }).join('') + '</div>' +
+            '<div class="hstack hstack--2 mt-4" style="align-items: baseline">' +
               '<p class="money num" data-testid="trend-avg">' + n(avg) + '</p>' +
               '<p class="hero__unit grow">kcal a day on average</p>' +
             '</div>' +
-            '<p class="t-detail mt-2">Target is ' + n(DAY.target) + '. A single day means nothing; ' +
-              'fourteen of them are what the target is set from.</p>' +
+            '<p class="t-detail mt-2">Target is ' + n(DAY.target) + ', the dashed line. ' +
+              'A single day means nothing; a run of them is what a target is set from. ' +
+              'Today counts as what is on the list so far.</p>' +
             '<svg class="chart mt-4" viewBox="0 0 300 80" role="img" ' +
-              'aria-label="Daily energy over fourteen days, averaging ' + n(avg) + ' kcal">' +
+              'aria-label="Daily energy over ' + range + ' days, averaging ' + n(avg) + ' kcal ' +
+              'against a target of ' + n(DAY.target) + '">' +
+              '<line class="chart__target" x1="0" y1="' + targetY + '" x2="300" y2="' + targetY + '"/>' +
+              (wPts ? '<polyline class="chart__line chart__line--weight" points="' + wPts + '"/>' : '') +
               '<polyline class="chart__line" points="' + pts + '"/>' +
+              '<circle class="chart__dot chart__dot--last" cx="300" cy="' + y(t[t.length - 1]) + '" r="3"/>' +
             '</svg>' +
             '<div class="hstack hstack--3 mt-2">' +
-              '<span class="t-meta num grow">' + n(mn) + ' low</span>' +
-              '<span class="t-meta num">' + n(mx) + ' high</span>' +
+              '<span class="t-meta grow">Energy</span>' +
+              (wPts ? '<span class="t-meta">Body weight</span>' : '') +
+            '</div>' +
+            '<h3 class="t-label mt-5">Over these ' + range + ' days</h3>' +
+            '<div class="card card--sunken mt-2" data-testid="trend-stats">' +
+              '<div class="hstack hstack--3"><span class="t-body grow">Average against target</span>' +
+                '<span class="t-body-em num">' + (avg - DAY.target > 0 ? '+' : avg - DAY.target < 0 ? '\u2212' : '\u00b1') +
+                  n(Math.abs(avg - DAY.target)) + ' kcal</span></div>' +
+              '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Days over target</span>' +
+                '<span class="t-body-em num">' + over + ' of ' + t.length + '</span></div>' +
+              '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Lowest and highest</span>' +
+                '<span class="t-body-em num">' + n(lo) + ' \u2013 ' + n(hi) + '</span></div>' +
+              (DAY.rate
+                ? '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Weight, per week</span>' +
+                  '<span class="t-body-em num">' + signed(DAY.rate.pct) + '%</span></div>'
+                : '') +
             '</div>' +
           '</div>' +
         '</div>';
@@ -1635,6 +1713,7 @@
       say(was + ' swapped for ' + pf.name + '.');
       return;
     }
+    if (a === 'trend-range') { S.trendRange = +act.getAttribute('data-r'); render(); return; }
     if (a === 'pick-slot') { S.logSlot = act.getAttribute('data-slot'); render(); return; }
     if (a === 'move-slot') {
       /* The open sheet is 'meal:<index>', so the meal being moved is the one
