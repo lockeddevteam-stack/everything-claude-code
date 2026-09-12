@@ -128,7 +128,7 @@ These are the ones to act on.
 | G1 | **Recipes** | `RecipesTab` (40760), `RCard` (40920) | No counterpart anywhere. Already named as not-done in `11-apple/spec-compliance-3.md`. |
 | G2 | **Meal plans** | `MealPlanFuelTab` (37469), AI meal plans | No counterpart. Note the audit's own finding: the dead twin `MealPlannerTab` (45234, ~670 lines) can go, but the live one is a real feature. |
 | G3 | **Paywall** | F-PAY, 4 features | Six gated cards, $6.99/mo or $60/yr. Absent. The audit notes there is no purchase flow in v6 either — the CTA reads "Available on the App Store Soon" — so this may be deliberate. Your call. |
-| G4 | **"Stack" / PED tracking** | F-CYCLE-200+, behind `lk_perfTracking` | AAS/PED cycles with dose and route. Absent. The audit lists it as one of two entirely undocumented features needing a product decision. |
+| G4 | ~~**"Stack" / PED tracking**~~ | F-CYCLE-200+, behind `lk_perfTracking` | **Built.** All 11 features, gated and off by default, with five audit defects fixed and the overview's numbers computed rather than generated. |
 | G5 | **Progress photos** | F-PROF, ~906 lines | See above. Function absent; privacy defect noted. |
 | G6 | **Voice input** | `VoiceButton` (53718), `/voice` route | The button was cut for good reasons. The capability was not replaced. |
 | G7 | **Tutorial / coach marks** | `TutorialOverlay` (54228) | Cut by the Apple directive. A new user now gets no guided first run beyond onboarding. |
@@ -147,8 +147,16 @@ These are the ones to act on.
   target and adds a calorie allowance; the pathway is dead code). Do not port
   that one. The other four are real.
 
-- **The Stack tab's absence may be a feature.** It is PED dosing. It has legal
-  and store-review implications the audit does not weigh.
+- **Stack is built, including the overview.** The first pass left out the AI
+  cycle overview on the grounds that its prompt told the model not to
+  moralise. The owner pushed back and was right: a fitness app that pretends
+  these are not in use is less honest, not more careful, and "do not
+  moralise" is not the same instruction as "withhold information". The
+  overview is built. Its arithmetic half -- clearance dates, weekly totals,
+  what is still active past the end date -- is computed on the device from
+  half-lives stored as hours, so it is correct whether or not anything
+  answers. Its generated half is told to be direct and skip the disclaimers,
+  and is not told to leave anything out.
 
 - **Do not port these, whatever else you restore.** The audit found them dead
   or broken in v6: `MealPlannerTab` (dead twin), the PRHub Overview tab

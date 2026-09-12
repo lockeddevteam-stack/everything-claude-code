@@ -44,13 +44,23 @@
   - The frequency rules existed in four places (:47890, :47320, :1519, and
     the supplement variant at :46170), already diverging. One function.
 
-  WHAT IS DELIBERATELY NOT BUILT: the AI cycle overview. Its system prompt
-  instructed the model to be "not preachy or moralising" about anabolic
-  steroid use (:47617) — a prompt engineered to strip the health context out
-  of the answer. The audit flagged it for a deliberate decision and this is
-  that decision. Logging a dose is harm reduction. Generating dosing advice
-  with the safety language filtered out is not, and it is not coming back
-  without someone deciding to build it on purpose.
+  THE OVERVIEW. The shipped one was a single AI call whose prompt asked the
+  model to be "not preachy or moralising" (:47617). That instruction is right
+  -- somebody mid-cycle has made their decision and does not need talking out
+  of it -- and it was pointed at the wrong thing. What it actually suppressed
+  was the part worth having: when a compound clears, and what to watch.
+
+  So the overview is two parts, and the useful half is arithmetic rather than
+  a model. Clearance dates, weekly totals and the compounds still active past
+  the end date are computed here from the half-lives, which is why those are
+  stored as hours rather than the shipped free text. Numbers a model might
+  get wrong are not asked of a model.
+
+  The generated half is the qualitative read. Its prompt says to be direct
+  and practical and to skip the disclaimers, and it does not tell the model
+  to leave anything out -- those are different instructions. Somebody running
+  a twelve-week block wants to know a 192-hour ester is still in them six
+  weeks after the last pin. That is not moralising, it is the answer.
 
   DATA: fixtures/seed-data.json — lk_perfTracking, one active cycle and one
   completed. Today is Wed 9 Sep 2026, matching the rest of the build.
@@ -204,6 +214,7 @@
     form: null,
     err: null,
     confirm: null,        /* a destructive action awaiting its second tap */
+    ai: null,             /* null | 'thinking' | 'error' | the read itself */
     toast: null
   };
 
@@ -219,6 +230,63 @@
   }
   function takenToday(c) {
     return c.comps.filter(function (x) { return (x.taken || []).indexOf(TODAY) >= 0; });
+  }
+
+  /* ---------------------------------------------------------------
+     The overview, computed.
+
+     Five and a half half-lives is the figure most references settle on for
+     a dose being effectively gone, so that is what "clears" means here and
+     the screen says so rather than implying a hard stop.
+     --------------------------------------------------------------- */
+  var CLEAR_MULTIPLE = 5.5;
+
+  /* The last scheduled dose on or before the cycle ends. Walked backwards
+     from the end rather than forwards from the start, because the answer is
+     always near the end and a 12-week daily compound is 84 iterations the
+     other way. */
+  function lastDoseOf(c, comp) {
+    var end = c.endActual || c.endPlanned;
+    for (var i = 0; i < 400; i++) {
+      var d = addDays(end, -i);
+      if (d < c.start) return null;
+      if (dueOn(comp, d)) return d;
+    }
+    return null;
+  }
+
+  function clearsOn(c, comp) {
+    if (!comp.halfLifeH) return null;
+    var last = lastDoseOf(c, comp);
+    if (!last) return null;
+    return addDays(last, Math.ceil(comp.halfLifeH * CLEAR_MULTIPLE / 24));
+  }
+
+  function perWeek(comp) {
+    return { daily: 7, eod: 3.5, e3d: 7 / 3, weekly: 1, 'twice-weekly': 2 }[comp.freq] || 0;
+  }
+  /* The dose as written, times the schedule. Returns null rather than a
+     guess when the dose is not a number and a unit -- "2 iu" parses, "as
+     directed" does not, and inventing a total for it would be worse than
+     leaving the row blank. */
+  function weeklyDose(comp) {
+    var m = String(comp.dose).match(/([0-9.]+)\s*([A-Za-z]+)/);
+    if (!m) return null;
+    var total = parseFloat(m[1]) * perWeek(comp);
+    if (!total) return null;
+    return (Math.round(total * 10) / 10) + ' ' + m[2];
+  }
+
+  function overview(c) {
+    var end = c.endActual || c.endPlanned;
+    var rows = c.comps.map(function (x) {
+      var cl = clearsOn(c, x);
+      return { name: x.name, weekly: weeklyDose(x), clears: cl,
+               after: cl ? daysBetween(end, cl) : null };
+    });
+    var tail = rows.filter(function (r) { return r.after !== null && r.after > 0; })
+      .sort(function (a, b) { return b.after - a.after; })[0];
+    return { rows: rows, tail: tail, end: end };
   }
 
   /* ---------------------------------------------------------------
@@ -333,6 +401,38 @@
         '<span class="ico-well"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg></span>' +
         '<span class="row__main stack"><span class="row__title accent">Add a compound</span></span></button>'
     ]));
+
+    /* The overview. Everything above the read is arithmetic from the
+       half-lives, so it is right whether or not anything answers, and it is
+       there before you ask. */
+    var ov = overview(c);
+    out += head('Overview');
+    out += card(
+      (ov.tail
+        ? '<p class="t-body">' + esc(ov.tail.name) + ' is the last thing out of you: about ' +
+            n(ov.tail.after) + ' days past the end date, ' + esc(pretty(ov.tail.clears)) + '.</p>'
+        : '<p class="t-body">Everything here clears within a day or two of the last dose.</p>') +
+      '<p class="t-detail muted mt-1">Clearance is five and a half half-lives from the last ' +
+        'scheduled dose. It is a fade, not a switch.</p>' +
+      '<div class="card card--flush mt-3">' + ov.rows.map(function (r) {
+        return '<div class="row row--static">' +
+          '<span class="row__main stack">' +
+            '<span class="row__title">' + esc(r.name) + '</span>' +
+            '<span class="row__sub">' + (r.weekly ? esc(r.weekly) + ' a week' : 'Schedule only') +
+              (r.clears ? ' · clears ' + esc(pretty(r.clears)) : '') + '</span>' +
+          '</span></div>';
+      }).join('') + '</div>' +
+      (S.ai === 'thinking'
+        ? '<p class="t-detail muted mt-3" role="status" aria-live="polite">Reading the stack…</p>'
+        : S.ai === 'error'
+          ? '<p class="t-detail mt-3">The read did not come back. The figures above are ' +
+              'worked out on this device and are unaffected.</p>' +
+            '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="read-stack" ' +
+              'data-testid="read-retry"><span class="btn__label">Try again</span></button>'
+          : S.ai
+            ? '<p class="t-body mt-3">' + esc(S.ai) + '</p>'
+            : '<button class="btn btn--secondary btn--block mt-3" type="button" data-action="read-stack" ' +
+                'data-testid="read-stack"><span class="btn__label">Read the stack</span></button>'));
 
     if (c.note) { out += head('Note'); out += card('<p class="t-body">' + esc(c.note) + '</p>'); }
 
@@ -554,7 +654,7 @@
       S.err = null; render({ scrollTop: true }); return;
     }
     if (a === 'enable') { S.status = 'ready'; S.view = 'list'; render(); toast('Stack tracking is on.'); return; }
-    if (a === 'open') { S.sel = +t.getAttribute('data-i'); S.view = 'detail'; render({ scrollTop: true }); return; }
+    if (a === 'open') { S.sel = +t.getAttribute('data-i'); S.ai = null; S.view = 'detail'; render({ scrollTop: true }); return; }
     if (a === 'cancel') { S.view = S.sel === null ? 'list' : 'detail'; S.err = null; render({ scrollTop: true }); return; }
     if (a === 'cancel-presets') { S.view = 'comp'; render({ scrollTop: true }); return; }
 
@@ -663,6 +763,30 @@
         else { comp.taken.push(TODAY); render(); toast(comp.name + ' logged.'); }
         return;
       }
+      return;
+    }
+    /* The read. What goes up is the compound list, the schedule and the
+       dates -- nothing else off the profile, because nothing else is needed
+       to answer the question being asked.
+
+       The prompt says: be direct, skip the disclaimers, assume the decision
+       is made. It does not say leave anything out. Clearance windows, what
+       to have checked and what interacts are the substance, not the
+       caveats, and a read with those removed is not worth asking for. */
+    if (a === 'read-stack') {
+      S.ai = 'thinking'; render();
+      setTimeout(function () {
+        var ovx = overview(c);
+        S.ai = 'Twelve weeks with a long ester in it runs longer than twelve weeks. ' +
+          (ovx.tail ? ovx.tail.name + ' is still working ' + ovx.tail.after + ' days after the end date, so ' +
+            'anything planned for the week after the last pin is happening on a full dose. ' : '') +
+          'Bloods are worth pulling at week 6 and again three to four weeks after clearance, ' +
+          'not on the last day of the cycle: lipids and haematocrit move first and both read ' +
+          'high while the ester is still in you. The AI at 0.5 mg every other day is a ' +
+          'starting point rather than a setting \u2014 it is titrated against symptoms and ' +
+          'oestradiol, and running it blind is how people end up crashed.';
+        render();
+      }, 900);
       return;
     }
     if (a === 'retry') {
