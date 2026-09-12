@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — First run</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<script src="theme.js"></script>
+<script src="app.js"></script>
+<script src="chrome.js"></script>
+</head>
+<body>
+<!--
+  TUTORIAL — the first-run walkthrough.
+
+  WHY IT IS BACK. The Apple directive cut it along with every other overlay,
+  and the parity pass found that a new account now arrives at Home with no
+  introduction at all. The owner asked for the animation specifically, so it
+  is the animation that has been rebuilt, not a static help page.
+
+  WHAT IT SAYS, AND WHAT IT NO LONGER SAYS. The shipped version had seven
+  hardcoded cards, one of which promised "Voice mode reads your numbers back
+  so you never look away from the bar" (:54251). The audit found nothing in
+  the app that does that, and the redesign cut the voice button outright. A
+  tutorial that teaches a feature the app does not have is worse than no
+  tutorial: it is the first thing a new user is told, and it is false. The
+  cards here are the five tabs, and each one describes something that
+  exists on the screen it names.
+
+  THE ANIMATION. Intro types LOCKED a letter at a time over a grid that
+  drifts, then the five cards deal in, each title typing and its three lines
+  rising behind it. Under prefers-reduced-motion none of it runs: the text
+  is simply there, the grid is still, and the pacing controls become a plain
+  list. That is not a degraded path, it is the same content without the
+  motion, which is the only version of reduced motion worth shipping.
+
+  IT IS SKIPPABLE FROM THE FIRST FRAME. A walkthrough you cannot leave is a
+  wall. Skip is present on every screen of it, at full contrast, not hidden
+  as faint text under the primary.
+
+  GATE: lk_tutorialSeen. Written on finish AND on skip -- the shipped app
+  wrote it only on completion, so skipping meant seeing it again next launch.
+-->
+
+<div class="stage">
+  <div class="phone">
+    <div class="screen tut" id="screen" data-testid="screen-tutorial" data-state="intro">
+
+      <div class="tut__grid" id="grid" aria-hidden="true"></div>
+
+      <main class="body tut__body" id="body" data-testid="tutorial-scroll" tabindex="-1"></main>
+
+      <!-- A landmark. These are the controls that move through the
+           walkthrough, and content outside every landmark is what axe's
+           region rule exists to catch. -->
+      <nav class="tut__foot gutter" id="foot" aria-label="Walkthrough"></nav>
+      <div id="live" class="vis-hidden" role="status" aria-live="polite"></div>
+
+    </div>
+  </div>
+</div>
+
+<div class="dev">
+  <button class="dev__toggle" id="dev-toggle" aria-expanded="false" aria-controls="dev-menu" data-testid="dev-toggle">State</button>
+  <div class="dev__menu" id="dev-menu" hidden data-testid="dev-menu"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* The five tabs. Every line names something on the screen it belongs to;
+     nothing here describes a feature the build does not carry. */
+  var CARDS = [
+    { tab: 'Home', title: 'Train today, or not',
+      lines: ['The session you are meant to do, one tap from the top.',
+              'Weeks on plan, and the week so far, in one band.',
+              'Recap opens the day, the week and the month.'],
+      tag: 'Start here' },
+    { tab: 'Train', title: 'The whole session',
+      lines: ['Log weight and reps inline. No dialog, no save button.',
+              'Every row carries what you lifted last time.',
+              'The library and your history live in the same tab.'],
+      tag: 'The core loop' },
+    { tab: 'Fuel', title: 'What you ate',
+      lines: ['Scan a barcode or search, and it logs in two taps.',
+              'Recipes divide themselves into servings.',
+              'Shopping and the budget sit behind the same tab.'],
+      tag: 'Two taps' },
+    { tab: 'Coach', title: 'Someone to ask',
+      lines: ['Chat, and a plan that is bound to a real split.',
+              'A weekly check-in: energy, sleep, soreness, stress.',
+              'Plans save as cards, so good advice does not scroll away.'],
+      tag: 'Weekly' },
+    { tab: 'Profile', title: 'Yours to set',
+      lines: ['Goals you can edit in place, showing what each change moves.',
+              'Units, appearance and text size follow the system.',
+              'Everything stays on this device unless you turn on sync.'],
+      tag: 'Settings live here' }
+  ];
+
+  var S = { phase: 'intro', i: 0, typed: 0, lines: 0 };
+
+  var screen = document.getElementById('screen');
+  var body = document.getElementById('body');
+  var foot = document.getElementById('foot');
+  var grid = document.getElementById('grid');
+  var live = document.getElementById('live');
+  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function say(m) { live.textContent = m; }
+
+  /* The drifting grid. Drawn once as cells rather than a background image so
+     it can be dimmed per phase without a second asset. */
+  (function drawGrid() {
+    var cells = '';
+    for (var i = 0; i < 96; i++) cells += '<span></span>';
+    grid.innerHTML = cells;
+  })();
+
+  var timer = null;
+  function stop() { clearTimeout(timer); timer = null; }
+
+  /* ---------------------------------------------------------------
+     Intro
+     --------------------------------------------------------------- */
+  var WORD = 'LOCKED';
+
+  function introHTML() {
+    var shown = reduced ? WORD : WORD.slice(0, S.typed);
+    return '<div class="tut__intro">' +
+      '<h1 class="tut__word" data-testid="tut-word">' + esc(shown) +
+        (reduced || S.typed >= WORD.length ? '' : '<span class="tut__caret" aria-hidden="true"></span>') +
+      '</h1>' +
+      '<p class="tut__tag' + (reduced || S.typed >= WORD.length ? ' is-in' : '') + '">Your training. Locked in.</p>' +
+    '</div>';
+  }
+
+  function typeIntro() {
+    if (reduced) { S.typed = WORD.length; paint(); return; }
+    S.typed = 0;
+    (function step() {
+      paint();
+      if (S.typed >= WORD.length) return;
+      S.typed++;
+      timer = setTimeout(step, 110);
+    })();
+  }
+
+  /* ---------------------------------------------------------------
+     Cards
+     --------------------------------------------------------------- */
+  function cardHTML() {
+    var c = CARDS[S.i];
+    var title = reduced ? c.title : c.title.slice(0, S.typed);
+    return '<div class="tut__card" data-testid="tut-card-' + S.i + '">' +
+      '<p class="tut__tab">' + esc(c.tab) + '</p>' +
+      /* h1, not h2. Each phase of this screen is its own page as far as a
+         reader is concerned, and the cards phase had no level-one heading
+         at all -- the intro's was gone by then. */
+      '<h1 class="tut__title">' + esc(title) +
+        (reduced || S.typed >= c.title.length ? '' : '<span class="tut__caret" aria-hidden="true"></span>') +
+      '</h1>' +
+      '<ul class="tut__lines">' + c.lines.map(function (l, k) {
+        return '<li class="' + (reduced || k < S.lines ? 'is-in' : '') + '">' + esc(l) + '</li>';
+      }).join('') + '</ul>' +
+      '<p class="tut__pill">' + esc(c.tag) + '</p>' +
+    '</div>';
+  }
+
+  function playCard() {
+    var c = CARDS[S.i];
+    if (reduced) { S.typed = c.title.length; S.lines = c.lines.length; paint(); return; }
+    S.typed = 0; S.lines = 0;
+    (function step() {
+      paint();
+      if (S.typed < c.title.length) { S.typed++; timer = setTimeout(step, 34); return; }
+      if (S.lines < c.lines.length) { S.lines++; timer = setTimeout(step, 160); return; }
+    })();
+  }
+
+  /* ---------------------------------------------------------------
+     Chrome
+     --------------------------------------------------------------- */
+  function footHTML() {
+    if (S.phase === 'intro') {
+      return '<button class="btn btn--primary btn--block" type="button" data-action="begin" data-testid="tut-begin">' +
+          '<span class="btn__label">Show me around</span></button>' +
+        '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="skip" data-testid="tut-skip">' +
+          '<span class="btn__label">Skip</span></button>';
+    }
+    if (S.phase === 'done') {
+      return '<button class="btn btn--primary btn--block" type="button" data-action="finish" data-testid="tut-finish">' +
+        '<span class="btn__label">Start training</span></button>';
+    }
+    var last = S.i === CARDS.length - 1;
+    return '<div class="tut__dots" role="group" aria-label="Step ' + (S.i + 1) + ' of ' + CARDS.length + '">' +
+        CARDS.map(function (c, k) {
+          return '<span class="tut__dot' + (k === S.i ? ' is-on' : '') + '" aria-hidden="true"></span>';
+        }).join('') + '</div>' +
+      '<button class="btn btn--primary btn--block" type="button" data-action="next" data-testid="tut-next">' +
+        '<span class="btn__label">' + (last ? 'Done' : 'Next') + '</span></button>' +
+      '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="skip" data-testid="tut-skip">' +
+        '<span class="btn__label">Skip</span></button>';
+  }
+
+  function doneHTML() {
+    return '<div class="tut__intro">' +
+      '<h1 class="tut__word is-in" data-testid="tut-done">Ready</h1>' +
+      '<p class="tut__tag is-in">Everything is on this device. Nothing has been sent anywhere.</p>' +
+    '</div>';
+  }
+
+  function paint() {
+    screen.setAttribute('data-state', S.phase);
+    LKPatch(body, S.phase === 'intro' ? introHTML() : S.phase === 'done' ? doneHTML() : cardHTML());
+    LKPatch(foot, footHTML());
+    Array.prototype.forEach.call(document.querySelectorAll('.dev__item'), function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.state === S.phase));
+    });
+  }
+
+  function seen() {
+    try { localStorage.setItem('lk_tutorialSeen', 'true'); } catch (e) {}
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!t) return;
+    var a = t.getAttribute('data-action');
+    stop();
+    if (a === 'begin') { S.phase = 'cards'; S.i = 0; playCard(); say(CARDS[0].tab); return; }
+    if (a === 'next') {
+      if (S.i < CARDS.length - 1) { S.i++; playCard(); say(CARDS[S.i].tab); }
+      else { S.phase = 'done'; paint(); say('Ready'); }
+      return;
+    }
+    /* Skip writes the gate too. The shipped app wrote it only on completion,
+       so anyone who skipped was shown the whole thing again next launch. */
+    if (a === 'skip') { seen(); location.href = 'home.html'; return; }
+    if (a === 'finish') { seen(); location.href = 'home.html'; return; }
+  });
+
+  var PRESETS = [['intro', 'Intro'], ['cards', 'Cards'], ['done', 'Ready']];
+  var menu = document.getElementById('dev-menu');
+  var toggle = document.getElementById('dev-toggle');
+  LKPatch(menu, PRESETS.map(function (p) {
+    return '<button class="dev__item" type="button" data-state="' + p[0] +
+      '" aria-pressed="false" data-testid="dev-state-' + p[0] + '">' + p[1] + '</button>';
+  }).join(''));
+  toggle.addEventListener('click', function () {
+    var open = toggle.getAttribute('aria-expanded') === 'true';
+    toggle.setAttribute('aria-expanded', String(!open));
+    menu.hidden = open;
+  });
+  menu.addEventListener('click', function (e) {
+    var b = e.target.closest('.dev__item');
+    if (!b) return;
+    stop();
+    S.phase = b.dataset.state; S.i = 0;
+    if (S.phase === 'intro') typeIntro();
+    else if (S.phase === 'cards') playCard();
+    else paint();
+  });
+
+  var q = new URLSearchParams(location.search);
+  var want = q.get('state');
+  if (want === 'cards') { S.phase = 'cards'; playCard(); }
+  else if (want === 'done') { S.phase = 'done'; paint(); }
+  else typeIntro();
+  window.__ready = true;
+})();
+</script>
+</body>
+</html>

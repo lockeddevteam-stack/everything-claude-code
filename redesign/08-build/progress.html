@@ -134,6 +134,7 @@
       'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
   }
   var ICO = {
+    cam: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 8.5h3l1.5-2h7L17 8.5h3v10H4z"/><circle cx="12" cy="13" r="3.2"/></svg>',
     chev: svg('<path d="m9 5 7 7-7 7"/>'),
     close: svg('<path d="M6 6l12 12M18 6 6 18"/>'),
     alert: svg('<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/>'),
@@ -195,6 +196,17 @@
   /* Module scope, because the sheet can add one. It was a local const inside
      the sheet's own render function, which is why "Add a goal" had nowhere to
      put a goal. */
+  /* lk_progressPhotos. A photo is a date, a note and a thumbnail; the full
+     image never existed in storage, only the downscale.
+
+     Ordering is newest first throughout. The shipped grid reversed the
+     months but left photos inside a month in insertion order, so the list
+     ran new-to-old between headings and old-to-new under them. */
+  var PHOTOS = [
+    { date: '2026-08-26', note: 'Week 5', tone: 3 },
+    { date: '2026-07-29', note: 'Week 1, relaxed', tone: 1 }
+  ];
+
   var GOALS = [
     { name: 'Bench press 100 kg for 5', by: 'Nov 7', now: '87.5 kg for 8', pct: 74 },
     { name: 'Body weight 62 kg', by: 'Dec 1', now: '64.2 kg', pct: 55 },
@@ -391,6 +403,8 @@
     range: '12w',
     liftId: 111,      /* lk_featuredLifts[0] */
     sheet: false,
+    photoIdx: null,      /* which photo the lightbox is showing */
+    confirmDel: false,   /* a photo cannot be recreated, so delete asks twice */
     /* The three sheets that write. Each carries its own error sentence rather
        than a shared flag, so a message can say which field is wrong. */
     weightError: null,
@@ -555,6 +569,14 @@
               '<span class="row__sub">' + signedKg(d) + ' since ' + dayLabel(w0[0]) + '</span>' +
             '</span>' +
             '<span class="row__value">' + kg(w[1]) + '</span>' +
+            '<span class="row__chev">' + ICO.chev + '</span>' +
+          '</button>' +
+          '<button class="row" data-action="open-photos" data-testid="row-photos">' +
+            '<span class="ico-well">' + ICO.cam + '</span>' +
+            '<span class="row__main stack">' +
+              '<span class="row__title">Photos</span>' +
+              '<span class="row__sub">' + n(PHOTOS.length) + ' since ' + dayLabel(PHOTOS[0].date.slice(0, 10)) + '</span>' +
+            '</span>' +
             '<span class="row__chev">' + ICO.chev + '</span>' +
           '</button>' +
           '<button class="row" data-action="open-goals" data-testid="row-goals">' +
@@ -756,6 +778,9 @@
     if (S.sheet === 'weight') return weightSheet();
     if (S.sheet === 'goals') return goalsSheet();
     if (S.sheet === 'record') return recordSheet();
+    if (S.sheet === 'photos') return photosSheet();
+    if (S.sheet === 'photo') return photoSheet();
+    if (S.sheet === 'analyse-consent') return consentSheet();
     var days = rangeDays();
     return '' +
       '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
@@ -848,6 +873,98 @@
      when the screen had one; three more rows now have somewhere to go, and
      "true" cannot say which. Everything that reads it as truthy still works
      because a name is truthy. */
+  /* The shell every sheet on this screen shares. It was three near-identical
+     copies before the photo sheets made it four; one shell means a change to
+     how a sheet closes is a change in one place. */
+  function sheet(id, title, detents, inner) {
+    return '' +
+      '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="' + id + '-title" ' +
+        'data-testid="' + id + '-sheet" data-detents="' + detents + '">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+        '<div class="sheet__head"><h2 class="t-section grow" id="' + id + '-title">' + esc(title) + '</h2>' +
+          '<button class="iconbtn" data-action="close-sheet" data-testid="' + id + '-close" ' +
+            'aria-label="Close ' + esc(title) + '">' + ICO.close + '</button></div>' +
+        '<div class="sheet__body">' + inner + '</div>' +
+      '</div>';
+  }
+
+  /* Photos. Grouped by month, newest month first AND newest photo first
+     inside each month -- the shipped grid reversed only the outer list.
+
+     The thumbnails here are drawn, not photographed: a static build has no
+     camera, and a stock body shot presented as this person's progress would
+     be the screen lying about its own data. Each stands in for a stored
+     downscale at the size one really is. */
+  function photoTile(ph, i) {
+    var tone = ['#2a2f3a', '#333a47', '#3d4553', '#48515f'][ph.tone] || '#333a47';
+    return '<button class="ph" type="button" data-action="open-photo" data-i="' + i +
+        '" data-testid="photo-' + i + '" aria-label="' + esc(dayLabel(ph.date)) +
+        (ph.note ? ', ' + esc(ph.note) : '') + '">' +
+      '<span class="ph__img" style="background:' + tone + '" aria-hidden="true"></span>' +
+      '<span class="ph__cap">' + esc(dayLabel(ph.date)) + '</span>' +
+    '</button>';
+  }
+
+  function photosSheet() {
+    var byMonth = {};
+    PHOTOS.forEach(function (ph, i) {
+      var k = ph.date.slice(0, 7);
+      (byMonth[k] = byMonth[k] || []).push([ph, i]);
+    });
+    var months = Object.keys(byMonth).sort().reverse();
+    var body = months.map(function (k) {
+      var pm = k.split('-');
+      return '<p class="t-label mt-4">' + MONTHS[+pm[1] - 1] + ' ' + pm[0] + '</p>' +
+        '<div class="phgrid mt-2">' + byMonth[k]
+          .sort(function (a, b) { return a[0].date < b[0].date ? 1 : -1; })
+          .map(function (p) { return photoTile(p[0], p[1]); }).join('') + '</div>';
+    }).join('');
+
+    return sheet('photos', 'Photos', '0.6 0.94',
+      (PHOTOS.length
+        ? '<p class="t-detail">' + n(PHOTOS.length) + (PHOTOS.length === 1 ? ' photo' : ' photos') +
+            ', stored on this device.</p>' + body
+        : '<p class="t-body">No photos yet.</p>' +
+          '<p class="t-detail muted mt-1">A photo every few weeks shows what the scale does not.</p>') +
+      '<button class="btn btn--primary btn--block mt-4" type="button" data-action="add-photo" ' +
+        'data-testid="add-photo"><span class="btn__label">Add a photo</span></button>');
+  }
+
+  function photoSheet() {
+    var ph = PHOTOS[S.photoIdx];
+    if (!ph) return '';
+    var tone = ['#2a2f3a', '#333a47', '#3d4553', '#48515f'][ph.tone] || '#333a47';
+    return sheet('photo', dayLabel(ph.date), 'auto',
+      '<div class="ph__full" style="background:' + tone + '" role="img" aria-label="' +
+        esc(ph.note || dayLabel(ph.date)) + '"></div>' +
+      (ph.note ? '<p class="t-body mt-3">' + esc(ph.note) + '</p>' : '') +
+      /* The analyse path asks first, and says exactly what leaves. The
+         shipped screen offered it with no consent step, no opt-out, and the
+         words "stored on device" on the same screen. */
+      '<button class="btn btn--secondary btn--block mt-4" type="button" data-action="analyse" ' +
+        'data-testid="analyse"><span class="btn__label">Analyse this photo</span></button>' +
+      '<button class="btn btn--danger btn--block mt-2" type="button" data-action="del-photo" ' +
+        'data-testid="del-photo"><span class="btn__label">' +
+        (S.confirmDel ? 'Tap again to delete' : 'Delete') + '</span></button>' +
+      '<p class="t-detail muted mt-2">A photo cannot be recreated, so deleting asks twice.</p>');
+  }
+
+  function consentSheet() {
+    return sheet('analyse-consent', 'Before it leaves the device', 'auto',
+      '<p class="t-body">Analysing sends this photo to LOCKED\u2019s server, along with your ' +
+        'goal, your body weight and your weekly set volume. It is processed there and the ' +
+        'reply comes back here.</p>' +
+      '<p class="t-detail muted mt-3">Everything else on this screen stays on the device. ' +
+        'This one action does not, which is why it asks.</p>' +
+      '<button class="btn btn--primary btn--block mt-4" type="button" data-action="analyse-go" ' +
+        'data-testid="analyse-go"><span class="btn__label">Send it and analyse</span></button>' +
+      /* Declining goes back to the photo, not out of the stack. Closing
+         everything would punish the safer answer with more taps. */
+      '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="analyse-no" ' +
+        'data-testid="analyse-no"><span class="btn__label">Keep it on the device</span></button>');
+  }
+
   function openSheet(name) {
     lastFocus = document.activeElement;
     S.sheet = name || 'lift';
@@ -895,6 +1012,24 @@
       }
     } else if (a === 'open-weight') {
       openSheet('weight');
+    } else if (a === 'open-photos') {
+      openSheet('photos');
+    } else if (a === 'open-photo') {
+      S.photoIdx = +t.getAttribute('data-i'); S.confirmDel = false; openSheet('photo');
+    } else if (a === 'add-photo') {
+      S.toast = 'Taking a photo needs a camera, which this build does not have.'; render();
+    } else if (a === 'analyse') {
+      openSheet('analyse-consent');
+    } else if (a === 'analyse-no') {
+      openSheet('photo');
+    } else if (a === 'analyse-go') {
+      S.sheet = null; render();
+      S.toast = 'Sent for analysis. The reply comes back here.'; render();
+    } else if (a === 'del-photo') {
+      if (!S.confirmDel) { S.confirmDel = true; render(); return; }
+      var gonePh = PHOTOS.splice(S.photoIdx, 1)[0];
+      S.photoIdx = null; S.confirmDel = false; S.sheet = 'photos'; render();
+      S.toast = dayLabel(gonePh.date) + ' deleted.'; render();
     } else if (a === 'open-goals') {
       openSheet('goals');
     } else if (a === 'log-record') {

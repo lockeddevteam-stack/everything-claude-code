@@ -88,7 +88,10 @@ const MANIFEST = {
     recap: { parent: 'home', backSelector: '[data-testid="back"]' },
     /* Gated behind lk_perfTracking and off by default, so the chip that
        leads here does not exist until Settings turns it on. */
-    stack: { parent: 'fuel', backSelector: '[data-testid="back"]' }
+    stack: { parent: 'fuel', backSelector: '[data-testid="back"]' },
+    /* The first-run walkthrough. Standalone like onboarding: it is a
+       takeover, not a screen inside a tab. */
+    tutorial: { parent: 'home', standalone: true }
   },
 
   /* Taps that leave a screen. Selector is matched with closest() inside the
@@ -104,6 +107,8 @@ const MANIFEST = {
        session. Same destination as a history row on Train. */
     { from: 'recap', selector: '[data-action="open-session"]', to: 'workout-detail', mode: 'push' },
     { from: 'fuel', selector: '[data-testid="chip-stack"]', to: 'stack', mode: 'push' },
+    { from: 'tutorial', selector: '[data-testid="tut-skip"]', to: 'home', mode: 'tab' },
+    { from: 'tutorial', selector: '[data-testid="tut-finish"]', to: 'home', mode: 'tab' },
     { from: 'train', selector: '[data-action="open-library"]', to: 'exercise-library', mode: 'push' },
     { from: 'train', selector: '[data-action="new-split"]', to: 'split-builder', mode: 'push' },
     { from: 'train', selector: '[data-action="edit-split"]', to: 'split-builder', mode: 'push' },
