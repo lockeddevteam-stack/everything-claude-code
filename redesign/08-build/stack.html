@@ -1,0 +1,722 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOCKED — Stack</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<script src="theme.js"></script>
+<script src="app.js"></script>
+<script src="chrome.js"></script>
+<script src="session.js"></script>
+</head>
+<body>
+<!--
+  STACK — compound cycles, dose and schedule.
+
+  WHAT THIS IS. The shipped app tracks performance compounds: AAS, SARMs and
+  peptides, GLP-1s, HGH and ancillaries, with a dose, a route and a frequency
+  each, inside a cycle that has a start and a length. It is one of two
+  features the audit found entirely undocumented. It stays gated behind
+  lk_perfTracking, off by default, and nothing about it appears anywhere in
+  the app until it is switched on.
+
+  WHY IT IS BUILT AT ALL. People who use these are going to use them whether
+  or not a tracker exists. What a tracker changes is whether the dose and the
+  date are written down. That is the whole argument, and it is why the screen
+  states what it is rather than dressing it up.
+
+  WHAT THE AUDIT FOUND WRONG, AND WHAT IS DIFFERENT HERE.
+
+  - The chip said "Stack" while the component, the storage keys and every
+    line of copy said "Cycle" — in an app that already has menstrual cycle
+    tracking under a different tab. One name here: Stack, everywhere.
+  - Editing a completed cycle silently revived it (:47574 re-set status to
+    active on every save). Status is never touched by an edit here; ending
+    and reopening are their own controls and both say so.
+  - Ending a cycle overwrote the planned end date with today (:47593), so a
+    cycle ended early lost the schedule it was measured against. Both dates
+    are kept, and the detail shows them when they differ.
+  - Everything was due from midnight. Compounds had no time-of-day window at
+    all, unlike supplements, so "due today" meant "not yet taken". Each
+    compound carries its own time here, and Today is ordered by it.
+  - The frequency rules existed in four places (:47890, :47320, :1519, and
+    the supplement variant at :46170), already diverging. One function.
+
+  WHAT IS DELIBERATELY NOT BUILT: the AI cycle overview. Its system prompt
+  instructed the model to be "not preachy or moralising" about anabolic
+  steroid use (:47617) — a prompt engineered to strip the health context out
+  of the answer. The audit flagged it for a deliberate decision and this is
+  that decision. Logging a dose is harm reduction. Generating dosing advice
+  with the safety language filtered out is not, and it is not coming back
+  without someone deciding to build it on purpose.
+
+  DATA: fixtures/seed-data.json — lk_perfTracking, one active cycle and one
+  completed. Today is Wed 9 Sep 2026, matching the rest of the build.
+-->
+
+<div class="stage">
+  <div class="phone">
+    <div class="screen" id="screen" data-testid="screen-stack" data-state="list">
+
+      <header class="hdr" data-scroll-edge="#body" id="hdr">
+        <button class="hdr__back" type="button" data-action="back" data-testid="back" aria-label="Back to Fuel">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 5l-7 7 7 7"/></svg>
+        </button>
+        <h1 class="hdr__title t-title-3" id="hdr-title">Stack</h1>
+        <button class="iconbtn" type="button" data-action="add-cycle" data-testid="add-cycle" aria-label="Start a cycle">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </header>
+
+      <main class="body" id="body" data-testid="stack-scroll" tabindex="-1"></main>
+
+      <div id="shelf-slot"></div>
+      <div id="overlay" data-testid="overlay"></div>
+      <div id="live" class="vis-hidden" role="status" aria-live="polite"></div>
+
+    </div>
+  </div>
+</div>
+
+<div class="dev">
+  <button class="dev__toggle" id="dev-toggle" aria-expanded="false" aria-controls="dev-menu" data-testid="dev-toggle">State</button>
+  <div class="dev__menu" id="dev-menu" hidden data-testid="dev-menu"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var TODAY = '2026-09-09';
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  var ICO = {
+    chev: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg>',
+    tick: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    dot:  '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="7.5"/></svg>',
+    alert:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/></svg>'
+  };
+
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function n(v) { return '<span class="num">' + esc(v) + '</span>'; }
+
+  function parts(iso) { var a = iso.split('-'); return { y: +a[0], m: +a[1], d: +a[2] }; }
+  function addDays(iso, k) {
+    var p = parts(iso);
+    return new Date(Date.UTC(p.y, p.m - 1, p.d + k)).toISOString().slice(0, 10);
+  }
+  function daysBetween(a, b) {
+    var x = parts(a), y = parts(b);
+    return Math.round((Date.UTC(y.y, y.m - 1, y.d) - Date.UTC(x.y, x.m - 1, x.d)) / 86400000);
+  }
+  function pretty(iso) { var p = parts(iso); return p.d + ' ' + MONTHS[p.m - 1] + ' ' + p.y; }
+  function dow(iso) { var p = parts(iso); return new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay(); }
+
+  /* THE ONE FREQUENCY FUNCTION. The shipped app had this rule written out
+     four times and they had already diverged. Everything that asks "is this
+     due today" asks here. */
+  function dueOn(comp, iso) {
+    var f = comp.freq;
+    if (f === 'daily') return true;
+    if (f === 'eod') return daysBetween(comp.since || iso, iso) % 2 === 0;
+    if (f === 'e3d') return daysBetween(comp.since || iso, iso) % 3 === 0;
+    if (f === 'weekly') return dow(iso) === (comp.day === undefined ? 1 : comp.day);
+    if (f === 'twice-weekly') return dow(iso) === 1 || dow(iso) === 4;
+    return false;
+  }
+  var FREQ_LABEL = { daily: 'Every day', eod: 'Every other day', e3d: 'Every third day',
+                     weekly: 'Once a week', 'twice-weekly': 'Twice a week' };
+
+  var CATS = [
+    { id: 'aas',   name: 'AAS' },
+    { id: 'sarm',  name: 'SARM / peptide' },
+    { id: 'glp',   name: 'GLP-1' },
+    { id: 'hgh',   name: 'HGH' },
+    { id: 'anc',   name: 'Ancillary' }
+  ];
+  function catName(id) {
+    for (var i = 0; i < CATS.length; i++) if (CATS[i].id === id) return CATS[i].name;
+    return 'Other';
+  }
+
+  var ROUTES = ['Oral', 'Intramuscular', 'Subcutaneous', 'Transdermal'];
+
+  /* The preset list. Half-lives are a number of hours here rather than the
+     shipped free text ("~8 days (Enanthate)"), because a string cannot be
+     compared, sorted or used to work out when the last dose clears. */
+  var PRESETS = [
+    { name: 'Testosterone enanthate', cat: 'aas', dose: '250 mg', freq: 'twice-weekly', route: 'Intramuscular', halfLifeH: 192 },
+    { name: 'Testosterone cypionate', cat: 'aas', dose: '250 mg', freq: 'twice-weekly', route: 'Intramuscular', halfLifeH: 192 },
+    { name: 'Testosterone propionate', cat: 'aas', dose: '100 mg', freq: 'eod', route: 'Intramuscular', halfLifeH: 20 },
+    { name: 'Nandrolone decanoate', cat: 'aas', dose: '200 mg', freq: 'weekly', route: 'Intramuscular', halfLifeH: 144 },
+    { name: 'Anastrozole', cat: 'anc', dose: '0.5 mg', freq: 'eod', route: 'Oral', halfLifeH: 46 },
+    { name: 'Tamoxifen', cat: 'anc', dose: '20 mg', freq: 'daily', route: 'Oral', halfLifeH: 120 },
+    { name: 'Enclomiphene', cat: 'anc', dose: '12.5 mg', freq: 'daily', route: 'Oral', halfLifeH: 240 },
+    { name: 'Semaglutide', cat: 'glp', dose: '0.5 mg', freq: 'weekly', route: 'Subcutaneous', halfLifeH: 168 },
+    { name: 'Tirzepatide', cat: 'glp', dose: '5 mg', freq: 'weekly', route: 'Subcutaneous', halfLifeH: 120 },
+    { name: 'BPC-157', cat: 'sarm', dose: '250 mcg', freq: 'daily', route: 'Subcutaneous', halfLifeH: 4 },
+    { name: 'Ipamorelin', cat: 'sarm', dose: '200 mcg', freq: 'daily', route: 'Subcutaneous', halfLifeH: 2 },
+    { name: 'Somatropin', cat: 'hgh', dose: '2 iu', freq: 'daily', route: 'Subcutaneous', halfLifeH: 3 }
+  ];
+
+  /* ---------------------------------------------------------------
+     Data. lk_cycles, inlined from the fixture.
+
+     endPlanned and endActual are separate fields. The shipped app had one,
+     and ending a cycle early overwrote the plan with the date you ended it,
+     so the schedule the cycle had been measured against disappeared.
+     --------------------------------------------------------------- */
+  var CYCLES = [
+    { id: 'c1', name: 'Autumn block', status: 'active',
+      start: '2026-08-11', weeks: 12, endPlanned: '2026-11-02', endActual: null,
+      note: 'Bloods booked for week 6.',
+      comps: [
+        { name: 'Testosterone enanthate', cat: 'aas', dose: '250 mg', freq: 'twice-weekly',
+          route: 'Intramuscular', at: '08:00', halfLifeH: 192, taken: ['2026-09-07'] },
+        { name: 'Anastrozole', cat: 'anc', dose: '0.5 mg', freq: 'eod',
+          route: 'Oral', at: '08:00', since: '2026-08-11', halfLifeH: 46, taken: [] },
+        { name: 'BPC-157', cat: 'sarm', dose: '250 mcg', freq: 'daily',
+          route: 'Subcutaneous', at: '21:00', halfLifeH: 4, taken: [] }
+      ] },
+    { id: 'c2', name: 'Spring cut', status: 'completed',
+      start: '2026-03-02', weeks: 10, endPlanned: '2026-05-11', endActual: '2026-04-27',
+      note: 'Ended two weeks early, shoulder.',
+      comps: [
+        { name: 'Testosterone propionate', cat: 'aas', dose: '100 mg', freq: 'eod',
+          route: 'Intramuscular', at: '07:30', since: '2026-03-02', halfLifeH: 20, taken: [] }
+      ] }
+  ];
+
+  /* ---------------------------------------------------------------
+     State
+     --------------------------------------------------------------- */
+  var S = {
+    view: 'list',         /* list | detail | edit | comp | presets */
+    status: 'ready',      /* ready | gated | empty | loading | error */
+    sel: null,            /* index into CYCLES */
+    compIdx: null,
+    presetCat: 'all',
+    presetQ: '',
+    form: null,
+    err: null,
+    confirm: null,        /* a destructive action awaiting its second tap */
+    toast: null
+  };
+
+  function cur() { return S.sel === null ? null : CYCLES[S.sel]; }
+
+  /* Week X of Y, and never past Y. */
+  function weekOf(c) {
+    var d = daysBetween(c.start, TODAY);
+    return Math.min(c.weeks, Math.max(1, Math.floor(d / 7) + 1));
+  }
+  function dueToday(c) {
+    return c.comps.filter(function (x) { return dueOn(x, TODAY); });
+  }
+  function takenToday(c) {
+    return c.comps.filter(function (x) { return (x.taken || []).indexOf(TODAY) >= 0; });
+  }
+
+  /* ---------------------------------------------------------------
+     Views
+     --------------------------------------------------------------- */
+  function head(l, r) {
+    return '<div class="listhead"><h2 class="t-label">' + l + '</h2>' +
+      (r ? '<span class="t-meta">' + r + '</span>' : '') + '</div>';
+  }
+  function card(i, c) { return '<div class="card ' + (c || '') + ' gutter">' + i + '</div>'; }
+  function listCard(rows) { return '<div class="card card--flush gutter">' + rows.join('') + '</div>'; }
+
+  function cycleRow(c, i) {
+    var sub = c.status === 'active'
+      ? n(c.comps.length) + (c.comps.length === 1 ? ' compound' : ' compounds') +
+        ' · week ' + n(weekOf(c)) + ' of ' + n(c.weeks)
+      : n(c.comps.length) + (c.comps.length === 1 ? ' compound' : ' compounds') +
+        ' · ended ' + esc(pretty(c.endActual || c.endPlanned));
+    return '<button class="row" type="button" data-action="open" data-i="' + i +
+        '" data-testid="cycle-' + i + '">' +
+      '<span class="ico-well">' + ICO.dot + '</span>' +
+      '<span class="row__main stack">' +
+        '<span class="row__title">' + esc(c.name) + '</span>' +
+        '<span class="row__sub">' + sub + '</span>' +
+      '</span>' +
+      (c.status === 'active' ? '<span class="badge badge--accent">Active</span>' : '') +
+      '<span class="row__chev">' + ICO.chev + '</span>' +
+    '</button>';
+  }
+
+  function viewList() {
+    var active = [], past = [];
+    CYCLES.forEach(function (c, i) { (c.status === 'active' ? active : past).push([c, i]); });
+    var out = '';
+    if (!CYCLES.length) {
+      return '<div class="gutter mt-4" data-testid="state-empty">' +
+        card('<p class="t-body">No cycles logged.</p>' +
+          '<p class="t-detail muted mt-1">A cycle is a start date, a length and the compounds in it. ' +
+          'What you record here stays on this device unless you turn on sync.</p>' +
+          '<button class="btn btn--primary btn--block mt-3" type="button" data-action="add-cycle" ' +
+            'data-testid="empty-add"><span class="btn__label">Start a cycle</span></button>', 'card--sunken') +
+      '</div>';
+    }
+    if (active.length) {
+      var c0 = active[0][0];
+      var due = dueToday(c0), took = takenToday(c0);
+      out += head('Today', n(took.length) + ' of ' + n(due.length) + ' taken');
+      if (due.length) {
+        out += listCard(due.sort(function (a, b) { return (a.at || '').localeCompare(b.at || ''); })
+          .map(function (x) {
+            var isTaken = (x.taken || []).indexOf(TODAY) >= 0;
+            return '<button class="row" type="button" data-action="take" data-c="' + active[0][1] +
+              '" data-n="' + esc(x.name) + '" data-testid="take-' + esc(x.name).replace(/\W+/g, '-') + '"' +
+              (isTaken ? ' aria-pressed="true"' : '') + '>' +
+              '<span class="ico-well">' + (isTaken ? ICO.tick : ICO.dot) + '</span>' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + esc(x.name) + '</span>' +
+                '<span class="row__sub">' + esc(x.dose) + ' · ' + esc(x.route) + ' · ' + esc(x.at || '') +
+                  (isTaken ? ' · taken' : '') + '</span>' +
+              '</span></button>';
+          }));
+      } else {
+        out += card('<p class="t-body">Nothing due today.</p>', 'card--sunken');
+      }
+      out += head('Active');
+      out += listCard(active.map(function (p) { return cycleRow(p[0], p[1]); }));
+    }
+    if (past.length) {
+      out += head('Past', n(past.length));
+      out += listCard(past.map(function (p) { return cycleRow(p[0], p[1]); }));
+    }
+    return out;
+  }
+
+  function viewDetail() {
+    var c = cur();
+    if (!c) return '';
+    var out = '';
+    var endedEarly = c.endActual && c.endActual !== c.endPlanned;
+
+    out += head(c.status === 'active' ? 'Week ' + weekOf(c) + ' of ' + c.weeks : 'Completed');
+    out += card(
+      '<p class="t-body">' + esc(pretty(c.start)) + ' → ' + esc(pretty(c.endActual || c.endPlanned)) + '</p>' +
+      /* Both dates, when they differ. The shipped app overwrote the plan with
+         the day you ended, so a cycle cut short lost what it was measured
+         against and every week figure it had shown became unreproducible. */
+      (endedEarly ? '<p class="t-detail muted mt-1">Planned to ' + esc(pretty(c.endPlanned)) +
+        ', ended ' + n(daysBetween(c.endActual, c.endPlanned)) + ' days early.</p>' : '') +
+      '<div class="hstack hstack--2 mt-3">' +
+        (c.status === 'active'
+          ? '<button class="btn btn--secondary grow" type="button" data-action="end" data-testid="end-cycle">' +
+              '<span class="btn__label">' + (S.confirm === 'end' ? 'Tap again to end' : 'End cycle') + '</span></button>'
+          : '<button class="btn btn--secondary grow" type="button" data-action="reopen" data-testid="reopen-cycle">' +
+              '<span class="btn__label">Reopen</span></button>') +
+        '<button class="btn btn--secondary grow" type="button" data-action="edit" data-testid="edit-cycle">' +
+          '<span class="btn__label">Edit</span></button>' +
+      '</div>');
+
+    out += head('Compounds', n(c.comps.length));
+    out += listCard(c.comps.map(function (x, i) {
+      return '<button class="row" type="button" data-action="open-comp" data-i="' + i +
+          '" data-testid="comp-' + i + '">' +
+        '<span class="row__main stack">' +
+          '<span class="row__title">' + esc(x.name) + '</span>' +
+          '<span class="row__sub">' + esc(x.dose) + ' · ' + esc(FREQ_LABEL[x.freq] || x.freq) +
+            ' · ' + esc(x.route) + '</span>' +
+        '</span>' +
+        '<span class="badge">' + esc(catName(x.cat)) + '</span>' +
+        '<span class="row__chev">' + ICO.chev + '</span></button>';
+    }).concat([
+      '<button class="row" type="button" data-action="add-comp" data-testid="add-comp">' +
+        '<span class="ico-well"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg></span>' +
+        '<span class="row__main stack"><span class="row__title accent">Add a compound</span></span></button>'
+    ]));
+
+    if (c.note) { out += head('Note'); out += card('<p class="t-body">' + esc(c.note) + '</p>'); }
+
+    out += '<div class="gutter mt-4">' +
+      '<button class="btn btn--danger btn--block" type="button" data-action="delete" data-testid="delete-cycle">' +
+        '<span class="btn__label">' + (S.confirm === 'del' ? 'Tap again to delete' : 'Delete cycle') + '</span></button>' +
+      '<p class="t-detail muted mt-2">Deleting removes the cycle and every dose logged against it.</p>' +
+    '</div>';
+    return out;
+  }
+
+  function field(id, label, val, type, hint) {
+    return '<label class="field"><span class="field__label">' + esc(label) + '</span>' +
+      '<input class="input" id="' + id + '" type="' + (type || 'text') + '" value="' + esc(val || '') +
+        '" data-testid="' + id + '">' +
+      (hint ? '<span class="field__help">' + esc(hint) + '</span>' : '') + '</label>';
+  }
+
+  function viewEdit() {
+    var f = S.form || {};
+    var end = f.start && f.weeks ? addDays(f.start, (parseInt(f.weeks, 10) || 0) * 7) : null;
+    return '<div class="gutter mt-3">' +
+      (S.err ? '<div class="banner banner--error">' + ICO.alert + '<span>' + esc(S.err) + '</span></div>' : '') +
+      field('cy-name', 'Name', f.name, 'text', 'What you call this block.') +
+      field('cy-start', 'Start', f.start, 'date') +
+      field('cy-weeks', 'Length in weeks', f.weeks, 'number') +
+      (end ? '<p class="t-detail muted mt-2">Ends ' + esc(pretty(end)) + '.</p>' : '') +
+      '<label class="field mt-3"><span class="field__label">Note</span>' +
+        '<textarea class="input" id="cy-note" rows="3" data-testid="cy-note">' + esc(f.note || '') + '</textarea></label>' +
+      /* Status is not on this form. In the shipped app saving an edit re-set
+         it to active, so opening a finished cycle to fix a typo silently
+         brought it back to life. Ending and reopening are their own buttons. */
+      '<button class="btn btn--primary btn--block mt-4" type="button" data-action="save-cycle" data-testid="save-cycle">' +
+        '<span class="btn__label">Save</span></button>' +
+      '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="cancel" data-testid="cancel">' +
+        '<span class="btn__label">Cancel</span></button>' +
+    '</div>';
+  }
+
+  function viewComp() {
+    var f = S.form || {};
+    return '<div class="gutter mt-3">' +
+      (S.err ? '<div class="banner banner--error">' + ICO.alert + '<span>' + esc(S.err) + '</span></div>' : '') +
+      '<button class="btn btn--secondary btn--block" type="button" data-action="presets" data-testid="open-presets">' +
+        '<span class="btn__label">Pick from the list</span></button>' +
+      field('cp-name', 'Compound', f.name, 'text') +
+      field('cp-dose', 'Dose', f.dose, 'text', 'With its unit, as you measure it.') +
+      '<div class="field mt-3"><span class="field__label">Category</span>' +
+        '<div class="chiprow mt-2">' + CATS.map(function (c) {
+          return '<button class="chip" type="button" data-action="cp-cat" data-v="' + c.id +
+            '" aria-pressed="' + (f.cat === c.id) + '" data-testid="cat-' + c.id + '">' + esc(c.name) + '</button>';
+        }).join('') + '</div></div>' +
+      '<div class="field mt-3"><span class="field__label">Frequency</span>' +
+        '<div class="chiprow mt-2">' + Object.keys(FREQ_LABEL).map(function (k) {
+          return '<button class="chip" type="button" data-action="cp-freq" data-v="' + k +
+            '" aria-pressed="' + (f.freq === k) + '" data-testid="freq-' + k + '">' + esc(FREQ_LABEL[k]) + '</button>';
+        }).join('') + '</div></div>' +
+      '<div class="field mt-3"><span class="field__label">Route</span>' +
+        '<div class="chiprow mt-2">' + ROUTES.map(function (r) {
+          return '<button class="chip" type="button" data-action="cp-route" data-v="' + esc(r) +
+            '" aria-pressed="' + (f.route === r) + '" data-testid="route-' + r.toLowerCase() + '">' + esc(r) + '</button>';
+        }).join('') + '</div></div>' +
+      field('cp-at', 'Time', f.at || '08:00', 'time',
+        'Compounds had no time of day at all before, so everything read as due from midnight.') +
+      '<button class="btn btn--primary btn--block mt-4" type="button" data-action="save-comp" data-testid="save-comp">' +
+        '<span class="btn__label">Save</span></button>' +
+      (S.compIdx !== null
+        ? '<button class="btn btn--danger btn--block mt-2" type="button" data-action="del-comp" data-testid="del-comp">' +
+            '<span class="btn__label">' + (S.confirm === 'delcomp' ? 'Tap again to remove' : 'Remove') + '</span></button>'
+        : '') +
+      '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="cancel" data-testid="cancel">' +
+        '<span class="btn__label">Cancel</span></button>' +
+    '</div>';
+  }
+
+  function viewPresets() {
+    var q = S.presetQ.toLowerCase().trim();
+    var list = PRESETS.filter(function (p) {
+      return (S.presetCat === 'all' || p.cat === S.presetCat) &&
+             (!q || p.name.toLowerCase().indexOf(q) >= 0);
+    });
+    return '<div class="gutter mt-3">' +
+      '<label class="field"><span class="field__label vis-hidden">Search compounds</span>' +
+        '<input class="input" id="pr-q" type="search" placeholder="Search" value="' + esc(S.presetQ) +
+          '" data-testid="preset-search"></label>' +
+      '<div class="chiprow mt-3">' +
+        '<button class="chip" type="button" data-action="pr-cat" data-v="all" aria-pressed="' +
+          (S.presetCat === 'all') + '" data-testid="pcat-all">All</button>' +
+        CATS.map(function (c) {
+          return '<button class="chip" type="button" data-action="pr-cat" data-v="' + c.id +
+            '" aria-pressed="' + (S.presetCat === c.id) + '" data-testid="pcat-' + c.id + '">' + esc(c.name) + '</button>';
+        }).join('') + '</div>' +
+      (list.length
+        ? '<div class="card card--flush mt-3">' + list.map(function (p, i) {
+            return '<button class="row" type="button" data-action="use-preset" data-n="' + esc(p.name) +
+                '" data-testid="preset-' + i + '">' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + esc(p.name) + '</span>' +
+                '<span class="row__sub">' + esc(p.dose) + ' · ' + esc(FREQ_LABEL[p.freq]) +
+                  ' · half-life ' + n(Math.round(p.halfLifeH / 24 * 10) / 10) + ' days</span>' +
+              '</span>' +
+              '<span class="badge">' + esc(catName(p.cat)) + '</span></button>';
+          }).join('') + '</div>'
+        : '<p class="t-body mt-4">Nothing matches “' + esc(S.presetQ) + '”. You can type it in by hand instead.</p>') +
+      '<button class="btn btn--secondary btn--block mt-3" type="button" data-action="cancel-presets" data-testid="presets-back">' +
+        '<span class="btn__label">Back</span></button>' +
+    '</div>';
+  }
+
+  function viewGated() {
+    return '<div class="gutter mt-4" data-testid="state-gated">' +
+      card('<p class="t-body">Stack tracking is off.</p>' +
+        '<p class="t-detail muted mt-1">It records compounds, doses and schedules. Nothing about it ' +
+        'appears anywhere in the app until you turn it on, and what you log stays on this device.</p>' +
+        '<button class="btn btn--primary btn--block mt-3" type="button" data-action="enable" ' +
+          'data-testid="enable"><span class="btn__label">Turn on Stack tracking</span></button>', 'card--sunken') +
+    '</div>';
+  }
+
+  function viewLoading() {
+    return '<div class="gutter mt-4" data-testid="state-loading">' +
+      '<div class="skel" style="height: var(--sp-3); width: 35%"></div>' +
+      '<div class="skel mt-3" style="height: var(--tap)"></div>' +
+      '<div class="skel mt-3" style="height: var(--tap)"></div></div>';
+  }
+  function viewError() {
+    return '<div class="gutter mt-4" data-testid="state-error">' +
+      '<div class="banner banner--error">' + ICO.alert +
+        '<span><strong>Stack did not load</strong>Nothing has been lost; it is still on this device.</span></div>' +
+      '<button class="btn btn--primary btn--block mt-4" type="button" data-action="retry" data-testid="retry">' +
+        '<span class="btn__label">Try again</span></button></div>';
+  }
+
+  /* ---------------------------------------------------------------
+     Render
+     --------------------------------------------------------------- */
+  var screen = document.getElementById('screen');
+  var body = document.getElementById('body');
+  var title = document.getElementById('hdr-title');
+  var overlay = document.getElementById('overlay');
+  var live = document.getElementById('live');
+  function say(m) { live.textContent = m; }
+
+  var TITLES = { list: 'Stack', detail: 'Cycle', edit: 'Cycle', comp: 'Compound', presets: 'Compounds' };
+
+  function bodyHTML() {
+    if (S.status === 'gated') return viewGated();
+    if (S.status === 'loading') return viewLoading();
+    if (S.status === 'error') return viewError();
+    if (S.view === 'detail') return viewDetail();
+    if (S.view === 'edit') return viewEdit();
+    if (S.view === 'comp') return viewComp();
+    if (S.view === 'presets') return viewPresets();
+    return viewList();
+  }
+
+  function toastHTML() {
+    if (!S.toast) return '';
+    return '<div class="toast" role="status" data-testid="toast">' + esc(S.toast) + '</div>';
+  }
+
+  function render(opts) {
+    opts = opts || {};
+    screen.setAttribute('data-state', S.status === 'ready' ? S.view : S.status);
+    title.textContent = TITLES[S.view] || 'Stack';
+    var add = document.querySelector('[data-testid="add-cycle"]');
+    if (add) add.hidden = !(S.status === 'ready' && S.view === 'list' && CYCLES.length > 0);
+    LKPatch(body, bodyHTML());
+    LKPatch(overlay, toastHTML());
+    if (window.LKChrome) LKChrome.init(document);
+    if (opts.scrollTop) body.scrollTop = 0;
+    Array.prototype.forEach.call(document.querySelectorAll('.dev__item'), function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.state === (S.status === 'ready' ? S.view : S.status)));
+    });
+  }
+
+  var toastTimer = null;
+  function toast(m) {
+    S.toast = m; render();
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { S.toast = null; render(); }, 2600);
+    say(m);
+  }
+
+  /* Every destructive control asks twice, and the ask expires. A confirm that
+     stays armed is a confirm the next tap anywhere can satisfy. */
+  var confirmTimer = null;
+  function arm(key) {
+    S.confirm = key;
+    clearTimeout(confirmTimer);
+    confirmTimer = setTimeout(function () { S.confirm = null; render(); }, 4000);
+  }
+
+  /* ---------------------------------------------------------------
+     Actions
+     --------------------------------------------------------------- */
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!t || t.disabled) return;
+    var a = t.getAttribute('data-action');
+    var c = cur();
+
+    if (a === 'back') {
+      if (S.view === 'list') { location.href = 'fuel.html'; return; }
+      S.view = S.view === 'presets' ? 'comp' : (S.view === 'list' ? 'list' : 'detail');
+      S.err = null; render({ scrollTop: true }); return;
+    }
+    if (a === 'enable') { S.status = 'ready'; S.view = 'list'; render(); toast('Stack tracking is on.'); return; }
+    if (a === 'open') { S.sel = +t.getAttribute('data-i'); S.view = 'detail'; render({ scrollTop: true }); return; }
+    if (a === 'cancel') { S.view = S.sel === null ? 'list' : 'detail'; S.err = null; render({ scrollTop: true }); return; }
+    if (a === 'cancel-presets') { S.view = 'comp'; render({ scrollTop: true }); return; }
+
+    if (a === 'add-cycle') {
+      S.sel = null; S.form = { name: '', start: TODAY, weeks: '12', note: '' };
+      S.view = 'edit'; S.err = null; render({ scrollTop: true }); return;
+    }
+    if (a === 'edit') {
+      S.form = { name: c.name, start: c.start, weeks: String(c.weeks), note: c.note || '' };
+      S.view = 'edit'; S.err = null; render({ scrollTop: true }); return;
+    }
+    if (a === 'save-cycle') {
+      var nm = (document.getElementById('cy-name') || {}).value || '';
+      var st = (document.getElementById('cy-start') || {}).value || '';
+      var wk = parseInt((document.getElementById('cy-weeks') || {}).value, 10);
+      var nt = (document.getElementById('cy-note') || {}).value || '';
+      if (!nm.trim()) { S.err = 'Give the cycle a name.'; render(); return; }
+      if (!st) { S.err = 'A cycle needs a start date.'; render(); return; }
+      if (!wk || wk < 1 || wk > 104) { S.err = 'Length has to be between 1 and 104 weeks.'; render(); return; }
+      if (c) {
+        /* Status is untouched on purpose. */
+        c.name = nm.trim(); c.start = st; c.weeks = wk; c.note = nt.trim();
+        c.endPlanned = addDays(st, wk * 7);
+        toast('Saved.');
+      } else {
+        CYCLES.unshift({ id: 'c' + Date.now(), name: nm.trim(), status: 'active', start: st,
+          weeks: wk, endPlanned: addDays(st, wk * 7), endActual: null, note: nt.trim(), comps: [] });
+        S.sel = 0;
+        toast('Cycle started.');
+      }
+      S.err = null; S.view = 'detail'; render({ scrollTop: true }); return;
+    }
+
+    if (a === 'end') {
+      if (S.confirm !== 'end') { arm('end'); render(); return; }
+      /* endPlanned is left alone. */
+      c.status = 'completed'; c.endActual = TODAY; S.confirm = null;
+      render(); toast('Cycle ended. The planned end date is kept.'); return;
+    }
+    if (a === 'reopen') { c.status = 'active'; c.endActual = null; render(); toast('Cycle reopened.'); return; }
+    if (a === 'delete') {
+      if (S.confirm !== 'del') { arm('del'); render(); return; }
+      var gone = CYCLES.splice(S.sel, 1)[0];
+      S.sel = null; S.confirm = null; S.view = 'list';
+      render({ scrollTop: true }); toast(gone.name + ' deleted.'); return;
+    }
+
+    if (a === 'add-comp') {
+      S.compIdx = null;
+      S.form = { name: '', dose: '', cat: 'aas', freq: 'daily', route: 'Intramuscular', at: '08:00' };
+      S.view = 'comp'; S.err = null; render({ scrollTop: true }); return;
+    }
+    if (a === 'open-comp') {
+      S.compIdx = +t.getAttribute('data-i');
+      var x = c.comps[S.compIdx];
+      S.form = { name: x.name, dose: x.dose, cat: x.cat, freq: x.freq, route: x.route, at: x.at || '08:00' };
+      S.view = 'comp'; S.err = null; render({ scrollTop: true }); return;
+    }
+    if (a === 'cp-cat') { S.form.cat = t.getAttribute('data-v'); render(); return; }
+    if (a === 'cp-freq') { S.form.freq = t.getAttribute('data-v'); render(); return; }
+    if (a === 'cp-route') { S.form.route = t.getAttribute('data-v'); render(); return; }
+    if (a === 'presets') {
+      S.form.name = (document.getElementById('cp-name') || {}).value || S.form.name;
+      S.form.dose = (document.getElementById('cp-dose') || {}).value || S.form.dose;
+      S.view = 'presets'; render({ scrollTop: true }); return;
+    }
+    if (a === 'pr-cat') { S.presetCat = t.getAttribute('data-v'); render(); return; }
+    if (a === 'use-preset') {
+      var pn = t.getAttribute('data-n');
+      for (var i = 0; i < PRESETS.length; i++) if (PRESETS[i].name === pn) {
+        var p = PRESETS[i];
+        S.form = { name: p.name, dose: p.dose, cat: p.cat, freq: p.freq, route: p.route,
+                   at: S.form.at || '08:00', halfLifeH: p.halfLifeH };
+      }
+      S.view = 'comp'; render({ scrollTop: true }); return;
+    }
+    if (a === 'save-comp') {
+      var cn = (document.getElementById('cp-name') || {}).value || '';
+      var cd = (document.getElementById('cp-dose') || {}).value || '';
+      var ca = (document.getElementById('cp-at') || {}).value || '08:00';
+      if (!cn.trim()) { S.err = 'Name the compound.'; render(); return; }
+      if (!cd.trim()) { S.err = 'A dose is the point of logging it.'; render(); return; }
+      var rec = { name: cn.trim(), dose: cd.trim(), cat: S.form.cat, freq: S.form.freq,
+                  route: S.form.route, at: ca, since: c.start,
+                  halfLifeH: S.form.halfLifeH || null, taken: [] };
+      if (S.compIdx === null) c.comps.push(rec);
+      else { rec.taken = c.comps[S.compIdx].taken || []; c.comps[S.compIdx] = rec; }
+      S.err = null; S.view = 'detail'; S.compIdx = null;
+      render({ scrollTop: true }); toast('Saved.'); return;
+    }
+    if (a === 'del-comp') {
+      if (S.confirm !== 'delcomp') { arm('delcomp'); render(); return; }
+      var rm = c.comps.splice(S.compIdx, 1)[0];
+      S.compIdx = null; S.confirm = null; S.view = 'detail';
+      render({ scrollTop: true }); toast(rm.name + ' removed.'); return;
+    }
+
+    if (a === 'take') {
+      var tc = CYCLES[+t.getAttribute('data-c')];
+      var nm2 = t.getAttribute('data-n');
+      for (var j = 0; j < tc.comps.length; j++) if (tc.comps[j].name === nm2) {
+        var comp = tc.comps[j];
+        comp.taken = comp.taken || [];
+        var at = comp.taken.indexOf(TODAY);
+        if (at >= 0) { comp.taken.splice(at, 1); render(); toast(comp.name + ' un-marked.'); }
+        else { comp.taken.push(TODAY); render(); toast(comp.name + ' logged.'); }
+        return;
+      }
+      return;
+    }
+    if (a === 'retry') {
+      S.status = 'loading'; render();
+      setTimeout(function () { S.status = 'ready'; render(); }, 700);
+      return;
+    }
+  });
+
+  document.addEventListener('input', function (e) {
+    if (e.target.id === 'pr-q') { S.presetQ = e.target.value; render(); }
+    if (e.target.id === 'cy-start' || e.target.id === 'cy-weeks') {
+      S.form.start = (document.getElementById('cy-start') || {}).value || S.form.start;
+      S.form.weeks = (document.getElementById('cy-weeks') || {}).value || S.form.weeks;
+      render();
+    }
+  });
+
+  /* ---------------------------------------------------------------
+     Dev states
+     --------------------------------------------------------------- */
+  var PRESETS_UI = [
+    ['list', 'Cycles'], ['detail', 'Cycle detail'], ['edit', 'Edit a cycle'],
+    ['comp', 'Edit a compound'], ['presets', 'Compound list'],
+    ['gated', 'Tracking off'], ['loading', 'Loading'], ['error', 'Error']
+  ];
+  var menu = document.getElementById('dev-menu');
+  var toggle = document.getElementById('dev-toggle');
+  LKPatch(menu, PRESETS_UI.map(function (p) {
+    return '<button class="dev__item" type="button" data-state="' + p[0] +
+      '" aria-pressed="false" data-testid="dev-state-' + p[0] + '">' + p[1] + '</button>';
+  }).join(''));
+  toggle.addEventListener('click', function () {
+    var open = toggle.getAttribute('aria-expanded') === 'true';
+    toggle.setAttribute('aria-expanded', String(!open));
+    menu.hidden = open;
+  });
+  menu.addEventListener('click', function (e) {
+    var b = e.target.closest('.dev__item');
+    if (!b) return;
+    var st = b.dataset.state;
+    S.status = 'ready'; S.err = null; S.confirm = null; S.toast = null; S.compIdx = null;
+    if (st === 'gated' || st === 'loading' || st === 'error') { S.status = st; S.view = 'list'; }
+    else if (st === 'detail') { S.sel = 0; S.view = 'detail'; }
+    else if (st === 'edit') { S.sel = 0; S.form = { name: CYCLES[0].name, start: CYCLES[0].start, weeks: String(CYCLES[0].weeks), note: CYCLES[0].note }; S.view = 'edit'; }
+    else if (st === 'comp') { S.sel = 0; S.compIdx = 0; var x = CYCLES[0].comps[0];
+      S.form = { name: x.name, dose: x.dose, cat: x.cat, freq: x.freq, route: x.route, at: x.at }; S.view = 'comp'; }
+    else if (st === 'presets') { S.sel = 0; S.form = { at: '08:00' }; S.view = 'presets'; }
+    else { S.sel = null; S.view = 'list'; }
+    render({ scrollTop: true });
+  });
+
+  if (window.LKSession) {
+    LKSession.mount(document.getElementById('shelf-slot'),
+      typeof LKPatch === 'function' ? LKPatch : null);
+    document.addEventListener('click', function (e) {
+      var el = e.target.closest ? e.target.closest('[data-testid="shelf-resume"]') : null;
+      if (el) { e.preventDefault(); location.href = 'workout-log.html'; }
+    });
+  }
+
+  var q = new URLSearchParams(location.search);
+  var want = q.get('state');
+  if (want === 'gated') S.status = 'gated';
+  render();
+  window.__ready = true;
+})();
+</script>
+</body>
+</html>

@@ -176,14 +176,70 @@
     { icon: '🍝', name: 'Beef mince and pasta', n: 19, kcal: 810, pro: 48, carb: 92, fat: 26 }
   ];
 
+  /* Saved recipes. A recipe is a food you assembled yourself: it carries its
+     own ingredients and yields a number of servings, so logging one serving
+     divides rather than making you do arithmetic at the counter.
+
+     Macros here are the recipe's TOTAL. Per-serving is derived on read, never
+     stored, because a stored per-serving figure and a changed serving count
+     disagree the moment either one moves. */
+  var RECIPES = [
+    { icon: '🍲', name: 'Chilli, big batch', servings: 6,
+      kcal: 3180, pro: 246, carb: 228, fat: 108,
+      ing: ['1 kg beef mince, 5%', '2 tins kidney beans', '2 tins chopped tomatoes',
+            '1 onion', '2 peppers', 'Chilli, cumin, paprika'] },
+    { icon: '🍚', name: 'Chicken and rice, 4 days', servings: 4,
+      kcal: 2760, pro: 244, carb: 296, fat: 52,
+      ing: ['800 g chicken thigh', '400 g rice, dry', '2 tbsp olive oil', 'Soy, garlic, ginger'] },
+    { icon: '🥞', name: 'Protein pancakes', servings: 2,
+      kcal: 720, pro: 62, carb: 74, fat: 16,
+      ing: ['100 g oats', '2 scoops whey', '2 eggs', '150 g skyr', 'Baking powder'] }
+  ];
+
+  /* The week's plan. Each slot is either planned or logged; a logged slot
+     carries the figure it actually cost, which is the only way the plan can
+     ever be compared with the week that happened.
+
+     NOT BUILT, deliberately: the swap-by-AI path. In the shipped app a failed
+     swap invented four meals and wrote them into the saved plan as though a
+     model had returned them (audit H2). Swapping here picks from your own
+     recipes and often-logged meals, which cannot fabricate anything. */
+  var PLAN = [
+    { d: 'Mon', slots: [ { at: 'Breakfast', name: 'Eggs, toast, butter', kcal: 540, done: true },
+                         { at: 'Lunch', name: 'Chicken and rice', kcal: 690, done: true },
+                         { at: 'Dinner', name: 'Chilli', kcal: 530, done: true } ] },
+    { d: 'Tue', slots: [ { at: 'Breakfast', name: 'Protein pancakes', kcal: 360, done: true },
+                         { at: 'Lunch', name: 'Chicken and rice', kcal: 690, done: true },
+                         { at: 'Dinner', name: 'Chilli', kcal: 530, done: false } ] },
+    { d: 'Wed', slots: [ { at: 'Breakfast', name: 'Eggs, toast, butter', kcal: 540, done: true },
+                         { at: 'Lunch', name: 'Chicken and rice', kcal: 690, done: false },
+                         { at: 'Dinner', name: 'Chilli', kcal: 530, done: false } ] },
+    { d: 'Thu', slots: [ { at: 'Breakfast', name: 'Whey shake, banana', kcal: 310, done: false },
+                         { at: 'Lunch', name: 'Chilli', kcal: 530, done: false },
+                         { at: 'Dinner', name: 'Beef mince and pasta', kcal: 810, done: false } ] },
+    { d: 'Fri', slots: [ { at: 'Breakfast', name: 'Protein pancakes', kcal: 360, done: false },
+                         { at: 'Lunch', name: 'Chicken and rice', kcal: 690, done: false },
+                         { at: 'Dinner', name: 'Out', kcal: 0, done: false } ] }
+  ];
+
   /* What the scanner resolved. One product, because a fixture that changes
      per run makes a screenshot diff meaningless. */
   var SCAN = { icon: '🥫', name: 'Skyr, plain', code: '5 060 123 456 789',
                serving: '150 g pot', kcal: 96, pro: 17, carb: 6, fat: 0.3 };
 
+  /* lk_perfTracking, the switch that makes Stack exist. Read rather than
+     cached, so turning it on in Settings and coming back shows the chip. */
+  function perfTracking() {
+    try { return localStorage.getItem('lk_perfTracking') === 'true'; } catch (e) { return false; }
+  }
+
   var S = { state: 'populated', sheet: null, listening: false, scanServings: 1,
             /* The camera sheet's one question. null until it is answered. */
-            camOil: null, toast: null, undo: null, targetError: null };
+            camOil: null, toast: null, undo: null, targetError: null,
+            /* Which recipe is open inside the recipes sheet. The list and the
+               detail are one sheet with two faces rather than two sheets, so
+               Back returns to the list without closing and losing the place. */
+            recipeOpen: null };
 
   /* The same strip Home shows, from the same facts. It is here because
      eating during or straight after a session is exactly when somebody
@@ -380,7 +436,14 @@
   /* Everything that is not logging. Quiet chips, because a fake button row is
      how a screen ends up with five things competing for one job. */
   function chips() {
-    var items = [['trends', 'Trends'], ['water', 'Water'], ['supps', 'Supps'], ['more', 'More']];
+    var items = [['trends', 'Trends'], ['water', 'Water'], ['supps', 'Supps'],
+                 ['recipes', 'Recipes'], ['plan', 'Plan']];
+    /* Stack is gated and stays invisible until it is switched on -- not
+       disabled, not greyed, absent. A chip that says "Stack" to somebody who
+       has never turned it on is the feature announcing itself, which is the
+       one thing a gate like this exists to prevent. */
+    if (perfTracking()) items.push(['stack', 'Stack']);
+    items.push(['more', 'More']);
     return '<div class="chiprow mt-4" data-testid="fuel-chips">' +
       items.map(function (c) {
         return '<button class="chip" type="button" data-action="' + c[0] +
@@ -608,6 +671,110 @@
        build can be honest about is the resolve step, which is where the
        Verified claim actually comes from: a code matched a database row, so
        the numbers are the manufacturer's own. */
+    /* Recipes. A recipe is a food you built, so the sheet's job is to make
+       logging one serving a single tap and to show the arithmetic it did.
+       Per-serving figures are derived here and never stored: a stored
+       per-serving number disagrees with its own recipe the moment the
+       serving count changes. */
+    if (S.sheet === 'recipes') {
+      var rOpen = S.recipeOpen;
+      if (rOpen !== null && RECIPES[rOpen]) {
+        var r = RECIPES[rOpen];
+        var per = function (v) { return Math.round(v / r.servings); };
+        return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+          '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="rc-title" ' +
+            'data-detents="0.6 0.92" data-testid="sheet-recipe">' +
+            '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+            '<div class="sheet__head">' +
+              '<button class="iconbtn" type="button" data-action="recipes-back" aria-label="Back to recipes" data-testid="recipe-back">' +
+                ICO.chev.replace('<svg', '<svg style="transform:scaleX(-1)"') + '</button>' +
+              '<h2 class="t-headline grow" id="rc-title">' + esc(r.name) + '</h2>' +
+              '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="recipe-close">' +
+                '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
+            '<div class="sheet__body">' +
+              '<p class="t-detail">Makes ' + n(r.servings) + ' servings. One serving is what a tap logs.</p>' +
+              '<div class="card mt-3">' +
+                '<p class="t-label">Per serving</p>' +
+                '<div class="statrow">' +
+                  '<div class="statrow__i"><span class="statrow__n num">' + n(per(r.kcal)) + '</span><span class="statrow__l">kcal</span></div>' +
+                  '<div class="statrow__i"><span class="statrow__n num">' + n(per(r.pro)) + ' g</span><span class="statrow__l">Protein</span></div>' +
+                  '<div class="statrow__i"><span class="statrow__n num">' + n(per(r.carb)) + ' g</span><span class="statrow__l">Carbs</span></div>' +
+                  '<div class="statrow__i"><span class="statrow__n num">' + n(per(r.fat)) + ' g</span><span class="statrow__l">Fat</span></div>' +
+                '</div>' +
+                '<p class="t-detail quiet mt-3">Whole recipe ' + n(r.kcal) + ' kcal, ' + n(r.pro) + ' g protein.</p>' +
+              '</div>' +
+              '<p class="t-label mt-4">Ingredients</p>' +
+              '<div class="card card--flush mt-2">' + r.ing.map(function (x) {
+                return '<div class="row row--static"><span class="row__main"><span class="row__title">' + esc(x) + '</span></span></div>';
+              }).join('') + '</div>' +
+              '<button class="btn btn--primary btn--block mt-4" type="button" data-action="log-recipe" ' +
+                'data-i="' + rOpen + '" data-testid="log-recipe">' +
+                '<span class="btn__label">Log one serving</span></button>' +
+            '</div>' +
+          '</div>';
+      }
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="rl-title" ' +
+          'data-detents="0.5 0.9" data-testid="sheet-recipes">' +
+          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="rl-title">Recipes</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="recipes-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
+          '<div class="sheet__body">' +
+            '<p class="t-detail">Things you cook in batches. One tap logs a single serving, ' +
+              'with the division already done.</p>' +
+            '<div class="card card--flush mt-3">' + RECIPES.map(function (r, i) {
+              return '<button class="row" type="button" data-action="open-recipe" data-i="' + i +
+                '" data-testid="recipe-' + i + '">' +
+                '<span class="fuel-thumb" aria-hidden="true">' + r.icon + '</span>' +
+                '<span class="row__main stack">' +
+                  '<span class="row__title">' + esc(r.name) + '</span>' +
+                  '<span class="row__sub num">' + n(r.servings) + ' servings &middot; ' +
+                    n(Math.round(r.kcal / r.servings)) + ' kcal each</span>' +
+                '</span>' +
+                '<span class="row__chev">' + ICO.chev + '</span></button>';
+            }).join('') + '</div>' +
+            '<button class="btn btn--secondary btn--block mt-3" type="button" data-action="new-recipe" ' +
+              'data-testid="new-recipe"><span class="btn__label">Build a recipe</span></button>' +
+          '</div>' +
+        '</div>';
+    }
+
+    /* The week's plan. Planned and logged are different states of the same
+       slot, so they are one row with a check rather than two lists. */
+    if (S.sheet === 'plan') {
+      var planned = 0, logged = 0;
+      PLAN.forEach(function (d) { d.slots.forEach(function (sl) { planned += sl.kcal; if (sl.done) logged += sl.kcal; }); });
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pl-title" ' +
+          'data-detents="0.6 0.94" data-testid="sheet-plan">' +
+          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="pl-title">This week\u2019s plan</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="plan-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
+          '<div class="sheet__body">' +
+            '<p class="t-detail">Tap a meal to log it. A meal you swap is replaced from your own ' +
+              'recipes and the things you log often \u2014 nothing here is invented for you.</p>' +
+            PLAN.map(function (d, di) {
+              return '<p class="t-label mt-4">' + esc(d.d) + '</p>' +
+                '<div class="card card--flush mt-2">' + d.slots.map(function (sl, si) {
+                  return '<button class="row" type="button" data-action="plan-log" data-d="' + di +
+                    '" data-s="' + si + '" data-testid="plan-' + di + '-' + si + '"' +
+                    (sl.done ? ' aria-pressed="true"' : '') + '>' +
+                    '<span class="ico-well">' + (sl.done ? ICO.tick : ICO.plus) + '</span>' +
+                    '<span class="row__main stack">' +
+                      '<span class="row__title">' + esc(sl.name) + '</span>' +
+                      '<span class="row__sub">' + esc(sl.at) + (sl.done ? ' &middot; logged' : '') + '</span>' +
+                    '</span>' +
+                    '<span class="row__value num">' + (sl.kcal ? n(sl.kcal) + '<small class="t-caption-2 quiet"> kcal</small>' : '&mdash;') + '</span>' +
+                  '</button>';
+                }).join('') + '</div>';
+            }).join('') +
+            '<p class="t-detail quiet mt-4">' + n(logged) + ' of ' + n(planned) + ' planned kcal logged this week.</p>' +
+          '</div>' +
+        '</div>';
+    }
+
     if (S.sheet === 'targets') {
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
         '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="tg-title" ' +
@@ -780,6 +947,42 @@
          control on this screen that did nothing at all. */
       location.href = 'workout-log.html'; return;
     }
+    if (a === 'stack') { location.href = 'stack.html'; return; }
+    if (a === 'recipes') { S.sheet = 'recipes'; S.recipeOpen = null; render(); return; }
+    if (a === 'plan') { S.sheet = 'plan'; render(); return; }
+    if (a === 'open-recipe') { S.recipeOpen = +act.getAttribute('data-i'); render(); return; }
+    if (a === 'recipes-back') { S.recipeOpen = null; render(); return; }
+    /* Through addMeal, like every other logging path on this screen. Writing
+       the totals here by hand was the first version of this handler and it
+       moved nothing on screen: the day's figure is DAY.eaten and the macro
+       bars read DAY.macros, neither of which a direct write to DAY.kcal
+       touches. One writer, so a new way to log cannot miss half the state. */
+    if (a === 'log-recipe') {
+      var lr = RECIPES[+act.getAttribute('data-i')];
+      if (!lr) return;
+      var sv = function (v) { return Math.round(v / lr.servings); };
+      addMeal({ icon: lr.icon, name: lr.name + ', one serving', kcal: sv(lr.kcal),
+                pro: sv(lr.pro), carb: sv(lr.carb), fat: sv(lr.fat), src: 'recipe' });
+      S.sheet = null; S.recipeOpen = null;
+      render();
+      say('One serving of ' + lr.name + ' logged, ' + sv(lr.kcal) + ' kcal.');
+      return;
+    }
+    /* A planned meal logs where it stands, so the plan and the day agree
+       without the plan having to be a second list of foods. */
+    if (a === 'plan-log') {
+      var pd = PLAN[+act.getAttribute('data-d')];
+      var ps = pd && pd.slots[+act.getAttribute('data-s')];
+      if (!ps) return;
+      if (ps.done) { say(ps.name + ' is already logged.'); return; }
+      if (!ps.kcal) { say('Nothing planned for ' + ps.at.toLowerCase() + '.'); return; }
+      ps.done = true;
+      addMeal({ icon: '🍽️', name: ps.name, at: ps.at, kcal: ps.kcal, src: 'plan' });
+      render();
+      say(ps.name + ' logged, ' + ps.kcal + ' kcal.');
+      return;
+    }
+    if (a === 'new-recipe') { say('Building a recipe is not in this build yet.'); return; }
     if (a === 'more') {
       /* Standalone this is a page; in the demo the router takes the click
          first. It had no branch at all and was the screen's dead end. */

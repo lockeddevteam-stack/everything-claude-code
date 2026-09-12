@@ -85,7 +85,10 @@ const MANIFEST = {
     /* Three surfaces the rebuild cut -- the Weekly Recap, the month
        calendar and a daily view the old app never had -- restored as one
        screen with three segments, so Home gains one row rather than three. */
-    recap: { parent: 'home', backSelector: '[data-testid="back"]' }
+    recap: { parent: 'home', backSelector: '[data-testid="back"]' },
+    /* Gated behind lk_perfTracking and off by default, so the chip that
+       leads here does not exist until Settings turns it on. */
+    stack: { parent: 'fuel', backSelector: '[data-testid="back"]' }
   },
 
   /* Taps that leave a screen. Selector is matched with closest() inside the
@@ -100,6 +103,7 @@ const MANIFEST = {
     /* Every session row on the recap, at all three scales, opens that
        session. Same destination as a history row on Train. */
     { from: 'recap', selector: '[data-action="open-session"]', to: 'workout-detail', mode: 'push' },
+    { from: 'fuel', selector: '[data-testid="chip-stack"]', to: 'stack', mode: 'push' },
     { from: 'train', selector: '[data-action="open-library"]', to: 'exercise-library', mode: 'push' },
     { from: 'train', selector: '[data-action="new-split"]', to: 'split-builder', mode: 'push' },
     { from: 'train', selector: '[data-action="edit-split"]', to: 'split-builder', mode: 'push' },
@@ -136,6 +140,7 @@ const MANIFEST = {
     { from: 'workout-detail', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'review', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'recap', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    { from: 'stack', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     /* Coach's "open this lift in Progress", and Train's session-picker day.
        Both toasted a sentence describing what a working button would do. */
     { from: 'coach', selector: '[data-act="target"]', to: 'progress', mode: 'push' },
