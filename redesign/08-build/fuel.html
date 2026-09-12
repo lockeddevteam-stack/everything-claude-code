@@ -210,6 +210,82 @@
     return GOAL_WORD[g] ? g : 'maintain';
   }
 
+  /* ---------------------------------------------------------------
+     What the body is actually spending
+     --------------------------------------------------------------- */
+
+  /* How hard the week is. Stored, because it is a fact about a person, not
+     about a screen; defaulted to moderate and said out loud where it is used,
+     rather than being an invisible constant inside a formula. */
+  var ACTIVITY = [
+    ['sedentary', 'Desk job, little else', 1.2],
+    ['light', 'On your feet, or training twice a week', 1.375],
+    ['moderate', 'Training three to five days', 1.55],
+    ['hard', 'Training six days, or a physical job', 1.725],
+    ['athlete', 'Twice a day, or manual work plus training', 1.9]
+  ];
+  function activityKey() {
+    var k = (stored('lk_fuelProfile', {}) || {}).activity;
+    for (var i = 0; i < ACTIVITY.length; i++) if (ACTIVITY[i][0] === k) return k;
+    return 'moderate';
+  }
+  function activityFactor() {
+    var k = activityKey();
+    for (var i = 0; i < ACTIVITY.length; i++) if (ACTIVITY[i][0] === k) return ACTIVITY[i][2];
+    return 1.55;
+  }
+
+  /* Mifflin-St Jeor, the formula every calculator uses, times the activity
+     factor. This is the ESTIMATE: it knows your height and your age and
+     nothing whatever about you. */
+  function calcTDEE() {
+    var w = PROFILE.weightKg, h = PROFILE.heightCm, a = PROFILE.age;
+    if (!w || !h || !a) return null;
+    var bmr = 10 * w + 6.25 * h - 5 * a + (PROFILE.sex === 'male' ? 5 : -161);
+    return Math.round(bmr * activityFactor());
+  }
+
+  /* What the body actually did, which the formula cannot know. Over the
+     window, average intake plus whatever the weight change accounts for:
+     losing a kilo is roughly 7,700 kcal that did not come from the plate.
+     This is the MEASUREMENT, and it is the better of the two the moment
+     there are enough days behind it. */
+  function measuredTDEE(days) {
+    var se = series(days);
+    if (se.length < 7) return null;
+    var rate = weekRate();
+    if (!rate || rate.days < 5) return null;
+    /* Today is half-logged, so it would drag the average down. */
+    var past = se.slice(0, -1);
+    if (past.length < 6) return null;
+    var avg = past.reduce(function (a, e) { return a + e.kcal; }, 0) / past.length;
+    var kgPerDay = rate.kg / rate.days;
+    return Math.round(avg - kgPerDay * 7700);
+  }
+
+  var GOAL_OFFSET = { cut: -400, maintain: 0, build: 250 };
+
+  /* The two, blended. Seventy per cent measurement to thirty per cent formula:
+     the measurement is better but it is noisy, and a week of water weight
+     should not move a target by four hundred calories. The move itself is
+     then clamped, so nothing on this screen can swing a target more than
+     150 kcal in one go. */
+  function adaptive() {
+    var est = calcTDEE(), meas = measuredTDEE(14);
+    if (!est && !meas) return null;
+    var tdee = meas === null ? est : (est === null ? meas : Math.round(meas * 0.7 + est * 0.3));
+    var want = Math.round((tdee + (GOAL_OFFSET[goalKey()] || 0)) / 10) * 10;
+    var move = want - DAY.target;
+    var capped = Math.max(-150, Math.min(150, move));
+    return {
+      tdee: tdee, est: est, meas: meas,
+      want: DAY.target + capped,
+      move: capped,
+      clamped: capped !== move,
+      days: 14
+    };
+  }
+
   /* Meals belong to a part of the day, and every path on this screen used to
      stamp a clock time and append to one flat list. Breakfast, lunch, dinner
      and a snack are how people actually read a day back: "I had no protein at
@@ -1128,6 +1204,148 @@
       '</div>';
   }
 
+  /* Water, on the screen rather than three taps into a sheet. It was a chip
+     among six, which is where a thing goes when nobody has decided whether it
+     matters. */
+  function waterCard() {
+    var pct = Math.min(100, Math.round(DAY.waterMl / DAY.waterGoalMl * 100));
+    var oz = !!(stored('lk_fuelProfile', {}) || {}).flOz;
+    var show = function (ml) {
+      return oz ? (ml / 29.5735).toFixed(0) + ' fl oz' : n(ml) + ' ml';
+    };
+    return '<div class="card mt-4" data-testid="water-card">' +
+      '<div class="hstack hstack--3">' +
+        '<span class="t-subheadline grow">Water</span>' +
+        '<span class="t-subheadline num" data-testid="water-card-value">' + show(DAY.waterMl) +
+          ' / ' + show(DAY.waterGoalMl) + '</span>' +
+        '<button class="btn btn--sm btn--tertiary" type="button" data-action="water-unit" ' +
+          'aria-label="Show water in ' + (oz ? 'millilitres' : 'fluid ounces') + '" ' +
+          'data-testid="water-unit">' + (oz ? 'ml' : 'fl oz') + '</button>' +
+      '</div>' +
+      '<div class="meter meter--quiet mt-2" role="img" aria-label="' + pct +
+        ' per cent of today\u2019s water">' +
+        '<span class="meter__fill" style="width:' + pct + '%"></span></div>' +
+      '<div class="hstack hstack--3 mt-3">' +
+        '<button class="btn btn--secondary grow" type="button" data-action="water-add" ' +
+          'data-testid="water-card-250"><span class="btn__label">+ ' + show(250) + '</span></button>' +
+        '<button class="btn btn--secondary grow" type="button" data-action="water-add5" ' +
+          'data-testid="water-card-500"><span class="btn__label">+ ' + show(500) + '</span></button>' +
+        '<button class="btn btn--secondary" type="button" data-action="water" ' +
+          'data-testid="water-card-open"><span class="btn__label">More</span></button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  /* The weigh-in, where the target that depends on it is. Progress owns the
+     history; this is the one field, on the screen that uses it. */
+  function weightCard() {
+    var r = DAY.rate;
+    var last = (WEIGHTLOG || [])[WEIGHTLOG.length - 1];
+    var today = last && last.date === DAY.iso;
+    return '<div class="card mt-4" data-testid="weight-card">' +
+      '<div class="hstack hstack--3">' +
+        '<span class="t-subheadline grow">Body weight</span>' +
+        '<span class="t-subheadline num">' + (DAY.weightKg ? DAY.weightKg.toFixed(1) + ' kg' : '\u2014') + '</span>' +
+      '</div>' +
+      '<p class="t-caption-1 quiet mt-1">' +
+        (today ? 'Weighed in today.'
+          : r ? 'Last weighed ' + (last ? dayLabel(last.date) : '') + ' \u00b7 ' +
+                signed(r.pct) + '% a week'
+          : 'No weigh-ins yet.') + '</p>' +
+      '<div class="hstack hstack--3 mt-3">' +
+        '<input class="input num grow" id="wt-new" type="number" min="20" max="400" step="0.1" ' +
+          'inputmode="decimal" placeholder="' + (DAY.weightKg ? DAY.weightKg.toFixed(1) : '70.0') + '" ' +
+          'aria-label="Today\u2019s weight in kilograms" data-testid="weight-input">' +
+        '<button class="btn btn--secondary" type="button" data-action="weigh-in" ' +
+          'data-testid="weigh-in"><span class="btn__label">Save</span></button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  /* A meal that fits what is left, picked from the table rather than invented.
+     It says WHY it fits, because a suggestion without a reason is an
+     instruction. */
+  function suggestCard() {
+    var left = DAY.target - DAY.eaten;
+    var proLeft = DAY.macros[0].want - DAY.macros[0].have;
+    if (left < 150) return '';
+    var best = null, bestScore = -1;
+    Object.keys(FOODS).forEach(function (k) {
+      var f = FOODS[k];
+      if (f.kcal > left) return;
+      /* Closest to filling the protein gap without overshooting the calories. */
+      var sc = Math.min(f.pro, Math.max(proLeft, 0)) * 3 - Math.abs(left - f.kcal) / 40;
+      if (sc > bestScore) { bestScore = sc; best = k; }
+    });
+    if (!best) return '';
+    var f = FOODS[best];
+    var after = left - f.kcal;
+    return '<div class="card mt-4" data-testid="suggest-card">' +
+      '<div class="hstack hstack--3">' +
+        '<span class="fuel-thumb" aria-hidden="true">' + f.icon + '</span>' +
+        '<span class="row__main stack grow">' +
+          '<span class="row__title">' + esc(f.name) + '</span>' +
+          '<span class="row__sub">' + n(f.kcal) + ' kcal \u00b7 ' + n(f.pro) + ' g protein</span>' +
+        '</span>' +
+      '</div>' +
+      '<p class="t-caption-1 quiet mt-2" data-testid="suggest-why">' +
+        (proLeft > 0
+          ? 'It covers ' + n(Math.min(f.pro, proLeft)) + ' g of the ' + n(proLeft) + ' g of protein left'
+          : 'Protein is already closed') +
+        ' and leaves ' + n(after) + ' kcal of the day.</p>' +
+      '<button class="btn btn--secondary btn--block mt-3" type="button" data-action="suggest-log" ' +
+        'data-k="' + best + '" data-testid="suggest-log">' +
+        '<span class="btn__label">Add it to today</span></button>' +
+    '</div>';
+  }
+
+  /* What the target should be, from what the body actually did. Behind a
+     disclosure, because a number that moves a target has to be able to show
+     its working or it is just an oracle. */
+  function tdeeCard() {
+    var a = adaptive();
+    if (!a || a.meas === null) return '';
+    if (Math.abs(a.move) < 20) return '';
+    return '<div class="card mt-4" data-testid="tdee-card">' +
+      '<div class="hstack hstack--3">' +
+        '<span class="t-subheadline grow">Your target looks ' +
+          (a.move > 0 ? 'low' : 'high') + '</span>' +
+        '<button class="iconbtn" type="button" data-action="tdee-why" ' +
+          'aria-expanded="' + (!!S.tdeeWhy) + '" aria-label="How this was worked out" ' +
+          'data-testid="tdee-why">' + ICO.alert + '</button>' +
+      '</div>' +
+      '<p class="t-detail mt-2">' + n(DAY.target) + ' now, ' + n(a.want) + ' on the evidence ' +
+        'of the last ' + a.days + ' days. That is ' + signed(a.move).replace('.00', '') +
+        ' kcal' + (a.clamped ? ', which is as far as this will move a target in one go' : '') + '.</p>' +
+      (S.tdeeWhy
+        ? '<div class="card card--sunken mt-3" data-testid="tdee-working">' +
+            '<div class="hstack hstack--3"><span class="t-body grow">What you spent, measured</span>' +
+              '<span class="t-body-em num">' + n(a.meas) + ' kcal</span></div>' +
+            '<div class="hstack hstack--3 mt-2"><span class="t-body grow">What the formula says</span>' +
+              '<span class="t-body-em num">' + (a.est ? n(a.est) + ' kcal' : '\u2014') + '</span></div>' +
+            '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Blended, 70 to 30</span>' +
+              '<span class="t-body-em num">' + n(a.tdee) + ' kcal</span></div>' +
+            '<div class="hstack hstack--3 mt-2"><span class="t-body grow">For ' +
+                esc(GOAL_WORD[goalKey()]) + '</span>' +
+              '<span class="t-body-em num">' + (GOAL_OFFSET[goalKey()] >= 0 ? '+' : '\u2212') +
+                n(Math.abs(GOAL_OFFSET[goalKey()])) + ' kcal</span></div>' +
+            '<p class="t-caption-1 quiet mt-2">The measurement is your average intake over those ' +
+              'days plus whatever your weight change accounts for, at roughly 7,700 kcal a kilo. ' +
+              'The formula is Mifflin-St Jeor at ' + esc(activityKey()) + ' activity, which knows ' +
+              'your height and your age and nothing else about you. The measurement is weighted ' +
+              'higher because it is better, and not weighted at 100 because it is noisy.</p>' +
+          '</div>'
+        : '') +
+      '<div class="hstack hstack--3 mt-3">' +
+        '<button class="btn btn--secondary grow" type="button" data-action="tdee-take" ' +
+          'data-v="' + a.want + '" data-testid="tdee-take">' +
+          '<span class="btn__label">Use ' + n(a.want) + '</span></button>' +
+        '<button class="btn btn--tertiary" type="button" data-action="tdee-keep" ' +
+          'data-testid="tdee-keep"><span class="btn__label">Keep mine</span></button>' +
+      '</div>' +
+    '</div>';
+  }
+
   function today() {
     var groups = slotGroups();
     var rows = groups.map(function (g) {
@@ -1214,7 +1432,9 @@
 
   VIEWS.populated = function () {
     return '<div>' + hero() + logAction() + macros() + microPanel() + '</div>' +
-      today() + '<div>' + chips() + '</div>';
+      today() +
+      '<div>' + (S.tdeeDismissed ? '' : tdeeCard()) + suggestCard() +
+        waterCard() + weightCard() + chips() + '</div>';
   };
   VIEWS['first-weeks'] = VIEWS.populated;
   VIEWS.hidden = VIEWS.populated;
@@ -2154,6 +2374,34 @@
       return;
     }
     if (a === 'trend-range') { S.trendRange = +act.getAttribute('data-r'); render(); return; }
+    if (a === 'water-add5') { DAY.waterMl = Math.min(4000, DAY.waterMl + 500); saveDay(); render(); return; }
+    if (a === 'water-unit') {
+      var fp = stored('lk_fuelProfile', {}) || {};
+      if (ST && persisting()) ST.patch('lk_fuelProfile', { flOz: !fp.flOz });
+      render(); return;
+    }
+    if (a === 'weigh-in') { weighIn(); return; }
+    if (a === 'suggest-log') {
+      var sk = act.getAttribute('data-k'), sf = FOODS[sk];
+      if (!sf) return;
+      addMeal(withMicros({ key: sk, icon: sf.icon, name: sf.name, kcal: sf.kcal,
+                           pro: sf.pro, carb: sf.carb, fat: sf.fat, src: 'table' }, sf));
+      render();
+      say(esc(sf.name) + ' logged, ' + n(sf.kcal) + ' kcal.');
+      return;
+    }
+    if (a === 'tdee-why') { S.tdeeWhy = !S.tdeeWhy; render(); return; }
+    if (a === 'tdee-keep') { S.tdeeDismissed = true; render(); say('Target left at ' + n(DAY.target) + '.'); return; }
+    if (a === 'tdee-take') {
+      var tv = +act.getAttribute('data-v');
+      DAY.target = tv;
+      saveTargetsTo({ kcal: tv, pro: DAY.macros[0].want, carb: DAY.macros[1].want,
+                      fat: DAY.macros[2].want, waterMl: TARGETS.waterMl });
+      S.tdeeDismissed = true;
+      render();
+      say('Target moved to ' + n(tv) + ' kcal.');
+      return;
+    }
     if (a === 'manual') {
       S.man = { name: '', kcal: '', pro: '', carb: '', fat: '', error: null };
       S.sheet = 'manual'; render(); return;
@@ -2361,6 +2609,34 @@
       var v = parseInt(sEl.value, 10);
       if (!isNaN(v) && v >= 1 && v <= 24) S.draft.servings = v;
     }
+  }
+
+  /* One weigh-in, written where Progress and Settings read it. The rate on
+     the hero and the water target both move with it, which is the point of
+     putting the field on this screen at all. */
+  function weighIn() {
+    var el = document.getElementById('wt-new');
+    var v = parseFloat(el ? el.value : '');
+    if (isNaN(v) || v < 20 || v > 400) { say('A weight between 20 and 400 kg.'); return; }
+    var kg = Math.round(v * 10) / 10;
+    var log = (WEIGHTLOG || []).slice();
+    var last = log[log.length - 1];
+    /* One entry a day: weighing twice should correct today, not invent a
+       second day and halve the span every rate on the screen is read over. */
+    if (last && last.date === DAY.iso) last.kg = kg;
+    else log.push({ date: DAY.iso, kg: kg });
+    WEIGHTLOG = log;
+    if (ST && persisting()) {
+      ST.set('lk_weightLog', log);
+      ST.patch('lk_profile', { weightKg: kg });
+    }
+    PROFILE.weightKg = kg;
+    DAY.weightKg = kg;
+    DAY.rate = weekRate();
+    DAY.waterGoalMl = waterGoal().ml;
+    DAY.waterGoalComputed = waterGoal().computed;
+    render();
+    say(kg.toFixed(1) + ' kg saved.');
   }
 
   function readManual() {
