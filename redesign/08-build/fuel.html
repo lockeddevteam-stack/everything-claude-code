@@ -717,6 +717,63 @@
     });
   })();
 
+  /* What a recipe is made of, as shopping-list rows. A planned meal that
+     cannot reach the list is a document. Foods that are not recipes have no
+     ingredient list, so they go on as themselves -- which is honest: "Chilli"
+     on a list you wrote yourself means something to you. */
+  function planIngredients(days) {
+    var want = {};
+    days.forEach(function (d) {
+      d.slots.forEach(function (sl) {
+        var r = null;
+        allRecipes().forEach(function (x) { if (x.key === sl.key) r = x; });
+        if (r && r.ing && r.ing.length) {
+          r.ing.forEach(function (line) { want[line] = (want[line] || 0) + 1; });
+        } else {
+          want[FOODS[sl.key].name] = (want[FOODS[sl.key].name] || 0) + 1;
+        }
+      });
+    });
+    return Object.keys(want).map(function (name) { return { name: name, n: want[name] }; });
+  }
+
+  /* Dedupe against what is already on the list and against what is already in
+     the cupboard. Adding twelve eggs to a list that says twelve eggs is how a
+     list stops being read. */
+  function planNew(days) {
+    var have = {};
+    (stored('lk_shoppingList', []) || []).forEach(function (r) {
+      have[String(r.itemName || '').toLowerCase()] = true;
+    });
+    (stored('lk_pantryItems', []) || []).forEach(function (r) {
+      if (!r.empty) have[String(r.name || '').toLowerCase()] = true;
+    });
+    return planIngredients(days).filter(function (it) {
+      var nm = it.name.toLowerCase();
+      var hit = false;
+      Object.keys(have).forEach(function (h) {
+        if (nm.indexOf(h) >= 0 || h.indexOf(nm) >= 0) hit = true;
+      });
+      return !hit;
+    });
+  }
+
+  function addPlanToShop(days) {
+    var add = planNew(days);
+    if (!add.length) { say('Everything on it is already on the list or in the cupboard.'); return; }
+    var list = (stored('lk_shoppingList', []) || []).slice();
+    var now = Date.now();
+    add.forEach(function (it, i) {
+      list.push({
+        id: 'sh_' + (now + i) + '_plan', itemName: it.name, quantity: it.n, unit: '',
+        category: 'pantry', dateAdded: new Date().toISOString(), checked: false
+      });
+    });
+    if (ST && persisting()) ST.set('lk_shoppingList', list);
+    render();
+    say(add.length + (add.length === 1 ? ' thing' : ' things') + ' added to the list.');
+  }
+
   function savePlan() {
     if (!ST || !persisting()) return;
     ST.set('lk_fuelPlan', PLAN.map(function (d) {
@@ -1910,8 +1967,27 @@
             '<p class="t-detail">Tap a meal to log it, or the arrows beside it to swap it. A swap ' +
               'picks from the food table and your own recipes \u2014 nothing here is generated ' +
               'for you, so nothing here can be made up.</p>' +
+            /* An accordion, with today open. Five days of six meals is thirty
+               rows, and a sheet that opens on thirty rows is a document. Each
+               head carries the day's total, so the thing most people came for
+               is readable without opening anything. */
             PLAN.map(function (d, di) {
-              return '<p class="t-label mt-4">' + esc(d.d) + (d.iso === DAY.iso ? ' \u00b7 today' : '') + '</p>' +
+              var isToday = d.iso === DAY.iso;
+              var openDay = S.planOpen === undefined ? isToday : S.planOpen === di;
+              var dayKcal = d.slots.reduce(function (a, sl) { return a + sl.kcal; }, 0);
+              var dayDone = d.slots.filter(function (sl) { return slotDone(d, sl); }).length;
+              return '<button class="row row--head' + (isToday ? ' row--now' : '') + ' mt-3" type="button" ' +
+                  'data-action="plan-day" data-d="' + di + '" aria-expanded="' + openDay + '" ' +
+                  'data-testid="plan-day-' + di + '">' +
+                  '<span class="row__main stack">' +
+                    '<span class="row__title">' + esc(d.d) + (isToday ? ' \u00b7 today' : '') + '</span>' +
+                    '<span class="row__sub num">' + dayDone + ' of ' + d.slots.length +
+                      ' logged \u00b7 ' + n(dayKcal) + ' kcal planned</span>' +
+                  '</span>' +
+                  '<span class="row__chev' + (openDay ? ' row__chev--open' : '') + '">' + ICO.chev + '</span>' +
+                '</button>' +
+                (openDay ? '' : '<span hidden></span>') +
+                (!openDay ? '' :
                 '<div class="card card--flush mt-2">' + d.slots.map(function (sl, si) {
                   var done = slotDone(d, sl);
                   /* Two controls, not one: the row logs and the aside swaps.
@@ -1932,9 +2008,23 @@
                       '" data-s="' + si + '" aria-label="Swap ' + esc(sl.name) + ' on ' + esc(d.d) +
                       '" data-testid="plan-swap-' + di + '-' + si + '">' + ICO.swap + '</button>' +
                   '</div>';
-                }).join('') + '</div>';
+                }).join('') + '</div>' +
+                '<button class="btn btn--secondary btn--block mt-2" type="button" ' +
+                  'data-action="plan-log-day" data-d="' + di + '" data-testid="plan-log-day-' + di + '">' +
+                  '<span class="btn__label">Log ' + (isToday ? 'the whole day' : 'all of ' + esc(d.d)) +
+                  '</span></button>');
             }).join('') +
             '<p class="t-detail quiet mt-4">' + n(logged) + ' of ' + n(planned) + ' planned kcal logged this week.</p>' +
+            (function () {
+              var add = planNew(PLAN);
+              return '<button class="btn btn--secondary btn--block mt-3" type="button" ' +
+                'data-action="plan-shop" ' + (add.length ? '' : 'disabled ') +
+                'data-testid="plan-shop"><span class="btn__label">' +
+                (add.length
+                  ? '+ Shopping list (' + add.length + ')'
+                  : 'Everything is on the list or in the cupboard') +
+                '</span></button>';
+            })() +
           '</div>' +
         '</div>';
     }
@@ -2511,6 +2601,31 @@
                 slot: S.logSlot || slotForNow() }, hit));
       S.sheet = null;
       say(esc(hit.name) + ' logged, ' + n(hit.kcal) + ' kcal.');
+      return;
+    }
+    if (a === 'plan-day') {
+      var pd2 = +act.getAttribute('data-d');
+      S.planOpen = S.planOpen === pd2 ? -1 : pd2;
+      render(); return;
+    }
+    if (a === 'plan-shop') { addPlanToShop(PLAN); return; }
+    if (a === 'plan-log-day') {
+      var pdd = PLAN[+act.getAttribute('data-d')];
+      if (!pdd) return;
+      /* Only what is not already logged, or logging a day twice doubles the
+         meals that were already on the list. */
+      var todo = pdd.slots.filter(function (sl) { return !slotDone(pdd, sl); });
+      if (!todo.length) { say('All of ' + pdd.d + ' is already logged.'); return; }
+      var kc = 0;
+      todo.forEach(function (sl) {
+        var pf = FOODS[sl.key];
+        addMeal(withMicros({ key: sl.key, icon: pf.icon, name: sl.name, at: sl.at,
+                             kcal: sl.kcal, pro: sl.pro, carb: sl.carb, fat: sl.fat,
+                             src: 'plan', slot: sl.slot }, pf));
+        kc += sl.kcal;
+      });
+      render();
+      say(todo.length + ' meals logged, ' + n(kc) + ' kcal.');
       return;
     }
     if (a === 'plan-swap') {
