@@ -104,12 +104,16 @@ const prsRaw = JSON.parse(seed.lk_prs);
    "Exercise 801". */
 const catalogue = JSON.parse(fs.readFileSync(path.join(HERE, 'exercise-db.json'), 'utf8'));
 const nameOf = new Map(catalogue.map((e) => [e.id, e.name]));
+const groupOf = new Map(catalogue.map((e) => [e.id, e.group || '']));
+const muscleOf = new Map(catalogue.map((e) => [e.id, e.muscle || '']));
 const missing = [];
 const prs = Object.keys(prsRaw).map((id) => {
   const best = prsRaw[id].slice().sort((a, b) => b.w - a.w || b.r - a.r)[0];
   const nm = nameOf.get(Number(id));
   if (!nm) missing.push(id);
-  return { exId: Number(id), name: nm || ('Exercise ' + id), kg: best.w, reps: best.r, date: best.date };
+  return { exId: Number(id), name: nm || ('Exercise ' + id),
+           group: groupOf.get(Number(id)) || '', muscle: muscleOf.get(Number(id)) || '',
+           kg: best.w, reps: best.r, date: best.date };
 }).sort((a, b) => (a.date < b.date ? 1 : -1));
 if (missing.length) warn.push('records name no exercise in the catalogue: ' + missing.join(', '));
 
@@ -138,7 +142,8 @@ const splits = splitsRaw.map((sp) => ({
     exercises: d.exIds.map((id) => {
       const nm = nameOf.get(id);
       if (!nm) missing.push('split ' + sp.name + ' exId ' + id);
-      return { id, name: nm || ('Exercise ' + id) };
+      return { id, name: nm || ('Exercise ' + id),
+               group: groupOf.get(id) || '', muscle: muscleOf.get(id) || '' };
     })
   }))
 }));

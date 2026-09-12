@@ -3090,6 +3090,8 @@
           {
                 "exId": 801,
                 "name": "Romanian Deadlift",
+                "group": "Hamstrings",
+                "muscle": "Hamstrings",
                 "kg": 77.5,
                 "reps": 8,
                 "date": "2026-09-07"
@@ -3097,6 +3099,8 @@
           {
                 "exId": 703,
                 "name": "Leg Press",
+                "group": "Quads",
+                "muscle": "Quads",
                 "kg": 165,
                 "reps": 10,
                 "date": "2026-09-07"
@@ -3104,6 +3108,8 @@
           {
                 "exId": 701,
                 "name": "Barbell Squat",
+                "group": "Quads",
+                "muscle": "Quads",
                 "kg": 87.5,
                 "reps": 8,
                 "date": "2026-09-07"
@@ -3111,6 +3117,8 @@
           {
                 "exId": 503,
                 "name": "Barbell Curl",
+                "group": "Biceps",
+                "muscle": "Long Head",
                 "kg": 30,
                 "reps": 8,
                 "date": "2026-09-05"
@@ -3118,6 +3126,8 @@
           {
                 "exId": 221,
                 "name": "Barbell Deadlift",
+                "group": "Back",
+                "muscle": "Lower Back",
                 "kg": 115,
                 "reps": 4,
                 "date": "2026-09-05"
@@ -3125,6 +3135,8 @@
           {
                 "exId": 213,
                 "name": "Seated Cable Row",
+                "group": "Back",
+                "muscle": "Mid Back",
                 "kg": 57.5,
                 "reps": 10,
                 "date": "2026-09-05"
@@ -3132,6 +3144,8 @@
           {
                 "exId": 202,
                 "name": "Lat Pulldown",
+                "group": "Back",
+                "muscle": "Lats",
                 "kg": 62.5,
                 "reps": 8,
                 "date": "2026-09-05"
@@ -3139,6 +3153,8 @@
           {
                 "exId": 302,
                 "name": "DB Shoulder Press",
+                "group": "Shoulders",
+                "muscle": "Front Delt",
                 "kg": 25,
                 "reps": 8,
                 "date": "2026-09-03"
@@ -3146,6 +3162,8 @@
           {
                 "exId": 111,
                 "name": "Barbell Bench Press",
+                "group": "Chest",
+                "muscle": "Mid Chest",
                 "kg": 72.5,
                 "reps": 8,
                 "date": "2026-09-03"
@@ -3233,23 +3251,33 @@
                             "exercises": [
                                   {
                                         "id": 111,
-                                        "name": "Barbell Bench Press"
+                                        "name": "Barbell Bench Press",
+                                        "group": "Chest",
+                                        "muscle": "Mid Chest"
                                   },
                                   {
                                         "id": 302,
-                                        "name": "DB Shoulder Press"
+                                        "name": "DB Shoulder Press",
+                                        "group": "Shoulders",
+                                        "muscle": "Front Delt"
                                   },
                                   {
                                         "id": 103,
-                                        "name": "Incline Cable Fly"
+                                        "name": "Incline Cable Fly",
+                                        "group": "Chest",
+                                        "muscle": "Upper Chest"
                                   },
                                   {
                                         "id": 311,
-                                        "name": "Lateral Raise"
+                                        "name": "Lateral Raise",
+                                        "group": "Shoulders",
+                                        "muscle": "Side Delt"
                                   },
                                   {
                                         "id": 411,
-                                        "name": "Tricep Pushdown"
+                                        "name": "Tricep Pushdown",
+                                        "group": "Triceps",
+                                        "muscle": "Lateral Head"
                                   }
                             ]
                       },
@@ -3259,23 +3287,33 @@
                             "exercises": [
                                   {
                                         "id": 221,
-                                        "name": "Barbell Deadlift"
+                                        "name": "Barbell Deadlift",
+                                        "group": "Back",
+                                        "muscle": "Lower Back"
                                   },
                                   {
                                         "id": 202,
-                                        "name": "Lat Pulldown"
+                                        "name": "Lat Pulldown",
+                                        "group": "Back",
+                                        "muscle": "Lats"
                                   },
                                   {
                                         "id": 213,
-                                        "name": "Seated Cable Row"
+                                        "name": "Seated Cable Row",
+                                        "group": "Back",
+                                        "muscle": "Mid Back"
                                   },
                                   {
                                         "id": 321,
-                                        "name": "Face Pull"
+                                        "name": "Face Pull",
+                                        "group": "Shoulders",
+                                        "muscle": "Rear Delt"
                                   },
                                   {
                                         "id": 503,
-                                        "name": "Barbell Curl"
+                                        "name": "Barbell Curl",
+                                        "group": "Biceps",
+                                        "muscle": "Long Head"
                                   }
                             ]
                       },
@@ -3285,23 +3323,33 @@
                             "exercises": [
                                   {
                                         "id": 701,
-                                        "name": "Barbell Squat"
+                                        "name": "Barbell Squat",
+                                        "group": "Quads",
+                                        "muscle": "Quads"
                                   },
                                   {
                                         "id": 801,
-                                        "name": "Romanian Deadlift"
+                                        "name": "Romanian Deadlift",
+                                        "group": "Hamstrings",
+                                        "muscle": "Hamstrings"
                                   },
                                   {
                                         "id": 703,
-                                        "name": "Leg Press"
+                                        "name": "Leg Press",
+                                        "group": "Quads",
+                                        "muscle": "Quads"
                                   },
                                   {
                                         "id": 802,
-                                        "name": "Lying Leg Curl"
+                                        "name": "Lying Leg Curl",
+                                        "group": "Hamstrings",
+                                        "muscle": "Hamstrings"
                                   },
                                   {
                                         "id": 1101,
-                                        "name": "Standing Calf Raise"
+                                        "name": "Standing Calf Raise",
+                                        "group": "Calves",
+                                        "muscle": "Calves"
                                   }
                             ]
                       }
@@ -3318,23 +3366,33 @@
                             "exercises": [
                                   {
                                         "id": 111,
-                                        "name": "Barbell Bench Press"
+                                        "name": "Barbell Bench Press",
+                                        "group": "Chest",
+                                        "muscle": "Mid Chest"
                                   },
                                   {
                                         "id": 211,
-                                        "name": "Barbell Row"
+                                        "name": "Barbell Row",
+                                        "group": "Back",
+                                        "muscle": "Mid Back"
                                   },
                                   {
                                         "id": 302,
-                                        "name": "DB Shoulder Press"
+                                        "name": "DB Shoulder Press",
+                                        "group": "Shoulders",
+                                        "muscle": "Front Delt"
                                   },
                                   {
                                         "id": 202,
-                                        "name": "Lat Pulldown"
+                                        "name": "Lat Pulldown",
+                                        "group": "Back",
+                                        "muscle": "Lats"
                                   },
                                   {
                                         "id": 503,
-                                        "name": "Barbell Curl"
+                                        "name": "Barbell Curl",
+                                        "group": "Biceps",
+                                        "muscle": "Long Head"
                                   }
                             ]
                       },
@@ -3344,23 +3402,33 @@
                             "exercises": [
                                   {
                                         "id": 701,
-                                        "name": "Barbell Squat"
+                                        "name": "Barbell Squat",
+                                        "group": "Quads",
+                                        "muscle": "Quads"
                                   },
                                   {
                                         "id": 801,
-                                        "name": "Romanian Deadlift"
+                                        "name": "Romanian Deadlift",
+                                        "group": "Hamstrings",
+                                        "muscle": "Hamstrings"
                                   },
                                   {
                                         "id": 703,
-                                        "name": "Leg Press"
+                                        "name": "Leg Press",
+                                        "group": "Quads",
+                                        "muscle": "Quads"
                                   },
                                   {
                                         "id": 803,
-                                        "name": "Seated Leg Curl"
+                                        "name": "Seated Leg Curl",
+                                        "group": "Hamstrings",
+                                        "muscle": "Hamstrings"
                                   },
                                   {
                                         "id": 1102,
-                                        "name": "Seated Calf Raise"
+                                        "name": "Seated Calf Raise",
+                                        "group": "Calves",
+                                        "muscle": "Calves"
                                   }
                             ]
                       }
@@ -3383,23 +3451,33 @@
                             "exercises": [
                                   {
                                         "id": 701,
-                                        "name": "Barbell Squat"
+                                        "name": "Barbell Squat",
+                                        "group": "Quads",
+                                        "muscle": "Quads"
                                   },
                                   {
                                         "id": 111,
-                                        "name": "Barbell Bench Press"
+                                        "name": "Barbell Bench Press",
+                                        "group": "Chest",
+                                        "muscle": "Mid Chest"
                                   },
                                   {
                                         "id": 213,
-                                        "name": "Seated Cable Row"
+                                        "name": "Seated Cable Row",
+                                        "group": "Back",
+                                        "muscle": "Mid Back"
                                   },
                                   {
                                         "id": 311,
-                                        "name": "Lateral Raise"
+                                        "name": "Lateral Raise",
+                                        "group": "Shoulders",
+                                        "muscle": "Side Delt"
                                   },
                                   {
                                         "id": 1101,
-                                        "name": "Standing Calf Raise"
+                                        "name": "Standing Calf Raise",
+                                        "group": "Calves",
+                                        "muscle": "Calves"
                                   }
                             ]
                       },
@@ -3409,23 +3487,33 @@
                             "exercises": [
                                   {
                                         "id": 221,
-                                        "name": "Barbell Deadlift"
+                                        "name": "Barbell Deadlift",
+                                        "group": "Back",
+                                        "muscle": "Lower Back"
                                   },
                                   {
                                         "id": 302,
-                                        "name": "DB Shoulder Press"
+                                        "name": "DB Shoulder Press",
+                                        "group": "Shoulders",
+                                        "muscle": "Front Delt"
                                   },
                                   {
                                         "id": 202,
-                                        "name": "Lat Pulldown"
+                                        "name": "Lat Pulldown",
+                                        "group": "Back",
+                                        "muscle": "Lats"
                                   },
                                   {
                                         "id": 802,
-                                        "name": "Lying Leg Curl"
+                                        "name": "Lying Leg Curl",
+                                        "group": "Hamstrings",
+                                        "muscle": "Hamstrings"
                                   },
                                   {
                                         "id": 503,
-                                        "name": "Barbell Curl"
+                                        "name": "Barbell Curl",
+                                        "group": "Biceps",
+                                        "muscle": "Long Head"
                                   }
                             ]
                       },
@@ -3435,23 +3523,33 @@
                             "exercises": [
                                   {
                                         "id": 703,
-                                        "name": "Leg Press"
+                                        "name": "Leg Press",
+                                        "group": "Quads",
+                                        "muscle": "Quads"
                                   },
                                   {
                                         "id": 113,
-                                        "name": "Machine Chest Press"
+                                        "name": "Machine Chest Press",
+                                        "group": "Chest",
+                                        "muscle": "Mid Chest"
                                   },
                                   {
                                         "id": 216,
-                                        "name": "Chest Supported Row"
+                                        "name": "Chest Supported Row",
+                                        "group": "Back",
+                                        "muscle": "Mid Back"
                                   },
                                   {
                                         "id": 321,
-                                        "name": "Face Pull"
+                                        "name": "Face Pull",
+                                        "group": "Shoulders",
+                                        "muscle": "Rear Delt"
                                   },
                                   {
                                         "id": 411,
-                                        "name": "Tricep Pushdown"
+                                        "name": "Tricep Pushdown",
+                                        "group": "Triceps",
+                                        "muscle": "Lateral Head"
                                   }
                             ]
                       }

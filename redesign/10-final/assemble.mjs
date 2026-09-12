@@ -113,6 +113,9 @@ const MANIFEST = {
        session. Same destination as a history row on Train. */
     { from: 'recap', selector: '[data-action="open-session"]', to: 'workout-detail', mode: 'push' },
     { from: 'fuel', selector: '[data-testid="chip-stack"]', to: 'stack', mode: 'push' },
+    /* Into the walkthrough from Settings' Help row, which is the only route
+       to it: nothing opened tutorial.html at all. */
+    { from: 'settings', selector: '[data-testid="row-tutorial"]', to: 'tutorial', mode: 'push' },
     { from: 'tutorial', selector: '[data-testid="tut-skip"]', to: 'home', mode: 'tab' },
     { from: 'tutorial', selector: '[data-testid="tut-finish"]', to: 'home', mode: 'tab' },
     { from: 'train', selector: '[data-action="open-library"]', to: 'exercise-library', mode: 'push' },
@@ -134,6 +137,11 @@ const MANIFEST = {
     { from: 'profile', selector: '[data-testid="open-settings"]', to: 'settings', mode: 'push' },
     /* Onboarding is a seventeen-step flow that nothing pushed. A guest had
        no way to become an account holder from inside the app. */
+    /* Out of onboarding and into the app. The last screen's two controls
+       carried no handler, so the flow ended there with the app behind them. */
+    { from: 'onboarding', selector: '[data-testid="overview-start"]', to: 'workout-log', mode: 'push' },
+    { from: 'onboarding', selector: '[data-testid="overview-freestyle"]', to: 'workout-log', mode: 'push' },
+    { from: 'onboarding', selector: '[data-testid="overview-week"]', to: 'train', mode: 'tab' },
     { from: 'profile', selector: '[data-testid="signup"]', to: 'onboarding', mode: 'push' },
     { from: 'profile', selector: '[data-testid="start-first"]', to: 'onboarding', mode: 'push' },
     /* The session shelf exists so a running session is not lost. It used to

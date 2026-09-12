@@ -212,25 +212,23 @@
   /* =============================================================
      Seed. tests/fixtures/seed-data.json, guest profile, kg.
      ============================================================= */
-  var SPLITS = [
-    { id: 's1784970000000', name: 'PPL', current: true, updated: '2026-07-25',
-      days: [
-        { id: 'push', name: 'Push', exercises: 5, minutes: 50, next: true },
-        { id: 'pull', name: 'Pull', exercises: 5, minutes: 52 },
-        { id: 'legs', name: 'Legs', exercises: 5, minutes: 55 }
-      ] },
-    { id: 's1784973600000', name: 'Upper / Lower', updated: '2026-07-25',
-      days: [
-        { id: 'upper', name: 'Upper', exercises: 5, minutes: 48 },
-        { id: 'lower', name: 'Lower', exercises: 5, minutes: 50 }
-      ] },
-    { id: 's1784977200000', name: 'Full Body 3x', updated: '2026-07-25',
-      days: [
-        { id: 'a', name: 'Day A', exercises: 5, minutes: 45 },
-        { id: 'b', name: 'Day B', exercises: 5, minutes: 45 },
-        { id: 'c', name: 'Day C', exercises: 5, minutes: 47 }
-      ] }
-  ];
+  /* lk_splits, through the shared fixture. The day rows' exercise counts are
+     counted rather than typed: this array said every day had 5 exercises,
+     which is true of PPL and not of the others, and the split builder showed
+     a "PPL v2" of 12 exercises for a split of 15. Minutes are an estimate
+     from the exercise count, stated as one. */
+  var MIN_PER_EX = 10;
+  var SPLITS = ((window.LKFixtures && LKFixtures.splits) || []).map(function (sp, i) {
+    return {
+      id: sp.id, name: sp.name, current: i === 0, updated: sp.created,
+      days: sp.days.map(function (d, j) {
+        return { id: d.name.toLowerCase().replace(/\W+/g, '-'), name: d.name,
+                 exercises: d.exercises.length,
+                 minutes: d.exercises.length * MIN_PER_EX,
+                 next: i === 0 && j === 0 };
+      })
+    };
+  });
 
   /* lk_history. Lifting rows carry sets and volume, cardio rows carry
      distance and calories; both carry one duration. */
@@ -298,7 +296,12 @@
     { start: '2026-09-07', min: 0, now: true }
   ];
 
-  var LIBRARY = { total: 227, logged: 46 };
+  /* Counted from the catalogue and the history. It was { total: 227,
+     logged: 46 } -- neither figure appears anywhere else in the app, and the
+     library screen the row leads to says 867. */
+  var LIBRARY = (window.LKFixtures && LKFixtures.library)
+    ? { total: LKFixtures.library.total, logged: LKFixtures.library.logged }
+    : { total: 0, logged: 0 };
 
   /* =============================================================
      State
@@ -915,8 +918,16 @@
        selectors, and every destination below is declared in MANIFEST.nav. */
     if (a === 'start-today') { location.href = 'workout-log.html'; return; }
     if (a === 'start-day') { closeSheet(); location.href = 'workout-log.html'; return; }
-    if (a === 'edit-split') { location.href = 'split-builder.html'; return; }
-    if (a === 'new-split') { location.href = 'split-builder.html'; return; }
+    /* WHICH split. Both of these opened the builder with no idea which split
+       was meant, so "Edit split" and "New split" landed on the same thing. */
+    if (a === 'edit-split') {
+      try { localStorage.setItem('lk_openSplit', t.getAttribute('data-id') || ''); } catch (err) {}
+      location.href = 'split-builder.html'; return;
+    }
+    if (a === 'new-split') {
+      try { localStorage.setItem('lk_openSplit', '__new__'); } catch (err) {}
+      location.href = 'split-builder.html'; return;
+    }
     if (a === 'open-library') { location.href = 'exercise-library.html'; return; }
     if (a === 'open-session') {
       /* WHICH session. Every history row used to open the same hand-written

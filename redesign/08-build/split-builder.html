@@ -101,6 +101,8 @@
   /* ---------------------------------------------------------------
      Data
      --------------------------------------------------------------- */
+  /* Replaced by the full catalogue once it loads; see the fetch at the
+     bottom of this file. */
   var LIBRARY = [
     { name: 'Barbell Bench Press', muscle: 'Chest' },
     { name: 'Incline Dumbbell Press', muscle: 'Chest' },
@@ -120,15 +122,34 @@
 
   function ex(name, muscle) { return { id: nid('x'), name: name, muscle: muscle }; }
 
-  function seedSplit() {
+  /* THE SPLIT IS THE STORED SPLIT. This screen invented a "PPL v2" of three
+     days and twelve exercises; the reader's own PPL has three days and
+     fifteen, and Home and Train both name it and count it correctly. Opening
+     the builder to edit a split and being shown a different split with
+     different exercises is the worst possible answer to "what am I running".
+
+     Which split: whichever Train handed over, else the first stored one. */
+  function splitFromFixture(id) {
+    var all = (window.LKFixtures && LKFixtures.splits) || [];
+    if (!all.length) return null;
+    var sp = null;
+    if (id) { for (var i = 0; i < all.length; i++) if (all[i].id === id) sp = all[i]; }
+    if (!sp) sp = all[0];
     return {
-      name: 'PPL v2',
-      days: [
-        { id: nid('d'), name: 'Push', exercises: [ex('Barbell Bench Press', 'Chest'), ex('Standing Overhead Press', 'Shoulders'), ex('Cable Lateral Raise', 'Shoulders'), ex('Rope Pushdown', 'Triceps')] },
-        { id: nid('d'), name: 'Pull', exercises: [ex('Weighted Pull-Up', 'Back'), ex('Chest-Supported Row', 'Back'), ex('Face Pull', 'Rear delts'), ex('Incline Dumbbell Curl', 'Biceps')] },
-        { id: nid('d'), name: 'Legs', exercises: [ex('Back Squat', 'Quads'), ex('Romanian Deadlift', 'Hamstrings'), ex('Leg Press', 'Quads'), ex('Standing Calf Raise', 'Calves')] }
-      ]
+      id: sp.id,
+      name: sp.name,
+      days: sp.days.map(function (d) {
+        return { id: nid('d'), name: d.name,
+                 exercises: d.exercises.map(function (e) { return ex(e.name, e.muscle || ''); }) };
+      })
     };
+  }
+  function seedSplit() {
+    var want = null;
+    try { want = localStorage.getItem('lk_openSplit'); } catch (e) {}
+    /* New means empty. It used to mean "the same fixture as Edit". */
+    if (want === '__new__') return { name: '', days: [] };
+    return splitFromFixture(want) || { name: 'Split', days: [] };
   }
 
   function slot(role, pick, pickWhy, alts) {
@@ -231,6 +252,37 @@
     if (!S.ai.plan) return 0;
     return S.ai.plan.days.reduce(function (n, d) { return n + d.slots.length; }, 0);
   }
+  /* A warning, where the split builder had none at all. Not a rule and not a
+     block: a sentence naming what the day is short of or heavy on, so the
+     reader can decide. The thresholds are stated because a warning whose
+     threshold is hidden is a superstition.
+
+     Under 3 exercises a day is a supplement to a session, not one.
+     Over 8 is where sessions start running past ninety minutes.
+     Three or more movements for one muscle in one day is where the last of
+     them stops being the thing that grows anything. */
+  function volumeNote(day) {
+    var n = day.exercises.length;
+    var msgs = [];
+    if (n && n < 3) msgs.push(n + (n === 1 ? ' exercise' : ' exercises') +
+      ' is a short day. Three is about where a session starts being one.');
+    if (n > 8) msgs.push(n + ' exercises runs past about ninety minutes at ' +
+      MIN_PER_EX_NOTE + ' minutes a lift.');
+    var by = {};
+    day.exercises.forEach(function (x) {
+      var k = (x.muscle || '').toLowerCase();
+      if (!k) return;
+      by[k] = (by[k] || 0) + 1;
+    });
+    Object.keys(by).forEach(function (k) {
+      if (by[k] >= 3) msgs.push(by[k] + ' movements for ' + k + ' in one day.');
+    });
+    if (!msgs.length) return '';
+    return '<div class="daycard__note" data-testid="volume-note-' + day.id + '" role="note">' +
+      '<p class="t-detail quiet">' + esc(msgs.join(' ')) + '</p></div>';
+  }
+  var MIN_PER_EX_NOTE = 10;
+
   function currentName(s) {
     if (s.choice === 'auto' || s.choice === 'pick') return s.pick;
     var a = s.alts.filter(function (x) { return x.id === s.choice; })[0];
@@ -347,6 +399,7 @@
         (m.edit ? ' data-sortable="1"' : '') + ' data-id="' + day.id + '">' +
       head +
       (m.edit && lifted ? moveBar('day', day.id, null, i === 0, i === n - 1) : '') +
+      volumeNote(day) +
       rows +
       '<div class="daycard__foot">' +
         '<button class="btn btn--secondary btn--block" data-testid="add-exercise-' + day.id + '" data-action="add-exercise" data-id="' + day.id + '">' +
@@ -831,7 +884,23 @@
     render();
   }
 
-  function doSave() {
+  /* Leaving, once there is nothing left to lose. The demo's router claims
+     the back control before this screen sees it, so a guarded back has to
+     leave for itself after the guard clears -- "Save and leave" saved and
+     stayed. */
+  function leaveAfter() {
+    later(function () {
+      /* Through the back control, not location.href. In the demo the router
+         claims that control's click and pops the route; a bare location.href
+         from a timer is not a click and would take the whole demo with it.
+         Standalone the same click reaches this screen's own handler, which is
+         now clean and navigates. */
+      var b = document.querySelector('[data-testid="manual-back"]');
+      if (b) b.click(); else location.href = 'train.html';
+    }, 450);
+  }
+
+  function doSave(thenLeave) {
     S.manual.status = 'saving';
     render();
     later(function () {
@@ -842,6 +911,7 @@
       S.swipe = null;
       toast('Split saved.');
       render();
+      if (thenLeave) leaveAfter();
     }, 600);
   }
 
@@ -856,10 +926,64 @@
       if (S.ai.status !== 'loading') return;
       if (i < STEPS.length) { S.ai.step = i; render(); later(tick, 900); return; }
       S.ai.status = 'ready';
-      S.ai.plan = seedPlan();
+      S.ai.plan = planFor(S.ai.note);
       render();
     }
     later(tick, 900);
+  }
+
+  /* The draft answers what was asked. It used to be one fixed three-day
+     push/pull/legs whatever the description said -- type "two days, dumbbells
+     only, no squats" and you got the same barbell PPL, with the note printed
+     above it as though it had been read.
+
+     What it reads is deliberately small and stated: a day count, and whether
+     dumbbells or machines were named. Anything it cannot read, it leaves
+     alone rather than pretending to have understood. */
+  function planFor(note) {
+    var plan = seedPlan();
+    var q = String(note || '').toLowerCase();
+    plan.note = note || '';
+
+    var days = null;
+    var m = q.match(/(\d+)\s*(?:days?|x\b|times)/);
+    if (m) days = Math.max(1, Math.min(6, parseInt(m[1], 10)));
+    else if (/\bfour\b/.test(q)) days = 4;
+    else if (/\bfive\b/.test(q)) days = 5;
+    else if (/\btwo\b/.test(q)) days = 2;
+    else if (/\bthree\b/.test(q)) days = 3;
+
+    if (days && days !== plan.days.length) {
+      if (days < plan.days.length) plan.days = plan.days.slice(0, days);
+      else {
+        /* Repeat the cycle rather than invent movements nobody asked for. */
+        var src = plan.days.slice();
+        var k = 0;
+        while (plan.days.length < days) {
+          var base = src[k % src.length];
+          plan.days.push({ id: nid('p'), name: base.name + ' B', slots: base.slots });
+          k++;
+        }
+      }
+      plan.title = plan.days.map(function (d) { return d.name; }).join(', ') +
+        ' \u2014 ' + plan.days.length + ' days';
+    }
+
+    /* A named constraint moves each slot to the alternative that carries it,
+       where the slot has one. */
+    var want = /dumbbell/.test(q) ? 'dumbbell' : (/machine/.test(q) ? 'machine' : null);
+    if (want) {
+      plan.days.forEach(function (d) {
+        d.slots = d.slots.map(function (sl) {
+          var hit = sl.alts.filter(function (a) { return a.name.toLowerCase().indexOf(want) > -1; })[0];
+          if (!hit) return sl;
+          var copy = slot(sl.role, sl.pick, sl.pickWhy, sl.alts);
+          copy.choice = hit.id;
+          return copy;
+        });
+      });
+    }
+    return plan;
   }
 
   function acceptPlan() {
@@ -881,8 +1005,7 @@
   var ACTIONS = {
     'manual-back': function () {
       if (S.manual.dirty) { S.modal = { type: 'leave' }; render(); return; }
-      toast('Back to Train. Nothing was lost.');
-      render();
+      location.href = 'train.html';
     },
     'close-modal': function () { S.modal = null; render(); },
     'edit-toggle': function () {
@@ -893,15 +1016,41 @@
       if (b) b.focus({ preventScroll: true });
     },
     'leave-discard': function () {
-      S.modal = null; S.manual.dirty = false;
-      toast('Changes discarded.', 'Undo', function () { S.manual.dirty = true; });
+      /* It used to clear the dirty FLAG and leave every edit on screen, under
+         a message saying the changes had been discarded. The edits are what
+         gets discarded: the split goes back to what is stored, and Undo puts
+         the working copy back exactly as it was. */
+      var was = { name: S.manual.name, days: JSON.parse(JSON.stringify(S.manual.days)) };
+      var fresh = seedSplit();
+      S.modal = null;
+      S.manual.name = fresh.name; S.manual.days = fresh.days;
+      S.manual.dirty = false; S.manual.edit = false; S.lifted = null; S.swipe = null;
+      toast('Changes discarded.', 'Undo', function () {
+        S.manual.name = was.name; S.manual.days = was.days; S.manual.dirty = true;
+      });
       render();
+      leaveAfter();
     },
-    'leave-save': function () { S.modal = null; doSave(); },
+    'leave-save': function () { S.modal = null; doSave(true); },
     'save': function () { doSave(); },
     'add-day': function () {
-      var n = S.manual.days.length + 1;
-      S.manual.days.push({ id: nid('d'), name: 'Day ' + n, exercises: [] });
+      /* A name that is not already taken. Every new day used to arrive called
+         "Day N", and the AI draft's days all arrived called Push, so a split
+         could end up with three days of the same name and no way to tell
+         which one a workout had come from. */
+      var taken = {};
+      S.manual.days.forEach(function (d) { taken[d.name.toLowerCase()] = 1; });
+      var pool = ['Push', 'Pull', 'Legs', 'Upper', 'Lower', 'Full body'];
+      var name = null;
+      for (var i = 0; i < pool.length && !name; i++) {
+        if (!taken[pool[i].toLowerCase()]) name = pool[i];
+      }
+      if (!name) {
+        var k = S.manual.days.length + 1;
+        while (taken[('day ' + k)]) k++;
+        name = 'Day ' + k;
+      }
+      S.manual.days.push({ id: nid('d'), name: name, exercises: [] });
       markDirty(); render();
     },
     'day-remove': function (el) {
@@ -1152,6 +1301,28 @@
   /* Boot on the populated manual builder, the common case. */
   PRESETS[2][1]();
   render();
+
+  /* THE WHOLE CATALOGUE in the picker. It held fourteen exercises against a
+     library of 867, so building a split meant building it out of whatever
+     fourteen were typed into this file. Fetched the way the library screen
+     fetches it; from disk the inline fourteen stand, and the sheet says how
+     many it is offering either way. */
+  if (location.protocol !== 'file:') {
+    fetch('../tests/fixtures/exercise-db.json', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
+      .then(function (rows) {
+        if (!Array.isArray(rows) || !rows.length) return;
+        LIBRARY = rows.map(function (x) {
+          return { name: x.name, muscle: x.muscle || x.group || '' };
+        });
+        ((window.LKFixtures && LKFixtures.customEx) || []).forEach(function (c) {
+          LIBRARY.push({ name: c.name, muscle: c.gid || '' });
+        });
+        LIBRARY.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+        if (S.modal && S.modal.type === 'pick') render();
+      })
+      .catch(function () { /* the inline list stands */ });
+  }
 
   /* The running workout, from a screen that is not it. This screen redraws
      itself whole, so the shelf is rendered inline with everything else

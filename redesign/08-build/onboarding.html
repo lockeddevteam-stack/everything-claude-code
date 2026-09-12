@@ -393,6 +393,7 @@
       </section>
 
     </div><!-- /app -->
+    <div id="legal-slot"></div>
 
     <button class="dev-open" id="dev-open" data-testid="dev-open" aria-expanded="false" aria-controls="dev-panel"
             aria-label="Open the screen and state inspector" title="Screens and states">
@@ -424,7 +425,8 @@
     info: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01" stroke-linecap="round"/></svg>',
     offline: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 3l18 18M5 12a10 10 0 0 1 4-2.6M2 8.5A15 15 0 0 1 8 5.3M16 5.7A15 15 0 0 1 22 8.5M15 9.4a10 10 0 0 1 4 2.6M12 19h.01" stroke-linecap="round"/></svg>',
     check: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    chevron: '<svg class="ico row__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    chevron: '<svg class="ico row__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    close: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>'
   };
 
   var SPINNER = '<span class="spinner" aria-hidden="true"></span>';
@@ -438,8 +440,49 @@
     variant: 'default',
     step: 0,
     busy: false,
-    answers: { name: '', units: '', experience: '', days: '', goal: '' }
+    answers: { name: '', units: '', experience: '', days: '', goal: '' },
+    legal: false
   };
+
+  /* Terms and privacy. The control existed and sent the reader back to the
+     screen they were already on, which is the shape of a link that has not
+     been written yet. What it says is what this build actually does, and it
+     says plainly which parts are not built. */
+  function renderLegal() {
+    var slot = document.getElementById('legal-slot');
+    if (!S.legal) { LKPatch(slot, ''); return; }
+    LKPatch(slot,
+      '<div class="scrim" data-testid="legal-scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="lg-title" ' +
+        'data-testid="legal-sheet" data-detents="0.6 0.94" data-detent-open="0.94">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+        '<div class="sheet__head"><h2 class="t-section grow" id="lg-title">Terms and privacy</h2>' +
+          '<button class="iconbtn" data-testid="legal-close" aria-label="Close">' + ICO.close + '</button>' +
+        '</div>' +
+        '<div class="sheet__body">' +
+          '<h3 class="t-label">What is stored, and where</h3>' +
+          '<p class="t-body mt-2">Everything you log \u2014 workouts, splits, records, meals, body ' +
+            'weight, photos and anything under Stack \u2014 is written to this device and stays ' +
+            'there. Nothing leaves it on its own.</p>' +
+          '<h3 class="t-label mt-4">What leaves the device, and when</h3>' +
+          '<p class="t-body mt-2">Two things, both only when you press them: Sync, which copies your ' +
+            'data to your account, and asking the coach, which sends the question and the figures the ' +
+            'answer needs. Each one asks first and says what it is sending.</p>' +
+          '<h3 class="t-label mt-4">Guest mode</h3>' +
+          '<p class="t-body mt-2">A guest account has no server side at all. Clearing the app\u2019s ' +
+            'data or losing the phone loses the history with it, which is why the guest screen says ' +
+            'so before you choose it.</p>' +
+          '<h3 class="t-label mt-4">This build</h3>' +
+          '<p class="t-body mt-2">This is a demo. There is no server behind it, no account is really ' +
+            'created, and no terms have been agreed to \u2014 the full text belongs here and is not ' +
+            'written yet. Nothing you type into it is transmitted anywhere.</p>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--secondary btn--block" data-testid="legal-done">' +
+            '<span class="btn__label">Close</span></button>' +
+        '</div>' +
+      '</div>');
+  }
 
   var STEPS = [
     {
@@ -498,6 +541,11 @@
 
   var SPLIT = { '2': 'Full body', '3': 'Full body', '4': 'Upper / lower', '5': 'Upper / lower / accessory', '6': 'Push / pull / legs' };
   var REPS = { strength: '3 to 6 reps', size: '6 to 12 reps', general: '8 to 15 reps' };
+  /* The experience answer said it "sets how fast loads climb in the first
+     weeks" and then appeared nowhere in the plan it built. */
+  var CLIMB = { under1: 'Most sessions, from your first year of training',
+                '1to3': 'Most weeks, from one to three years of training',
+                over3: 'Across a block, from more than three years of training' };
 
   /* ---------------------------------------------------------------
      Banners
@@ -827,7 +875,7 @@
     }
 
     var answered = countAnswers();
-    html += '<p class="t-meta mt-4">Every step can be skipped, and every answer can be changed later in Settings.' +
+    html += '<p class="t-meta mt-4">Every step can be skipped. Your name and units are changed later in Settings; the split and the goal are changed where they are used.' +
             (answered ? ' ' + answered + ' of ' + n + ' answered.' : '') + '</p>';
 
     LKPatch($('#setup-step'), html);
@@ -922,7 +970,11 @@
           '<p class="empty__body">Setup was skipped, so there is nothing to train from. Five questions is enough to build the first week.</p>' +
         '</div>');
       LKPatch(foot, '<button class="btn btn--primary btn--block" data-testid="overview-finish-setup"><span class="btn__label">Finish setup</span></button>' +
-        '<button class="btn btn--tertiary btn--block" data-testid="overview-freestyle">Start an empty session</button>');
+        '<button class="btn btn--tertiary btn--block" data-testid="overview-freestyle">Start an empty session</button>' +
+        /* Skipping setup used to leave the reader on this screen with two
+           buttons that went nowhere. The app is a tap away whether or not the
+           five questions were answered. */
+        '<button class="btn btn--tertiary btn--block" data-testid="overview-week">Go to the app</button>');
       return;
     }
 
@@ -931,15 +983,25 @@
     var goal = a.goal || 'strength';
     var units = a.units === 'lb' ? 'Pounds' : 'Kilograms';
     var who = a.name ? a.name : 'you';
+    var exp = a.experience || '1to3';
     var sessionName = SPLIT[days] === 'Upper / lower' ? 'Upper A' : SPLIT[days] === 'Push / pull / legs' ? 'Push A' : 'Full body A';
+    /* Fewer days means each session carries more of the week. */
+    var exCount = { '2': 8, '3': 7, '4': 6, '5': 5, '6': 5 }[days] || 6;
+    var mins = exCount * 9 + 5;
 
     LKPatch(body, '<p class="t-label">Week 1 · Day 1</p>' +
       '<h2 class="t-title mt-1">' + sessionName + '</h2>' +
-      '<p class="t-detail mt-2">5 exercises, about 50 minutes. Built for ' + (a.name ? escapeHtml(a.name) : who) + ' from the five answers below.</p>' +
+      /* The session's size follows the answers rather than being the same
+         five exercises and fifty minutes whatever was said: more days a week
+         means a shorter session, and a longer training history means loads
+         that climb across a block rather than session to session. */
+      '<p class="t-detail mt-2">' + exCount + ' exercises, about ' + mins + ' minutes. Built for ' +
+        (a.name ? escapeHtml(a.name) : who) + ' from the answers below.</p>' +
 
       '<div class="card card--flush mt-4">' +
         row('Split', SPLIT[days] + ', ' + days + ' days a week') +
         row('Rep range', REPS[goal] + ', from your goal') +
+        row('Loads climb', CLIMB[exp]) +
         row('Units', units) +
         row('Starting loads', 'Set by your first working set of each lift') +
       '</div>' +
@@ -952,7 +1014,13 @@
         '</div>' +
       '</div>' +
 
-      '<p class="t-meta mt-4">Any answer can be changed in Settings without losing history.</p>');
+      /* Which answers, specifically. The line used to say every answer could
+         be changed in Settings; Settings carries the name, the units and the
+         body figures, and does not carry the experience level, the days per
+         week or the goal -- those move by editing the split and the plan. */
+      '<p class="t-meta mt-4">Your name and your units are in Settings. Days per week and the split ' +
+        'are in the split builder, and the goal is in the coach plan \u2014 all three without losing ' +
+        'history.</p>');
 
     LKPatch(foot, '<button class="btn btn--primary btn--block" data-testid="overview-start"><span class="btn__label">Start ' + sessionName + '</span></button>' +
       '<button class="btn btn--tertiary btn--block" data-testid="overview-week">See the full week</button>');
@@ -981,7 +1049,10 @@
       case 'welcome-create': go('signup'); break;
       case 'welcome-signin': go('signin'); break;
       case 'welcome-guest': go('guest'); break;
-      case 'welcome-legal': go('welcome'); break;
+      case 'welcome-legal': S.legal = true; renderLegal(); break;
+      case 'legal-close':
+      case 'legal-done':
+      case 'legal-scrim': S.legal = false; renderLegal(); break;
       case 'welcome-retry': go('welcome', 'loading'); window.setTimeout(function () { go('welcome'); }, 900); break;
 
       case 'signin-back': go('welcome'); break;
@@ -1009,6 +1080,12 @@
       case 'setup-skip': advanceSetup(); break;
       case 'setup-retry': S.variant = 'default'; renderSetup(); break;
 
+      /* The way out. These two controls carried no handler at all, so the
+         last screen of onboarding was where the flow ended: the app was
+         behind them and there was no route to it. */
+      case 'overview-start': location.href = 'workout-log.html'; break;
+      case 'overview-week': location.href = 'train.html'; break;
+      case 'overview-freestyle': location.href = 'workout-log.html'; break;
       case 'overview-finish-setup': S.step = 0; go('setup'); break;
       case 'overview-retry': go('overview', 'loading'); window.setTimeout(function () { go('overview', 'populated'); }, 1100); break;
 
