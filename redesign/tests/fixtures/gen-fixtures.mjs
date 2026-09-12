@@ -274,6 +274,45 @@ const FOODS = {
               g: 170, fibre: 0,   sugar: 6,  satfat: 0.1, sodium: 65 }
 };
 
+/* What somebody types or says when they mean each of these. Typed entry
+   matches on these as well as on the name, because nobody types "Eggs, toast,
+   butter" -- they type "2 eggs and toast". The list is seed data rather than
+   a literal on the screen so one table answers for every path that matches
+   a word to a food. */
+const ALIASES = {
+  eggs:     ['egg', 'eggs', 'toast', 'eggs and toast', 'eggs on toast', 'fry up'],
+  bowl:     ['rice bowl', 'chicken bowl', 'chicken rice bowl', 'burrito bowl', 'bowl'],
+  shake:    ['shake', 'whey', 'protein shake', 'whey shake', 'smoothie'],
+  pasta:    ['pasta', 'spaghetti', 'bolognese', 'mince and pasta', 'beef pasta'],
+  chilli:   ['chilli', 'chili', 'chilli con carne'],
+  cnr:      ['chicken and rice', 'chicken rice', 'chicken n rice'],
+  pancakes: ['pancakes', 'pancake', 'protein pancakes'],
+  skyr:     ['skyr', 'yoghurt', 'yogurt', 'greek yoghurt', 'quark']
+};
+for (const [k, list] of Object.entries(ALIASES)) {
+  if (!FOODS[k]) throw new Error('alias for a food that does not exist: ' + k);
+  FOODS[k].alias = list;
+}
+for (const k of Object.keys(FOODS)) {
+  if (!FOODS[k].alias) throw new Error(k + ' has no aliases, so nothing typed can match it');
+}
+
+/* What a unit weighs, for turning "2 tbsp olive oil" or "200 g rice" into
+   grams. A parser without this can only count servings, which is why free
+   text used to be a transcript nobody could act on. `serving` resolves to
+   the food's own serving weight rather than a fixed number. */
+const UNIT_G = {
+  g: 1, gram: 1, grams: 1, kg: 1000, kilo: 1000, kilos: 1000,
+  ml: 1, l: 1000, litre: 1000, litres: 1000,
+  oz: 28.35, lb: 453.6,
+  tbsp: 15, tablespoon: 15, tablespoons: 15,
+  tsp: 5, teaspoon: 5, teaspoons: 5,
+  cup: 240, cups: 240,
+  scoop: 30, scoops: 30,
+  slice: 35, slices: 35,
+  serving: 0, servings: 0, plate: 0, plates: 0, portion: 0, portions: 0
+};
+
 /* Every food has to carry all of it, or a screen reading a micronutrient
    gets undefined and prints NaN. */
 for (const [k, f] of Object.entries(FOODS)) {
@@ -364,6 +403,7 @@ if (trendValues.length !== 30) throw new Error('trend is ' + trendValues.length 
 const nutrition = {
   targets: TARGETS,
   microRef: MICRO_REF,
+  unitG: UNIT_G,
   foods: FOODS,
   days: nutritionDays,
   /* Kept for anything still reading a bare array of the last fourteen. */

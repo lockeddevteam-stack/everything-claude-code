@@ -817,6 +817,129 @@
       .map(function (e, i) { e.f.best = i === 0 && !!q; return e.f; });
   }
 
+  /* ---------------------------------------------------------------
+     Reading a sentence
+     --------------------------------------------------------------- */
+
+  /* "2 eggs and toast with a whey shake" -> two eggs and one shake.
+
+     It matches BEFORE it splits, and that ordering is the whole design. The
+     first version split on "and" and then matched each piece, which broke
+     "chicken and rice" into two pieces that matched nothing, and turned
+     "2 eggs and toast" into two separate meals because "toast" matches the
+     eggs row on its own. Splitting a sentence into pieces destroys the
+     phrases the foods are actually named by.
+
+     So: find the longest alias anywhere in the text, claim that span, read
+     the quantity and unit sitting immediately in front of it, and repeat on
+     what is left. Whatever is never claimed and is not a joining word is
+     reported as unmatched rather than dropped, so the preview accounts for
+     the whole sentence and not just the half the parser understood. */
+  var UNIT_G = NUT.unitG || {};
+  var NUMWORD = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
+                  six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+                  half: 0.5, couple: 2, dozen: 12 };
+  var JOINER = { and: 1, with: 1, plus: 1, then: 1, of: 1, some: 1, a: 1, an: 1,
+                 the: 1, i: 1, had: 1, ate: 1, for: 1, my: 1, '': 1 };
+
+  function aliasList() {
+    var out = [];
+    Object.keys(FOODS).forEach(function (k) {
+      var f = FOODS[k];
+      [f.name.toLowerCase()].concat(f.alias || []).forEach(function (a) {
+        out.push({ key: k, a: a });
+      });
+    });
+    /* Longest first, so "chicken and rice" is claimed before "rice" and
+       "whey shake" before "shake". */
+    return out.sort(function (x, y) { return y.a.length - x.a.length; });
+  }
+
+  function parseMeal(text) {
+    var raw = String(text || '').toLowerCase().replace(/[.!?]/g, ' ');
+    var claimed = [];                 /* [start, end) spans already taken */
+    var found = [];
+    var taken = function (i, j) {
+      for (var c = 0; c < claimed.length; c++) {
+        if (i < claimed[c][1] && j > claimed[c][0]) return true;
+      }
+      return false;
+    };
+    aliasList().forEach(function (e) {
+      var from = 0, at;
+      while ((at = raw.indexOf(e.a, from)) >= 0) {
+        var end = at + e.a.length;
+        /* Whole words only: "rice" must not match inside "priced". */
+        var beforeOk = at === 0 || /[^a-z]/.test(raw.charAt(at - 1));
+        var afterOk = end >= raw.length || /[^a-z]/.test(raw.charAt(end));
+        if (beforeOk && afterOk && !taken(at, end)) {
+          claimed.push([at, end]);
+          found.push({ key: e.key, at: at, end: end });
+        }
+        from = at + 1;
+      }
+    });
+    found.sort(function (x, y) { return x.at - y.at; });
+
+    /* The quantity and unit are whatever sits between the end of the last
+       claimed span and the start of this one. */
+    var items = [], cursor = 0;
+    found.forEach(function (f) {
+      var lead = raw.slice(cursor, f.at);
+      var q = readQty(lead);
+      items.push(matchFood(f.key, q.qty, q.unit, raw.slice(f.at, f.end)));
+      leftover(lead.replace(q.consumed, ' '), items);
+      cursor = f.end;
+    });
+    leftover(raw.slice(cursor), items);
+    return items;
+  }
+
+  /* The number and unit in front of a food. "2", "200 g", "a couple of",
+     "half a" -- and nothing, which means one serving. */
+  function readQty(lead) {
+    var qty = 1, unit = null, consumed = '';
+    var toks = lead.split(/[^a-z0-9.]+/).filter(Boolean);
+    for (var i = toks.length - 1; i >= 0; i--) {
+      var t = toks[i];
+      if (UNIT_G[t] !== undefined && unit === null) { unit = t; consumed = t; continue; }
+      if (/^[0-9]+(\.[0-9]+)?$/.test(t)) { qty = parseFloat(t); consumed = t; break; }
+      if (NUMWORD[t] !== undefined) { qty = NUMWORD[t]; consumed = t; break; }
+      if (JOINER[t]) continue;
+      break;                          /* a real word: not part of the quantity */
+    }
+    return { qty: qty, unit: unit, consumed: consumed };
+  }
+
+  /* Words nobody claimed. Joining words and bare numbers are not reported as
+     unrecognised food, because "and" is not a thing somebody ate. */
+  function leftover(text, items) {
+    var t = String(text || '').replace(/[^a-z0-9 ]/g, ' ').trim();
+    if (!t) return;
+    var words = t.split(/\s+/).filter(function (w) {
+      return !JOINER[w] && NUMWORD[w] === undefined && UNIT_G[w] === undefined &&
+             !/^[0-9.]+$/.test(w);
+    });
+    if (!words.length) return;
+    items.push({ raw: words.join(' '), name: words.join(' '), qty: 1, unit: null, key: null });
+  }
+
+  function matchFood(key, qty, unit, raw) {
+    var f = FOODS[key];
+    /* Grams, three ways: a weight unit converts, a serving-shaped unit means
+       the food's own serving, and a bare count means that many servings. */
+    var grams = (unit && UNIT_G[unit] > 0) ? qty * UNIT_G[unit] : qty * f.g;
+    var k = grams / f.g;
+    var item = { raw: raw, name: f.name, qty: qty, unit: unit, key: key,
+                 grams: Math.round(grams), icon: f.icon,
+                 kcal: Math.round(f.kcal * k), pro: Math.round(f.pro * k * 10) / 10,
+                 carb: Math.round(f.carb * k * 10) / 10, fat: Math.round(f.fat * k * 10) / 10 };
+    MICROS.forEach(function (mi) {
+      if (typeof f[mi.key] === 'number') item[mi.key] = Math.round(f[mi.key] * k * 10) / 10;
+    });
+    return item;
+  }
+
   function macros() {
     if (S.state === 'hidden') {
       var words = ['Ahead', 'On pace', 'On pace'];
@@ -1381,7 +1504,10 @@
                   '</div>';
                 }).join('') + '</div>'
               : '<p class="t-body mt-4">Nothing here matches \u201c' + esc(S.searchQ || '') + '\u201d.</p>' +
-                '<p class="t-detail quiet mt-1">Snap the plate instead, or build it as a recipe.</p>') +
+                '<p class="t-detail quiet mt-1">Snap the plate, build it as a recipe, or type the ' +
+                  'numbers off the packet.</p>') +
+            '<button class="btn btn--secondary btn--block mt-4" type="button" data-action="manual" ' +
+              'data-testid="search-manual"><span class="btn__label">Type the numbers by hand</span></button>' +
           '</div>' +
         '</div>';
     }
@@ -1541,6 +1667,55 @@
        is the sum of real rows rather than a number somebody typed; a free-text
        line is allowed for the things a food table has no row for, and it is
        counted as zero and labelled as counted as zero. */
+    /* The last resort, and every food app needs one. Nothing matched, nothing
+       scanned, and the packet is in your hand: type the four numbers off it.
+       Add stays disabled until there is a name and a calorie figure, because
+       an entry with neither is a row in the diary that means nothing and can
+       never be reconciled with anything. */
+    if (S.sheet === 'manual') {
+      var mn = S.man || { name: '', kcal: '', pro: '', carb: '', fat: '', error: null };
+      var mOk = mn.name.trim().length > 0 && +mn.kcal > 0;
+      var mSlot = S.logSlot || slotForNow();
+      var fld = function (k, label, unit, max) {
+        return '<label class="t-label field__label mt-3" for="mn-' + k + '">' + label + '</label>' +
+          '<input class="input num" id="mn-' + k + '" type="number" min="0" max="' + max + '" ' +
+            'step="1" inputmode="numeric" value="' + esc(String(mn[k])) + '" ' +
+            'data-testid="mn-' + k + '">' +
+          (unit ? '<p class="t-caption-1 quiet mt-1">' + unit + '</p>' : '');
+      };
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="mn-title" ' +
+          'data-detents="0.6 0.94" data-testid="sheet-manual">' +
+          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="mn-title">Type the numbers</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="mn-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<p class="t-detail">For the things the table has never heard of. Read them off the ' +
+              'packet, or off the menu. It goes in as an estimate, because that is what it is.</p>' +
+            '<label class="t-label field__label mt-4" for="mn-name">What it was</label>' +
+            '<input class="input" id="mn-name" type="text" autocomplete="off" ' +
+              'placeholder="Chicken katsu, the one from work" value="' + esc(mn.name) + '" ' +
+              'data-testid="mn-name">' +
+            fld('kcal', 'Calories', 'kcal. The one figure this cannot be left without.', 8000) +
+            fld('pro', 'Protein', 'grams. Leave it at nothing if the packet does not say.', 500) +
+            fld('carb', 'Carbs', 'grams', 800) +
+            fld('fat', 'Fat', 'grams', 400) +
+            slotPicker(mSlot, 'pick-slot', 'mn-slot') +
+            (mn.error ? '<p class="field__error mt-2" role="alert" data-testid="mn-error">' +
+              esc(mn.error) + '</p>' : '') +
+          '</div>' +
+          '<div class="sheet__foot">' +
+            '<button class="btn btn--primary btn--block" type="button" data-action="mn-add" ' +
+              (mOk ? '' : 'disabled ') + 'data-testid="mn-add">' +
+              '<span class="btn__label">' + (mOk
+                ? 'Add to ' + esc(slotName(mSlot).toLowerCase())
+                : 'A name and a calorie figure first') + '</span></button>' +
+          '</div>' +
+        '</div>';
+    }
+
     /* One food, at the amount you actually had. The search sheet could only
        log a standard serving, so "half a bowl" was logged as a bowl and then
        corrected with a portion chip afterwards, if at all. Everything here
@@ -1795,23 +1970,74 @@
         '</div>';
     }
     if (S.sheet === 'mic') {
+      /* The transcript is a field, not a caption. Speech recognition needs a
+         real microphone and a real engine; the SENTENCE is what this screen
+         can honestly work on, so it is editable and parsed for real. The
+         sheet used to show one canned line and log two fixed foods whatever
+         it said. */
+      if (S.micText === undefined || S.micText === null) S.micText = '';
+      var items = S.micItems || [];
+      var hit = items.filter(function (it) { return it.key; });
+      var miss = items.filter(function (it) { return !it.key; });
+      var tot = hit.reduce(function (a, it) { return a + it.kcal; }, 0);
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
         '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="mic-title" ' +
-          'data-detents="0.45 0.88" data-testid="sheet-mic">' +
+          'data-detents="0.6 0.94" data-testid="sheet-mic">' +
           '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
-          '<div class="sheet__head"><h2 class="t-headline grow" id="mic-title">Listening</h2>' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="mic-title">Say it, or type it</h2>' +
             '<button class="iconbtn" type="button" data-action="close" aria-label="Stop" data-testid="mic-close">' +
               '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
             '</button></div>' +
           '<div class="sheet__body">' +
-            '<div class="fuel-listen" data-testid="mic-pulse" aria-hidden="true"><span></span><span></span><span></span></div>' +
-            '<p class="t-body-17 mt-4">&ldquo;Chicken rice bowl and a whey shake after the gym&rdquo;</p>' +
-            '<p class="t-footnote quiet mt-3">Two meals heard. Times resolve from your session: ' +
-              '&ldquo;after the gym&rdquo; is 6:15 today.</p>' +
+            '<label class="t-label field__label" for="mic-text">What you ate</label>' +
+            '<input class="input" id="mic-text" type="text" autocomplete="off" ' +
+              'placeholder="2 eggs and toast with a whey shake" ' +
+              'value="' + esc(S.micText) + '" data-testid="mic-text">' +
+            '<p class="t-caption-1 quiet mt-2">Dictation belongs to the keyboard, which has a ' +
+              'microphone on it. What this screen does is read the sentence: quantities, units ' +
+              'and foods, matched against the table. It does not reach a speech service.</p>' +
+            '<div class="chiprow mt-3">' +
+              ['2 eggs and toast', 'chicken rice bowl and a whey shake', '200 g chilli'].map(function (t, ti) {
+                return '<button class="chip" type="button" data-action="mic-eg" data-t="' + esc(t) + '" ' +
+                  'data-testid="mic-eg-' + ti + '">' + esc(t) + '</button>';
+              }).join('') + '</div>' +
+            (items.length
+              ? '<h3 class="t-label mt-5">What that reads as</h3>' +
+                '<div class="card card--flush mt-2" data-testid="mic-preview">' +
+                  items.map(function (it, i) {
+                    return '<div class="row row--withaside">' +
+                      '<span class="fuel-thumb" aria-hidden="true">' + (it.icon || '\u2753') + '</span>' +
+                      '<span class="row__main stack">' +
+                        '<span class="row__title">' + esc(it.key ? it.name : it.raw) + '</span>' +
+                        '<span class="row__sub">' + (it.key
+                          ? n(it.grams) + ' g \u00b7 ' + n(it.pro) + ' P \u00b7 ' + n(it.carb) +
+                            ' C \u00b7 ' + n(it.fat) + ' F'
+                          : 'nothing in the table matches this, so it is not counted') + '</span>' +
+                      '</span>' +
+                      (it.key ? '<span class="row__value num">' + n(it.kcal) +
+                        '<small class="t-caption-2 quiet"> kcal</small></span>' : '') +
+                      '<button class="iconbtn" type="button" data-action="mic-drop" data-i="' + i + '" ' +
+                        'aria-label="Remove ' + esc(it.key ? it.name : it.raw) + '" ' +
+                        'data-testid="mic-drop-' + i + '">' +
+                        '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
+                    '</div>';
+                  }).join('') + '</div>' +
+                '<p class="t-detail quiet mt-2" data-testid="mic-sum">' + hit.length +
+                  (hit.length === 1 ? ' item' : ' items') + ', ' + n(tot) + ' kcal' +
+                  (miss.length ? ' \u00b7 ' + miss.length + ' not recognised and not counted' : '') +
+                  '.</p>' +
+                slotPicker(S.logSlot || slotForNow(), 'pick-slot', 'mic-slot')
+              : '<p class="t-detail quiet mt-4">Type a sentence and it will be read out into ' +
+                'items here before anything is logged.</p>') +
+            '<button class="btn btn--secondary btn--block mt-4" type="button" data-action="manual" ' +
+              'data-testid="mic-manual"><span class="btn__label">Type the numbers by hand</span></button>' +
           '</div>' +
           '<div class="sheet__foot">' +
-            '<button class="btn btn--primary btn--block" type="button" data-action="mic-log" data-testid="mic-confirm">' +
-              '<span class="btn__label">Log both</span></button>' +
+            '<button class="btn btn--primary btn--block" type="button" data-action="mic-log" ' +
+              (hit.length ? '' : 'disabled ') + 'data-testid="mic-confirm">' +
+              '<span class="btn__label">' + (hit.length
+                ? 'Log ' + hit.length + (hit.length === 1 ? ' item' : ' items') + ', ' + n(tot) + ' kcal'
+                : 'Nothing to log yet') + '</span></button>' +
           '</div>' +
         '</div>';
     }
@@ -1872,7 +2098,8 @@
     var act = e.target.closest ? e.target.closest('[data-action]') : null;
     if (!act) return;
     var a = act.getAttribute('data-action');
-    if (a === 'mic' || a === 'cam') { S.sheet = a; render(); return; }
+    if (a === 'mic') { S.sheet = 'mic'; S.micText = ''; S.micItems = null; render(); return; }
+    if (a === 'cam') { S.sheet = 'cam'; render(); return; }
     if (a === 'scan') { S.sheet = 'scan'; S.scanServings = 1; render(); return; }
     if (a === 'targets') { S.sheet = 'targets'; S.targetError = null; render(); return; }
     if (a === 'targets-save') { saveTargets(); return; }
@@ -1927,6 +2154,20 @@
       return;
     }
     if (a === 'trend-range') { S.trendRange = +act.getAttribute('data-r'); render(); return; }
+    if (a === 'manual') {
+      S.man = { name: '', kcal: '', pro: '', carb: '', fat: '', error: null };
+      S.sheet = 'manual'; render(); return;
+    }
+    if (a === 'mn-add') { manualAdd(); return; }
+    if (a === 'mic-eg') {
+      S.micText = act.getAttribute('data-t');
+      S.micItems = parseMeal(S.micText);
+      render(); return;
+    }
+    if (a === 'mic-drop') {
+      (S.micItems || []).splice(+act.getAttribute('data-i'), 1);
+      render(); return;
+    }
     if (a === 'food-detail') {
       var fdk = act.getAttribute('data-k');
       S.foodG = (FOODS[fdk] || {}).g;
@@ -2122,6 +2363,39 @@
     }
   }
 
+  function readManual() {
+    if (!S.man) S.man = { name: '', kcal: '', pro: '', carb: '', fat: '', error: null };
+    ['name', 'kcal', 'pro', 'carb', 'fat'].forEach(function (k) {
+      var el = document.getElementById('mn-' + k);
+      if (el) S.man[k] = el.value;
+    });
+  }
+
+  function manualAdd() {
+    readManual();
+    var m = S.man;
+    var kcal = parseInt(m.kcal, 10);
+    if (!m.name.trim()) { m.error = 'Give it a name.'; render(); return; }
+    if (isNaN(kcal) || kcal < 1 || kcal > 8000) {
+      m.error = 'Calories between 1 and 8,000.'; render(); return;
+    }
+    var num = function (v, max) {
+      var x = parseFloat(v);
+      if (isNaN(x) || x < 0) return 0;
+      return Math.min(max, Math.round(x * 10) / 10);
+    };
+    addMeal({
+      key: null, icon: '\ud83c\udf7d\ufe0f', name: m.name.trim().slice(0, 60), kcal: kcal,
+      pro: num(m.pro, 500), carb: num(m.carb, 800), fat: num(m.fat, 400),
+      /* An estimate, and labelled one. Nothing measured this: somebody read
+         it off a packet or remembered it. */
+      src: 'estimate', slot: S.logSlot || slotForNow()
+    });
+    S.man = null; S.sheet = null;
+    render();
+    say(esc(m.name.trim()) + ' logged, ' + n(kcal) + ' kcal.');
+  }
+
   function saveRecipe() {
     readDraft();
     var d = S.draft;
@@ -2190,15 +2464,26 @@
     say(esc(plate.name) + ' logged, ' + n(plate.kcal) + ' kcal.');
   }
 
+  /* Exactly what the preview showed, item by item. An unmatched piece is not
+     logged and was never counted in the total on the button. */
   function micLog() {
-    /* The two the sheet says it heard, with the times it says it resolved. */
-    var heard = [FOODS.bowl, FOODS.shake];
-    heard.forEach(function (f) {
-      addMeal({ key: f === FOODS.bowl ? 'bowl' : 'shake', icon: f.icon, name: f.name, at: '6:15', pro: f.pro, carb: f.carb,
-                fat: f.fat, kcal: f.kcal, src: 'estimate' });
+    var items = (S.micItems || []).filter(function (it) { return it.key; });
+    if (!items.length) return;
+    var slot = S.logSlot || slotForNow();
+    var tot = 0;
+    items.forEach(function (it) {
+      var meal = { key: it.key, icon: it.icon,
+                   name: it.name + (it.grams === FOODS[it.key].g ? '' : ', ' + n(it.grams) + ' g'),
+                   kcal: it.kcal, pro: it.pro, carb: it.carb, fat: it.fat,
+                   src: 'estimate', slot: slot };
+      MICROS.forEach(function (mi) {
+        if (typeof it[mi.key] === 'number') meal[mi.key] = it[mi.key];
+      });
+      addMeal(meal);
+      tot += it.kcal;
     });
-    S.sheet = null;
-    say('Two meals logged, ' + n(heard[0].kcal + heard[1].kcal) + ' kcal.');
+    S.sheet = null; S.micText = ''; S.micItems = null;
+    say(items.length + (items.length === 1 ? ' item' : ' items') + ' logged, ' + n(tot) + ' kcal.');
   }
 
   function logOften(i) {
@@ -2314,6 +2599,23 @@
        is typed. The name keeps its own value across that repaint through
        readDraft, and the caret is put back the same way the search field
        does it. */
+    if (e.target.id === 'mn-name' || e.target.id === 'mn-kcal') {
+      var wid = e.target.id;
+      readManual();
+      render();
+      var el2 = document.getElementById(wid);
+      if (el2) { el2.focus(); try { el2.setSelectionRange(el2.value.length, el2.value.length); } catch (err) {} }
+      return;
+    }
+    if (e.target.id.indexOf('mn-') === 0) { readManual(); return; }
+    if (e.target.id === 'mic-text') {
+      S.micText = e.target.value;
+      S.micItems = S.micText.trim() ? parseMeal(S.micText) : null;
+      render();
+      var mf = document.getElementById('mic-text');
+      if (mf) { mf.focus(); try { mf.setSelectionRange(mf.value.length, mf.value.length); } catch (err) {} }
+      return;
+    }
     if (e.target.id === 'fd-g') {
       var gv2 = parseInt(e.target.value, 10);
       if (isNaN(gv2) || gv2 < 1) return;      /* mid-edit, not yet a number */

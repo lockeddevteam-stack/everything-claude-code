@@ -4036,6 +4036,38 @@
                 "satfat": 20,
                 "sodium": 2400
           },
+          "unitG": {
+                "g": 1,
+                "gram": 1,
+                "grams": 1,
+                "kg": 1000,
+                "kilo": 1000,
+                "kilos": 1000,
+                "ml": 1,
+                "l": 1000,
+                "litre": 1000,
+                "litres": 1000,
+                "oz": 28.35,
+                "lb": 453.6,
+                "tbsp": 15,
+                "tablespoon": 15,
+                "tablespoons": 15,
+                "tsp": 5,
+                "teaspoon": 5,
+                "teaspoons": 5,
+                "cup": 240,
+                "cups": 240,
+                "scoop": 30,
+                "scoops": 30,
+                "slice": 35,
+                "slices": 35,
+                "serving": 0,
+                "servings": 0,
+                "plate": 0,
+                "plates": 0,
+                "portion": 0,
+                "portions": 0
+          },
           "foods": {
                 "eggs": {
                       "icon": "🍳",
@@ -4048,7 +4080,15 @@
                       "fibre": 4,
                       "sugar": 5,
                       "satfat": 9,
-                      "sodium": 720
+                      "sodium": 720,
+                      "alias": [
+                            "egg",
+                            "eggs",
+                            "toast",
+                            "eggs and toast",
+                            "eggs on toast",
+                            "fry up"
+                      ]
                 },
                 "bowl": {
                       "icon": "🥗",
@@ -4061,7 +4101,14 @@
                       "fibre": 6,
                       "sugar": 8,
                       "satfat": 4,
-                      "sodium": 980
+                      "sodium": 980,
+                      "alias": [
+                            "rice bowl",
+                            "chicken bowl",
+                            "chicken rice bowl",
+                            "burrito bowl",
+                            "bowl"
+                      ]
                 },
                 "shake": {
                       "icon": "🥤",
@@ -4074,7 +4121,14 @@
                       "fibre": 3,
                       "sugar": 24,
                       "satfat": 1.5,
-                      "sodium": 210
+                      "sodium": 210,
+                      "alias": [
+                            "shake",
+                            "whey",
+                            "protein shake",
+                            "whey shake",
+                            "smoothie"
+                      ]
                 },
                 "pasta": {
                       "icon": "🍝",
@@ -4087,7 +4141,14 @@
                       "fibre": 7,
                       "sugar": 11,
                       "satfat": 10,
-                      "sodium": 890
+                      "sodium": 890,
+                      "alias": [
+                            "pasta",
+                            "spaghetti",
+                            "bolognese",
+                            "mince and pasta",
+                            "beef pasta"
+                      ]
                 },
                 "chilli": {
                       "icon": "🍲",
@@ -4100,7 +4161,12 @@
                       "fibre": 11,
                       "sugar": 9,
                       "satfat": 6,
-                      "sodium": 760
+                      "sodium": 760,
+                      "alias": [
+                            "chilli",
+                            "chili",
+                            "chilli con carne"
+                      ]
                 },
                 "cnr": {
                       "icon": "🍚",
@@ -4113,7 +4179,12 @@
                       "fibre": 3,
                       "sugar": 3,
                       "satfat": 3.5,
-                      "sodium": 640
+                      "sodium": 640,
+                      "alias": [
+                            "chicken and rice",
+                            "chicken rice",
+                            "chicken n rice"
+                      ]
                 },
                 "pancakes": {
                       "icon": "🥞",
@@ -4126,7 +4197,12 @@
                       "fibre": 5,
                       "sugar": 7,
                       "satfat": 2,
-                      "sodium": 380
+                      "sodium": 380,
+                      "alias": [
+                            "pancakes",
+                            "pancake",
+                            "protein pancakes"
+                      ]
                 },
                 "skyr": {
                       "icon": "🥫",
@@ -4139,7 +4215,14 @@
                       "fibre": 0,
                       "sugar": 6,
                       "satfat": 0.1,
-                      "sodium": 65
+                      "sodium": 65,
+                      "alias": [
+                            "skyr",
+                            "yoghurt",
+                            "yogurt",
+                            "greek yoghurt",
+                            "quark"
+                      ]
                 }
           },
           "days": {
