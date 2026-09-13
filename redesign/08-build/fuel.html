@@ -125,6 +125,8 @@
     /* Two arrows passing, for a swap. Not a refresh circle: a circle says
        "do this again" and a swap replaces one thing with another. */
     swap: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 8h13l-3.5-3.5M20 16H7l3.5 3.5"/></svg>',
+    star: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m12 4 2.5 5.2 5.5.8-4 3.9 1 5.5-5-2.7-5 2.7 1-5.5-4-3.9 5.5-.8z"/></svg>',
+    starOn: '<svg class="ico" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m12 4 2.5 5.2 5.5.8-4 3.9 1 5.5-5-2.7-5 2.7 1-5.5-4-3.9 5.5-.8z"/></svg>',
     /* A balance, for setting an amount. */
     scale: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 4v16M5 20h14M7 7h10M7 7l-3 6h6zM17 7l3 6h-6z"/></svg>'
   };
@@ -637,9 +639,14 @@
         tally[k] = (tally[k] || 0) + 1;
       });
     });
+    /* Kept foods first, then by count. A favourite that has been logged
+       twice should not sit under one logged three times: keeping it was a
+       deliberate act and the tally is not. */
+    favourites().forEach(function (k) { if (FOODS[k] && !tally[k]) tally[k] = 0; });
     return Object.keys(tally).sort(function (a, b) {
-      return tally[b] - tally[a] || (FOODS[a].name < FOODS[b].name ? -1 : 1);
-    }).slice(0, 4).map(function (k) {
+      var fa = isFav(a) ? 1 : 0, fb = isFav(b) ? 1 : 0;
+      return fb - fa || tally[b] - tally[a] || (FOODS[a].name < FOODS[b].name ? -1 : 1);
+    }).slice(0, 6).map(function (k) {
       var f = FOODS[k];
       return { key: k, icon: f.icon, name: f.name, n: tally[k],
                kcal: f.kcal, pro: f.pro, carb: f.carb, fat: f.fat };
@@ -956,6 +963,55 @@
       ST.set('lk_shoppingList', list);
     }
     return it.name;
+  }
+
+  /* ---------------------------------------------------------------
+     Things you keep
+     --------------------------------------------------------------- */
+
+  /* A favourite is a food you keep coming back to that the frequency list
+     might not surface: the frequency list is a fact about the past, and a
+     favourite is a decision about the future. They sit above it. */
+  function favourites() { return stored('lk_fuelFavourites', []) || []; }
+  function isFav(key) { return favourites().indexOf(key) >= 0; }
+  function toggleFav(key) {
+    var f = favourites().slice();
+    var i = f.indexOf(key);
+    if (i >= 0) f.splice(i, 1); else f.push(key);
+    if (ST && persisting()) ST.set('lk_fuelFavourites', f);
+    return i < 0;
+  }
+
+  /* Your store: a food at the amount you actually buy it in. The food table
+     has one serving per row and your tub is 170 g, so every log of it was a
+     correction. Saved here it is one tap, at your weight, forever. */
+  function myStore() { return stored('lk_myFoods', []) || []; }
+  function saveToStore(key, grams, name) {
+    var f = FOODS[key];
+    if (!f) return false;
+    var list = myStore().slice();
+    if (list.some(function (x) { return x.key === key && x.g === grams; })) return false;
+    list.push({ id: 'mf_' + Date.now(), key: key, g: grams,
+                name: name || (f.name + ', ' + n(grams) + ' g') });
+    if (ST && persisting()) ST.set('lk_myFoods', list);
+    return true;
+  }
+  function dropFromStore(id) {
+    var list = myStore().filter(function (x) { return x.id !== id; });
+    if (ST && persisting()) ST.set('lk_myFoods', list);
+  }
+  function storeMeal(entry) {
+    var f = FOODS[entry.key];
+    if (!f) return null;
+    var k = entry.g / f.g;
+    var meal = { key: entry.key, icon: f.icon, name: entry.name,
+                 kcal: Math.round(f.kcal * k), pro: Math.round(f.pro * k * 10) / 10,
+                 carb: Math.round(f.carb * k * 10) / 10, fat: Math.round(f.fat * k * 10) / 10,
+                 src: 'table', slot: S.logSlot || slotForNow() };
+    MICROS.forEach(function (mi) {
+      if (typeof f[mi.key] === 'number') meal[mi.key] = Math.round(f[mi.key] * k * 10) / 10;
+    });
+    return meal;
   }
 
   function savePlan() {
@@ -2134,20 +2190,57 @@
             '<p class="t-detail">One tap logs it again with the same portion. This is what makes the ' +
               'second week faster than the first.</p>' +
             '<div class="card card--flush mt-3">' + OFTEN.map(function (r, i) {
-              return '<button class="row" type="button" data-action="log-often" data-i="' + i +
-                '" data-testid="often-' + i + '">' +
-                '<span class="fuel-thumb" aria-hidden="true">' + r.icon + '</span>' +
-                '<span class="row__main stack">' +
-                  '<span class="row__title">' + esc(r.name) + '</span>' +
-                  '<span class="row__sub num">logged ' + r.n + ' times</span>' +
-                '</span>' +
-                '<span class="row__value num">' + n(r.kcal) +
-                  '<small class="t-caption-2 quiet"> kcal</small></span>' +
-                /* A plus, not a chevron. A chevron says "this opens something
-                   to look at"; this row commits the meal on the tap, which is
-                   the whole point of the sheet. */
-                '<span class="row__chev">' + ICO.plus + '</span></button>';
+              /* Two controls: the row logs, the star keeps. A long press
+                 would hide the second one behind a gesture nothing on the
+                 screen announces. */
+              return '<div class="row row--withaside">' +
+                '<button class="row__main row__main--btn" type="button" data-action="log-often" data-i="' + i +
+                  '" data-testid="often-' + i + '">' +
+                  '<span class="fuel-thumb" aria-hidden="true">' + r.icon + '</span>' +
+                  '<span class="row__main stack">' +
+                    '<span class="row__title">' + esc(r.name) + '</span>' +
+                    '<span class="row__sub num">logged ' + r.n + ' times</span>' +
+                  '</span>' +
+                  '<span class="row__value num">' + n(r.kcal) +
+                    '<small class="t-caption-2 quiet"> kcal</small></span>' +
+                  /* A plus, not a chevron. A chevron says "this opens something
+                     to look at"; this row commits the meal on the tap, which is
+                     the whole point of the sheet. */
+                  '<span class="row__chev">' + ICO.plus + '</span>' +
+                '</button>' +
+                '<button class="iconbtn" type="button" data-action="fav" data-k="' + r.key + '" ' +
+                  'aria-pressed="' + isFav(r.key) + '" aria-label="' +
+                  (isFav(r.key) ? 'Stop keeping ' : 'Keep ') + esc(r.name) + '" ' +
+                  'data-testid="fav-' + i + '">' + (isFav(r.key) ? ICO.starOn : ICO.star) + '</button>' +
+              '</div>';
             }).join('') + '</div>' +
+            (myStore().length
+              ? '<h3 class="t-label mt-5">Your store</h3>' +
+                '<p class="t-detail quiet mt-1">Foods at the amount you actually buy them in.</p>' +
+                '<div class="card card--flush mt-2" data-testid="my-store">' +
+                  myStore().map(function (x, i) {
+                    var m = storeMeal(x);
+                    return '<div class="row row--withaside">' +
+                      '<button class="row__main row__main--btn" type="button" data-action="store-log" ' +
+                        'data-id="' + x.id + '" data-testid="store-log-' + i + '">' +
+                        '<span class="fuel-thumb" aria-hidden="true">' + (FOODS[x.key] || {}).icon + '</span>' +
+                        '<span class="row__main stack">' +
+                          '<span class="row__title">' + esc(x.name) + '</span>' +
+                          '<span class="row__sub num">' + n(x.g) + ' g \u00b7 ' +
+                            (m ? n(m.pro) + ' P \u00b7 ' + n(m.carb) + ' C \u00b7 ' + n(m.fat) + ' F' : '') +
+                          '</span>' +
+                        '</span>' +
+                        '<span class="row__value num">' + (m ? n(m.kcal) : '\u2014') +
+                          '<small class="t-caption-2 quiet"> kcal</small></span>' +
+                        '<span class="row__chev">' + ICO.plus + '</span>' +
+                      '</button>' +
+                      '<button class="iconbtn" type="button" data-action="store-drop" data-id="' + x.id + '" ' +
+                        'aria-label="Remove ' + esc(x.name) + ' from your store" ' +
+                        'data-testid="store-drop-' + i + '">' +
+                        '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
+                    '</div>';
+                  }).join('') + '</div>'
+              : '') +
           '</div>' +
         '</div>';
     }
@@ -2563,6 +2656,9 @@
                 'Everything above is that, times ' + (Math.round(k100 * 100) / 100) + '.</p>' +
             '</div>' +
             slotPicker(slotNow, 'pick-slot', 'fd-slot') +
+            '<button class="btn btn--secondary btn--block mt-4" type="button" data-action="fd-keep" ' +
+              'data-k="' + fk + '" data-g="' + grams + '" data-testid="fd-keep">' +
+              '<span class="btn__label">Keep ' + n(grams) + ' g in your store</span></button>' +
           '</div>' +
           '<div class="sheet__foot">' +
             '<button class="btn btn--primary btn--block" type="button" data-action="fd-log" ' +
@@ -3305,6 +3401,42 @@
                 src: 'plan', slot: ps.slot || null });
       render();
       say(ps.name + ' logged, ' + ps.kcal + ' kcal.');
+      return;
+    }
+    if (a === 'fav') {
+      var fk2 = act.getAttribute('data-k');
+      var on = toggleFav(fk2);
+      OFTEN = frequent();
+      render();
+      say(esc((FOODS[fk2] || {}).name || 'It') + (on ? ' kept.' : ' no longer kept.'));
+      return;
+    }
+    if (a === 'fd-keep') {
+      var kk = act.getAttribute('data-k');
+      var kg = +act.getAttribute('data-g');
+      var gEl2 = document.getElementById('fd-g');
+      if (gEl2) { var gv3 = parseInt(gEl2.value, 10); if (!isNaN(gv3)) kg = gv3; }
+      var ok = saveToStore(kk, kg);
+      render();
+      say(ok ? esc(FOODS[kk].name) + ' at ' + n(kg) + ' g is in your store.'
+             : 'That amount is already in your store.');
+      return;
+    }
+    if (a === 'store-log') {
+      var se = null;
+      myStore().forEach(function (x) { if (x.id === act.getAttribute('data-id')) se = x; });
+      var sm = se && storeMeal(se);
+      if (!sm) return;
+      addMeal(sm);
+      S.sheet = null;
+      render();
+      say(esc(sm.name) + ' logged, ' + n(sm.kcal) + ' kcal.');
+      return;
+    }
+    if (a === 'store-drop') {
+      dropFromStore(act.getAttribute('data-id'));
+      render();
+      say('Removed from your store.');
       return;
     }
     if (a === 'recipe-tab') { S.recipeTab = act.getAttribute('data-v'); render(); return; }
