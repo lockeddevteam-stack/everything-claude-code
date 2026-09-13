@@ -1991,6 +1991,7 @@
             view: null,
             /* The camera sheet's one question. null until it is answered. */
             camOil: null, toast: null, undo: null, targetError: null, searchQ: '',
+            remote: null, remoteQ: '', remoteBusy: false,
             /* Which recipe is open inside the recipes sheet. The list and the
                detail are one sheet with two faces rather than two sheets, so
                Back returns to the list without closing and losing the place. */
@@ -2240,11 +2241,64 @@
     return sc;
   }
 
+  /* WHAT THE SERVER FOUND, ALONGSIDE WHAT THIS DEVICE KNOWS. The local
+     table is a few dozen foods; a person eats things that are not in it.
+     Remote rows are appended rather than merged in by score, so the
+     foods somebody keeps and their own recipes stay at the top -- the
+     thing they logged yesterday should not be pushed under a brand.
+
+     A name already in the local set is dropped from the remote one: two
+     rows reading "Chicken breast" with different numbers is worse than
+     either row on its own. */
+  function remoteHits(q) {
+    if (!q || !S.remote || S.remoteQ !== q) return [];
+    var seen = {};
+    searchable().forEach(function (f) { seen[String(f.name).toLowerCase()] = 1; });
+    return S.remote.filter(function (f) {
+      var k = String(f.name).toLowerCase();
+      if (seen[k]) return false;
+      seen[k] = 1;
+      return true;
+    }).map(function (f) {
+      var c = {};
+      Object.keys(f).forEach(function (k) { c[k] = f[k]; });
+      c.icon = c.icon || '\u{1F37D}\u{FE0F}';
+      return c;
+    });
+  }
+
   function searchHits(q) {
-    return searchable().map(function (f) { return { f: f, s: rank(f, q) }; })
+    var local = searchable().map(function (f) { return { f: f, s: rank(f, q) }; })
       .filter(function (e) { return e.s >= 0; })
       .sort(function (a, b) { return b.s - a.s || (a.f.name < b.f.name ? -1 : 1); })
       .map(function (e, i) { e.f.best = i === 0 && !!q; return e.f; });
+    return local.concat(remoteHits(q));
+  }
+
+  /* Asked for once per pause in the typing, not once per keystroke. The
+     answer is kept against the query it answered, so a slow reply for
+     "chi" never paints itself under "chicken". */
+  var remoteT = null;
+  function askServer(q) {
+    if (!(window.LKCloud && LKCloud.ready() && LKCloud.foodSearch)) return;
+    var term = String(q || '').trim();
+    clearTimeout(remoteT);
+    if (term.length < 2) { S.remote = null; S.remoteQ = ''; S.remoteBusy = false; return; }
+    if (S.remoteQ === term.toLowerCase()) return;
+    S.remoteBusy = true;
+    remoteT = setTimeout(function () {
+      LKCloud.foodSearch(term).then(function (r) {
+        S.remoteBusy = false;
+        if (!r || !r.ok) { S.remote = null; return; }
+        S.remote = r.data;
+        S.remoteQ = term.toLowerCase();
+        if (S.sheet === 'search') {
+          render();
+          var f2 = document.getElementById('fs-q');
+          if (f2) { f2.focus(); try { f2.setSelectionRange(f2.value.length, f2.value.length); } catch (e) {} }
+        }
+      });
+    }, 320);
   }
 
   /* ---------------------------------------------------------------
@@ -3794,11 +3848,18 @@
               'placeholder="Chicken, oats, skyr\u2026" aria-label="Search foods" ' +
               'data-testid="search-input" value="' + esc(S.searchQ || '') + '">' +
             slotPicker(S.logSlot || slotForNow(), 'pick-slot', 'search-slot') +
+            /* This line used to end "nothing here is coming off the
+               network", which was true of a build with no server and is a
+               lie in one that has it. It now says which of the two it is. */
             '<p class="t-detail quiet mt-2" data-testid="search-scope">' + hits.length +
               (hits.length === 1 ? ' food' : ' foods') + ' across this build\u2019s table, your own ' +
-              'recipes and the foods you have kept. A real search also reaches USDA, FatSecret ' +
-              'and Open Food Facts, which needs a server this build does not have: nothing here ' +
-              'is coming off the network.</p>' +
+              'recipes and the foods you have kept' +
+              (window.LKCloud && LKCloud.ready()
+                ? ', and the food database. Rows from the database say where they came from.' +
+                  (S.remoteBusy ? ' Still looking.' : '')
+                : '. A wider search reaches a food database, which needs a server this build ' +
+                  'does not have: nothing here is coming off the network.') +
+            '</p>' +
             (hits.length
               ? '<div class="card card--flush mt-3">' + hits.map(function (f, i) {
                   /* The row logs the standard serving, which is the common
@@ -6405,6 +6466,7 @@
   document.addEventListener('input', function (e) {
     if (e.target.id === 'fs-q') {
       S.searchQ = e.target.value;
+      askServer(S.searchQ);
       render();
       /* Re-render replaces the field, so the caret has to be put back where
          the typist left it or every keystroke jumps to the start. */

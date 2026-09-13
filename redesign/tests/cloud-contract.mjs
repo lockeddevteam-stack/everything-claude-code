@@ -90,6 +90,14 @@ const server = http.createServer(async (req, res) => {
     if (!signedIn) return send(200, []);
     return send(200, profile ? [profile] : []);
   }
+  if (url.pathname === '/food-search') {
+    /* The Worker answers per 100 g, with brand and type alongside. */
+    return send(200, { items: [
+      { name: 'Chicken breast, raw', brand: 'Generic', type: 'Generic', cal: 165, pro: 31, carb: 0, fat: 3.6 },
+      { name: 'Chicken Tikka', brand: 'A Brand', type: 'Brand', cal: 189, pro: 18.2, carb: 4.4, fat: 11 },
+      { name: 'Nothing useful', brand: '', type: 'Generic', cal: 0, pro: 0, carb: 0, fat: 0 }
+    ] });
+  }
   if (url.pathname === '/') {
     if (coachGated) {
       return send(200, { content: [{ type: 'text', text: "You've used your 10 daily AI chats. Upgrade to Pro for unlimited coaching." }],
@@ -294,6 +302,26 @@ r = await C.ask([{ role: 'user', content: 'recipe' }]);
 const rec = CA.check(r.data.actions[0]);
 ok(rec.ok === false || !('kcal' in (rec.action || {})) || rec.action.kcal !== 4,
    'a total the model stated is never the total that gets stored');
+
+/* ---- 9b. food, from beyond this device ------------------------------ */
+let fr = await C.foodSearch('chicken');
+ok(fr.ok && fr.data.length === 2,
+   'the food database answers, and a row with no calories is dropped',
+   JSON.stringify(fr.data.map(function (x) { return x.name; })));
+ok(fr.data[0].kcal === 165 && fr.data[0].pro === 31 && fr.data[0].g === 100,
+   'the numbers come across per 100 g, unchanged', JSON.stringify(fr.data[0]));
+ok(fr.data[1].from === 'A Brand', 'a row says where it came from', fr.data[1].from);
+ok(fr.data.every(function (x) { return x.src === 'table'; }),
+   'a looked-up food is marked as looked up, never as an estimate');
+
+fr = await C.foodSearch('a');
+ok(fr.ok && fr.data.length === 0, 'one letter is not a search');
+
+global.window.LK_CLOUD = { supabaseUrl: BASE, supabaseKey: 'anon-key' };
+fr = await C.foodSearch('chicken');
+ok(!fr.ok && fr.error === 'not_configured',
+   'with no server it refuses rather than returning an empty shelf', fr.message);
+global.window.LK_CLOUD = { supabaseUrl: BASE, supabaseKey: 'anon-key', apiUrl: BASE };
 
 /* ---- 10. signing out ------------------------------------------------- */
 await C.signOut();

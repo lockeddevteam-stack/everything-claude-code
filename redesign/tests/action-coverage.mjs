@@ -125,6 +125,11 @@ for (const file of screens) {
                      !e.disabled && e.getAttribute('aria-disabled') !== 'true' &&
                      e.getAttribute('aria-selected') !== 'true' &&
                      e.getAttribute('aria-pressed') !== 'true' &&
+                     /* A radio segment marks itself with aria-checked, not
+                        aria-selected, and pressing the one already chosen is
+                        correctly close to a no-op -- so this audit read every
+                        segmented control's action as dead. */
+                     e.getAttribute('aria-checked') !== 'true' &&
                      e.getAttribute('aria-current') !== 'page' &&
                      e.getBoundingClientRect().width > 6);
         if (!el) return false;

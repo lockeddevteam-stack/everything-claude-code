@@ -412,6 +412,47 @@
       });
     },
 
+    /* ---- food, from more than this build's own table ---------------
+       The screen's table is a few dozen foods. A person eats things that
+       are not in it, and until there was a server the honest answer was
+       to say so. There is one now, so the search reaches it and the
+       results say where they came from -- a looked-up food and a guess
+       must never be drawn the same way. */
+    foodSearch: function (q) {
+      var c = cfg();
+      if (!c || !c.apiUrl) {
+        return Promise.resolve({ ok: false, error: 'not_configured',
+          message: 'Food search beyond this device needs a server.' });
+      }
+      var term = String(q || '').trim();
+      if (term.length < 2) return Promise.resolve({ ok: true, data: [] });
+      var url = c.apiUrl.replace(/\/$/, '') + '/food-search?src=fatsecret&q=' + encodeURIComponent(term);
+      return fetch(url, { headers: headers() })
+        .then(function (r) { return r.ok ? r.json() : { items: [] }; }, fail)
+        .then(function (j) {
+          var items = (j && j.items) || [];
+          if (!Array.isArray(items)) return { ok: true, data: [] };
+          /* Normalised to the shape the food table already uses, per 100 g,
+             which is what the endpoint returns. Nothing is invented: a row
+             with no calories is dropped rather than shown as zero. */
+          return { ok: true, data: items.map(function (it) {
+            var kcal = Math.round(Number(it.cal) || 0);
+            if (!kcal) return null;
+            return {
+              name: String(it.name || '').slice(0, 80),
+              kcal: kcal,
+              pro: Math.round((Number(it.pro) || 0) * 10) / 10,
+              carb: Math.round((Number(it.carb) || 0) * 10) / 10,
+              fat: Math.round((Number(it.fat) || 0) * 10) / 10,
+              g: 100,
+              brand: String(it.brand || '').slice(0, 40),
+              from: it.brand ? String(it.brand).slice(0, 40) : 'Food database',
+              src: 'table'
+            };
+          }).filter(Boolean) };
+        }, function () { return { ok: true, data: [] }; });
+    },
+
     /* Delete the account and everything under it. The row cascade is on
        the server; this is here so there is one name for it. */
     deleteAccount: function () {
