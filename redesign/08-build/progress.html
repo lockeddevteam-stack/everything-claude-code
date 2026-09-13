@@ -746,6 +746,21 @@
             '<span class="row__value">' + kg(w[1]) + '</span>' +
             '<span class="row__chev">' + ICO.chev + '</span>' +
           '</button>' +
+          /* The body-fat log. lk_bfLog ships in the seed with two readings
+             and nothing in the build read it, so the one number a body-fat
+             goal is measured against could not be seen or added. */
+          '<button class="row" data-action="open-bf" data-testid="row-body-fat">' +
+            '<span class="ico-well">' + ICO.scale + '</span>' +
+            '<span class="row__main stack">' +
+              '<span class="row__title">Body fat</span>' +
+              '<span class="row__sub">' + (BF.length
+                ? n(BF.length) + (BF.length === 1 ? ' reading since ' : ' readings since ') +
+                  dayLabel(BF[BF.length - 1].date) + ' \u00b7 ' + bfMethodLabel(BF[0].method)
+                : 'Nothing logged') + '</span>' +
+            '</span>' +
+            '<span class="row__value">' + (BF.length ? num1(BF[0].pct) + '%' : '\u2014') + '</span>' +
+            '<span class="row__chev">' + ICO.chev + '</span>' +
+          '</button>' +
           '<button class="row" data-action="open-photos" data-testid="row-photos">' +
             '<span class="ico-well">' + ICO.cam + '</span>' +
             '<span class="row__main stack">' +
@@ -911,21 +926,71 @@
           }).join('') +
         '</div>' +
         '<div class="sheet__foot">' +
-          (S.goalForm
-            ? '<label class="t-label field__label" for="gl-name">What</label>' +
-              '<input class="input" id="gl-name" type="text" placeholder="e.g. Deadlift 140 kg for 3" ' +
-                'data-testid="gl-name">' +
-              '<label class="t-label field__label mt-3" for="gl-by">By</label>' +
-              '<input class="input" id="gl-by" type="text" placeholder="e.g. Dec 1, or Ongoing" ' +
-                'data-testid="gl-by">' +
-              (S.goalError ? '<p class="field__error" role="alert" data-testid="gl-error">' +
-                esc(S.goalError) + '</p>' : '') +
-              '<button class="btn btn--primary btn--block mt-3" data-action="save-goal" data-testid="goals-save">' +
-                '<span class="btn__label">Add it</span></button>'
+          (S.goalForm ? goalForm()
             : '<button class="btn btn--secondary btn--block" data-action="add-goal" data-testid="goals-add">' +
                 '<span class="btn__label">Add a goal</span></button>') +
         '</div>' +
       '</div>';
+  }
+
+  /* The type comes first because it decides what the rest of the form asks
+     for AND what number will measure the goal afterwards. A form that takes
+     a sentence and a date can only ever produce a bar that does not move. */
+  var GOAL_TYPES = [
+    ['weight', 'Body weight'], ['bodyfat', 'Body fat'],
+    ['lift', 'A lift'], ['custom', 'Something else']
+  ];
+  function liftOptions() {
+    return LIFTS.map(function (l) {
+      return '<option value="' + l.id + '">' + l.name + '</option>';
+    }).join('');
+  }
+  function goalForm() {
+    var type = S.goalType || 'weight';
+    var nowv = goalNow({ type: type, exId: Number((document.getElementById('gl-lift') || {}).value || 0) });
+    var unit = type === 'bodyfat' ? '%' : 'kg';
+    var out = '<div class="seg seg--lg" role="radiogroup" aria-label="What kind of goal" ' +
+        'data-testid="gl-type">' +
+      GOAL_TYPES.map(function (t) {
+        return '<button class="seg__item" type="button" role="radio" ' +
+          'aria-checked="' + (type === t[0]) + '" data-action="goal-type" data-v="' + t[0] + '" ' +
+          'data-testid="gl-type-' + t[0] + '">' + t[1] + '</button>';
+      }).join('') + '</div>';
+
+    if (type === 'lift') {
+      out += '<label class="t-label field__label mt-3" for="gl-lift">Which lift</label>' +
+        '<select class="input" id="gl-lift" data-testid="gl-lift">' +
+          liftOptions() + '</select>';
+    }
+    out += '<label class="t-label field__label mt-3" for="gl-name">What to call it</label>' +
+      '<input class="input" id="gl-name" type="text" ' +
+        'placeholder="' + (type === 'lift' ? 'Left blank, the lift names it' : 'e.g. Back to 62 kg') + '" ' +
+        'data-testid="gl-name">';
+    if (type !== 'custom') {
+      out += '<div class="hstack hstack--3 mt-3">' +
+          '<div class="grow"><label class="t-label field__label" for="gl-start">From</label>' +
+            '<input class="input num" id="gl-start" type="number" step="0.1" inputmode="decimal" ' +
+              'placeholder="' + (nowv === null || nowv === undefined ? 'now' : num1(nowv)) + '" ' +
+              'data-testid="gl-start"></div>' +
+          '<div class="grow"><label class="t-label field__label" for="gl-target">To</label>' +
+            '<input class="input num" id="gl-target" type="number" step="0.1" inputmode="decimal" ' +
+              'data-testid="gl-target"></div>' +
+        '</div>' +
+        '<p class="t-caption-1 quiet mt-1">' + unit + '. Left blank, From is where you are now' +
+          (nowv === null || nowv === undefined ? ', and nothing is logged yet.' : ': ' + num1(nowv) + ' ' + unit + '.') +
+        '</p>';
+    } else {
+      out += '<p class="t-caption-1 quiet mt-1">Nothing measures this one, so it carries no ' +
+        'percentage. It is a note with a date on it.</p>';
+    }
+    out += '<label class="t-label field__label mt-3" for="gl-date">By when</label>' +
+      '<input class="input" id="gl-date" type="date" min="' + TODAY + '" data-testid="gl-date">' +
+      '<p class="t-caption-1 quiet mt-1">Optional. No date means no deadline, not a failed goal.</p>' +
+      (S.goalError ? '<p class="field__error mt-2" role="alert" data-testid="gl-error">' +
+        esc(S.goalError) + '</p>' : '') +
+      '<button class="btn btn--primary btn--block mt-3" data-action="save-goal" data-testid="goals-save">' +
+        '<span class="btn__label">Add it</span></button>';
+    return out;
   }
 
   /* A record set outside a logged session. It happens, and refusing to
@@ -943,7 +1008,7 @@
             'and your charts; it does not create a session.</p>' +
           '<label class="t-label field__label mt-4" for="rec-lift">Lift</label>' +
           '<select class="input" id="rec-lift" data-testid="rec-lift">' +
-            LIFTS.map(function (l) { return '<option value="' + l.id + '">' + l.name + '</option>'; }).join('') +
+            liftOptions() +
           '</select>' +
           '<div class="hstack hstack--3 mt-3">' +
             '<div class="field grow"><label class="t-label field__label" for="rec-kg">Weight, kg</label>' +
@@ -967,6 +1032,7 @@
     if (S.sheet === 'weight') return weightSheet();
     if (S.sheet === 'goals') return goalsSheet();
     if (S.sheet === 'record') return recordSheet();
+    if (S.sheet === 'bf') return bfSheet();
     if (S.sheet === 'photos') return photosSheet();
     if (S.sheet === 'photo') return photoSheet();
     if (S.sheet === 'analyse-consent') return consentSheet();
@@ -1090,9 +1156,109 @@
     return '<button class="ph" type="button" data-action="open-photo" data-i="' + i +
         '" data-testid="photo-' + i + '" aria-label="' + esc(dayLabel(ph.date)) +
         (ph.note ? ', ' + esc(ph.note) : '') + '">' +
-      '<span class="ph__img" style="background:' + tone + '" aria-hidden="true"></span>' +
+      '<span class="ph__img" style="' + (ph.thumb
+        ? 'background-image:url(' + ph.thumb + ');background-size:cover;background-position:center'
+        : 'background:' + tone) + '" aria-hidden="true"></span>' +
       '<span class="ph__cap">' + esc(dayLabel(ph.date)) + '</span>' +
     '</button>';
+  }
+
+  /* Every reading, with the method beside it, because a caliper number and a
+     DEXA number are not the same measurement and a chart that mixes them
+     without saying so is a chart of two things. */
+  function bfSheet() {
+    var rows = BF.map(function (r, i) {
+      return '<div class="row row--withaside" data-testid="bf-row-' + i + '">' +
+        '<span class="row__main stack">' +
+          '<span class="row__title">' + num1(r.pct) + '%</span>' +
+          '<span class="row__sub">' + dayLabel(r.date) + ' \u00b7 ' + esc(bfMethodLabel(r.method)) + '</span>' +
+        '</span>' +
+        '<button class="iconbtn" type="button" data-action="del-bf" data-i="' + i + '" ' +
+          'aria-label="Remove the ' + esc(dayLabel(r.date)) + ' reading" ' +
+          'data-testid="bf-del-' + i + '">' + ICO.close + '</button>' +
+      '</div>';
+    }).join('');
+    return sheet('bf', 'Body fat', '0.55 0.9',
+      (BF.length
+        ? '<p class="t-detail">' + n(BF.length) + (BF.length === 1 ? ' reading' : ' readings') +
+            ', newest first. A goal set on body fat is measured against the top one.</p>' +
+          '<div class="card card--flush mt-3">' + rows + '</div>'
+        : '<p class="t-body">Nothing logged yet.</p>' +
+          '<p class="t-detail muted mt-1">Any method works as long as you keep using the same one. ' +
+            'The direction is the reading; the absolute number is not.</p>') +
+      '<h3 class="t-label mt-5">Add one</h3>' +
+      '<div class="hstack hstack--3 mt-2">' +
+        '<div class="grow"><label class="t-label field__label" for="bf-pct">Per cent</label>' +
+          '<input class="input num" id="bf-pct" type="number" min="1" max="70" step="0.1" ' +
+            'inputmode="decimal" data-testid="bf-pct"></div>' +
+        '<div class="grow"><label class="t-label field__label" for="bf-method">How</label>' +
+          '<select class="input" id="bf-method" data-testid="bf-method">' +
+            BF_METHODS.map(function (m) {
+              return '<option value="' + m[0] + '">' + m[1] + '</option>';
+            }).join('') + '</select></div>' +
+      '</div>' +
+      (S.bfError ? '<p class="field__error mt-2" role="alert" data-testid="bf-error">' +
+        esc(S.bfError) + '</p>' : '') +
+      '<button class="btn btn--primary btn--block mt-3" type="button" data-action="save-bf" ' +
+        'data-testid="bf-save"><span class="btn__label">Log it</span></button>');
+  }
+
+  /* Downscaled to 480px on the long edge and re-encoded as JPEG. A phone
+     photo is three to six megabytes; localStorage is five, so storing the
+     original would fill it with one picture and throw on the second. */
+  function addPhotoFile(file) {
+    if (!file) return;
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function () {
+      var max = 480;
+      var w = img.width, h = img.height;
+      var k = Math.min(1, max / Math.max(w, h));
+      var c = document.createElement('canvas');
+      c.width = Math.round(w * k); c.height = Math.round(h * k);
+      try {
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        var thumb = c.toDataURL('image/jpeg', 0.72);
+        var iso = todayISO();
+        PHOTOS.unshift({ date: iso, note: '', thumb: thumb, tone: PHOTOS.length % 4 });
+        savePhotos();
+        S.toast = 'Photo added for ' + dayLabel(iso) + '.';
+      } catch (e) {
+        /* A tainted canvas or a quota refusal. Said, not swallowed: a photo
+           the person believes was saved and was not is worse than a failure
+           they can see. */
+        S.toast = 'That photo could not be saved on this device.';
+      }
+      try { URL.revokeObjectURL(url); } catch (e) {}
+      render();
+    };
+    img.onerror = function () {
+      try { URL.revokeObjectURL(url); } catch (e) {}
+      S.toast = 'That file is not an image this browser can read.';
+      render();
+    };
+    img.src = url;
+  }
+
+  document.addEventListener('change', function (e) {
+    if (e.target.id === 'ph-take' || e.target.id === 'ph-pick') {
+      addPhotoFile(e.target.files && e.target.files[0]);
+    }
+  });
+
+  function logBF() {
+    var el = document.getElementById('bf-pct');
+    var v = el ? parseFloat(el.value) : NaN;
+    if (isNaN(v) || v < 1 || v > 70) { S.bfError = 'A percentage between 1 and 70.'; render(); focusIn('bf-pct'); return; }
+    var m = (document.getElementById('bf-method') || {}).value || 'manual';
+    var iso = todayISO();
+    /* One a day, the same rule the weigh-in follows. */
+    if (BF.length && BF[0].date === iso) { BF[0].pct = v; BF[0].method = m; }
+    else BF.unshift({ date: iso, pct: v, method: m });
+    saveBF();
+    S.bfError = null;
+    S.toast = num1(v) + '% logged.';
+    render();
   }
 
   function photosSheet() {
@@ -1116,8 +1282,24 @@
             ', stored on this device.</p>' + body
         : '<p class="t-body">No photos yet.</p>' +
           '<p class="t-detail muted mt-1">A photo every few weeks shows what the scale does not.</p>') +
-      '<button class="btn btn--primary btn--block mt-4" type="button" data-action="add-photo" ' +
-        'data-testid="add-photo"><span class="btn__label">Add a photo</span></button>');
+      /* Real inputs. "Add a photo" toasted, so there was no way to add one
+         at all -- on the screen whose whole point is a picture every few
+         weeks. The camera one opens the camera on a phone; the other opens
+         the library. What is stored is a downscaled JPEG, never the
+         full-resolution original, because the grid and the lightbox are all
+         that is ever drawn from it and a phone photo would fill localStorage
+         in a fortnight. */
+      '<div class="hstack hstack--3 mt-4">' +
+        '<label class="btn btn--primary grow" for="ph-take">' +
+          '<span class="btn__label">Take one</span></label>' +
+        '<input class="vis-hidden" id="ph-take" type="file" accept="image/*" capture="environment" ' +
+          'data-testid="add-photo">' +
+        '<label class="btn btn--secondary grow" for="ph-pick">' +
+          '<span class="btn__label">From the library</span></label>' +
+        '<input class="vis-hidden" id="ph-pick" type="file" accept="image/*" data-testid="pick-photo">' +
+      '</div>' +
+      '<p class="t-caption-1 muted mt-2">Downscaled and kept on this device. Nothing is uploaded, ' +
+        'and there is no server behind this screen to upload it to.</p>');
   }
 
   function photoSheet() {
@@ -1207,8 +1389,6 @@
       openSheet('photos');
     } else if (a === 'open-photo') {
       S.photoIdx = +t.getAttribute('data-i'); S.confirmDel = false; openSheet('photo');
-    } else if (a === 'add-photo') {
-      S.toast = 'Taking a photo needs a camera, which this build does not have.'; render();
     } else if (a === 'analyse') {
       openSheet('analyse-consent');
     } else if (a === 'analyse-no') {
@@ -1223,8 +1403,20 @@
     } else if (a === 'del-photo') {
       if (!S.confirmDel) { S.confirmDel = true; render(); return; }
       var gonePh = PHOTOS.splice(S.photoIdx, 1)[0];
+      savePhotos();
       S.photoIdx = null; S.confirmDel = false; S.sheet = 'photos'; render();
       S.toast = dayLabel(gonePh.date) + ' deleted.'; render();
+    } else if (a === 'open-bf') {
+      openSheet('bf');
+    } else if (a === 'save-bf') {
+      logBF(); return;
+    } else if (a === 'del-bf') {
+      var goneBf = BF.splice(+t.getAttribute('data-i'), 1)[0];
+      saveBF(); render();
+      if (goneBf) { S.toast = dayLabel(goneBf.date) + ' removed.'; render(); }
+      return;
+    } else if (a === 'goal-type') {
+      S.goalType = t.getAttribute('data-v'); S.goalError = null; render(); return;
     } else if (a === 'open-goals') {
       openSheet('goals');
     } else if (a === 'log-record') {
@@ -1232,7 +1424,8 @@
     } else if (a === 'log-weight') {
       logWeight();
     } else if (a === 'add-goal') {
-      S.goalForm = true; S.goalError = null; render(); focusIn('gl-name');
+      S.goalForm = true; S.goalError = null; S.goalType = S.goalType || 'weight';
+      render(); focusIn('gl-name');
     } else if (a === 'save-goal') {
       saveGoal();
     } else if (a === 'save-record') {
@@ -1278,6 +1471,7 @@
        segment in the trend. */
     if (last && last[0] === iso) last[1] = v;
     else WEIGHT_LOG.push([iso, v]);
+    saveWeight();
     S.weightError = null;
     S.sheet = false;
     S.toast = num1(v) + ' kg logged for today.';
@@ -1285,16 +1479,54 @@
     refocus('row-body-weight');
   }
 
+  /* The form writes the shape the screen READS. It used to push
+     `{name, by, now: 'Not started'}` -- three keys, none of which goalPct,
+     goalNow, goalBy, activeGoals or nextGoalDue look at -- so every goal
+     added by hand sat at 0% forever under a bar that could never move, and
+     the whole measured-goal machinery above only ever ran on the seed.
+
+     A goal is a type, a start, a target and a date. The type is what says
+     which number watches it: a weight goal reads the weigh-in log, a body-fat
+     goal reads the body-fat log, a lift goal reads your records. `custom` is
+     kept for the things nothing measures, and it says "You decide" rather
+     than printing a percentage it cannot compute. */
   function saveGoal() {
-    var name = (document.getElementById('gl-name') || {}).value || '';
-    var by = (document.getElementById('gl-by') || {}).value || '';
-    name = name.trim(); by = by.trim();
+    var val = function (id) { var e = document.getElementById(id); return e ? e.value : ''; };
+    var type = S.goalType || 'weight';
+    var name = String(val('gl-name')).trim();
+    var target = parseFloat(val('gl-target'));
+    var start = parseFloat(val('gl-start'));
+    var date = String(val('gl-date')).trim();
+    var exId = type === 'lift' ? Number(val('gl-lift')) : null;
+
+    if (type === 'lift' && !name) {
+      var lf = liftById(exId);
+      name = lf ? lf.name + ' to ' + num1(target || 0) + ' kg' : '';
+    }
     if (!name) { S.goalError = 'What are you aiming at?'; render(); focusIn('gl-name'); return; }
-    if (!by) { S.goalError = 'By when? "Ongoing" counts.'; render(); focusIn('gl-by'); return; }
-    /* pct 0 and "Not started": a goal added by hand has no measurement
-       behind it yet, and inventing a percentage would be inventing data. */
-    GOALS.push({ name: name, by: by, now: 'Not started' });
-    S.goalForm = false; S.goalError = null;
+    if (type !== 'custom') {
+      if (isNaN(target)) { S.goalError = 'What number are you aiming for?'; render(); focusIn('gl-target'); return; }
+      /* The start defaults to where you are now, which is the honest zero
+         point: a bar measured from nothing is measured from nothing. */
+      if (isNaN(start)) {
+        var nowv = goalNow({ type: type, exId: exId });
+        if (nowv === null || nowv === undefined) {
+          S.goalError = 'Nothing is logged to start from. Log one first, or type a starting figure.';
+          render(); focusIn('gl-start'); return;
+        }
+        start = nowv;
+      }
+      if (start === target) { S.goalError = 'The start and the target are the same number.'; render(); focusIn('gl-target'); return; }
+    }
+    GOALS.push(normGoal({
+      type: type, name: name, exId: exId,
+      target: type === 'custom' ? null : target,
+      start: type === 'custom' ? null : start,
+      unit: type === 'bodyfat' ? '%' : type === 'custom' ? '' : 'kg',
+      targetDate: date, status: 'active', created: new Date().toISOString()
+    }));
+    saveGoals();
+    S.goalForm = false; S.goalError = null; S.goalType = null;
     S.toast = 'Goal added.';
     render();
   }
@@ -1309,6 +1541,7 @@
     if (isNaN(reps) || reps < 1) { S.recordError = 'At least one rep.'; render(); focusIn('rec-reps'); return; }
     var id = liftSel ? Number(liftSel.value) : 0;
     RECORDS.unshift({ id: id, reps: reps, kg: load, date: todayISO() });
+    saveRecords();
     S.recordError = null;
     S.sheet = false;
     var lift = liftById(id);
