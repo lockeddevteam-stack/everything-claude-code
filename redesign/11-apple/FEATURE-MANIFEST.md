@@ -221,7 +221,7 @@ The selectors every test and every audit script addresses.
 | `progress.html` | 86 |
 | `recap.html` | 25 |
 | `review.html` | 52 |
-| `settings.html` | 43 |
+| `settings.html` | 44 |
 | `shopping.html` | 127 |
 | `split-builder.html` | 70 |
 | `stack.html` | 42 |
@@ -253,17 +253,17 @@ five columns after them are.
 
 | Screen | Lines | Listeners | Actions | Buttons | Inputs | testids |
 |---|---|---|---|---|---|---|
-| `coach.html` | 2432 | 7 | 59 | 66 | 5 | 120 |
-| `cycle.html` | 2220 | 10 | 43 | 48 | 7 | 107 |
+| `coach.html` | 2456 | 7 | 59 | 66 | 5 | 120 |
+| `cycle.html` | 2237 | 11 | 43 | 48 | 7 | 107 |
 | `exercise-library.html` | 1799 | 7 | 25 | 32 | 6 | 54 |
 | `fuel.html` | 4955 | 5 | 99 | 134 | 27 | 255 |
 | `home.html` | 1322 | 4 | 5 | 25 | 0 | 38 |
 | `onboarding.html` | 1396 | 10 | 0 | 34 | 5 | 69 |
-| `profile.html` | 567 | 4 | 4 | 12 | 0 | 25 |
-| `progress.html` | 1800 | 9 | 25 | 37 | 14 | 86 |
+| `profile.html` | 586 | 4 | 4 | 12 | 0 | 25 |
+| `progress.html` | 1804 | 9 | 25 | 37 | 14 | 86 |
 | `recap.html` | 747 | 5 | 13 | 15 | 0 | 25 |
 | `review.html` | 1320 | 7 | 0 | 24 | 1 | 52 |
-| `settings.html` | 1797 | 7 | 20 | 29 | 5 | 43 |
+| `settings.html` | 1816 | 7 | 20 | 29 | 5 | 44 |
 | `shopping.html` | 2179 | 8 | 46 | 60 | 17 | 127 |
 | `split-builder.html` | 1437 | 13 | 28 | 36 | 4 | 70 |
 | `stack.html` | 962 | 7 | 24 | 30 | 3 | 42 |
@@ -276,7 +276,7 @@ five columns after them are.
 | `chrome.js` | 585 | 10 | 0 | 1 | 0 | 1 |
 | `fixtures.js` | 5233 | 0 | 0 | 0 | 0 | 0 |
 | `session.js` | 243 | 3 | 2 | 3 | 0 | 3 |
-| `store.js` | 239 | 1 | 0 | 0 | 0 | 0 |
+| `store.js` | 313 | 1 | 0 | 0 | 0 | 0 |
 | `theme.js` | 67 | 1 | 0 | 0 | 0 | 0 |
 | `units.js` | 117 | 1 | 0 | 0 | 0 | 0 |
-| **total** | **38560** | **153** | **500** | **724** | **113** | **1400** |
+| **total** | **38717** | **154** | **500** | **724** | **113** | **1401** |
