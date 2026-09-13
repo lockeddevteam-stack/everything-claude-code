@@ -257,6 +257,99 @@ ok(synced.seen && synced.track && synced.steps,
    'what somebody learned follows them to a new device', JSON.stringify(synced));
 ok(!synced.session, 'the credential does not', JSON.stringify(synced));
 
+/* ---- 5. the layer itself: motion, theme, contrast, targets ---------
+   The eighteen screens are audited for all of this and the layer above
+   them was not audited for any of it, which is how an overlay ends up
+   being the one unreadable thing in a build that is otherwise careful. */
+const AXE = fs.readFileSync(path.join(ROOT, 'tests/node_modules/axe-core/axe.min.js'), 'utf8');
+
+for (const [mode, reduce] of [['normal', false], ['reduced motion', true]]) {
+  const c2 = await browser.newContext({
+    viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true,
+    reducedMotion: reduce ? 'reduce' : 'no-preference'
+  });
+  const p2 = await c2.newPage();
+  const errs2 = [];
+  p2.on('pageerror', (e) => errs2.push(String(e)));
+  await p2.goto(DEMO);
+  await p2.waitForFunction(() => window.DEMO && window.LKTutor);
+  await p2.evaluate(() => {
+    localStorage.setItem('lk_onboarded', 'true');
+    localStorage.setItem('lk_tutorialSeen', 'true');
+  });
+  await p2.reload();
+  await p2.waitForFunction(() => window.LKTutor && window.LKTutor.available());
+  await p2.waitForTimeout(500);
+
+  for (const theme of ['dark', 'light']) {
+    await p2.evaluate((t) => {
+      document.documentElement.setAttribute('data-theme', t);
+      location.hash = '#/home';
+    }, theme);
+    await p2.waitForTimeout(250);
+    await p2.evaluate(() => window.LKTutor.start('quick'));
+    await p2.waitForTimeout(reduce ? 400 : 900);
+
+    const paint = await p2.evaluate(() => {
+      const layer = document.getElementById('lk-tutor');
+      if (!layer || layer.hidden) return null;
+      const card = layer.querySelector('.lktut__card');
+      const say = layer.querySelector('[data-testid="tutor-say"]');
+      const skip = layer.querySelector('[data-testid="tutor-skip"]');
+      const spot = layer.querySelector('.lktut__spot');
+      const cs = getComputedStyle(card);
+      const cr = card.getBoundingClientRect();
+      const sr = skip.getBoundingClientRect();
+      const spotR = spot.getBoundingClientRect();
+      return {
+        text: (say.textContent || '').trim().length,
+        bg: cs.backgroundColor, fg: getComputedStyle(say).color,
+        cardLeft: Math.round(cr.left), cardRight: Math.round(innerWidth - cr.right),
+        skipH: Math.round(sr.height), skipW: Math.round(sr.width),
+        spotW: Math.round(spotR.width), spotH: Math.round(spotR.height),
+        spotVisible: Number(getComputedStyle(spot).opacity) > 0,
+        overflow: document.scrollingElement.scrollWidth > innerWidth + 1
+      };
+    });
+    const tag = mode + ' / ' + theme;
+    ok(!!paint, tag + ': the layer is up');
+    if (paint) {
+      ok(paint.text > 0, tag + ': the instruction is there', String(paint.text));
+      ok(paint.bg !== 'rgba(0, 0, 0, 0)', tag + ': the card paints its own ground', paint.bg);
+      ok(paint.cardLeft >= 16 && paint.cardRight >= 16,
+         tag + ': the card keeps its gutters', paint.cardLeft + '/' + paint.cardRight);
+      ok(paint.skipH >= 44 && paint.skipW >= 44, tag + ': Skip is a real target',
+         paint.skipW + 'x' + paint.skipH);
+      ok(paint.spotVisible && paint.spotW > 0 && paint.spotH > 0,
+         tag + ': the spotlight has a hole in it', paint.spotW + 'x' + paint.spotH);
+      ok(!paint.overflow, tag + ': nothing scrolls sideways');
+    }
+
+    /* Contrast, on the layer only, with the app underneath excluded so
+       this measures what was added rather than what was already audited. */
+    await p2.addScriptTag({ content: AXE });
+    const axe = await p2.evaluate(() => window.axe.run('#lk-tutor',
+      { runOnly: ['wcag2a', 'wcag2aa'] }).then((r) => r.violations.map((v) => v.id + ' @' + (v.nodes[0] && v.nodes[0].target))));
+    ok(axe.length === 0, tag + ': no accessibility violations on the layer', axe.join(', '));
+
+    await p2.evaluate(() => window.LKTutor.stop());
+    await p2.waitForTimeout(200);
+  }
+
+  /* Reduced motion must lose no content, only movement. */
+  if (reduce) {
+    const still = await p2.evaluate(() => {
+      const l = document.getElementById('lk-tutor');
+      return { flag: l.getAttribute('data-reduced'), reduced: window.LKTutor.reduced() };
+    });
+    ok(still.reduced === true && still.flag === '1',
+       'reduced motion is honoured, not guessed', JSON.stringify(still));
+  }
+
+  ok(errs2.length === 0, mode + ': no page errors', errs2.slice(0, 2).join(' | '));
+  await c2.close();
+}
+
 ok(errors.length === 0, 'zero console errors across all six tracks', errors.slice(0, 3).join(' | '));
 
 await browser.close();
