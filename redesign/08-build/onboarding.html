@@ -153,6 +153,10 @@
             <button class="btn btn--secondary btn--block" data-testid="welcome-signin">Sign in</button>
             <button class="btn btn--tertiary btn--block" data-testid="welcome-guest">Continue as guest</button>
             <button class="btn btn--tertiary btn--block btn--sm quiet" data-testid="welcome-legal">Terms and privacy</button>
+            <!-- Only shown when there IS an app behind this screen. On a
+                 genuine first run there is nothing to go back to, and
+                 offering it would be the screen claiming something untrue. -->
+            <button class="btn btn--tertiary btn--block btn--sm quiet" data-testid="welcome-back" hidden>Back to the app</button>
           </div>
       </section>
 
@@ -492,7 +496,20 @@
       title: 'What should the app call you?',
       why: 'Shown on your profile and in your history. Nothing else uses it.',
       kind: 'text',
+      field: 'setup-name',
+      label: 'Name',
+      autocomplete: 'given-name',
       placeholder: 'First name'
+    },
+    {
+      id: 'username',
+      title: 'Pick a username',
+      why: 'The handle on your profile, and how a training partner finds you. Letters, numbers and underscores, 3 to 20.',
+      kind: 'text',
+      field: 'setup-username',
+      label: 'Username',
+      autocomplete: 'username',
+      placeholder: 'lifter_92'
     },
     {
       id: 'units',
@@ -795,9 +812,23 @@
     if (h && document.activeElement && document.activeElement.closest('#dev-panel') === null) h.focus({ preventScroll: true });
   }
 
+  /* Is there an app behind this screen? Setup having been through once is
+     the marker every other screen reads. */
+  function hasApp() {
+    try {
+      return !!(localStorage.getItem('lk_onboarded') || localStorage.getItem('lk_profile') ||
+                localStorage.getItem('lk_history'));
+    } catch (e) { return false; }
+  }
+
   /* ------------------------------ Welcome ------------------------------ */
   function renderWelcome() {
     var loading = S.variant === 'loading';
+    /* The Welcome screen had no way out. Reached from Settings or Profile by
+       somebody who already has an account, the only exits were walking the
+       whole guest and setup flow or the browser's Back button. */
+    var backBtn = $('[data-testid="welcome-back"]');
+    if (backBtn) backBtn.hidden = loading || !hasApp();
     $('#welcome-content').hidden = loading;
     $('#welcome-loading').hidden = !loading;
     ['welcome-create', 'welcome-signin', 'welcome-guest'].forEach(function (t) {
@@ -983,9 +1014,17 @@
                '<p class="t-detail mt-2 wrap">' + step.why + '</p>';
 
     if (step.kind === 'text') {
+      /* One branch for every text step. It was hard-wired to the name, so a
+         second text question could not be asked at all. */
+      var fid = step.field || ('setup-' + step.id);
+      var bad = step.id === 'username' ? usernameError(S.answers.username) : null;
       html += '<div class="field mt-4">' +
-                '<label class="field__label t-body-em" for="setup-name">Name</label>' +
-                '<input class="input" type="text" id="setup-name" data-testid="setup-name" autocomplete="given-name" placeholder="' + step.placeholder + '" value="' + escapeAttr(S.answers.name) + '">' +
+                '<label class="field__label t-body-em" for="' + fid + '">' + (step.label || step.title) + '</label>' +
+                '<input class="input" type="text" id="' + fid + '" data-testid="' + fid + '" ' +
+                  'autocomplete="' + (step.autocomplete || 'off') + '" ' +
+                  (bad ? 'aria-invalid="true" ' : '') +
+                  'placeholder="' + step.placeholder + '" value="' + escapeAttr(S.answers[step.id] || '') + '">' +
+                (bad ? '<p class="field__error mt-2" role="alert" data-testid="' + fid + '-error">' + bad + '</p>' : '') +
               '</div>';
     } else {
       html += '<div class="card card--flush mt-4" role="radiogroup" aria-labelledby="setup-step-title">';
@@ -1030,7 +1069,15 @@
     var host = $('#setup-step');
     if (!host) return;
     host.addEventListener('input', function (e) {
-      if (e.target && e.target.id === 'setup-name') S.answers.name = e.target.value;
+      if (!e.target || !e.target.id) return;
+      var st = STEPS[Math.max(0, Math.min(S.step, STEPS.length - 1))];
+      if (!st || st.kind !== 'text') return;
+      if (e.target.id !== (st.field || ('setup-' + st.id))) return;
+      S.answers[st.id] = e.target.value;
+      /* The username is the one text answer with a rule, so it says whether
+         what is typed passes it as it is typed. Re-rendering on every
+         keystroke would take the caret, so only the message is touched. */
+      if (st.id === 'username') paintUsernameError();
     });
     host.addEventListener('click', function (e) {
       var b = e.target.closest && e.target.closest('[data-choice]');
@@ -1042,6 +1089,39 @@
     });
   })();
 
+  /* Letters, numbers and underscores, 3 to 20 -- the rule the step states.
+     Blank is not an error: every step can be skipped. */
+  function usernameError(v) {
+    var t = String(v || '').trim();
+    if (!t) return null;
+    if (t.length < 3) return 'At least 3 characters.';
+    if (t.length > 20) return 'At most 20 characters.';
+    if (!/^[A-Za-z0-9_]+$/.test(t)) return 'Letters, numbers and underscores only.';
+    return null;
+  }
+  function paintUsernameError() {
+    var host = $('#setup-step');
+    if (!host) return;
+    var field = host.querySelector('.field');
+    var input = host.querySelector('#setup-username');
+    if (!field || !input) return;
+    var bad = usernameError(S.answers.username);
+    var msg = host.querySelector('[data-testid="setup-username-error"]');
+    if (bad && !msg) {
+      msg = document.createElement('p');
+      msg.className = 'field__error mt-2';
+      msg.setAttribute('role', 'alert');
+      msg.setAttribute('data-testid', 'setup-username-error');
+      field.appendChild(msg);
+    }
+    if (msg) {
+      if (bad) msg.textContent = bad;
+      else msg.parentNode.removeChild(msg);
+    }
+    if (bad) input.setAttribute('aria-invalid', 'true');
+    else input.removeAttribute('aria-invalid');
+  }
+
   function countAnswers() {
     return Object.keys(S.answers).filter(function (k) { return S.answers[k]; }).length;
   }
@@ -1049,6 +1129,15 @@
   function escapeAttr(v) { return String(v).replace(/"/g, '&quot;'); }
 
   function advanceSetup() {
+    /* A username that breaks its own rule does not go past the step. Skip
+       still does, because skipping is leaving it blank rather than wrong. */
+    var here = STEPS[Math.max(0, Math.min(S.step, STEPS.length - 1))];
+    if (here && here.id === 'username' && usernameError(S.answers.username)) {
+      renderSetup();
+      var uf = $('#setup-username');
+      if (uf) uf.focus({ preventScroll: true });
+      return;
+    }
     if (S.step < STEPS.length - 1) { S.step += 1; S.variant = 'default'; renderSetup(); return; }
     S.variant = 'busy';
     renderSetup();
@@ -1196,6 +1285,7 @@
       case 'welcome-create': go('signup'); break;
       case 'welcome-signin': go('signin'); break;
       case 'welcome-guest': go('guest'); break;
+      case 'welcome-back': location.href = 'home.html'; break;
       case 'welcome-legal': {
         S.legal = true; renderLegal();
         var lt = document.getElementById('lg-title');
@@ -1381,6 +1471,30 @@
     if (e.key === 'Escape' && !$('#dev-panel').hidden) openDev(false);
   });
 
+  /* WHICH SCREEN TO OPEN ON. Settings' "Create account" and Profile's
+     "Sign up" both landed on Welcome, so somebody who had already chosen
+     had to choose again. Standalone that is ?open=signup; in the demo the
+     router takes the click, so the caller leaves the same answer under
+     lk_openOnboarding and this reads it on entry. */
+  var OPENABLE = { welcome: 1, signin: 1, signup: 1, guest: 1, setup: 1, overview: 1 };
+  function requestedScreen() {
+    var want = null;
+    try { want = new URLSearchParams(location.search).get('open'); } catch (e) {}
+    if (!want) {
+      try { want = localStorage.getItem('lk_openOnboarding'); } catch (e) {}
+      if (want) { try { localStorage.removeItem('lk_openOnboarding'); } catch (e) {} }
+    }
+    return want && OPENABLE[want] ? want : null;
+  }
+  function openRequested() {
+    var want = requestedScreen();
+    if (!want || want === S.screen) return false;
+    if (want === 'setup') S.step = 0;
+    go(want);
+    return true;
+  }
+  document.addEventListener('lk:enter', openRequested);
+
   /* Test hook: lets a script walk every screen and state. */
   window.__locked = {
     go: function (screen, variant, step) { if (step !== undefined) S.step = step; go(screen, variant); },
@@ -1388,7 +1502,7 @@
     state: S
   };
 
-  render();
+  if (!openRequested()) render();
   booted = true;
 }());
 </script>

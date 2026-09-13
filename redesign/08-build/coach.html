@@ -1547,12 +1547,18 @@
   function checkinFoot() {
     var d = S.checkin.draft;
     var done = FEEL.filter(function (f) { return d[f[0]]; }).length;
+    /* One reading a day is the rule, and a second save replaces the first
+       rather than adding one. It did that silently, so somebody checking in
+       twice had no way to know the morning's answers were gone. */
+    var already = !S.checkin.saved && S.checkin.log.length && S.checkin.log[0].iso === isoToday();
     return '<div class="actionbar" role="contentinfo" aria-label="Check-in actions">' +
       '<span class="actionbar__status" role="status" data-testid="checkin-status">' +
-        (S.checkin.saved ? 'Saved for today.' : done + ' of ' + FEEL.length + ' answered') + '</span>' +
+        (S.checkin.saved ? 'Saved for today.'
+          : already ? 'Already checked in today. Saving replaces it.'
+          : done + ' of ' + FEEL.length + ' answered') + '</span>' +
       '<button class="btn btn--primary" type="button" data-act="checkin-save" ' +
         (done ? '' : 'disabled ') + 'data-testid="checkin-save">' +
-        '<span class="btn__label">Save today</span></button>' +
+        '<span class="btn__label">' + (already ? 'Replace today' : 'Save today') + '</span></button>' +
     '</div>';
   }
 
@@ -1776,12 +1782,15 @@
          whatever day that row belonged to. */
       var at = -1;
       S.checkin.log.forEach(function (e, i) { if (e.iso === iso) at = i; });
-      if (at >= 0) { entry.id = S.checkin.log[at].id; S.checkin.log[at] = entry; }
+      var replaced = at >= 0;
+      if (replaced) { entry.id = S.checkin.log[at].id; S.checkin.log[at] = entry; }
       else S.checkin.log.unshift(entry);
       S.checkin.saved = true;
       persistCheckins();
       render();
-      toast('Saved. The coach reads this with your training.');
+      toast(replaced
+        ? 'Replaced today\u2019s check-in. The coach reads this with your training.'
+        : 'Saved. The coach reads this with your training.');
     },
     'view': function (el) { setView(el.dataset.view); },
     /* Two taps, and no claim about history. It cleared the whole thread on

@@ -856,7 +856,20 @@
       '<span class="sheetact__ico">' + ICO.note + '</span>' +
       '<div class="block__main">' +
         '<div class="t-body-em">' + esc(b.title) + '</div>' +
-        (b.notes || b.duration ? '<div class="t-detail muted">' + esc([b.duration, b.notes].filter(Boolean).join(' · ')) + '</div>' : '') +
+        (b.duration ? '<div class="t-detail muted">' + esc(b.duration) + '</div>' : '') +
+        /* Collapsed to its title and length: a block sits between two
+           exercises, and a paragraph of notes there pushes the next lift off
+           the screen. The toggle is offered only when there is something to
+           open. */
+        (b.notes
+          ? '<button class="btn btn--tertiary btn--sm mt-1" type="button" data-act="block-open" ' +
+              'data-i="' + i + '" aria-expanded="' + (!!b.open) + '" ' +
+              'aria-controls="block-notes-' + i + '" data-testid="block-open-' + i + '">' +
+              '<span class="btn__label">' + (b.open ? 'Hide notes' : 'Notes') + '</span></button>' +
+            '<div class="t-detail muted mt-1" id="block-notes-' + i + '" ' +
+              'data-testid="block-note-' + i + '"' + (b.open ? '' : ' hidden') + '>' +
+              esc(b.notes) + '</div>'
+          : '') +
       '</div>' +
       '<button class="iconbtn iconbtn--danger" type="button" data-act="block-remove" data-i="' + i + '" data-testid="block-remove-' + i + '" aria-label="Remove block ' + esc(b.title) + '">' + ICO.trash + '</button>' +
     '</article>';
@@ -1273,8 +1286,15 @@
           '<p class="t-detail muted">Add a note, warm-up reminder, or timed section between exercises.</p>' +
           '<label class="field mt-3"><span class="field__label t-label">Title</span>' +
             '<input class="input" id="block-title" data-testid="block-title" placeholder="Shoulder warm-up, stretch, core finisher"></label>' +
-          '<label class="field mt-3"><span class="field__label t-label">Notes or duration</span>' +
-            '<input class="input" id="block-notes" data-testid="block-notes" placeholder="5 min bike, hip openers"></label>' +
+          /* Two fields, not one. "Notes or duration" took both and stored
+             neither as a duration -- `duration` was hard-coded empty -- so a
+             timed section could not be told from a note. */
+          '<label class="field mt-3"><span class="field__label t-label">How long</span>' +
+            '<input class="input num" id="block-mins" data-testid="block-mins" type="number" ' +
+              'min="1" max="180" step="1" inputmode="numeric" placeholder="5"></label>' +
+          '<p class="t-caption-1 quiet mt-1">Minutes. Leave it blank for a block with no set length.</p>' +
+          '<label class="field mt-3"><span class="field__label t-label">Notes</span>' +
+            '<input class="input" id="block-notes" data-testid="block-notes" placeholder="Bike, hip openers"></label>' +
           (S.blockError ? '<p class="field__error mt-2" role="alert" data-testid="block-error">' +
             esc(S.blockError) + '</p>' : '') +
         '</div>' +
@@ -2167,7 +2187,20 @@
           if (ti) ti.focus();
           return;
         }
-        S.blocks.push({ title: title, notes: no ? no.value.trim() : '', duration: '' });
+        /* Blank is fine -- not every block is timed. A number that is not a
+           number of minutes is not. */
+        var mi = document.getElementById('block-mins');
+        var raw = mi ? mi.value.trim() : '';
+        var mins = raw === '' ? null : Number(raw);
+        if (raw !== '' && (!isFinite(mins) || mins < 1 || mins > 180)) {
+          S.blockError = 'A length between 1 and 180 minutes, or leave it blank.';
+          paint();
+          if (mi) mi.focus();
+          return;
+        }
+        S.blocks.push({ title: title, notes: no ? no.value.trim() : '',
+                        duration: mins === null ? '' : Math.round(mins) + ' min',
+                        open: false });
         S.blockError = null;
         S.overlay = null;
         toast('Block added.');
@@ -2176,6 +2209,11 @@
       /* Undoable, not confirmed. Every other destructive control in this
          build offers the thing back; this one deleted on the tap and left
          nothing to press. */
+      case 'block-open': {
+        var oi = Number(t.getAttribute('data-i'));
+        if (S.blocks[oi]) S.blocks[oi].open = !S.blocks[oi].open;
+        break;
+      }
       case 'block-remove': {
         var bi = Number(t.getAttribute('data-i'));
         var goneB = S.blocks.splice(bi, 1)[0];

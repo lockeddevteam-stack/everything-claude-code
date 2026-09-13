@@ -1461,9 +1461,25 @@
     var ph = PHOTOS[S.photoIdx];
     if (!ph) return '';
     var tone = ['#2a2f3a', '#333a47', '#3d4553', '#48515f'][ph.tone] || '#333a47';
+    /* PHOTOS runs newest first, so "older" is forward through the array and
+       "newer" is back. Opening one photo used to be a dead end: the only way
+       to the one beside it was out to the grid and back in, which is the
+       opposite of what a person comparing two months wants. */
+    var older = S.photoIdx + 1 < PHOTOS.length ? PHOTOS[S.photoIdx + 1] : null;
+    var newer = S.photoIdx > 0 ? PHOTOS[S.photoIdx - 1] : null;
     return sheet('photo', dayLabel(ph.date), 'auto',
       '<div class="ph__full" style="background:' + tone + '" role="img" aria-label="' +
         esc(ph.note || dayLabel(ph.date)) + '"></div>' +
+      '<div class="hstack hstack--3 mt-2">' +
+        '<button class="btn btn--tertiary btn--sm" type="button" data-action="photo-older" ' +
+          (older ? '' : 'disabled ') + 'data-testid="photo-older">' +
+          '<span class="btn__label">' + (older ? '&larr; ' + dayLabel(older.date) : 'Oldest') + '</span></button>' +
+        '<span class="grow t-meta" style="text-align:center">' +
+          n(S.photoIdx + 1) + ' of ' + n(PHOTOS.length) + '</span>' +
+        '<button class="btn btn--tertiary btn--sm" type="button" data-action="photo-newer" ' +
+          (newer ? '' : 'disabled ') + 'data-testid="photo-newer">' +
+          '<span class="btn__label">' + (newer ? dayLabel(newer.date) + ' &rarr;' : 'Newest') + '</span></button>' +
+      '</div>' +
       (ph.note ? '<p class="t-body mt-3">' + esc(ph.note) + '</p>' : '') +
       /* The analyse path asks first, and says exactly what leaves. The
          shipped screen offered it with no consent step, no opt-out, and the
@@ -1544,6 +1560,12 @@
       openSheet('photos');
     } else if (a === 'open-photo') {
       S.photoIdx = +t.getAttribute('data-i'); S.confirmDel = false; openSheet('photo');
+    } else if (a === 'photo-older') {
+      /* The confirm disarms on the way past: a delete armed on one photo must
+         not fire on the next one. */
+      if (S.photoIdx + 1 < PHOTOS.length) { S.photoIdx += 1; S.confirmDel = false; render(); focusIn('photo-older'); }
+    } else if (a === 'photo-newer') {
+      if (S.photoIdx > 0) { S.photoIdx -= 1; S.confirmDel = false; render(); focusIn('photo-newer'); }
     } else if (a === 'analyse') {
       openSheet('analyse-consent');
     } else if (a === 'analyse-no') {

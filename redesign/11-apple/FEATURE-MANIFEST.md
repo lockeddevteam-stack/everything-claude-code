@@ -91,14 +91,15 @@ comp-taken              dismiss-card            restore-cards           staple-b
 retry                   settings                signup                  start
 ```
 
-**progress.html** — 25
+**progress.html** — 27
 
 ```
 add-goal                analyse                 analyse-go              analyse-no              close-sheet
 del-bf                  del-photo               dismiss-toast           goal-type               log-record
 log-weight              open-bf                 open-goals              open-photo              open-photos
-open-picker             open-weight             pick-lift               range                   retry
-save-bf                 save-goal               save-record             show-cached             start-workout
+open-picker             open-weight             photo-newer             photo-older             pick-lift
+range                   retry                   save-bf                 save-goal               save-record
+show-cached             start-workout
 ```
 
 **recap.html** — 13
@@ -183,20 +184,20 @@ edit                    note-cancel             note-edit               note-sav
 retry                   undo
 ```
 
-**workout-log.html** — 52
+**workout-log.html** — 53
 
 ```
 addex                   addex-all               addex-more              addex-pick              addex-q
 addset                  addset-both             airec                   block                   block-add
-block-remove            close                   delrow-go               discard                 discard-confirm
-done                    edit                    equip-cb                equip-kind              equip-save
-exact                   exsheet                 finish                  grip                    idle-finish
-idle-stay               move                    move-done               note                    pad-cancel
-pad-del                 pad-done                pad-key                 pad-step                partial
-plate-add               plate-apply             plate-bar               plate-clear             plate-side
-plate-solve             plate-undo              rest-add                rest-custom             rest-set
-rest-skip               rest-toggle             rir                     set-kind                toast-action
-tool                    tools
+block-open              block-remove            close                   delrow-go               discard
+discard-confirm         done                    edit                    equip-cb                equip-kind
+equip-save              exact                   exsheet                 finish                  grip
+idle-finish             idle-stay               move                    move-done               note
+pad-cancel              pad-del                 pad-done                pad-key                 pad-step
+partial                 plate-add               plate-apply             plate-bar               plate-clear
+plate-side              plate-solve             plate-undo              rest-add                rest-custom
+rest-set                rest-skip               rest-toggle             rir                     set-kind
+toast-action            tool                    tools
 ```
 
 **session.js** — 2
@@ -211,14 +212,14 @@ The selectors every test and every audit script addresses.
 
 | Screen | testids |
 |---|---|
-| `coach.html` | 120 |
+| `coach.html` | 121 |
 | `cycle.html` | 107 |
 | `exercise-library.html` | 54 |
 | `fuel.html` | 255 |
 | `home.html` | 38 |
-| `onboarding.html` | 69 |
+| `onboarding.html` | 72 |
 | `profile.html` | 25 |
-| `progress.html` | 86 |
+| `progress.html` | 88 |
 | `recap.html` | 25 |
 | `review.html` | 52 |
 | `settings.html` | 44 |
@@ -228,7 +229,7 @@ The selectors every test and every audit script addresses.
 | `train.html` | 98 |
 | `tutorial.html` | 12 |
 | `workout-detail.html` | 43 |
-| `workout-log.html` | 129 |
+| `workout-log.html` | 132 |
 | `app.js` | 1 |
 | `bodymap.js` | 0 |
 | `chrome.js` | 1 |
@@ -238,12 +239,13 @@ The selectors every test and every audit script addresses.
 | `theme.js` | 0 |
 | `units.js` | 0 |
 
-## Storage keys — 11
+## Storage keys — 15
 
 ```
-lk_coachDataPrefs         lk_cycle                  lk_fuelNumbers            lk_lastSession
-lk_libBrowse              lk_openLift               lk_openSplit              lk_openWorkout
-lk_perfTracking           lk_startDay               lk_tutorialSeen
+lk_coachDataPrefs         lk_cycle                  lk_fuelNumbers            lk_history
+lk_lastSession            lk_libBrowse              lk_onboarded              lk_openLift
+lk_openOnboarding         lk_openSplit              lk_openWorkout            lk_perfTracking
+lk_profile                lk_startDay               lk_tutorialSeen
 ```
 
 ## Per-screen totals
@@ -253,24 +255,24 @@ five columns after them are.
 
 | Screen | Lines | Listeners | Actions | Buttons | Inputs | testids |
 |---|---|---|---|---|---|---|
-| `coach.html` | 2456 | 7 | 59 | 66 | 5 | 120 |
+| `coach.html` | 2477 | 7 | 59 | 67 | 5 | 121 |
 | `cycle.html` | 2237 | 11 | 43 | 48 | 7 | 107 |
 | `exercise-library.html` | 1799 | 7 | 25 | 32 | 6 | 54 |
 | `fuel.html` | 4955 | 5 | 99 | 134 | 27 | 255 |
 | `home.html` | 1322 | 4 | 5 | 25 | 0 | 38 |
-| `onboarding.html` | 1396 | 10 | 0 | 34 | 5 | 69 |
-| `profile.html` | 586 | 4 | 4 | 12 | 0 | 25 |
-| `progress.html` | 1804 | 9 | 25 | 37 | 14 | 86 |
+| `onboarding.html` | 1510 | 11 | 0 | 35 | 5 | 72 |
+| `profile.html` | 605 | 6 | 4 | 12 | 0 | 25 |
+| `progress.html` | 1826 | 9 | 27 | 39 | 14 | 88 |
 | `recap.html` | 747 | 5 | 13 | 15 | 0 | 25 |
 | `review.html` | 1320 | 7 | 0 | 24 | 1 | 52 |
-| `settings.html` | 1816 | 7 | 20 | 29 | 5 | 44 |
+| `settings.html` | 1835 | 9 | 20 | 29 | 5 | 44 |
 | `shopping.html` | 2179 | 8 | 46 | 60 | 17 | 127 |
 | `split-builder.html` | 1437 | 13 | 28 | 36 | 4 | 70 |
 | `stack.html` | 962 | 7 | 24 | 30 | 3 | 42 |
 | `train.html` | 2226 | 8 | 34 | 44 | 7 | 98 |
 | `tutorial.html` | 286 | 3 | 4 | 7 | 0 | 12 |
 | `workout-detail.html` | 939 | 6 | 17 | 18 | 3 | 43 |
-| `workout-log.html` | 2541 | 13 | 52 | 68 | 8 | 129 |
+| `workout-log.html` | 2584 | 13 | 53 | 69 | 9 | 132 |
 | `app.js` | 708 | 0 | 0 | 0 | 1 | 1 |
 | `bodymap.js` | 443 | 4 | 0 | 1 | 0 | 0 |
 | `chrome.js` | 585 | 10 | 0 | 1 | 0 | 1 |
@@ -279,4 +281,4 @@ five columns after them are.
 | `store.js` | 313 | 1 | 0 | 0 | 0 | 0 |
 | `theme.js` | 67 | 1 | 0 | 0 | 0 | 0 |
 | `units.js` | 117 | 1 | 0 | 0 | 0 | 0 |
-| **total** | **38717** | **154** | **500** | **724** | **113** | **1401** |
+| **total** | **38955** | **159** | **503** | **729** | **114** | **1410** |
