@@ -28936,6 +28936,21 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
       '</div>');
   }
 
+  /* WHAT ELSE TO TRACK, asked once here rather than left in Settings.
+     Both of these are off until somebody chooses them, and both were only
+     reachable by going to Settings and finding a switch -- which means a
+     person had to already know the feature existed to find out it existed.
+     Asking once, in the flow, with a plain description and no default, is
+     how an optional thing gets offered without announcing itself afterwards.
+
+     The keys are the ones Fuel, Stack and Cycle already read. */
+  var EXTRAS = [
+    ['cycle', 'lk_cycle', 'Menstrual cycle',
+     'Where you are in your cycle, with training and appetite read against it. Nothing leaves the phone.'],
+    ['perfTracking', 'lk_perfTracking', 'Compounds and cycles',
+     'Doses, schedules and bloodwork reminders for performance enhancing drugs. Off unless you say otherwise.']
+  ];
+
   var STEPS = [
     {
       id: 'name',
@@ -28990,6 +29005,13 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
         { value: '5', label: '5 days', sub: 'Upper, lower, and a third day' },
         { value: '6', label: '6 days', sub: 'Push, pull, legs, twice' }
       ]
+    },
+    {
+      id: 'extras',
+      title: 'Anything else to track?',
+      why: 'Both are optional, both are off unless you turn them on here, and neither appears anywhere in the app until you do. You can change this later in Settings.',
+      kind: 'multi',
+      options: EXTRAS.map(function (x) { return { value: x[0], label: x[2], sub: x[3] }; })
     },
     {
       id: 'goal',
@@ -29107,6 +29129,14 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
     /* The one key that says setup has been through. Without it there is no
        way to tell a first run from a returning one, which is why a cleared
        phone landed straight on Home. */
+    /* The optional trackers, to the keys Fuel, Stack and Cycle already read.
+       Written either way: choosing not to track something is an answer, and
+       leaving the key unset would make Settings look like it had never been
+       asked. */
+    var extras = a.extras || {};
+    EXTRAS.forEach(function (x) {
+      try { localStorage.setItem(x[1], extras[x[0]] ? 'true' : 'false'); } catch (e) {}
+    });
     window.LKStore.set('lk_onboarded', { at: new Date().toISOString(), answers: a });
     return true;
   }
@@ -29472,6 +29502,21 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
                   'placeholder="' + step.placeholder + '" value="' + escapeAttr(S.answers[step.id] || '') + '">' +
                 (bad ? '<p class="field__error mt-2" role="alert" data-testid="' + fid + '-error">' + bad + '</p>' : '') +
               '</div>';
+    } else if (step.kind === 'multi') {
+      /* More than one answer, each its own switch. A radio group would make
+         two independent choices exclusive. */
+      var picked = S.answers[step.id] || {};
+      html += '<div class="card card--flush mt-4" role="group" aria-labelledby="setup-step-title">';
+      step.options.forEach(function (o) {
+        var on = !!picked[o.value];
+        html += '<button type="button" class="row' + (on ? ' row--selected' : '') + '" role="switch" aria-checked="' + on + '"' +
+                  ' data-testid="setup-' + step.id + '-' + o.value + '" data-toggle="' + o.value + '">' +
+                  '<span class="row__main"><span class="row__title" style="display:block">' + o.label + '</span>' +
+                  '<span class="row__sub" style="display:block">' + o.sub + '</span></span>' +
+                  (on ? ICO.check : '') +
+                '</button>';
+      });
+      html += '</div>';
     } else {
       html += '<div class="card card--flush mt-4" role="radiogroup" aria-labelledby="setup-step-title">';
       step.options.forEach(function (o) {
@@ -29526,10 +29571,20 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
       if (st.id === 'username') paintUsernameError();
     });
     host.addEventListener('click', function (e) {
-      var b = e.target.closest && e.target.closest('[data-choice]');
-      if (!b) return;
       var step = STEPS[Math.max(0, Math.min(S.step, STEPS.length - 1))];
       if (!step) return;
+      var t = e.target.closest && e.target.closest('[data-toggle]');
+      if (t) {
+        var cur = S.answers[step.id] || {};
+        cur[t.dataset.toggle] = !cur[t.dataset.toggle];
+        S.answers[step.id] = cur;
+        renderSetup();
+        var again = host.querySelector('[data-toggle="' + t.dataset.toggle + '"]');
+        if (again) again.focus({ preventScroll: true });
+        return;
+      }
+      var b = e.target.closest && e.target.closest('[data-choice]');
+      if (!b) return;
       S.answers[step.id] = b.dataset.choice;
       renderSetup();
     });
@@ -29569,7 +29624,13 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
   }
 
   function countAnswers() {
-    return Object.keys(S.answers).filter(function (k) { return S.answers[k]; }).length;
+    return Object.keys(S.answers).filter(function (k) {
+      var v = S.answers[k];
+      if (v && typeof v === 'object') {
+        return Object.keys(v).some(function (x) { return v[x]; });
+      }
+      return !!v;
+    }).length;
   }
 
   function escapeAttr(v) { return String(v).replace(/"/g, '&quot;'); }
