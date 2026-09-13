@@ -683,6 +683,12 @@
     weightError: null,
     goalForm: false,
     goalError: null,
+    /* Which goal is open, which one is being edited, and whether its delete
+       is armed. A goal is a thing with a life: it is opened, read, corrected,
+       finished and thrown away, and none of that existed. */
+    goalIdx: null,
+    goalEdit: null,
+    goalDelArmed: false,
     recordError: null,
     toast: null
   };
@@ -1044,9 +1050,61 @@
   }
 
   /* Goals. Each one is a number with a date, and each says what it is
-     measured against, because a goal you cannot check is a wish. */
+     measured against, because a goal you cannot check is a wish.
+
+     THE LIST WAS ONE FLAT RUN OF CARDS. Everything a goal is for after it is
+     typed -- reading it, correcting a number typed wrong, writing down how it
+     is going, calling it done -- had nowhere to happen: the cards were divs,
+     nothing opened, and a goal with a typo in it was permanent. The list
+     splits active from completed, every row opens, and there is somewhere to
+     land when there are none at all. */
+  function goalRow(g, i) {
+    var pct = goalPct(g);
+    var done = g.status === 'done';
+    var left = daysLeft(g);
+    var due = done ? 'Completed ' + (g.completed ? dayLabel(String(g.completed).slice(0, 10)) : '')
+      : (left === null ? 'No deadline'
+         : left < 0 ? Math.abs(left) + (Math.abs(left) === 1 ? ' day past ' : ' days past ') + goalBy(g)
+         : left + (left === 1 ? ' day left' : ' days left'));
+    return '<button class="row row--goal" data-action="open-goal" data-i="' + i + '" ' +
+        'data-testid="goal-' + i + '" aria-label="' + esc(g.name) + ', ' +
+        (pct === null ? 'not measured' : pct + ' per cent') + '. Open it.">' +
+      '<span class="row__main stack">' +
+        '<span class="row__title">' + esc(g.name) + '</span>' +
+        '<span class="row__sub">' + esc(due) + '</span>' +
+        (pct === null ? ''
+          : '<span class="meter mt-1" aria-hidden="true"><span class="meter__fill' +
+            (done ? ' meter__fill--done' : '') + '" style="width:' + pct + '%"></span></span>') +
+      '</span>' +
+      '<span class="row__value num">' + (pct === null ? '&mdash;' : pct + '%') + '</span>' +
+      '<span class="row__chev">' + ICO.chev + '</span>' +
+    '</button>';
+  }
+
   function goalsSheet() {
-    var goals = GOALS;
+    var act = [], dn = [];
+    GOALS.forEach(function (g, i) { (g.status === 'done' ? dn : act).push([g, i]); });
+    var body = '';
+    if (!GOALS.length) {
+      body = '<div class="empty" data-testid="goals-empty">' +
+        '<span class="empty__ico">' + ICO.flag + '</span>' +
+        '<h3 class="empty__title">No goals yet</h3>' +
+        '<p class="empty__body">A goal is a number and a date. Set one and the app measures ' +
+          'it for you against your weigh-ins, your body-fat log or your records.</p></div>';
+    } else {
+      if (act.length) {
+        body += '<p class="t-label">Active</p>' +
+          '<div class="card card--flush mt-2">' +
+            act.map(function (r) { return goalRow(r[0], r[1]); }).join('') + '</div>';
+      } else {
+        body += '<p class="t-detail muted">Nothing active. Every goal you set is finished.</p>';
+      }
+      if (dn.length) {
+        body += '<p class="t-label mt-5" data-testid="goals-done-head">Completed</p>' +
+          '<div class="card card--flush mt-2">' +
+            dn.map(function (r) { return goalRow(r[0], r[1]); }).join('') + '</div>';
+      }
+    }
     return '' +
       '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
       '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="gl-title" ' +
@@ -1055,26 +1113,96 @@
         '<div class="sheet__head"><h2 class="t-section grow" id="gl-title">Goals</h2>' +
           '<button class="iconbtn" data-action="close-sheet" data-testid="goals-close" aria-label="Close goals">' +
             ICO.close + '</button></div>' +
-        '<div class="sheet__body">' +
-          goals.map(function (g, i) {
-            var pct = goalPct(g);
-            return '<div class="card' + (i ? ' mt-3' : '') + '" data-testid="goal-' + i + '">' +
-              '<div class="hstack hstack--3"><span class="t-section grow">' + g.name + '</span>' +
-                '<span class="t-meta num">' + pct + '%</span></div>' +
-              '<div class="meter mt-2" role="img" aria-label="' + pct + ' per cent of the way there">' +
-                '<span class="meter__fill" style="width:' + pct + '%"></span></div>' +
-              '<p class="t-detail mt-2">Now ' + goalNowText(g) +
-                (g.start !== undefined ? ' &middot; from ' + num1(g.start) + ' ' + (g.unit || 'kg') : '') +
-                ' &middot; by ' + goalBy(g) + '</p>' +
-            '</div>';
-          }).join('') +
-        '</div>' +
+        '<div class="sheet__body">' + body + '</div>' +
         '<div class="sheet__foot">' +
           (S.goalForm ? goalForm()
             : '<button class="btn btn--secondary btn--block" data-action="add-goal" data-testid="goals-add">' +
                 '<span class="btn__label">Add a goal</span></button>') +
         '</div>' +
       '</div>';
+  }
+
+  /* ONE GOAL, OPENED. The ring, the three figures it is made of, the
+     deadline, what measures it, the notes, and the two things you can do to
+     a goal that is no longer right: finish it, or change it. */
+  function ringSVG(pct) {
+    var R = 46, C = 2 * Math.PI * R, on = Math.max(0, Math.min(100, pct || 0)) / 100 * C;
+    return '<svg class="goalring" viewBox="0 0 120 120" width="120" height="120" ' +
+        'role="img" aria-label="' + (pct === null ? 'Not measured' : pct + ' per cent of the way there') + '">' +
+      '<circle class="goalring__track" cx="60" cy="60" r="' + R + '" fill="none" stroke-width="10"/>' +
+      (pct === null ? ''
+        : '<circle class="goalring__fill" cx="60" cy="60" r="' + R + '" fill="none" stroke-width="10" ' +
+          'stroke-linecap="round" stroke-dasharray="' + on.toFixed(1) + ' ' + (C - on).toFixed(1) + '" ' +
+          'transform="rotate(-90 60 60)"/>') +
+      '<text class="goalring__num" x="60" y="60" text-anchor="middle" dominant-baseline="central">' +
+        (pct === null ? '\u2014' : pct + '%') + '</text>' +
+    '</svg>';
+  }
+
+  var GOAL_MEASURED = {
+    weight: 'Measured against your weigh-ins. Logging one on this screen moves it.',
+    bodyfat: 'Measured against your body-fat log. The newest reading is the one it uses.',
+    lift: 'Measured against your records for this lift. A new record moves it.',
+    custom: 'Nothing measures this one, so it carries no percentage. You decide when it is done.'
+  };
+
+  function goalTile(label, v) {
+    return '<div class="stack stack--1 grow">' +
+      '<span class="t-label">' + label + '</span>' +
+      '<span class="stat__value">' + (v === null || v === undefined ? '&mdash;' : v) + '</span>' +
+    '</div>';
+  }
+
+  function goalDetailSheet() {
+    var g = GOALS[S.goalIdx];
+    if (!g) return '';
+    if (S.goalEdit !== null && S.goalEdit !== undefined) return goalEditSheet(g);
+    var pct = goalPct(g);
+    var left = daysLeft(g);
+    var done = g.status === 'done';
+    var lf = g.type === 'lift' ? liftById(g.exId) : null;
+    var deadline = !g.targetDate ? 'No deadline'
+      : done ? 'Was due ' + goalBy(g)
+      : left === null ? goalBy(g)
+      : left < 0 ? Math.abs(left) + (Math.abs(left) === 1 ? ' day past ' : ' days past ') + goalBy(g)
+      : 'By ' + goalBy(g) + ' \u00b7 ' + left + (left === 1 ? ' day left' : ' days left');
+    return sheet('goal', g.name, 'auto',
+      '<div class="center">' + ringSVG(pct) + '</div>' +
+      '<p class="t-detail center mt-2" data-testid="goal-deadline">' +
+        '<span class="chip chip--static">' + esc(deadline) + '</span>' +
+        (done ? ' <span class="chip chip--static">Completed</span>' : '') + '</p>' +
+      '<div class="card mt-4"><div class="hstack hstack--3">' +
+        goalTile('Start', g.start === null ? null : goalVal(g, g.start)) +
+        goalTile('Now', goalNowText(g)) +
+        goalTile('Target', g.target === null ? null : goalVal(g, g.target)) +
+      '</div>' +
+      '<p class="t-detail muted mt-3" data-testid="goal-measured">' +
+        (GOAL_MEASURED[g.type] || GOAL_MEASURED.custom) +
+        (lf ? ' Best so far: ' + (bestFor(g.exId) === null ? 'nothing logged' : kg(bestFor(g.exId))) + '.' : '') +
+      '</p></div>' +
+      /* The notes were in the seed, read by nothing and writable nowhere. */
+      '<div class="card mt-3">' +
+        '<label class="t-label field__label" for="goal-note">Notes</label>' +
+        '<textarea class="input mt-1" id="goal-note" rows="3" data-testid="goal-note" ' +
+          'placeholder="How it is going, what to change">' + esc(g.notes || '') + '</textarea>' +
+        '<p class="t-caption-1 quiet mt-1">Saved as you type, on this device.</p>' +
+      '</div>' +
+      /* Server-gated, and it says so before it is pressed rather than after. */
+      '<button class="btn btn--secondary btn--block mt-4" type="button" data-action="goal-analyse" ' +
+        'data-testid="goal-analyse"><span class="btn__label">Analyse my progress</span></button>' +
+      '<button class="btn btn--' + (done ? 'secondary' : 'primary') + ' btn--block mt-3" type="button" ' +
+        'data-action="goal-done" data-testid="goal-complete"><span class="btn__label">' +
+        (done ? 'Reopen this goal' : 'Mark it complete') + '</span></button>' +
+      '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="goal-edit" ' +
+        'data-testid="goal-edit"><span class="btn__label">Edit it</span></button>' +
+      '<button class="btn btn--danger btn--block mt-2" type="button" data-action="goal-del" ' +
+        'data-testid="goal-delete"><span class="btn__label">' +
+        (S.goalDelArmed ? 'Tap again to delete' : 'Delete') + '</span></button>' +
+      '<p class="t-detail muted mt-2">Deleting takes the goal and its notes with it, and asks twice.</p>');
+  }
+
+  function goalEditSheet(g) {
+    return sheet('goal-edit', 'Edit goal', 'auto', goalForm(g));
   }
 
   /* The type comes first because it decides what the rest of the form asks

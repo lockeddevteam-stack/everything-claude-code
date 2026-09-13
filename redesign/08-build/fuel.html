@@ -4802,23 +4802,64 @@
     }
     if (a === 'new-recipe') {
       S.draft = { name: '', servings: 4, items: [], notes: [], error: null };
+      S.draftQ = '';
       S.sheet = 'build-recipe'; render(); return;
     }
     if (a === 'br-add') {
       readDraft();
       var bk = act.getAttribute('data-k');
+      var bg = parseInt(act.getAttribute('data-g'), 10);
+      if (!FOODS[bk]) return;
+      if (isNaN(bg) || bg < 1) bg = FOODS[bk].g;
+      /* The same food twice is more of it, not a second row. */
       var found = null;
-      S.draft.items.forEach(function (it) { if (it.key === bk) found = it; });
-      if (found) found.qty += 1; else S.draft.items.push({ key: bk, qty: 1 });
-      S.draft.error = null; render(); return;
-    }
-    if (a === 'br-more' || a === 'br-less') {
-      readDraft();
-      var bi = +act.getAttribute('data-i'), item = S.draft.items[bi];
-      if (!item) return;
-      item.qty += (a === 'br-more' ? 1 : -1);
-      if (item.qty < 1) S.draft.items.splice(bi, 1);
+      S.draft.items.forEach(function (it) { if (it.key === bk && !it.per100 && !it.cooked) found = it; });
+      if (found) found.g = (+found.g || 0) + bg;
+      else S.draft.items.push({ key: bk, g: bg, cooked: false, yieldPct: 100 });
+      S.draft.error = null; S.draftQ = '';
       render(); return;
+    }
+    if (a === 'br-raw' || a === 'br-cooked') {
+      readDraft();
+      var ri = +act.getAttribute('data-i'), rit = S.draft.items[ri];
+      if (!rit) return;
+      rit.cooked = a === 'br-cooked';
+      if (rit.cooked && !rit.yieldPct) rit.yieldPct = 100;
+      render(); return;
+    }
+    if (a === 'br-drop') {
+      readDraft(); S.draft.items.splice(+act.getAttribute('data-i'), 1); render(); return;
+    }
+    if (a === 'br-weigh') { readDraft(); render(); say('Weights saved into the recipe.'); return; }
+    /* An ingredient the table has never heard of, at the figures on its
+       packet. It is per 100 g because that is what a packet prints. */
+    if (a === 'br-add-manual') {
+      readDraft();
+      var mv = function (id) {
+        var el = document.getElementById(id);
+        var v = el ? parseFloat(el.value) : NaN;
+        return isNaN(v) || v < 0 ? 0 : v;
+      };
+      var mnName = (document.getElementById('br-mn-name') || {}).value || '';
+      var mnG = mv('br-mn-g');
+      var mnK = mv('br-mn-kcal');
+      if (!mnName.trim()) { S.draft.error = 'Name the ingredient first.'; render(); return; }
+      if (!(mnG >= 1 && mnG <= 20000)) {
+        S.draft.error = 'How many grams of ' + mnName.trim() + '? Between 1 and 20,000.';
+        render(); return;
+      }
+      if (!(mnK > 0 && mnK <= 900)) {
+        S.draft.error = 'Calories per 100 g, between 1 and 900. A packet always prints it.';
+        render(); return;
+      }
+      S.draft.items.push({ name: mnName.trim().slice(0, 40), g: Math.round(mnG),
+                           cooked: false, yieldPct: 100,
+                           per100: { kcal: mnK, pro: mv('br-mn-pro'), carb: mv('br-mn-carb'),
+                                     fat: mv('br-mn-fat') } });
+      S.draft.error = null;
+      render();
+      say(mnName.trim() + ' added.');
+      return;
     }
     if (a === 'br-add-note') {
       readDraft();
@@ -5181,16 +5222,26 @@
     readDraft();
     var d = S.draft;
     if (!d.name.trim()) { d.error = 'Give it a name.'; render(); return; }
-    if (!d.items.length) { d.error = 'Add at least one thing from the food table, so the ' +
-      'figures are the ingredients rather than a guess.'; render(); return; }
+    if (!d.items.length) { d.error = 'Add at least one ingredient with figures on it, so the ' +
+      'recipe is its ingredients added up rather than a guess.'; render(); return; }
     var sEl = document.getElementById('br-servings');
     var sv = parseInt(sEl ? sEl.value : d.servings, 10);
     if (isNaN(sv) || sv < 1 || sv > 24) { d.error = 'Servings between 1 and 24.'; render(); return; }
     var t = draftTotals(d);
     var rec = {
       id: 'r' + Date.now(), name: d.name.trim().slice(0, 60), servings: sv,
-      icon: (FOODS[d.items[0].key] || {}).icon || '\ud83e\udd63',
-      items: d.items.map(function (it) { return { key: it.key, qty: it.qty }; }),
+      icon: (FOODS[d.items[0].key] || {}).icon || '\ud83e\udd63',   /* a typed-in first ingredient has none */
+      /* FROZEN. What is stored is the ingredient as it was weighed, with its
+         own figures where they were typed in, so a stored recipe cannot
+         change when the food table does. */
+      items: d.items.map(function (it) {
+        return it.per100
+          ? { name: it.name, g: it.g, cooked: !!it.cooked, yieldPct: it.yieldPct || 100,
+              per100: { kcal: it.per100.kcal, pro: it.per100.pro, carb: it.per100.carb,
+                        fat: it.per100.fat } }
+          : { key: it.key, g: it.g, qty: it.qty, cooked: !!it.cooked,
+              yieldPct: it.yieldPct || 100 };
+      }),
       notes: d.notes.slice(),
       kcal: Math.round(t.kcal), pro: Math.round(t.pro),
       carb: Math.round(t.carb), fat: Math.round(t.fat)
