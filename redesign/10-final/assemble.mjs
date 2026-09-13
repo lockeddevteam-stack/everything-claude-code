@@ -58,7 +58,7 @@ const MANIFEST = {
      card, for the same reason. */
   js: ['theme.js', 'app.js', 'chrome.js', 'vendor/body-art.js', 'bodymap.js',
        'session.js', 'fixtures.js', 'store.js', 'units.js',
-       'cloud-config.js', 'cloud.js', 'coach-actions.js',
+       'cloud-config.js', 'cloud.js', 'exercises.js', 'coach-actions.js',
        'tutor-steps.js', 'tutor.js'],
 
   /* Files in srcDir that are not app screens. */

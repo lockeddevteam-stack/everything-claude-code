@@ -423,7 +423,13 @@
           return { ok: true, data: { reply: text, actions: [], gated: true, limit: d.limit || null } };
         }
         var parsed = envelope(text);
-        return { ok: true, data: { reply: parsed.reply, actions: parsed.actions, gated: false, limit: null } };
+        /* The raw answer travels alongside the parsed one. The deployed
+           Worker has a second protocol, sentinel markers in prose, and the
+           coach screen's own parser reads those -- so when no JSON
+           envelope came back there is still something to read rather than
+           a reply with its actions silently dropped. */
+        return { ok: true, data: { reply: parsed.reply, actions: parsed.actions,
+                                   raw: text, gated: false, limit: null } };
       });
     },
 

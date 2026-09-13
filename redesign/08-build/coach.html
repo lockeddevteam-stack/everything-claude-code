@@ -13,6 +13,7 @@
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 <script src="session.js"></script>
+<script src="exercises.js"></script>
 <script src="coach-actions.js"></script>
 </head>
 <body>
@@ -1000,6 +1001,21 @@
   var CATALOGUE = { state: 'none', count: 0 };
   function loadCatalogue() {
     if (!window.LKCoachActions) return;
+    /* THE CATALOGUE SHIPS. It used to be fetched from a path under tests/,
+       which is a fixture and does not deploy, and was skipped outright over
+       file:// -- so in the product the gate had nothing to resolve an id
+       against and refused every split the coach wrote. exercises.js is the
+       same 866 rows as one global, loaded with the app. */
+    if (window.LKExercises) {
+      var list = LKExercises.all();
+      if (list && list.length) {
+        LKCoachActions.setCatalogue(list);
+        CATALOGUE.state = 'ready';
+        CATALOGUE.count = list.length;
+        recheckAll();
+        return;
+      }
+    }
     if (location.protocol === 'file:') {
       CATALOGUE.state = 'file';
       return;
@@ -2745,6 +2761,55 @@
       'anything else.';
   }
 
+  /* WHAT LEAVES THE PHONE, AND NOTHING ELSE. Every source here is behind
+     its own switch in Setup, and the receipt above the thread names the
+     ones that are on. A context key with its switch off is not sent
+     empty, it is not sent at all -- an answer that quoted a logged
+     number after the screen promised the log was not shared is the exact
+     failure this receipt exists to prevent. */
+  function serverContext() {
+    var ctx = {};
+    if (window.LKCoachActions && LKCoachActions.haveCatalogue && LKCoachActions.haveCatalogue()) {
+      /* The catalogue goes with the question so the model names lifts by
+         an id that exists. The gate checks every one of them again on the
+         way back regardless: this makes a right answer likelier, it does
+         not make a wrong one safe. */
+      ctx.catalogue = catalogueForServer();
+    }
+    if (permOn('profile')) {
+      var pr = store() ? store().get("lk_profile", null) : null;
+      if (pr) ctx.profile = { name: pr.name, unit: pr.unit };
+    }
+    if (S.setup.instructions && S.setup.instructions.trim()) ctx.instructions = S.setup.instructions;
+    if (S.setup.memoryOn && S.setup.memory && S.setup.memory.length) {
+      ctx.memory = S.setup.memory.map(function (m) { return m.text || m; }).join('\n');
+    }
+    return ctx;
+  }
+
+  function catalogueForServer() {
+    var out = [];
+    try {
+      var rows = window.LKExercises ? LKExercises.all() : [];
+      /* Names and ids only, and capped: the whole catalogue is 866 rows
+         and most of a context window. The gate re-checks every id that
+         comes back regardless, so a short list makes a right answer
+         likelier without making a wrong one safe. */
+      rows.slice(0, 300).forEach(function (e) { out.push({ id: e.id, name: e.name }); });
+    } catch (e) {}
+    return out;
+  }
+
+  /* The thread as the endpoint wants it, newest last, capped so a long
+     conversation cannot push the question itself out of the window. */
+  function chatForServer() {
+    return S.chat.msgs.filter(function (m) { return !m.error && !m.limit && m.text; })
+      .slice(-12)
+      .map(function (m) {
+        return { role: m.role === 'user' ? 'user' : 'assistant', content: String(m.text) };
+      });
+  }
+
   function sendMessage(text) {
     S.chat.msgs.push({ role: 'user', time: nowClock(), text: text });
     S.chat.draft = '';
@@ -2759,6 +2824,46 @@
        posted it twice. */
     var box = phone.querySelector('[data-testid="composer-input"]');
     if (box) box.value = '';
+    /* THE MODEL, WHEN THERE IS ONE. Everything below this -- the cards,
+       the previews, approve, undo -- was built and driven against a hand
+       written reply, because the one missing piece was something to
+       propose an action in the first place. This is that piece. The
+       canned path underneath is kept for a build with no server, where a
+       screen that sat on "thinking" for ever would be worse than one that
+       plainly answers from what it has. */
+    if (window.LKCloud && LKCloud.coachReady()) {
+      LKCloud.ask(chatForServer(), serverContext()).then(function (r) {
+        if (S.chat.status !== 'thinking') return;
+        S.chat.status = 'ready';
+        if (!r.ok) {
+          S.chat.msgs.push({ role: 'coach', time: nowClock(), error: true,
+            text: r.message || 'The coach could not be reached. Nothing was sent anywhere else.' });
+          persistChat(); render();
+          return;
+        }
+        var d = r.data || {};
+        if (d.gated) {
+          S.chat.msgs.push({ role: 'coach', time: nowClock(), limit: true,
+            text: d.reply || 'You have used today\u2019s free messages.' });
+          persistChat(); render();
+          return;
+        }
+        /* Structured actions when the model sent them; the raw answer
+           through this screen's own parser when it did not. Either way
+           every action goes through LKCoachActions before it is drawn,
+           and nothing is applied on arrival. */
+        if (d.actions && d.actions.length) { pushCoachActions(d.actions, d.reply); }
+        else { receiveReply(d.raw || d.reply || ''); }
+      }, function () {
+        if (S.chat.status !== 'thinking') return;
+        S.chat.status = 'ready';
+        S.chat.msgs.push({ role: 'coach', time: nowClock(), error: true,
+          text: 'The coach could not be reached.' });
+        persistChat(); render();
+      });
+      return;
+    }
+
     later(function () {
       if (S.chat.status !== 'thinking') return;
       /* A plan is built on the loads being hit, so it needs the training
