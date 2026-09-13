@@ -180,6 +180,19 @@
       return fallback;
     },
 
+    /* TODAY. The build pinned every screen to the seed's own date, so a
+       product with no seed read `undefined` and Fuel threw on the first
+       paint. Today is the wall clock; the seed's date wins only while a seed
+       is loaded, which is what keeps the tests deterministic. */
+    today: function () {
+      var F = g.LKFixtures;
+      if (F && F.today) return F.today;
+      var d = new Date();
+      return d.getFullYear() + '-' +
+        ('0' + (d.getMonth() + 1)).slice(-2) + '-' +
+        ('0' + d.getDate()).slice(-2);
+    },
+
     /* Has a person actually written this, or is it still the seed? A key they
        deleted counts: they decided what is there, which is nothing. */
     touched: function (key) {

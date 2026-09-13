@@ -303,9 +303,12 @@
     view: String(get('lk_guestMode', '0')) === '1' ? 'guest' : 'signed-in',
     /* lk_profile.displayName is what Save Name writes; name is the seed's
        own name until somebody changes it. */
-    name: PROF.displayName || PROF.name || 'Cesco',
-    username: PROF.username || 'cesco',
-    email: PROF.email || 'cesco@locked.app',
+    /* Whatever the profile holds, and nothing when it holds nothing. These
+       fell back to the seeded persona, so an account that had never entered
+       a name was shown somebody else's. */
+    name: PROF.displayName || PROF.name || '',
+    username: PROF.username || '',
+    email: PROF.email || '',
     /* lk_profile.useKg, through LKUnits. This screen converted its own rows
        correctly and stored nothing, so the choice reached no other screen and
        did not survive a reload. */
@@ -431,7 +434,7 @@
      Both do the thing now, with LKStore.dump() and LKStore.load().
      ============================================================= */
   function todayStamp() {
-    var t = (window.LKFixtures && LKFixtures.today) || '';
+    var t = window.LKStore ? LKStore.today() : '';
     return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : new Date().toISOString().slice(0, 10);
   }
   function exportBackup() {
@@ -822,11 +825,18 @@
      1. Account
      ============================================================= */
   function identityRow() {
+    /* An account that has entered nothing says so and offers the sheet that
+       asks. It used to print the seeded persona's name, handle and address. */
+    var named = !!(S.name || S.username || S.email);
+    var sub = [S.username ? '@' + S.username : '', S.email].filter(Boolean).join(' \u00b7 ');
     return '<button class="row" data-action="sheet" data-key="profile" data-testid="row-identity">' +
-             '<span class="hdr__initial" aria-hidden="true">' + esc(S.name.charAt(0)) + '</span>' +
+             '<span class="hdr__initial" aria-hidden="true">' +
+               esc(S.name ? S.name.charAt(0) : '\u2013') + '</span>' +
              '<span class="row__main">' +
-               '<span class="row__title">' + esc(S.name) + '</span>' +
-               '<span class="row__sub truncate">@' + esc(S.username) + ' &middot; ' + esc(S.email) + '</span>' +
+               '<span class="row__title">' + esc(S.name || 'Add your name') + '</span>' +
+               '<span class="row__sub truncate">' +
+                 esc(named ? (sub || 'No handle or email yet')
+                           : 'Nothing set yet. Tap to add it.') + '</span>' +
              '</span>' +
              '<span class="row__chev">' + ICO.chev + '</span>' +
            '</button>';

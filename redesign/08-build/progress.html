@@ -162,7 +162,9 @@
   function get(key, dflt) { return ST ? ST.get(key, dflt) : dflt; }
   function put(key, v) { if (ST) ST.set(key, v); }
 
-  var TODAY = (window.LKFixtures && LKFixtures.today) || '2026-09-09';
+  /* The wall clock, or the seed's date while a seed is loaded. Pinned to
+     the fixture, a build with no seed read undefined. */
+  var TODAY = window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10);
 
   var HISTORY = get('lk_history', []) || [];
 
@@ -736,7 +738,15 @@
 
   function trendCard() {
     var days = rangeDays();
-    var lift = liftById(S.liftId);
+    var lift = liftById(S.liftId) || LIFTS[0];
+    /* No lifts at all -- a new account -- is not a chart with a hole in it. */
+    if (!lift) {
+      return '<div class="card mt-3" data-testid="card-trend">' +
+        '<div class="t-label">Strength over time</div>' +
+        '<p class="t-detail mt-2">Nothing logged yet. Finish a session and the ' +
+          'lifts in it get a chart here.</p>' +
+      '</div>';
+    }
     var pts = ptsIn(lift, days);
     /* A lift with nothing inside the range is not an error, it is an answer.
        The three routines that read pts[0] and pts[length-1] threw on it,
@@ -919,6 +929,12 @@
   var VIEWS = {};
 
   VIEWS.populated = function () {
+    /* Gated on the DATA, not on a dev state. A new account with nothing
+       logged was shown the populated screen and its charts read from an
+       empty history. The switcher still wins for looking at the screen. */
+    if (!LIFTS.length && !WEIGHT_LOG.length && !RECORDS.length && S.view === 'populated') {
+      return VIEWS.empty();
+    }
     return rangeControl() + answerCard() + trendCard() + recordsSection() + moreSection();
   };
 

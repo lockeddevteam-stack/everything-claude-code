@@ -165,7 +165,26 @@
      one, a rescaled portion, a glass of water, a supplement tick, an edited
      target -- lived in a variable and was gone on reload. */
   var FUELLOG = stored('lk_fuelLog', null) || cloneDays(NUT.days || {});
-  var TARGETS = stored('lk_fuelTargets', NUT.targets || {});
+  /* Targets, in order: what was set, then what the profile computes, then
+     none at all. A build with no seed had none of the three and every figure
+     on the hero read NaN -- which is what a new account saw. */
+  var TARGETS = (function () {
+    var own = stored('lk_fuelTargets', null);
+    if (own && own.kcal) return own;
+    var seeded = NUT.targets;
+    if (seeded && seeded.kcal) return seeded;
+    /* Computed from the profile, if there is enough of one to compute from.
+       PROFILE is read above; calcMacros needs weight, height and age. */
+    var p = PROFILE || {};
+    if (p.weightKg && p.heightCm && p.age) {
+      var m = calcMacros({ weightKg: p.weightKg, heightCm: p.heightCm, age: p.age,
+                           sex: p.sex === 'male' ? 'male' : 'female',
+                           goal: goalKey(), activity: activityKey() });
+      return { kcal: m.kcal, pro: m.pro, carb: m.carb, fat: m.fat, waterMl: 0, computed: true };
+    }
+    return { kcal: null, pro: null, carb: null, fat: null, waterMl: 0, unset: true };
+  })();
+  function hasTargets() { return !!(TARGETS && TARGETS.kcal); }
 
   function cloneDays(d) {
     try { return JSON.parse(JSON.stringify(d)); } catch (e) { return {}; }
@@ -593,7 +612,7 @@
   /* A function, not a literal: the dev switcher rebuilds it so one state's
      edits do not leak into the next. */
   function day() {
-    var iso = FX.today;
+    var iso = ST ? ST.today() : new Date().toISOString().slice(0, 10);
     var src = FUELLOG[iso] || { meals: [], waterMl: 0, supps: [] };
     var tg = TARGETS;
     var rf = ST ? ST.get('lk_fuelRefeed', null) : null;
@@ -712,8 +731,13 @@
      often list. Per-serving is derived on read, never stored, because a
      stored per-serving figure and a changed serving count disagree the moment
      either one moves. */
+  /* Priced off the food table, so a recipe for a food the table does not hold
+     is not a recipe this screen can cost. With no table at all -- a build
+     that ships no seed -- there are no recipes, and the sheet says so rather
+     than throwing on the first paint. */
   function recipe(key, name, servings, ing, mins, tags, steps) {
     var f = FOODS[key];
+    if (!f) return null;
     return { icon: f.icon, name: name, servings: servings, key: key,
              kcal: f.kcal * servings, pro: f.pro * servings,
              carb: f.carb * servings, fat: f.fat * servings, ing: ing,
@@ -744,7 +768,7 @@
       ['Blitz everything to a batter. It should pour, not drop.',
        'Medium heat, dry pan, three minutes a side.',
        'They brown faster than flour pancakes because of the whey, so go lower than you think.'])
-  ];
+  ].filter(Boolean);
 
   /* Recipes you built yourself, after the three above. A built recipe carries
      its own macro total rather than borrowing a food's, because that is the
@@ -863,6 +887,9 @@
      recipes and often-logged meals, which cannot fabricate anything. */
   function slot(at, key) {
     var f = FOODS[key];
+    /* A slot names a food from the table. With no table there is no plan to
+       seed, which is the state a new account is in anyway. */
+    if (!f) return null;
     var k = at.toLowerCase();
     var sl = k.indexOf('breakfast') === 0 ? 'breakfast'
            : k === 'lunch' ? 'lunch' : k === 'dinner' ? 'dinner' : 'snack';
@@ -881,7 +908,8 @@
         slot('Dinner', 'pasta')] },
     { d: 'Fri', iso: '2026-09-11', slots: [slot('Breakfast', 'shake'), slot('Lunch', 'chilli'),
         slot('Dinner', 'bowl')] }
-  ];
+  ].map(function (d) { d.slots = d.slots.filter(Boolean); return d; })
+   .filter(function (d) { return d.slots.length; });
 
   /* A swapped meal is a change to the plan, so it is stored. Untouched, the
      plan is the one above. */
@@ -1416,6 +1444,20 @@
     var eaten = S.state === 'empty' ? 0 : DAY.eaten;
     var left = DAY.target - eaten;
 
+    /* NO TARGET YET. A new account has no profile to compute one from and
+       nothing stored, so every figure here read NaN. The hero shows what was
+       eaten -- which is a real number -- and asks for the one thing it needs
+       to say anything else. */
+    if (!hasTargets()) {
+      return '<div class="fuel-hero" data-testid="hero">' +
+        '<div class="stack stack--1">' +
+          '<p class="fuel-hero__num num" data-testid="hero-value">' + n(eaten) + '</p>' +
+          '<p class="t-footnote quiet">kcal today. No target set yet.</p>' +
+          '<button class="btn btn--secondary btn--sm mt-3" type="button" data-action="fuel-profile" ' +
+            'data-testid="hero-set-target"><span class="btn__label">Set your target</span></button>' +
+        '</div></div>';
+    }
+
     if (S.state === 'hidden') {
       return '<div class="fuel-hero" data-testid="hero">' +
         '<div class="stack stack--1">' +
@@ -1727,7 +1769,7 @@
             '<div class="hstack"><span class="t-subheadline grow">' + esc(m.name) + '</span>' +
             '<span class="t-footnote quiet">' + words[i] + '</span></div>' +
             '<div class="meter meter--quiet mt-2"><span class="meter__fill" style="width:' +
-              Math.round(m.have / m.want * 100) + '%"></span></div>' +
+              (m.want > 0 ? Math.min(100, Math.round(m.have / m.want * 100)) : 0) + '%"></span></div>' +
           '</div>';
         }).join('') + '</div>';
     }
@@ -1738,14 +1780,21 @@
     return '<button class="card mt-4" type="button" data-action="targets" ' +
       'data-testid="macros" aria-label="Macro targets, edit">' +
       DAY.macros.map(function (m) {
-        var pct = Math.min(100, Math.round(m.have / m.want * 100));
+        /* No target is not a target of zero. Without one the row shows what
+           was eaten and an empty bar, rather than "0 / null g" over a meter
+           filled to NaN per cent. */
+        var has = m.want > 0;
+        var pct = has ? Math.min(100, Math.round(m.have / m.want * 100)) : 0;
+        var reads = has ? m.have + ' of ' + m.want + ' ' + m.unit
+                        : m.have + ' ' + m.unit + ', no target set';
         return '<div class="fuel-macro">' +
           '<div class="hstack">' +
             '<span class="t-subheadline grow">' + esc(m.name) + '</span>' +
-            '<span class="t-footnote num"><strong>' + m.have + '</strong> / ' + m.want + ' ' + m.unit + '</span>' +
+            '<span class="t-footnote num"><strong>' + m.have + '</strong>' +
+              (has ? ' / ' + m.want + ' ' + m.unit : ' ' + m.unit) + '</span>' +
           '</div>' +
-          '<div class="meter meter--quiet mt-2" role="img" aria-label="' + esc(m.name) + ', ' + m.have +
-            ' of ' + m.want + ' ' + m.unit + '"><span class="meter__fill" style="width:' + pct + '%"></span></div>' +
+          '<div class="meter meter--quiet mt-2" role="img" aria-label="' + esc(m.name) + ', ' + reads +
+            '"><span class="meter__fill" style="width:' + pct + '%"></span></div>' +
         '</div>';
       }).join('') + '</button>';
   }
