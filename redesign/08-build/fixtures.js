@@ -4120,6 +4120,11 @@
                             "eggs and toast",
                             "eggs on toast",
                             "fry up"
+                      ],
+                      "parts": [
+                            "egg",
+                            "eggs",
+                            "toast"
                       ]
                 },
                 "bowl": {
@@ -4140,7 +4145,8 @@
                             "chicken rice bowl",
                             "burrito bowl",
                             "bowl"
-                      ]
+                      ],
+                      "parts": []
                 },
                 "shake": {
                       "icon": "🥤",
@@ -4160,6 +4166,9 @@
                             "protein shake",
                             "whey shake",
                             "smoothie"
+                      ],
+                      "parts": [
+                            "whey"
                       ],
                       "barcode": "5012345678900"
                 },
@@ -4181,7 +4190,8 @@
                             "bolognese",
                             "mince and pasta",
                             "beef pasta"
-                      ]
+                      ],
+                      "parts": []
                 },
                 "chilli": {
                       "icon": "🍲",
@@ -4199,7 +4209,8 @@
                             "chilli",
                             "chili",
                             "chilli con carne"
-                      ]
+                      ],
+                      "parts": []
                 },
                 "cnr": {
                       "icon": "🍚",
@@ -4217,7 +4228,8 @@
                             "chicken and rice",
                             "chicken rice",
                             "chicken n rice"
-                      ]
+                      ],
+                      "parts": []
                 },
                 "pancakes": {
                       "icon": "🥞",
@@ -4235,6 +4247,10 @@
                             "pancakes",
                             "pancake",
                             "protein pancakes"
+                      ],
+                      "parts": [
+                            "pancake",
+                            "pancakes"
                       ],
                       "barcode": "5000112345678"
                 },
@@ -4257,6 +4273,7 @@
                             "greek yoghurt",
                             "quark"
                       ],
+                      "parts": [],
                       "barcode": "5060123456789"
                 }
           },

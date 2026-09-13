@@ -536,6 +536,23 @@
     return { ml: Math.round(kg * 35 / 50) * 50, computed: true };
   }
 
+  /* Every other screen reads lk_profile.useKg through LKUnits. This one did
+     not mention LKUnits at all, so Settings read 141.5 lb and Fuel's hero
+     still said 64.2 kg on the same phone. */
+  function wtNum(kg) {
+    if (kg === null || kg === undefined || isNaN(kg)) return '';
+    return (Math.round(LKUnits.v(kg) * 10) / 10).toFixed(1);
+  }
+  function wtTxt(kg) {
+    if (kg === null || kg === undefined || isNaN(kg)) return '\u2014';
+    return wtNum(kg) + ' ' + LKUnits.label();
+  }
+  /* A weight typed into the field is in whatever unit is on screen. */
+  function wtToKg(v) {
+    return LKUnits.useKg() ? v : Math.round((v / 2.20462262) * 10) / 10;
+  }
+  if (window.LKUnits && LKUnits.onChange) LKUnits.onChange(function () { render(); });
+
   /* Mon 7 Sep, Tue 8 Sep, Wed 9 Sep. */
   var WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -943,17 +960,29 @@
      plate are the same tub to the person who bought it, and a match that
      insists on the exact string would deplete nothing, ever. A word of four
      letters or more shared between the two is enough. */
+  /* EVERY word of the cupboard item has to be in the meal, not any one of
+     them. A single shared word meant "Eggs, toast, butter" matched "Peanut
+     butter" on `butter`, so eating breakfast emptied the peanut butter and
+     put it on the shopping list. */
+  function sigWords(name) {
+    var all = String(name || '').toLowerCase().split(/[^a-z]+/).filter(Boolean);
+    var big = all.filter(function (w) { return w.length >= 4; });
+    return big.length ? big : all;
+  }
   function pantryMatch(foodName) {
     var pantry = stored('lk_pantryItems', []) || [];
-    var words = String(foodName).toLowerCase().split(/[^a-z]+/)
-      .filter(function (w) { return w.length >= 4; });
+    var meal = String(foodName).toLowerCase().split(/[^a-z]+/).filter(Boolean);
+    var has = {};
+    meal.forEach(function (w) { has[w] = 1; has[w.replace(/s$/, '')] = 1; });
     for (var i = 0; i < pantry.length; i++) {
       var it = pantry[i];
       if (it.empty) continue;
-      var pn = String(it.name || '').toLowerCase();
-      for (var j = 0; j < words.length; j++) {
-        if (pn.indexOf(words[j]) >= 0) return i;
+      var want = sigWords(it.name);
+      var all = want.length > 0;
+      for (var j = 0; j < want.length; j++) {
+        if (!has[want[j]] && !has[want[j].replace(/s$/, '')]) { all = false; break; }
       }
+      if (all) return i;
     }
     return -1;
   }
@@ -970,7 +999,11 @@
     var it = pantry[i];
     var q = typeof it.quantity === 'number' ? it.quantity : 1;
     q -= 1;
-    if (q > 0) { it.quantity = q; ST.set('lk_pantryItems', pantry); return null; }
+    if (q > 0) {
+      it.quantity = q; ST.set('lk_pantryItems', pantry);
+      return { name: it.name, tookQty: true, listed: false, emptied: false };
+    }
+    var wasQty = it.quantity;
     it.quantity = 0;
     it.empty = true;
     ST.set('lk_pantryItems', pantry);
@@ -980,13 +1013,37 @@
     var already = list.some(function (r) {
       return String(r.itemName || '').toLowerCase() === String(it.name).toLowerCase();
     });
+    var listedId = null;
     if (!already) {
-      list.push({ id: 'sh_' + Date.now() + '_out', itemName: it.name, quantity: 1,
+      listedId = 'sh_' + Date.now() + '_out';
+      list.push({ id: listedId, itemName: it.name, quantity: 1,
                   unit: it.unit || '', category: it.category || 'pantry',
                   dateAdded: new Date().toISOString(), checked: false });
       ST.set('lk_shoppingList', list);
     }
-    return it.name;
+    return { name: it.name, tookQty: true, emptied: true,
+             wasQty: wasQty, listed: !!listedId, listedId: listedId };
+  }
+
+  /* The inverse. Deleting a meal used to give the macros back and leave the
+     cupboard empty and the shopping list carrying a row nobody added: the
+     screen could take a thing out of the cupboard but never put it back. */
+  function restorePantry(rec) {
+    if (!ST || !persisting() || !rec || !rec.name) return;
+    var pantry = (stored('lk_pantryItems', []) || []).slice();
+    for (var i = 0; i < pantry.length; i++) {
+      if (String(pantry[i].name).toLowerCase() !== String(rec.name).toLowerCase()) continue;
+      var q = typeof pantry[i].quantity === 'number' ? pantry[i].quantity : 0;
+      pantry[i].quantity = rec.emptied ? (rec.wasQty || 1) : q + 1;
+      if (rec.emptied) pantry[i].empty = false;
+      ST.set('lk_pantryItems', pantry);
+      break;
+    }
+    if (!rec.listedId) return;
+    var list = (stored('lk_shoppingList', []) || []).filter(function (r) {
+      return r.id !== rec.listedId;
+    });
+    ST.set('lk_shoppingList', list);
   }
 
   /* ---------------------------------------------------------------
@@ -1381,7 +1438,7 @@
           n(DAY.target) + ' &middot; ' + esc(DAY.goal) + '</p>' +
       '</div>' +
       '<div class="fuel-hero__side stack stack--1">' +
-        '<p class="t-subheadline num">' + DAY.weightKg.toFixed(1) + ' kg</p>' +
+        '<p class="t-subheadline num">' + wtTxt(DAY.weightKg) + '</p>' +
         (DAY.rate
           ? '<p class="t-caption-2 quiet" data-testid="hero-rate">' + signed(DAY.rate.pct) +
               '% / wk, ' + esc(rateVerdict(DAY.rate.pct, DAY.goalKey)) + '</p>'
@@ -1497,7 +1554,8 @@
   var NUMWORD = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
                   six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
                   half: 0.5, couple: 2, dozen: 12 };
-  var JOINER = { and: 1, with: 1, plus: 1, then: 1, of: 1, some: 1, a: 1, an: 1,
+  var ARTICLE = { a: 1, an: 1 };
+  var JOINER = { and: 1, with: 1, plus: 1, then: 1, of: 1, some: 1,
                  the: 1, i: 1, had: 1, ate: 1, for: 1, my: 1, '': 1 };
 
   function aliasList() {
@@ -1527,12 +1585,15 @@
       var from = 0, at;
       while ((at = raw.indexOf(e.a, from)) >= 0) {
         var end = at + e.a.length;
-        /* Whole words only: "rice" must not match inside "priced". */
+        /* Whole words only: "rice" must not match inside "priced". A plain
+           plural counts as the same word -- "3 whey shakes" claimed "whey"
+           and then reported "shakes" as something it could not recognise. */
+        if (raw.charAt(end) === 's' && /[^a-z]|^$/.test(raw.charAt(end + 1) || ' ')) end += 1;
         var beforeOk = at === 0 || /[^a-z]/.test(raw.charAt(at - 1));
         var afterOk = end >= raw.length || /[^a-z]/.test(raw.charAt(end));
         if (beforeOk && afterOk && !taken(at, end)) {
           claimed.push([at, end]);
-          found.push({ key: e.key, at: at, end: end });
+          found.push({ key: e.key, alias: e.a, at: at, end: end });
         }
         from = at + 1;
       }
@@ -1545,8 +1606,8 @@
     found.forEach(function (f) {
       var lead = raw.slice(cursor, f.at);
       var q = readQty(lead);
-      items.push(matchFood(f.key, q.qty, q.unit, raw.slice(f.at, f.end)));
-      leftover(lead.replace(q.consumed, ' '), items);
+      items.push(matchFood(f.key, q.qty, q.unit, raw.slice(f.at, f.end), f.alias));
+      leftoverWords(q.rest, items);
       cursor = f.end;
     });
     leftover(raw.slice(cursor), items);
@@ -1554,41 +1615,76 @@
   }
 
   /* The number and unit in front of a food. "2", "200 g", "a couple of",
-     "half a" -- and nothing, which means one serving. */
+     "half a" -- and nothing, which means one serving.
+
+     Read token by token, keeping the words it did not use. It used to return
+     the one token it consumed and the caller cut that substring out of the
+     lead with a string replace, so "half a chilli" took the 'a' out of the
+     middle of "half" and reported eating an "h lf" -- while logging a whole
+     serving, because it had read the article rather than the half. */
   function readQty(lead) {
-    var qty = 1, unit = null, consumed = '';
-    var toks = lead.split(/[^a-z0-9.]+/).filter(Boolean);
+    var qty = null, unit = null;
+    var toks = String(lead || '').split(/[^a-z0-9.]+/).filter(Boolean);
+    var used = {};
     for (var i = toks.length - 1; i >= 0; i--) {
       var t = toks[i];
-      if (UNIT_G[t] !== undefined && unit === null) { unit = t; consumed = t; continue; }
-      if (/^[0-9]+(\.[0-9]+)?$/.test(t)) { qty = parseFloat(t); consumed = t; break; }
-      if (NUMWORD[t] !== undefined) { qty = NUMWORD[t]; consumed = t; break; }
-      if (JOINER[t]) continue;
+      if (UNIT_G[t] !== undefined && unit === null) { unit = t; used[i] = 1; continue; }
+      if (/^[0-9]+(\.[0-9]+)?$/.test(t)) { qty = parseFloat(t); used[i] = 1; break; }
+      /* An article is a quantity only when nothing better follows it. "half a"
+         means a half, not a one. */
+      if (ARTICLE[t]) {
+        var prev = i > 0 ? toks[i - 1] : null;
+        if (prev && NUMWORD[prev] !== undefined) { used[i] = 1; continue; }
+        qty = 1; used[i] = 1; break;
+      }
+      if (NUMWORD[t] !== undefined) { qty = NUMWORD[t]; used[i] = 1; break; }
+      if (JOINER[t]) { used[i] = 1; continue; }
       break;                          /* a real word: not part of the quantity */
     }
-    return { qty: qty, unit: unit, consumed: consumed };
+    var rest = [];
+    for (var j = 0; j < toks.length; j++) if (!used[j]) rest.push(toks[j]);
+    return { qty: qty === null ? 1 : qty, counted: qty !== null, unit: unit, rest: rest };
   }
 
   /* Words nobody claimed. Joining words and bare numbers are not reported as
      unrecognised food, because "and" is not a thing somebody ate. */
+  function keepWords(words) {
+    return words.filter(function (w) {
+      return !JOINER[w] && !ARTICLE[w] && NUMWORD[w] === undefined &&
+             UNIT_G[w] === undefined && !/^[0-9.]+$/.test(w);
+    });
+  }
+  function leftoverWords(words, items) {
+    var w = keepWords(words || []);
+    if (!w.length) return;
+    items.push({ raw: w.join(' '), name: w.join(' '), qty: 1, unit: null, key: null });
+  }
   function leftover(text, items) {
     var t = String(text || '').replace(/[^a-z0-9 ]/g, ' ').trim();
     if (!t) return;
-    var words = t.split(/\s+/).filter(function (w) {
-      return !JOINER[w] && NUMWORD[w] === undefined && UNIT_G[w] === undefined &&
-             !/^[0-9.]+$/.test(w);
-    });
-    if (!words.length) return;
-    items.push({ raw: words.join(' '), name: words.join(' '), qty: 1, unit: null, key: null });
+    leftoverWords(t.split(/\s+/), items);
   }
 
-  function matchFood(key, qty, unit, raw) {
+  function matchFood(key, qty, unit, raw, alias) {
     var f = FOODS[key];
+    var note = null;
+    /* A COUNT OF A PART IS NOT A COUNT OF THE DISH. "2 eggs" matched the
+       "Eggs, toast, butter" entry and doubled it -- 1,080 kcal and 76 g of
+       protein for two eggs. The table holds one figure for the dish and none
+       for a single egg, so the count is not something this can price. One
+       serving is logged and the row says why, rather than a number nobody
+       can stand behind. */
+    var parts = f.parts || [];
+    if (!unit && alias && parts.indexOf(alias) >= 0 && qty !== 1) {
+      note = 'Counted as one serving of ' + f.name + '. The table has no figure for a single ' +
+             alias.replace(/s$/, '') + '.';
+      qty = 1;
+    }
     /* Grams, three ways: a weight unit converts, a serving-shaped unit means
        the food's own serving, and a bare count means that many servings. */
     var grams = (unit && UNIT_G[unit] > 0) ? qty * UNIT_G[unit] : qty * f.g;
     var k = grams / f.g;
-    var item = { raw: raw, name: f.name, qty: qty, unit: unit, key: key,
+    var item = { raw: raw, name: f.name, qty: qty, unit: unit, key: key, note: note,
                  grams: Math.round(grams), icon: f.icon,
                  kcal: Math.round(f.kcal * k), pro: Math.round(f.pro * k * 10) / 10,
                  carb: Math.round(f.carb * k * 10) / 10, fat: Math.round(f.fat * k * 10) / 10 };
@@ -1857,7 +1953,7 @@
     return '<div class="card mt-4" data-testid="weight-card">' +
       '<div class="hstack hstack--3">' +
         '<span class="t-subheadline grow">Body weight</span>' +
-        '<span class="t-subheadline num">' + (DAY.weightKg ? DAY.weightKg.toFixed(1) + ' kg' : '\u2014') + '</span>' +
+        '<span class="t-subheadline num">' + (DAY.weightKg ? wtTxt(DAY.weightKg) : '\u2014') + '</span>' +
       '</div>' +
       '<p class="t-caption-1 quiet mt-1">' +
         (today ? 'Weighed in today.'
@@ -1865,9 +1961,11 @@
                 signed(r.pct) + '% a week'
           : 'No weigh-ins yet.') + '</p>' +
       '<div class="hstack hstack--3 mt-3">' +
-        '<input class="input num grow" id="wt-new" type="number" min="20" max="400" step="0.1" ' +
-          'inputmode="decimal" placeholder="' + (DAY.weightKg ? DAY.weightKg.toFixed(1) : '70.0') + '" ' +
-          'aria-label="Today\u2019s weight in kilograms" data-testid="weight-input">' +
+        '<input class="input num grow" id="wt-new" type="number" ' +
+          'min="' + (LKUnits.useKg() ? 20 : 45) + '" max="' + (LKUnits.useKg() ? 400 : 880) + '" step="0.1" ' +
+          'inputmode="decimal" placeholder="' + (DAY.weightKg ? wtNum(DAY.weightKg) : wtNum(70)) + '" ' +
+          'aria-label="Today\u2019s weight in ' + (LKUnits.useKg() ? 'kilograms' : 'pounds') + '" ' +
+          'data-testid="weight-input">' +
         '<button class="btn btn--secondary" type="button" data-action="weigh-in" ' +
           'data-testid="weigh-in"><span class="btn__label">Save</span></button>' +
       '</div>' +
@@ -2879,9 +2977,10 @@
           '<div class="sheet__body">' +
             '<div class="hstack hstack--3">' +
               '<div class="grow"><label class="t-label field__label" for="fp-w">Weight</label>' +
-                '<input class="input num" id="fp-w" type="number" min="20" max="400" step="0.1" ' +
-                  'inputmode="decimal" value="' + fp.weightKg + '" data-testid="fp-weight">' +
-                '<p class="t-caption-1 quiet mt-1">kg</p></div>' +
+                '<input class="input num" id="fp-w" type="number" ' +
+                  'min="' + (LKUnits.useKg() ? 20 : 45) + '" max="' + (LKUnits.useKg() ? 400 : 880) + '" step="0.1" ' +
+                  'inputmode="decimal" value="' + wtNum(fp.weightKg) + '" data-testid="fp-weight">' +
+                '<p class="t-caption-1 quiet mt-1">' + LKUnits.label() + '</p></div>' +
               '<div class="grow"><label class="t-label field__label" for="fp-h">Height</label>' +
                 '<input class="input num" id="fp-h" type="number" min="100" max="250" step="1" ' +
                   'inputmode="numeric" value="' + fp.heightCm + '" data-testid="fp-height">' +
@@ -3465,7 +3564,10 @@
          it said. */
       if (S.micText === undefined || S.micText === null) S.micText = '';
       var items = S.micItems || [];
-      var hit = items.filter(function (it) { return it.key; });
+      /* Nothing weighing nothing was eaten. "0 chilli" offered an enabled
+         "Log 1 item, 0 kcal" and wrote an empty row into the day. */
+      var hit = items.filter(function (it) { return it.key && it.grams > 0; });
+      var zero = items.filter(function (it) { return it.key && !(it.grams > 0); });
       var miss = items.filter(function (it) { return !it.key; });
       var tot = hit.reduce(function (a, it) { return a + it.kcal; }, 0);
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
@@ -3501,6 +3603,9 @@
                           ? n(it.grams) + ' g \u00b7 ' + n(it.pro) + ' P \u00b7 ' + n(it.carb) +
                             ' C \u00b7 ' + n(it.fat) + ' F'
                           : 'nothing in the table matches this, so it is not counted') + '</span>' +
+                        (it.note ? '<span class="row__sub quiet">' + esc(it.note) + '</span>' : '') +
+                        (it.key && !(it.grams > 0)
+                          ? '<span class="row__sub quiet">None of it, so nothing is logged.</span>' : '') +
                       '</span>' +
                       (it.key ? '<span class="row__value num">' + n(it.kcal) +
                         '<small class="t-caption-2 quiet"> kcal</small></span>' : '') +
@@ -3513,6 +3618,7 @@
                 '<p class="t-detail quiet mt-2" data-testid="mic-sum">' + hit.length +
                   (hit.length === 1 ? ' item' : ' items') + ', ' + n(tot) + ' kcal' +
                   (miss.length ? ' \u00b7 ' + miss.length + ' not recognised and not counted' : '') +
+                  (zero.length ? ' \u00b7 ' + zero.length + ' at no quantity, so not counted' : '') +
                   '.</p>' +
                 slotPicker(S.logSlot || slotForNow(), 'pick-slot', 'mic-slot')
               : '<p class="t-detail quiet mt-4">Type a sentence and it will be read out into ' +
@@ -4184,10 +4290,14 @@
     OFTEN = frequent();
     var out = depletePantry(meal.name);
     if (out) {
+      /* Kept ON the meal, so deleting the meal can put back exactly what
+         logging it took out. */
+      DAY.meals[DAY.meals.length - 1].pantry = out;
+      saveDay();
       /* Said, not silent. A thing leaving the cupboard and joining a list is
          a change to two other screens, and a person should hear about it
          from the screen that caused it. */
-      S.pantryOut = out;
+      if (out.emptied) S.pantryOut = out.name;
     }
   }
 
@@ -4244,7 +4354,10 @@
       var v = parseFloat(el.value);
       return (isNaN(v) || v < min || v > max) ? cur : v;
     };
-    S.fp.weightKg = Math.round(num('fp-w', 20, 400, S.fp.weightKg) * 10) / 10;
+    /* Read in the unit on screen, stored in kilograms, which is the one unit
+       lk_profile holds. */
+    var shown = num('fp-w', LKUnits.useKg() ? 20 : 45, LKUnits.useKg() ? 400 : 880, wtNum(S.fp.weightKg));
+    S.fp.weightKg = Math.round(wtToKg(Number(shown)) * 10) / 10;
     S.fp.heightCm = Math.round(num('fp-h', 100, 250, S.fp.heightCm));
     S.fp.age = Math.round(num('fp-a', 13, 100, S.fp.age));
     var d = document.getElementById('fp-diet');
@@ -4298,8 +4411,15 @@
   function weighIn() {
     var el = document.getElementById('wt-new');
     var v = parseFloat(el ? el.value : '');
-    if (isNaN(v) || v < 20 || v > 400) { say('A weight between 20 and 400 kg.'); return; }
-    var kg = Math.round(v * 10) / 10;
+    /* The field reads in whatever unit the app is set to. It took the number
+       as kilograms whatever the switch said, so a reader in pounds typing
+       141.5 was stored as 141.5 kg. */
+    var lo = LKUnits.useKg() ? 20 : 45, hi = LKUnits.useKg() ? 400 : 880;
+    if (isNaN(v) || v < lo || v > hi) {
+      say('A weight between ' + lo + ' and ' + hi + ' ' + LKUnits.label() + '.');
+      return;
+    }
+    var kg = Math.round(wtToKg(v) * 10) / 10;
     var log = (WEIGHTLOG || []).slice();
     var last = log[log.length - 1];
     /* One entry a day: weighing twice should correct today, not invent a
@@ -4317,7 +4437,7 @@
     DAY.waterGoalMl = waterGoal().ml;
     DAY.waterGoalComputed = waterGoal().computed;
     render();
-    say(kg.toFixed(1) + ' kg saved.');
+    say(wtTxt(kg) + ' saved.');
   }
 
   function readSuppForm() {
@@ -4521,7 +4641,7 @@
   /* Exactly what the preview showed, item by item. An unmatched piece is not
      logged and was never counted in the total on the button. */
   function micLog() {
-    var items = (S.micItems || []).filter(function (it) { return it.key; });
+    var items = (S.micItems || []).filter(function (it) { return it.key && it.grams > 0; });
     if (!items.length) return;
     var slot = S.logSlot || slotForNow();
     var tot = 0;
@@ -4597,6 +4717,9 @@
     if (!m) return;
     DAY.meals.splice(i, 1);
     recount(DAY);
+    /* What logging it took out of the cupboard goes back in, and the row it
+       put on the shopping list comes off again. */
+    restorePantry(m.pantry);
     saveDay();
     OFTEN = frequent();
     S.sheet = null;
@@ -4605,6 +4728,7 @@
     say(esc(m.name) + ' removed.', function () {
       DAY.meals.splice(i, 0, m);
       recount(DAY);
+      if (m.pantry) depletePantry(m.name);
       saveDay();
       OFTEN = frequent();
     });

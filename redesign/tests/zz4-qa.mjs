@@ -1,0 +1,12 @@
+import {open,DEMO,T,CYCLEON} from './zz4-lib.mjs';
+const {b,p,errs}=await open(DEMO+'#/home/cycle',CYCLEON);
+await p.waitForTimeout(1300);
+const st=async()=>p.evaluate(()=>{const e=document.querySelector('[data-testid="cycle-scroll"]');return e?e.scrollTop:-1});
+const fo=async()=>p.evaluate(()=>{const a=document.activeElement;return a?(a.dataset&&a.dataset.testid)||a.tagName:'none'});
+console.log('before focus',await fo(),'scroll',await st());
+await p.click('[data-testid="qa-focus-energy"]'); await p.waitForTimeout(1000);
+console.log('after  focus',await fo(),'scroll',await st());
+await p.click('[data-testid="qa-log-more"]'); await p.waitForTimeout(800);
+console.log('qa-log-more -> ids:',(await p.$$eval('[data-testid]',n=>n.filter(x=>x.offsetParent).map(x=>x.dataset.testid))).filter(x=>/sheet|day-/.test(x)).join(','));
+console.log('ERRS',errs);
+await b.close();

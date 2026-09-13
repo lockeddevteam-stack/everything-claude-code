@@ -324,9 +324,25 @@ const ALIASES = {
   pancakes: ['pancakes', 'pancake', 'protein pancakes'],
   skyr:     ['skyr', 'yoghurt', 'yogurt', 'greek yoghurt', 'quark']
 };
+/* Aliases that name a PART of the dish rather than the dish. "2 eggs"
+   matched "eggs" and multiplied the whole 260 g "Eggs, toast, butter" by
+   two: 1,080 kcal and 76 g of protein for two eggs. The table holds one
+   figure per dish and none per egg, so a count in front of one of these
+   cannot be priced. The screen logs one serving and says so, rather than
+   quietly inventing a number. */
+const PART_ALIASES = {
+  eggs:     ['egg', 'eggs', 'toast'],
+  pancakes: ['pancake', 'pancakes'],
+  shake:    ['whey']
+};
 for (const [k, list] of Object.entries(ALIASES)) {
   if (!FOODS[k]) throw new Error('alias for a food that does not exist: ' + k);
   FOODS[k].alias = list;
+  const parts = PART_ALIASES[k] || [];
+  for (const a of parts) {
+    if (!list.includes(a)) throw new Error(`${k}: "${a}" is named a part but is not one of its aliases`);
+  }
+  FOODS[k].parts = parts;
 }
 for (const k of Object.keys(FOODS)) {
   if (!FOODS[k].alias) throw new Error(k + ' has no aliases, so nothing typed can match it');
