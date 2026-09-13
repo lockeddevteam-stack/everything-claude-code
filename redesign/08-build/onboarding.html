@@ -27,6 +27,7 @@
 <script src="fixtures.js"></script>
 <script src="store.js"></script>
 <script src="cloud.js"></script>
+<script src="coach-actions.js"></script>
 <script src="units.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
@@ -170,6 +171,14 @@
             <button class="btn btn--primary btn--block" data-testid="welcome-create">Create account</button>
             <button class="btn btn--secondary btn--block" data-testid="welcome-signin">Sign in</button>
             <button class="btn btn--tertiary btn--block" data-testid="welcome-guest">Continue as guest</button>
+            <!-- INSTALL. Hidden until the browser fires beforeinstallprompt,
+                 which only happens where the app is actually installable: the
+                 right origin, a manifest it could read, and not already
+                 installed. A permanent "Install" button that cannot install
+                 anything is a control that does nothing, so this one does not
+                 exist until there is a prompt behind it. -->
+            <button class="btn btn--secondary btn--block" data-testid="welcome-install" hidden>
+              <span class="btn__label">Install LOCKED</span></button>
             <button class="btn btn--tertiary btn--block btn--sm quiet" data-testid="welcome-legal">Terms and privacy</button>
             <!-- Only shown when there IS an app behind this screen. On a
                  genuine first run there is nothing to go back to, and
@@ -285,6 +294,32 @@
             </button>
             <button class="btn btn--tertiary btn--block" data-testid="signup-to-signin">I already have an account</button>
           </div>
+      </section>
+
+      <!-- ========================= CONFIRM EMAIL ========================= -->
+      <!-- Reached only from a sign-up that came back needing confirmation, or
+           from the inspector. What it says is rendered from what actually
+           happened: with no server it says nothing was sent, because nothing
+           was. -->
+      <section class="screen" role="main" aria-label="Confirm your email" data-screen="confirm" data-testid="screen-confirm" hidden>
+        <header class="hdr">
+          <button class="hdr__back" data-testid="confirm-back" aria-label="Back to welcome">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M15 5l-7 7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <h1 class="hdr__title t-section" tabindex="-1" data-testid="confirm-title">Confirm your email</h1>
+        </header>
+        <div class="body body--flush fill">
+          <div class="pane">
+            <div id="confirm-banner" aria-live="polite"></div>
+            <div id="confirm-body" data-testid="confirm-body"></div>
+          </div>
+        </div>
+        <div class="footer">
+          <button class="btn btn--primary btn--block" data-testid="confirm-resend">
+            <span class="btn__label">Send it again</span></button>
+          <button class="btn btn--secondary btn--block" data-testid="confirm-signin">I have confirmed — sign in</button>
+          <button class="btn btn--tertiary btn--block" data-testid="confirm-guest">Carry on without an account</button>
+        </div>
       </section>
 
       <!-- ========================== GUEST WARNING ======================== -->
@@ -405,6 +440,27 @@
           </div>
       </section>
 
+      <!-- ========================= COACH INTERVIEW ======================= -->
+      <!-- The half of onboarding that needs a model. The six questions and the
+           plan they choose are local and real; this is where a programme could
+           be BUILT rather than chosen, and it is the only thing here that
+           cannot work without a server. It says so on the first frame. -->
+      <section class="screen" role="main" aria-label="The coach" data-screen="interview" data-testid="screen-interview" hidden>
+        <header class="hdr">
+          <button class="hdr__back" data-testid="interview-back" aria-label="Back">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M15 5l-7 7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <h1 class="hdr__title t-section" tabindex="-1" data-testid="interview-title">The coach</h1>
+          <button class="hdr__action" data-testid="interview-skip" aria-label="Skip the coach and keep the chosen plan">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+          </button>
+        </header>
+        <div class="body body--flush fill" role="region" tabindex="0" data-testid="interview-scroll" aria-label="The conversation">
+          <div class="pane" id="interview-body"></div>
+        </div>
+        <div class="footer" id="interview-foot"></div>
+      </section>
+
       <!-- ============================ OVERVIEW =========================== -->
       <section class="screen" role="main" aria-label="Today" data-screen="overview" data-testid="screen-overview" hidden>
         <header class="hdr">
@@ -418,6 +474,10 @@
 
     </div><!-- /app -->
     <div id="legal-slot"></div>
+    <!-- The paywall sheet and the toast. One slot each, patched in place, so
+         neither can be built twice by two render paths. -->
+    <div id="sheet-slot"></div>
+    <div id="toast-slot"></div>
 
     <button class="dev-open" id="dev-open" data-testid="dev-open" aria-expanded="false" aria-controls="dev-panel"
             aria-label="Open the screen and state inspector" title="Screens and states">
@@ -465,7 +525,15 @@
     step: 0,
     busy: false,
     answers: { name: '', units: '', experience: '', days: '', goal: '' },
-    legal: false
+    legal: false,
+    /* The paywall sheet, the address a sign-up is waiting on, and whether
+       a push subscription went missing. All three are about something that
+       happened, and none of them is written until it has. */
+    sheet: null,
+    sheetNote: null,
+    proAsked: false,
+    pending: '',
+    pushLost: false
   };
 
   /* Terms and privacy. The control existed and sent the reader back to the
@@ -851,7 +919,9 @@
     if (S.screen === 'welcome') renderWelcome();
     if (S.screen === 'signin') renderSignin();
     if (S.screen === 'signup') renderSignup();
+    if (S.screen === 'confirm') renderConfirm();
     if (S.screen === 'guest') renderGuest();
+    if (S.screen === 'interview') renderInterview();
     if (S.screen === 'setup') renderSetup();
     if (S.screen === 'overview') renderOverview();
     renderDevList();
@@ -877,6 +947,8 @@
        whole guest and setup flow or the browser's Back button. */
     var backBtn = $('[data-testid="welcome-back"]');
     if (backBtn) backBtn.hidden = loading || !hasApp();
+    var inst = $('[data-testid="welcome-install"]');
+    if (inst) inst.hidden = loading || !installPrompt;
     $('#welcome-content').hidden = loading;
     $('#welcome-loading').hidden = !loading;
     ['welcome-create', 'welcome-signin', 'welcome-guest'].forEach(function (t) {
@@ -922,29 +994,56 @@
       pw.value = 'locked1234';
       setBusy('signin-submit', true, 'Signing in');
     }
-    if (S.variant === 'reset') {
-      /* The typed address is left alone, and nothing claims a link was sent.
-         This overwrote whatever had been typed with cesco@example.com and
-         then asserted a reset link was on its way to that address -- for an
-         address the person had not entered, from a build with no server and
-         no way to send anything. An empty field produced the same claim.
+    if (S.variant === 'reset') doReset();
+  }
 
-         Resetting a password needs a mail server; this says so. The address
-         is validated anyway, because the thing it CAN check is worth
-         checking. */
-      var typed = String(email.value || '').trim();
-      if (!typed) {
-        setError('signin-email', 'Enter the email address on the account first.');
-        email.focus();
-      } else if (!validEmail(typed)) {
-        setError('signin-email', 'This is not a complete email address. Add the part after the dot, like cesco@example.com.');
-        email.focus();
-      } else {
-        banner('#signin-banner', 'info', 'Resetting a password needs a server',
-          'There is no account system behind this build, so nothing can be sent to ' + typed +
-          '. In the live app this is where the link would go.');
-      }
+  /* FORGOT PASSWORD. The address is validated here because that is the part
+     this device can check; sending the link is LKCloud's, and with no server
+     it says nothing was sent rather than claiming a link is on its way. */
+  function doReset() {
+    var email = $('#signin-email');
+    var typed = String(email.value || '').trim();
+    if (!typed) {
+      setError('signin-email', 'Enter the email address on the account first.');
+      email.focus(); return;
     }
+    if (!validEmail(typed)) {
+      setError('signin-email', 'This is not a complete email address. Add the part after the dot, like cesco@example.com.');
+      email.focus(); return;
+    }
+    var C = CLOUD();
+    if (!serverReady()) {
+      banner('#signin-banner', 'info', 'Resetting a password needs a server',
+        'There is no account system behind this build, so nothing can be sent to ' + escapeHtml(typed) +
+        '. In the live app this is where the link would go.');
+      return;
+    }
+    banner('#signin-banner', 'info', 'Asking for a reset link', 'Sending the request for ' + escapeHtml(typed) + '.');
+    C.resetPassword(typed).then(function (r) {
+      if (r && r.ok) {
+        banner('#signin-banner', 'success', 'Check your email',
+          'If ' + escapeHtml(typed) + ' has an account, a link to set a new password is on its way to it.');
+        return;
+      }
+      banner('#signin-banner', 'error', 'No reset link was sent',
+        (r && r.message) || 'The server refused that. Nothing was sent.');
+    }, function () {
+      banner('#signin-banner', 'error', 'No reset link was sent',
+        'The server could not be reached, so nothing was sent.');
+    });
+  }
+
+  /* WHERE A SIGNED-IN PERSON GOES. Not always setup: somebody signing in on
+     a phone that already has their training goes back to it. */
+  function afterSignedIn() {
+    var C = CLOUD();
+    try { localStorage.removeItem('lk_guestMode'); } catch (e) {}
+    loadEntitlement();
+    if (C && typeof C.pull === 'function') C.pull();
+    if (hasApp()) { toast('Signed in.'); location.href = 'home.html'; return; }
+    S.step = 0;
+    go('setup');
+    toast('Signed in.');
   }
 
   function submitSignin() {
@@ -957,14 +1056,40 @@
     if (!pw) { setError('signin-password', 'Enter your password.'); bad = true; }
     if (bad) { $('[data-screen="' + S.screen + '"] [aria-invalid="true"]').focus(); return; }
 
+    /* NO SERVER, NO SESSION. The form was checked in full and then had
+       nowhere to go. Saying so here -- and offering the one way on that
+       does work -- is the whole of the honest version. */
+    if (!serverReady()) {
+      banner('#signin-banner', 'info', 'There is nothing to sign in to',
+        NO_ACCOUNT, 'Carry on without an account', 'signin-guest');
+      return;
+    }
+
     setBusy('signin-submit', true, 'Signing in');
-    window.setTimeout(function () {
+    CLOUD().signIn(email, pw).then(function (r) {
       setBusy('signin-submit', false);
-      if (pw === 'locked1234') { go('setup'); return; }
-      banner('#signin-banner', 'error', 'Email or password is wrong',
-        'The email is registered, so check the password. Reveal it to confirm what you typed, or reset it below.');
+      if (r && r.ok && isSignedIn()) { afterSignedIn(); return; }
+      if (r && r.error === 'network') {
+        banner('#signin-banner', 'warn', 'Could not reach the server',
+          'Your details were not sent, so nothing is wrong with them. Retry when you have a connection.',
+          'Retry', 'signin-retry');
+        return;
+      }
+      var msg = (r && r.message) || '';
+      if (/confirm/i.test(msg)) {
+        S.pending = email;
+        go('confirm');
+        return;
+      }
+      banner('#signin-banner', 'error', 'That did not sign you in',
+        msg || 'The email or the password is wrong. Reveal it to confirm what you typed, or reset it below.');
       $('#signin-password').focus();
-    }, 900);
+    }, function () {
+      setBusy('signin-submit', false);
+      banner('#signin-banner', 'warn', 'Could not reach the server',
+        'Your details were not sent, so nothing is wrong with them. Retry when you have a connection.',
+        'Retry', 'signin-retry');
+    });
   }
 
   /* --------------------------- Create account -------------------------- */
@@ -1007,18 +1132,110 @@
     else if (COMMON.indexOf(pw.toLowerCase()) !== -1) { setError('signup-password', 'This password is one of the most guessed in use. Pick another.'); bad = true; }
     if (bad) { $('[data-screen="' + S.screen + '"] [aria-invalid="true"]').focus(); return; }
 
+    /* THE DEFECT THIS REPLACES. A valid email and a password walked
+       straight into setup after a 900ms wait, and everything after it read
+       as an account that had been made: no request had been sent, nothing
+       existed on any server, and nothing on the screen said so. */
+    if (!serverReady()) {
+      banner('#signup-banner', 'info', 'No account was created',
+        NO_ACCOUNT, 'Carry on without an account', 'signup-guest');
+      return;
+    }
+
     setBusy('signup-submit', true, 'Creating account');
-    window.setTimeout(function () {
+    CLOUD().signUp(email, pw).then(function (r) {
       setBusy('signup-submit', false);
-      if (email.toLowerCase() === 'taken@example.com') {
+      if (r && r.ok) {
+        /* Supabase answers a sign-up two ways: a session, or a user that
+           has to confirm an email first. They are different things and the
+           screen says which happened rather than assuming the good one. */
+        if (isSignedIn()) { afterSignedIn(); return; }
+        S.pending = email;
+        go('confirm');
+        return;
+      }
+      if (r && r.error === 'network') {
+        banner('#signup-banner', 'warn', 'Could not reach the server',
+          'Nothing was sent, so nothing was created. Retry when you have a connection.',
+          'Retry', 'signup-retry');
+        return;
+      }
+      var msg = (r && r.message) || '';
+      if (/already|registered|exists/i.test(msg)) {
         setError('signup-email', 'An account already uses this email.');
         banner('#signup-banner', 'error', 'That email already has an account',
           'Sign in with it, or reset the password if you do not have it.', 'Go to sign in', 'signup-duplicate-signin');
         $('#signup-email').focus();
         return;
       }
-      go('setup');
-    }, 900);
+      banner('#signup-banner', 'error', 'No account was created',
+        msg || 'The server refused that.');
+    }, function () {
+      setBusy('signup-submit', false);
+      banner('#signup-banner', 'warn', 'Could not reach the server',
+        'Nothing was sent, so nothing was created. Retry when you have a connection.',
+        'Retry', 'signup-retry');
+    });
+  }
+
+  /* --------------------------- Confirm email --------------------------- */
+  /* F-AUTH-007. There was no confirm pane at all, so a sign-up that needed
+     one had nowhere to land and no way to ask for the email again. */
+  function renderConfirm() {
+    var host = $('#confirm-body');
+    var to = S.pending ? escapeHtml(S.pending) : 'the address you used';
+    setBusy('confirm-resend', false);
+    banner('#confirm-banner', null);
+    if (serverReady() && S.pending) {
+      LKPatch(host,
+        '<h2 class="t-title">Check your email</h2>' +
+        '<p class="t-detail mt-2 wrap">The account exists, and it is not usable until the link ' +
+          'sent to <strong>' + to + '</strong> is opened. Open it on this phone and come back here.</p>' +
+        '<div class="card mt-4">' +
+          '<p class="t-body-em">If it has not arrived</p>' +
+          '<p class="t-detail mt-2">Give it a couple of minutes, then look in spam. The address ' +
+            'has to be one you can open — there is no other way back into the account.</p>' +
+        '</div>' +
+        '<p class="t-meta mt-4">Nothing you log is lost while you wait. You can carry on without ' +
+          'an account and the training moves across when you sign in.</p>');
+      return;
+    }
+    LKPatch(host,
+      '<h2 class="t-title">Nothing was sent</h2>' +
+      '<p class="t-detail mt-2 wrap">' + NO_ACCOUNT + '</p>' +
+      '<div class="card mt-4">' +
+        '<p class="t-body-em">What this screen is for</p>' +
+        '<p class="t-detail mt-2">With a server behind it, a new account has to confirm its email ' +
+          'before it can sign in, and this is where that is said and where the email is asked for ' +
+          'again. There is no server here, so there is no email and no account.</p>' +
+      '</div>');
+  }
+
+  function resendConfirm() {
+    var C = CLOUD();
+    if (!serverReady()) {
+      banner('#confirm-banner', 'info', 'There is nothing to resend', NO_ACCOUNT);
+      return;
+    }
+    if (typeof C.resend !== 'function') {
+      /* Honest about where the missing piece is. cloud.js carries sign-up,
+         sign-in, reset and sign-out; a resend is Supabase's /auth/v1/resend
+         and belongs in that seam rather than as a second network call here,
+         which is why this screen does not make one. */
+      banner('#confirm-banner', 'warn', 'Resending is not wired yet',
+        'The one seam to the server carries sign-up, sign-in, password reset and sign-out. ' +
+        'A resend is another endpoint on it and is not built, so nothing was sent.');
+      return;
+    }
+    setBusy('confirm-resend', true, 'Sending');
+    C.resend(S.pending).then(function (r) {
+      setBusy('confirm-resend', false);
+      if (r && r.ok) { banner('#confirm-banner', 'success', 'Sent again', 'Another link is on its way to ' + escapeHtml(S.pending) + '.'); return; }
+      banner('#confirm-banner', 'error', 'Nothing was sent', (r && r.message) || 'The server refused that.');
+    }, function () {
+      setBusy('confirm-resend', false);
+      banner('#confirm-banner', 'error', 'Nothing was sent', 'The server could not be reached.');
+    });
   }
 
   /* ---------------------------- Guest warning -------------------------- */
@@ -1302,7 +1519,9 @@
          five exercises and fifty minutes whatever was said: more days a week
          means a shorter session, and a longer training history means loads
          that climb across a block rather than session to session. */
-      '<p class="t-detail mt-2">' + exCount + ' exercises, about ' + mins + ' minutes. Built for ' +
+      /* "Built for" was the same overclaim in miniature: the plan is chosen
+         from a table keyed on one answer. Chosen is what happened. */
+      '<p class="t-detail mt-2">' + exCount + ' exercises, about ' + mins + ' minutes. Chosen for ' +
         (a.name ? escapeHtml(a.name) : who) + ' from the answers below.</p>' +
 
       '<div class="card card--flush mt-4">' +
@@ -1329,6 +1548,30 @@
         '</div>' +
       '</div>' +
 
+      /* CHOSEN, NOT BUILT. The adjudication called this out by name: the
+         plan is a real multi-day split out of the real catalogue, and it
+         came from a table of five keyed on the days answer. Saying it was
+         "built for you" would be the screen claiming a thing the build
+         does not do. */
+      '<div class="card card--outline mt-4">' +
+        '<p class="t-body-em">This plan was chosen, not written for you</p>' +
+        '<p class="t-detail mt-2">There are five, one per training-day count, and yours is the ' +
+          escapeHtml(SPLIT[days] || '') + '. Nothing about your injuries, your equipment or what ' +
+          'you have been doing went into it — the six questions do not ask. The coach does, ' +
+          'and builds the programme from the answers.</p>' +
+        '<button class="btn btn--secondary btn--block mt-3" data-testid="overview-interview">' +
+          '<span class="btn__label">Have the coach build it instead</span></button>' +
+      '</div>' +
+
+      (S.pushLost
+        ? '<div class="banner banner--warn mt-4" role="status" data-testid="push-lost">' + ICO.alert +
+            '<span class="grow"><strong>Reminders are not set up</strong>Notifications are allowed ' +
+            'on this phone but there is no push subscription, and resubscribing needs a push server ' +
+            'this build has none of. Nothing will arrive.</span></div>'
+        : '') +
+
+      proBlockHTML() +
+
       /* Which answers, specifically. The line used to say every answer could
          be changed in Settings; Settings carries the name, the units and the
          body figures, and does not carry the experience level, the days per
@@ -1352,6 +1595,667 @@
     });
   }
 
+  /* =================================================================
+     THE SERVER SEAM
+
+     LKCloud (cloud.js) is the one place in this build that knows a server
+     exists. Nothing on this screen opens a socket, builds a header or
+     keeps a token: getToken and headers live in that file and there is
+     exactly one of each. Every method here refuses with a reason while
+     window.LK_CLOUD is unset, and what the reason says is what this
+     screen prints, at the control that was pressed.
+
+     THE RULE THIS SCREEN IS WRITTEN AGAINST. A sign-up that walked into
+     setup as though an account had been made is the defect the
+     adjudication found. So: the form validates in full, the refusal is
+     stated in the words a person needs -- no account, nothing sent --
+     and the way on is guest mode, which is real and works.
+     ================================================================= */
+  function CLOUD() { return window.LKCloud || null; }
+  function serverReady() { var C = CLOUD(); return !!(C && C.ready()); }
+  function coachOnline() { var C = CLOUD(); return !!(C && C.coachReady()); }
+  function isSignedIn() { var C = CLOUD(); return !!(C && C.signedIn()); }
+
+  var NO_ACCOUNT =
+    'There is no account system behind this build. What you typed was ' +
+    'checked on this device and then dropped: nothing was sent, no email ' +
+    'left this phone, and no account was created. You can carry on ' +
+    'without one — everything you log stays here.';
+
+  /* Guest is the honest way on when there is no server, and it is the same
+     write the guest screen makes: one key, one place. */
+  function becomeGuest() {
+    try { localStorage.setItem('lk_guestMode', '1'); } catch (e) { return false; }
+    return true;
+  }
+
+  /* ---------------------------------------------------------------
+     Toast (F-AUTH-014)
+
+     One helper, one slot, one dismiss. Every screen in this build draws
+     its own toast out of the shared .toast classes; a helper in chrome.js
+     is where this belongs so the behaviour cannot drift screen to screen,
+     and chrome.js is not this package's file to change.
+     --------------------------------------------------------------- */
+  var toastTimer = null;
+  function toast(msg) {
+    var slot = document.getElementById('toast-slot');
+    if (!slot) return;
+    LKPatch(slot,
+      '<div class="toast toast--nonav" role="status" data-testid="toast">' +
+        '<span class="toast__body">' + escapeHtml(msg) + '</span>' +
+        '<button class="toast__action" data-testid="toast-dismiss">Done</button>' +
+      '</div>');
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(function () { LKPatch(slot, ''); }, 5000);
+  }
+  function clearToast() {
+    window.clearTimeout(toastTimer);
+    LKPatch(document.getElementById('toast-slot'), '');
+  }
+
+  /* =================================================================
+     ENTITLEMENTS AND THE PAYWALL (F-PAY-001/002/003/004)
+
+     The client half, and only the client half. `entitlements` is
+     select-only to the app: it is written by the payment webhook with the
+     service role key and by nothing else, so NOTHING A PERSON DOES IN
+     HERE CAN MAKE THEM PRO. That is the design, not a limitation of this
+     build, and this screen does not have a path that would grant it.
+
+     With no server everybody is free, LKCloud.entitlement() answers
+     free/none without a request, and the sheet says what Pro would cost
+     and that checkout is not connected.
+     ================================================================= */
+  var PRO = {
+    monthly: '£4.99 a month',
+    yearly: '£39.99 a year',
+    trialDays: 7,
+    includes: [
+      ['The coach', 'Questions answered against your own log, and a programme built from it rather than chosen from a set.'],
+      ['The weekly check-in', 'Energy, sleep, soreness and stress, read against what you actually lifted.'],
+      ['Sync and backup', 'The same log on your phone and your laptop, and a copy that survives losing either.']
+    ],
+    free: ['Logging every set', 'Splits and the exercise library', 'Food, shopping and the budget',
+           'Progress, records and photos', 'Cycle tracking', 'Stack']
+  };
+
+  var ENT = { tier: 'free', status: 'none', trial_ends: null, renews_at: null };
+
+  function loadEntitlement() {
+    var C = CLOUD();
+    /* Paint from the last known answer first, because that is the one the
+       gate uses: LKCloud.can reads lk_entitlement, and a screen that said
+       "Free" while can() said Pro would be two answers to one question.
+       It is a cache, not a grant -- the fetch below replaces it, and with
+       no server the fetch answers free. */
+    if (window.LKStore) {
+      var cached = window.LKStore.get('lk_entitlement', null);
+      if (cached && cached.tier) ENT = cached;
+    }
+    if (!C || typeof C.entitlement !== 'function') return;
+    /* With nothing configured, entitlement() answers free without asking
+       anybody -- which is the right refusal, but it is not news, and taking
+       it would contradict the cache the gate is still reading. So the
+       server's answer is only taken when there is a server to have given
+       one. */
+    if (!serverReady()) return;
+    C.entitlement().then(function (r) {
+      if (!r || !r.ok || !r.data) return;
+      ENT = r.data;
+      if (S.screen === 'overview') renderOverview();
+      if (S.sheet === 'pro') renderSheet();
+    }, function () {});
+  }
+
+  /* The gate. One resolver: LKCloud.can holds the free list, and this asks
+     it rather than keeping a second copy that could disagree. With no
+     LKCloud at all the answer is no, which is the direction to fail in. */
+  function can(what) {
+    var C = CLOUD();
+    return !!(C && typeof C.can === 'function' && C.can(what));
+  }
+
+  function trialDaysLeft() {
+    if (!ENT || !ENT.trial_ends) return null;
+    var ends = Date.parse(ENT.trial_ends);
+    if (!ends) return null;
+    return Math.max(0, Math.ceil((ends - Date.now()) / 86400000));
+  }
+
+  function openPro(why) {
+    S.sheet = 'pro';
+    S.sheetNote = why || null;
+    renderSheet();
+    var h = document.getElementById('pro-title');
+    if (h) { h.setAttribute('tabindex', '-1'); h.focus({ preventScroll: true }); }
+  }
+  function closePro() {
+    S.sheet = null;
+    S.sheetNote = null;
+    S.proAsked = false;
+    renderSheet();
+  }
+
+  function renderSheet() {
+    var slot = document.getElementById('sheet-slot');
+    if (S.sheet !== 'pro') { LKPatch(slot, ''); return; }
+    var left = trialDaysLeft();
+    var pro = ENT.tier === 'pro' && (ENT.status === 'active' || ENT.status === 'trialing');
+    var now = pro
+      ? (ENT.status === 'trialing' && left !== null
+          ? 'You are on a Pro trial, ' + left + ' day' + (left === 1 ? '' : 's') + ' left.'
+          : 'You are on Pro.')
+      : 'You are on Free. Everything below the line is yours already.';
+
+    var why = S.sheetNote
+      ? '<div class="banner banner--info" role="status" data-testid="pro-why">' + ICO.info +
+          '<span class="grow"><strong>Why you are seeing this</strong>' + escapeHtml(S.sheetNote) + '</span></div>'
+      : '';
+
+    /* The only thing pressing the button can honestly do. There is no
+       payment provider connected, no checkout, and no webhook to write an
+       entitlement -- and a button that toasted "Welcome to Pro" would be
+       the worst thing on this screen. It says what is missing instead. */
+    var asked = S.proAsked
+      ? '<div class="banner banner--warn mt-3" role="alert" data-testid="pro-checkout">' + ICO.alert +
+          '<span class="grow"><strong>Checkout is not connected</strong>' +
+          'No payment provider is wired to this build, nothing was charged, and you are still on Free. ' +
+          'Pro is granted by the payment webhook writing your entitlement row — nothing in the app ' +
+          'can do it, which is what stops it being worth faking.</span></div>'
+      : '';
+
+    LKPatch(slot,
+      '<div class="scrim" data-testid="pro-scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pro-title" ' +
+        'data-testid="pro-sheet" data-detents="0.7 0.94" data-detent-open="0.94">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+        '<div class="sheet__head"><h2 class="t-section grow" id="pro-title">LOCKED Pro</h2>' +
+          '<button class="iconbtn" data-testid="pro-close" aria-label="Close">' + ICO.close + '</button>' +
+        '</div>' +
+        /* A scrolling region a keyboard can reach. Without the tabindex the
+           sheet's body scrolls and nothing but a pointer can scroll it. */
+        '<div class="sheet__body" tabindex="0" role="region" aria-label="What Pro adds">' +
+          why +
+          '<p class="t-body' + (why ? ' mt-3' : '') + '" data-testid="pro-tier">' + now + '</p>' +
+          '<p class="t-title mt-3" data-testid="pro-price">' + PRO.monthly + '</p>' +
+          '<p class="t-detail mt-1">or ' + PRO.yearly + '. ' + PRO.trialDays +
+            ' days free first, cancelled any time before it ends and nothing is taken.</p>' +
+          asked +
+          '<h3 class="t-label mt-4">What Pro adds</h3>' +
+          '<div class="card card--flush mt-2">' + PRO.includes.map(function (x) {
+            return '<div class="row row--static"><span class="row__main stack">' +
+              '<span class="row__title">' + escapeHtml(x[0]) + '</span>' +
+              '<span class="row__sub">' + escapeHtml(x[1]) + '</span></span></div>';
+          }).join('') + '</div>' +
+          '<h3 class="t-label mt-4">Free, and staying free</h3>' +
+          '<p class="t-body mt-2">' + PRO.free.join('. ') + '. None of it is behind this, ' +
+            'and none of it needs an account.</p>' +
+          '<p class="t-meta mt-4">Your entitlement is read from the server and never cached as a yes: ' +
+            'if this build cannot reach it, the answer is free.</p>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--primary btn--block" data-testid="pro-start">' +
+            '<span class="btn__label">Start the ' + PRO.trialDays + '-day trial</span></button>' +
+          '<button class="btn btn--tertiary btn--block" data-testid="pro-not-now">' +
+            '<span class="btn__label">Not now</span></button>' +
+        '</div>' +
+      '</div>');
+  }
+
+  /* The trial banner, on the screen the flow ends on (F-PAY-004). It is
+     drawn from the entitlement and from nothing else, so with no server it
+     never appears and the Pro row says what it would cost instead. */
+  function proBlockHTML() {
+    var left = trialDaysLeft();
+    if (ENT.status === 'trialing' && left !== null) {
+      return '<div class="banner banner--info mt-4" role="status" data-testid="trial-banner">' + ICO.info +
+          '<span class="grow"><strong>' + left + ' day' + (left === 1 ? '' : 's') +
+          ' left of your Pro trial</strong>The coach and sync stop when it ends. ' +
+          'Everything you have logged stays, and stays yours.</span></div>' +
+        '<button class="btn btn--tertiary btn--block btn--sm mt-2" data-testid="overview-pro">' +
+          'What Pro costs</button>';
+    }
+    if (ENT.tier === 'pro' && ENT.status === 'active') {
+      return '<p class="t-meta mt-4" data-testid="pro-note">You are on Pro' +
+        (ENT.renews_at ? ', renewing ' + escapeHtml(String(ENT.renews_at).slice(0, 10)) : '') + '.</p>';
+    }
+    return '<button class="btn btn--tertiary btn--block btn--sm mt-4" data-testid="overview-pro">' +
+      'LOCKED Pro — what it adds</button>';
+  }
+
+  /* =================================================================
+     THE COACH INTERVIEW (F-ONB-006/007/008/009/010/011)
+
+     v6 opened with a chat interview and had the model write the first
+     programme. What this build has locally is six questions and a table
+     of five plans keyed on days per week -- real, deterministic, and
+     CHOSEN rather than built, which the overview now says in those words.
+
+     This screen is the other half: three questions the six cannot ask
+     (injuries, equipment, what they have been doing), then a programme
+     generated from the answers. It runs through LKCloud.ask, which is the
+     Worker at /coach, and with no coachUrl it says so on the first frame
+     instead of typing an answer nobody wrote.
+
+     WHAT COMES BACK IS NOT TRUSTED. The Worker returns prose plus
+     proposed actions; every action goes through LKCoachActions.check on
+     this device, which resolves every exercise id against the real
+     catalogue and refuses what does not resolve. The preview card is
+     drawn from the CHECKED action, never from the response.
+     ================================================================= */
+  var IV_MAX = 3;
+  var IV = { msgs: [], asked: 0, busy: false, err: null, checked: null, applied: false, kicked: false };
+
+  /* The catalogue, so a programme can be checked against something real.
+     Same file and same loader the coach and the library use; from file://
+     there is no fetch, and the screen says the check cannot be made rather
+     than accepting an id nobody verified. */
+  var CATALOGUE = { state: 'none', count: 0 };
+  function loadCatalogue() {
+    if (!window.LKCoachActions) return;
+    if (location.protocol === 'file:') { CATALOGUE.state = 'file'; return; }
+    if (CATALOGUE.state === 'loading' || CATALOGUE.state === 'ready') return;
+    CATALOGUE.state = 'loading';
+    fetch('../tests/fixtures/exercise-db.json', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
+      .then(function (rows) {
+        if (!Array.isArray(rows) || !rows.length) throw new Error('empty');
+        LKCoachActions.setCatalogue(rows);
+        CATALOGUE.state = 'ready';
+        CATALOGUE.count = rows.length;
+        if (S.screen === 'interview') renderInterview();
+      }, function () { CATALOGUE.state = 'failed'; if (S.screen === 'interview') renderInterview(); });
+  }
+
+  /* THE SYSTEM PROMPT (F-ONB-009). It belongs with the endpoint, and the
+     endpoint composes its own system message: 15-server/coach-worker.js
+     builds it from `context`, and the channel for "how they asked to be
+     coached" is context.instructions. So this text goes there rather than
+     as a role:system turn the Worker would ignore. */
+  function getChatSys() {
+    return [
+      'This is first-run setup, not a chat. They have just answered six questions and the app has ' +
+        'already chosen them a plan from a fixed set; you are here to ask what those six cannot.',
+      'Ask at most ' + IV_MAX + ' questions, ONE per turn, shortest first: injuries or lifts they must ' +
+        'avoid, what equipment they actually have, and what training they have done in the last month.',
+      'One or two sentences a turn. No preamble, no summarising their answers back to them.',
+      'Do not propose anything until you have asked your questions.'
+    ].join(' ');
+  }
+
+  /* AND THE GENERATION PROMPT (F-ONB-010). Sent when the questions are
+     done: the split comes back as a `split` action, which is the Worker's
+     own contract, and the markers are read too because v6 emitted them. */
+  function getGenSys(a) {
+    var d = a.days || '4';
+    return getChatSys() + ' ' + [
+      'You have what you need. Write the programme now, as a `split` action with exactly ' + d +
+        ' day' + (d === '1' ? '' : 's') + ', four to eight exercises a day, using only exact catalogue names.',
+      'Say in one short paragraph what you changed from a stock ' + (SPLIT[d] || 'plan') +
+        ' and why, naming what they told you.',
+      'If you cannot use an action, put the same programme between ###PROGRAM_START### and ' +
+        '###PROGRAM_END### as JSON of the shape ' +
+        '{"name":"Upper / lower","days":[{"name":"Upper A","exercises":[{"name":"Barbell Bench Press"}]}]} ' +
+        'and nothing after it.'
+    ].join(' ');
+  }
+
+  /* What the coach is told about them: their own answers, nothing more.
+     No history is sent, because on a first run there is none. */
+  function ivContext(gen) {
+    var a = S.answers;
+    var prof = [
+      a.name ? 'Name: ' + a.name : '',
+      'Units: ' + (a.units === 'lb' ? 'pounds' : 'kilograms'),
+      'Training history: ' + (CLIMB[a.experience || '1to3'] || ''),
+      'Days a week: ' + (a.days || '4'),
+      'Goal: ' + (a.goal || 'size'),
+      'The plan already chosen for them: ' + (SPLIT[a.days || '4'] || '')
+    ].filter(Boolean).join('. ');
+    return { profile: prof, instructions: gen ? getGenSys(a) : getChatSys() };
+  }
+
+  /* The v6 marker protocol, kept as a fallback and parsed strictly. It
+     returns an ACTION for the checker, never a split for the store: the
+     one thing this build will not do is write what a model said without
+     resolving it first. */
+  function tryParseProg(text) {
+    var s = String(text || '');
+    var a = s.indexOf('###PROGRAM_START###');
+    if (a < 0) return null;
+    var b = s.indexOf('###PROGRAM_END###', a);
+    var raw = s.slice(a + '###PROGRAM_START###'.length, b < 0 ? s.length : b).trim();
+    raw = raw.replace(/^```(?:json)?/, '').replace(/```$/, '').trim();
+    var obj = null;
+    try { obj = JSON.parse(raw); } catch (e) { return { error: 'The programme came back in a shape this app could not read, so nothing was written.' }; }
+    if (!obj || !Array.isArray(obj.days) || !obj.days.length) {
+      return { error: 'The programme came back with no days in it, so nothing was written.' };
+    }
+    return { action: { kind: 'split', title: 'A programme for you',
+                       split: { name: obj.name || 'Coach programme', days: obj.days } } };
+  }
+
+  function ivCheck(action) {
+    if (!window.LKCoachActions) {
+      return { ok: false, problems: ['the checker did not load, so nothing can be verified'], action: null };
+    }
+    return LKCoachActions.check(action);
+  }
+
+  function ivStart() {
+    if (IV.kicked) return;
+    IV.kicked = true;
+    /* AUTO-KICKOFF (F-ONB-006): the coach asks first, the person does not
+       have to open with anything. With no Worker there is nothing to
+       kick off, and the screen says that rather than typing a question
+       nobody asked. */
+    if (!coachOnline()) { renderInterview(); return; }
+    if (!can('coach')) { renderInterview(); openPro('The coach is part of Pro.'); return; }
+    /* The opening turn is the app's, not theirs: it is marked so the thread
+       does not show a sentence they never typed as something they said. */
+    ivAsk([{ role: 'user', content: 'I have just finished setup. Ask me your first question.', kick: true }], false);
+  }
+
+  function ivAsk(extra, gen) {
+    var C = CLOUD();
+    IV.err = null;
+    IV.busy = true;
+    renderInterview();
+    var msgs = IV.msgs.concat(extra || []);
+    C.ask(msgs, ivContext(gen)).then(function (r) {
+      IV.busy = false;
+      if (!r || !r.ok) {
+        /* RUNTIME GATING (F-PAY-003). A 429 or a gated body is the server
+           saying this account may not have this, and the answer is the
+           sheet rather than an error the person cannot act on. */
+        if (r && (r.status === 429 || (r.body && (r.body.error === 'gated' || r.body.gated)))) {
+          renderInterview();
+          openPro(r.message || 'You have used what Free includes of the coach.');
+          return;
+        }
+        IV.err = (r && r.message) || 'The coach could not be reached.';
+        renderInterview();
+        return;
+      }
+      /* Only now do the turns join the thread: a question that failed to
+         send is not a question that was asked. */
+      IV.msgs = msgs;
+      var reply = String((r.data && r.data.reply) || '');
+      IV.msgs.push({ role: 'assistant', content: reply });
+      if (!gen) IV.asked += 1;
+
+      var proposed = (r.data && Array.isArray(r.data.actions) ? r.data.actions : [])
+        .filter(function (x) { return x && x.kind === 'split'; })[0];
+      if (!proposed) {
+        var p = tryParseProg(reply);
+        if (p && p.error) IV.err = p.error;
+        if (p && p.action) proposed = p.action;
+      }
+      if (proposed) {
+        var v = ivCheck(proposed);
+        IV.checked = v;
+      }
+      renderInterview();
+    }, function () {
+      IV.busy = false;
+      IV.err = 'The coach could not be reached. Nothing was sent twice.';
+      renderInterview();
+    });
+  }
+
+  function ivSend() {
+    var box = document.getElementById('iv-input');
+    var text = box ? String(box.value || '').trim() : '';
+    if (!text || IV.busy) return;
+    if (!coachOnline()) return;
+    if (!can('coach')) { openPro('The coach is part of Pro.'); return; }
+    if (box) box.value = '';
+    ivAsk([{ role: 'user', content: text }], IV.asked >= IV_MAX);
+  }
+
+  /* Applying the programme. Through LKCoachActions.apply, to lk_splits, and
+     only the CHECKED action -- the same path the coach screen uses. */
+  function ivApply() {
+    if (!IV.checked || !IV.checked.ok || !window.LKCoachActions) return;
+    var r = LKCoachActions.apply(IV.checked.action);
+    if (!r || !r.ok) {
+      toast('That could not be saved: ' + ((r && r.problems || []).join('; ') || 'nothing was changed') + '.');
+      return;
+    }
+    IV.applied = true;
+    renderInterview();
+    toast('Saved to your splits.');
+  }
+
+  /* THE PREVIEW CARD (F-ONB-011). Local, and buildable now: it is drawn
+     from the checked action, so what it shows is what would be written. */
+  function progCardHTML(v) {
+    if (!v) return '';
+    if (!v.ok) {
+      return '<div class="card card--outline mt-3" data-testid="iv-refused">' +
+        '<p class="t-body-em">This programme was refused</p>' +
+        '<p class="t-detail mt-2">' + escapeHtml((v.problems || []).join('; ')) +
+          '. Nothing was written.</p></div>';
+    }
+    var a = v.action;
+    var days = a.days || [];
+    return '<div class="card mt-3" data-testid="iv-preview">' +
+      '<p class="t-label">Proposed</p>' +
+      '<p class="t-body-em mt-1">' + escapeHtml(a.name) + '</p>' +
+      '<p class="t-detail mt-1">' + days.length + ' day' + (days.length === 1 ? '' : 's') + ', ' +
+        days.reduce(function (n, d) { return n + (d.exercises || []).length; }, 0) +
+        ' exercises, every one resolved against the catalogue.</p>' +
+      '<div class="card card--flush card--sunken mt-3">' + days.map(function (d) {
+        return '<div class="row row--static"><span class="row__main stack">' +
+          '<span class="row__title">' + escapeHtml(d.name) + '</span>' +
+          '<span class="row__sub">' + escapeHtml((d.exercises || []).map(function (e) { return e.name; }).join(', ')) +
+          '</span></span></div>';
+      }).join('') + '</div>' +
+      (IV.applied
+        ? '<p class="t-meta mt-3" data-testid="iv-applied">Saved. It is your split now, and the chosen plan is still in the list.</p>'
+        : '<button class="btn btn--secondary btn--block mt-3" data-testid="iv-apply">' +
+            '<span class="btn__label">Use this programme</span></button>') +
+    '</div>';
+  }
+
+  function renderInterview() {
+    var body = document.getElementById('interview-body');
+    var foot = document.getElementById('interview-foot');
+    if (!body || !foot) return;
+
+    var head = '<p class="t-label" data-testid="iv-counter">' +
+      (coachOnline() ? 'Question ' + Math.min(Math.max(IV.asked, 1), IV_MAX) + ' of ' + IV_MAX : 'The coach') +
+      '</p>';
+
+    if (!coachOnline()) {
+      /* The whole of the missing half, said once, where it is used. */
+      LKPatch(body, head +
+        '<h2 class="t-title mt-1">The coach needs a server</h2>' +
+        '<p class="t-detail mt-2 wrap">Three questions the six could not ask — injuries, the ' +
+          'equipment you have, what you have trained lately — and a programme written around ' +
+          'the answers. It runs on a model, through a Worker this build has no address for, so ' +
+          'there is nothing behind this screen yet.</p>' +
+        '<div class="banner banner--info mt-4">' + ICO.info +
+          '<span class="grow"><strong>Nothing was sent</strong>No question left this phone, and ' +
+            'no answer was invented to fill the gap.</span></div>' +
+        '<div class="card mt-4">' +
+          '<p class="t-body-em">What you have instead</p>' +
+          '<p class="t-detail mt-2">The plan your answers chose is real, written, and yours to ' +
+            'edit: ' + escapeHtml(planFor(S.answers.days || '4').name) + ', ' +
+            planFor(S.answers.days || '4').days.length + ' days. It was chosen from five plans, ' +
+            'one per training day count — not built for you.</p>' +
+        '</div>');
+      LKPatch(foot, '<button class="btn btn--primary btn--block" data-testid="iv-back-to-plan">' +
+        '<span class="btn__label">Back to my plan</span></button>');
+      return;
+    }
+
+    var thread = IV.msgs.filter(function (m) { return m.role !== 'system' && !m.kick; }).map(function (m) {
+      var mine = m.role === 'user';
+      return '<div class="msg' + (mine ? ' msg--user' : '') + '">' +
+        '<div class="msg__col"><div class="msg__head"><span class="msg__who">' +
+          (mine ? 'You' : 'Coach') + '</span></div>' +
+        '<div class="msg__bubble">' + escapeHtml(m.content) + '</div></div></div>';
+    }).join('');
+
+    var typing = IV.busy
+      ? '<div class="typing" data-testid="iv-typing" aria-label="The coach is answering">' +
+          '<span class="typing__dot"></span><span class="typing__dot"></span><span class="typing__dot"></span></div>'
+      : '';
+
+    var err = IV.err
+      ? '<div class="banner banner--error mt-3" role="alert" data-testid="iv-error">' + ICO.alert +
+          '<span class="grow"><strong>The coach did not answer</strong>' + escapeHtml(IV.err) +
+          ' Your plan is untouched.</span></div>'
+      : '';
+
+    var cat = CATALOGUE.state === 'file'
+      ? '<p class="t-meta mt-3" data-testid="iv-catalogue">Opened from a file, so the exercise ' +
+        'catalogue cannot be read and no programme can be verified against it. Served over http it can.</p>'
+      : CATALOGUE.state === 'failed'
+      ? '<p class="t-meta mt-3" data-testid="iv-catalogue">The exercise catalogue did not load, so ' +
+        'nothing the coach proposes can be checked. Nothing will be written until it can.</p>' : '';
+
+    LKPatch(body, head +
+      '<h2 class="t-title mt-1">' + (IV.asked >= IV_MAX ? 'Your programme' : 'A few things the questions missed') + '</h2>' +
+      '<p class="t-detail mt-2 wrap">Injuries, the equipment you have, and what you have been doing. ' +
+        'Answers go to the coach with your six setup answers and nothing else.</p>' +
+      '<div class="thread mt-4">' + thread + typing + '</div>' + err + cat +
+      progCardHTML(IV.checked));
+
+    LKPatch(foot,
+      '<div class="composer">' +
+        '<input class="composer__input" id="iv-input" data-testid="iv-input" ' +
+          'placeholder="' + (IV.asked >= IV_MAX ? 'Anything else before the programme' : 'Your answer') + '" ' +
+          'aria-label="Your answer"' + (IV.busy ? ' disabled' : '') + '>' +
+        '<button class="composer__send" data-testid="iv-send" aria-label="Send"' + (IV.busy ? ' disabled' : '') + '>' +
+          '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">' +
+          '<path d="M4 12h15M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>' +
+      '</div>' +
+      '<button class="btn btn--tertiary btn--block mt-2" data-testid="iv-back-to-plan">Keep the chosen plan</button>');
+  }
+
+  /* =================================================================
+     DEEP LINKS, THE SERVICE WORKER AND PUSH
+     (F-ROOT-006, F-SYS-009, F-SYS-010)
+
+     A notification names a screen. Standalone, every screen is its own
+     file and the demo router claims the crossings this screen declares --
+     which is why the table below holds the three destinations onboarding
+     is allowed to reach and nothing else. A push naming anything else is
+     said out loud rather than dropped, because a notification that opens
+     the wrong screen is worse than one that explains itself.
+     ================================================================= */
+  var PUSH_PANES = { welcome: 1, signin: 1, signup: 1, confirm: 1, guest: 1, setup: 1, interview: 1, overview: 1 };
+  function routeTarget(target) {
+    var t = String(target || '').replace(/^[#/]+/, '').split('?')[0];
+    if (PUSH_PANES[t]) { if (t === 'setup') S.step = 0; go(t); return true; }
+    if (t === 'home') { location.href = 'home.html'; return true; }
+    if (t === 'train') { location.href = 'train.html'; return true; }
+    if (t === 'workout' || t === 'workout-log' || t === 'session') { location.href = 'workout-log.html'; return true; }
+    toast('A notification asked for "' + t + '", which this screen cannot open.');
+    return false;
+  }
+
+  function watchPush() {
+    /* The app-side half of a push: the worker posts a message, the page
+       routes it. Both halves of the message exist; what does not exist is
+       anything to send the push. */
+    if (navigator.serviceWorker && navigator.serviceWorker.addEventListener) {
+      navigator.serviceWorker.addEventListener('message', function (e) {
+        var d = (e && e.data) || {};
+        if (d.type !== 'lockedPushOpen') return;
+        routeTarget(d.target || d.screen || d.url);
+      });
+    }
+    /* The in-page event of the same name, so anything already dispatching
+       it -- the shipped app did -- lands in the same router. */
+    window.addEventListener('lockedPushOpen', function (e) {
+      var d = (e && e.detail) || {};
+      routeTarget(d.target || d.screen || d.url);
+    });
+  }
+
+  /* BOOT SELF-HEAL (F-SYS-010). If notifications are allowed and the push
+     subscription is gone, it needs resubscribing -- and resubscribing needs
+     a VAPID key and a subscriptions table, neither of which exists. So this
+     finds out and says so once, where the person can act on it, rather than
+     silently doing nothing or silently claiming a reminder will arrive. */
+  function healPush() {
+    try {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      if (!navigator.serviceWorker || !navigator.serviceWorker.getRegistration) return;
+      navigator.serviceWorker.getRegistration().then(function (reg) {
+        if (!reg || !reg.pushManager) return;
+        reg.pushManager.getSubscription().then(function (sub) {
+          if (sub) return;
+          S.pushLost = true;
+          if (S.screen === 'overview') renderOverview();
+        }, function () {});
+      }, function () {});
+    } catch (e) {}
+  }
+
+  /* =================================================================
+     INSTALL (F-SYS-003) AND ZOOM (F-SYS-005)
+     ================================================================= */
+  var installPrompt = null;
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    installPrompt = e;
+    var b = $('[data-testid="welcome-install"]');
+    if (b && S.screen === 'welcome') b.hidden = false;
+  });
+  window.addEventListener('appinstalled', function () {
+    installPrompt = null;
+    var b = $('[data-testid="welcome-install"]');
+    if (b) b.hidden = true;
+    toast('Installed. Open it from the home screen next time.');
+  });
+  function doInstall() {
+    if (!installPrompt) { toast('This browser has no install prompt to show.'); return; }
+    var p = installPrompt;
+    installPrompt = null;
+    var b = $('[data-testid="welcome-install"]');
+    if (b) b.hidden = true;
+    p.prompt();
+  }
+
+  /* PINCH ZOOM. chrome.js already stops the double-tap zoom on every
+     screen; what it does not stop is a pinch, and a pinch inside a
+     full-screen flow leaves somebody zoomed into a form with no way back.
+     Deliberate zoom from the browser's own controls still works: this only
+     refuses the gesture. */
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) { e.preventDefault(); }, { passive: false });
+  });
+
+  /* =================================================================
+     BETA: WHY THERE IS NONE OF IT HERE
+
+     F-BETA-002 (a silent-beta id list), F-BETA-003 (activity and AI
+     logging to lk_betaLog / lk_betaAILog), F-BETA-004 (the beta admin
+     panel), F-SYNC-004 and F-SYS-016 (a separate /beta-sync channel) are
+     CUT, together, for one reason: they are an operator console and its
+     feed living inside a consumer app. The coach package cut its two
+     beta-admin rows on the same ground and this package applies it
+     consistently rather than half-building the same subsystem.
+
+     Specifically:
+       - An admin panel reachable from a shipped build is a screen whose
+         only correct audience is us, gated on a list of ids the client
+         can read. Anything it is worth seeing belongs in the server's own
+         logs, where it is not also shipped to everybody.
+       - Logging every question somebody asks the coach into a local key
+         that then syncs is a privacy cost with, in this build, no reader
+         at all: nothing displays lk_betaLog and nothing sends it.
+       - A second sync channel beside LKCloud.sync would be two resolvers
+         for one path, which is the rule this build is written on. If beta
+         data ever needs a channel, it is a key in syncKeys() and the same
+         store_push, not a legacy endpoint kept alive beside it.
+     ================================================================= */
+
   /* ---------------------------------------------------------------
      Events
      --------------------------------------------------------------- */
@@ -1366,6 +2270,7 @@
         try { localStorage.removeItem('lk_guestMode'); } catch (err) {}
         go('signup'); break;
       case 'welcome-signin': go('signin'); break;
+      case 'welcome-install': doInstall(); break;
       case 'welcome-guest': go('guest'); break;
       case 'welcome-back': location.href = 'home.html'; break;
       case 'welcome-legal': {
@@ -1386,13 +2291,38 @@
 
       case 'signin-back': go('welcome'); break;
       case 'signin-submit': e.preventDefault(); submitSignin(); break;
-      case 'signin-forgot': go('signin', 'reset'); break;
-      case 'signin-retry': go('signin', 'busy'); window.setTimeout(function () { go('signin', 'error'); }, 900); break;
+      case 'signin-forgot': doReset(); break;
+      /* Retry re-runs the thing that failed rather than acting out a
+         failure: the old handler went busy and then printed a wrong
+         password, whatever had actually happened. */
+      case 'signin-retry': submitSignin(); break;
+      case 'signin-guest':
+        if (!becomeGuest()) { banner('#signin-banner', 'error', 'This browser is blocking storage',
+          'Guest mode needs local storage, and private browsing usually blocks it.'); break; }
+        S.step = 0; go('setup');
+        toast('Carrying on without an account. Everything stays on this phone.');
+        break;
 
       case 'signup-back': go('welcome'); break;
       case 'signup-submit': e.preventDefault(); submitSignup(); break;
       case 'signup-to-signin':
       case 'signup-duplicate-signin': go('signin'); break;
+      case 'signup-retry': submitSignup(); break;
+      case 'signup-guest':
+        if (!becomeGuest()) { banner('#signup-banner', 'error', 'This browser is blocking storage',
+          'Guest mode needs local storage, and private browsing usually blocks it.'); break; }
+        S.step = 0; go('setup');
+        toast('Carrying on without an account. Everything stays on this phone.');
+        break;
+
+      case 'confirm-back': go('welcome'); break;
+      case 'confirm-resend': resendConfirm(); break;
+      case 'confirm-signin': go('signin'); break;
+      case 'confirm-guest':
+        if (!becomeGuest()) { banner('#confirm-banner', 'error', 'This browser is blocking storage',
+          'Guest mode needs local storage, and private browsing usually blocks it.'); break; }
+        S.step = 0; go('setup');
+        break;
 
       case 'guest-warning-back': go('welcome'); break;
       case 'guest-warning-create': go('signup'); break;
@@ -1416,6 +2346,23 @@
       /* The way out. These two controls carried no handler at all, so the
          last screen of onboarding was where the flow ended: the app was
          behind them and there was no route to it. */
+      /* The paywall. Nothing behind any of these can grant Pro: the sheet
+         states the price and says checkout is not connected. */
+      case 'overview-pro': openPro(null); break;
+      case 'pro-close':
+      case 'pro-not-now':
+      case 'pro-scrim': closePro(); break;
+      case 'pro-start': S.proAsked = true; renderSheet(); break;
+
+      case 'overview-interview': go('interview'); ivStart(); break;
+      case 'interview-back':
+      case 'interview-skip':
+      case 'iv-back-to-plan': go('overview', countAnswers() ? 'populated' : 'empty'); break;
+      case 'iv-send': ivSend(); break;
+      case 'iv-apply': ivApply(); break;
+
+      case 'toast-dismiss': clearToast(); break;
+
       case 'overview-start': location.href = 'workout-log.html'; break;
       case 'overview-week': location.href = 'train.html'; break;
       case 'overview-freestyle': location.href = 'workout-log.html'; break;
@@ -1426,6 +2373,15 @@
       case 'dev-close': openDev(false); break;
       default: break;
     }
+  });
+
+  /* Enter sends, which is what a composer is for. */
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    var t = e.target;
+    if (!t || t.id !== 'iv-input') return;
+    e.preventDefault();
+    ivSend();
   });
 
   $('#signin-form').addEventListener('submit', function (e) { e.preventDefault(); submitSignin(); });
@@ -1454,8 +2410,16 @@
       { screen: 'signin', variant: 'error', label: 'Wrong password', tag: 'error' },
       { screen: 'signin', variant: 'network', label: 'Network failure, not validation', tag: 'error' },
       { screen: 'signin', variant: 'busy', label: 'Signing in', tag: 'loading' },
-      { screen: 'signin', variant: 'reset', label: 'Reset link sent', tag: 'populated' }
+      { screen: 'signin', variant: 'reset', label: 'Password reset asked for', tag: 'populated' }
     ] },
+
+    { group: 'Confirm email', items: [
+      { screen: 'confirm', variant: 'default', label: 'Waiting on a confirmation', tag: 'populated' }
+    ], na: 'With no server configured this pane says nothing was sent, because nothing was.' },
+
+    { group: 'The coach', items: [
+      { screen: 'interview', variant: 'default', label: 'Interview', tag: 'empty' }
+    ], na: 'The interview needs the coach Worker. Without one it says so on the first frame and the chosen plan stands.' },
 
     { group: 'Create account', items: [
       { screen: 'signup', variant: 'empty', label: 'Blank form', tag: 'empty' },
@@ -1491,8 +2455,10 @@
 
     { group: 'Sample answers', items: [
       { action: 'seed', label: 'Fill setup answers', tag: 'data' },
-      { action: 'clear', label: 'Clear setup answers', tag: 'data' }
-    ], na: 'Sign in with any email and the password locked1234. taken@example.com is registered.' }
+      { action: 'clear', label: 'Clear setup answers', tag: 'data' },
+      { action: 'pro', label: 'Open the Pro sheet', tag: 'data' }
+    ], na: 'There is no test account: signing in needs a server, and with none configured the form ' +
+          'says so rather than letting a magic password through.' }
   ];
 
   function renderDevList() {
@@ -1518,6 +2484,10 @@
             S.answers = { name: 'Cesco', units: 'kg', experience: '1to3', days: '4', goal: 'strength' };
           } else if (it.action === 'clear') {
             S.answers = { name: '', units: '', experience: '', days: '', goal: '' };
+          } else if (it.action === 'pro') {
+            openDev(false);
+            openPro(null);
+            return;
           } else {
             if (it.step !== undefined) S.step = it.step;
             openDev(false);
@@ -1562,7 +2532,7 @@
      had to choose again. Standalone that is ?open=signup; in the demo the
      router takes the click, so the caller leaves the same answer under
      lk_openOnboarding and this reads it on entry. */
-  var OPENABLE = { welcome: 1, signin: 1, signup: 1, guest: 1, setup: 1, overview: 1 };
+  var OPENABLE = { welcome: 1, signin: 1, signup: 1, confirm: 1, guest: 1, setup: 1, interview: 1, overview: 1 };
   function requestedScreen() {
     var want = null;
     try { want = new URLSearchParams(location.search).get('open'); } catch (e) {}
@@ -1577,6 +2547,7 @@
     if (!want || want === S.screen) return false;
     if (want === 'setup') S.step = 0;
     go(want);
+    if (want === 'interview') ivStart();
     return true;
   }
   document.addEventListener('lk:enter', openRequested);
@@ -1588,8 +2559,18 @@
     state: S
   };
 
+  /* BOOT. Every one of these is allowed to find nothing: with no server the
+     entitlement is free without a request, the catalogue is absent from
+     file://, and there is no push subscription to lose. None of them blocks
+     the screen and none of them invents an answer. */
+  watchPush();
+  healPush();
+  loadCatalogue();
+  loadEntitlement();
+
   if (!openRequested()) render();
   booted = true;
+  window.__ready = true;
 }());
 </script>
 </body>

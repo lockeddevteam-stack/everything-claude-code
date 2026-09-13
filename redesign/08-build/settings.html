@@ -43,8 +43,10 @@
     3  Training         what happens while you lift
     4  Reminders        when the app is allowed to speak
     5  Data and account one-time and destructive actions, at the bottom
-  Nineteen interactive rows, was 49 controls. Every row prints its current
-  value in the secondary line, so the whole configuration is readable
+  Was 49 controls; rebuilt as nineteen, and the rows the audit found missing
+  have been added back one at a time since (three notification preferences,
+  their send times, the cycle-log consent, the version check). Every row
+  prints its current value in the secondary line, so the configuration reads
   without opening anything. Nothing here is one word deep in jargon:
   "Round weights to", not "plate increment"; "Everything on this device",
   not "local storage".
@@ -94,8 +96,12 @@
   - Text size. iOS ships Dynamic Type as a system setting. A second,
     app-only text size duplicates it, disagrees with it, and was filed
     under DATA & SYNC.
-  - Fuel display preferences (hide calories, Left/Eaten). Settings for a
-    screen belong on that screen; Fuel is a separate track.
+  - Fuel's Left/Eaten dashboard framing. "Show calorie numbers" is here,
+    because Fuel reads it; the framing is not, because Fuel reads no framing
+    key and a switch this screen wrote that Fuel ignored would be a control
+    that does nothing. It belongs on Fuel.
+  - "Sync All to Server Now", v6's beta admin force-push. See syncRow().
+  - The beta admin export of the four beta collections. See the export row.
   - The privacy disclosure block. Legal text with a +/- affordance is not
     a control; it configures nothing.
   - The old App Style's five options. Appearance offers Dark, Light and
@@ -134,10 +140,18 @@
 
   NOTIFICATIONS, HONESTLY
   The permission prompt is a real browser API and this asks for it,
-  including the blocked state a page cannot undo. Scheduling anything for
-  later needs a service worker and this build has none, so the six
-  preferences are stored, the test send is a real notification from this
-  page, and the sentence under them says which half is missing.
+  including the blocked state a page cannot undo. There are NINE
+  preferences -- unfinished workout, compounds and restock were in v6 and
+  were missing here -- and the three that are a time of day carry their own
+  send time, where one global Reminder time used to stand in for all of
+  them. A served build does register a service worker now (10-final/
+  assemble.mjs writes demo/sw.js), so the test send goes through it where
+  there is one; what is still missing is the half after that. A worker can
+  only show a notification when something wakes it, and what wakes it is a
+  push from a server. There is no push subscription and no sender here, so
+  every switch is a preference being recorded and nothing is scheduled --
+  which is what the card says, at the point of use, and what turning one on
+  says back.
 
   STATES
   Signed in, Guest, Signed out, Loading, Account unreachable. Guest is
@@ -266,29 +280,87 @@
     return v === true || v === 'true';
   }
 
-  /* The check-in is one choice on this screen and a count per day in
-     lk_checkinPerDay, which is the key the coach reads. Both are written, so
-     the two can never disagree. */
-  var PER_DAY = { off: 0, morning: 1, evening: 1, both: 2 };
+  /* HOW MANY CHECK-INS A DAY. lk_checkinPerDay is the key the coach pane
+     reads, and it accepts exactly 1, 2 or 4 -- v6's three values. This screen
+     used to offer Off / Morning / Evening / Morning and evening and write
+     0/1/1/2, so two of the four choices wrote the same number, "four times a
+     day" could not be asked for at all, and Off wrote a 0 the coach reads back
+     as 1. The row now offers the three values the reader accepts and nothing
+     else; whether the app SAYS anything about a check-in is the Daily check-in
+     notification switch, which is a different question and has its own row.
+
+     PER_DAY stays as the map from a choice to the stored count, so there is
+     still one place that decides what is written. */
+  var PER_DAY = { once: 1, twice: 2, four: 4 };
   function checkinFromCount(c) {
-    var n = Number(c);
-    return n === 0 ? 'off' : n >= 2 ? 'both' : 'evening';
+    var v = parseInt(c, 10);
+    return v === 4 ? 'four' : v === 2 ? 'twice' : 'once';
   }
 
-  /* The six things the app would notify about. They are preferences, not
-     schedules: see the note on the Reminders group. */
+  /* THE NINE THINGS THE APP WOULD NOTIFY ABOUT. They are preferences, not
+     schedules: see the note on the Reminders group.
+
+     Three of them -- unfinished workout, compounds and restock -- were in v6
+     and were missing here entirely, so somebody who wanted them had no row to
+     turn off either.
+
+     `time` names the state field holding that preference's OWN send time, for
+     the three that are a time of day rather than an event. The build had one
+     global Reminder time doing the job of all of them, so moving the workout
+     reminder to 6:30 AM also moved the check-in. `when` is what the row says
+     instead, for the ones whose moment is not a clock time -- the event that
+     triggers them, or the screen that already holds their schedule. */
   var NOTIF = [
-    ['workout', 'Workout reminder', 'On the days your split says you train'],
-    ['rest', 'Rest timer finished', 'When the timer between sets runs out'],
-    ['checkin', 'Daily check-in', 'The question the coach asks'],
-    ['streak', 'Streak at risk', 'Late in the day, if you have not trained'],
-    ['goal', 'Goal deadline', 'A week before a goal is due'],
-    ['supps', 'Supplements', 'At the time of day each one is set to']
+    { k: 'workout', title: 'Workout reminder',
+      sub: 'On the days your split says you train', time: 'reminderAt' },
+    { k: 'rest', title: 'Rest timer finished',
+      sub: 'When the timer between sets runs out', when: 'The moment the timer runs out.' },
+    { k: 'checkin', title: 'Daily check-in',
+      sub: 'The question the coach asks', time: 'checkinAt' },
+    { k: 'unfinished', title: 'Unfinished workout',
+      sub: 'A workout you started and never finished',
+      when: 'Two hours after the last set you logged.' },
+    { k: 'streak', title: 'Streak at risk',
+      sub: 'Late in the day, if you have not trained', when: 'At 8:00 PM.' },
+    { k: 'goal', title: 'Goal deadline',
+      sub: 'A week before a goal is due', when: 'On the morning it falls due.' },
+    { k: 'supps', title: 'Supplements',
+      sub: 'Creatine, vitamins and the rest',
+      when: 'At the time of day each one is set to, under Fuel.' },
+    { k: 'compounds', title: 'Compounds',
+      sub: 'A dose due from a cycle you are running',
+      when: 'At the time the cycle in Stack sets for it.', needs: 'perfTracking' },
+    { k: 'restock', title: 'Restock',
+      sub: 'When something in your pantry is nearly out', time: 'restockAt' }
   ];
+  /* Every preference except the workout reminder, which lives in the shipped
+     app's own lk_reminderOn -- writing it here as well would be two stored
+     copies of one answer. Compounds is the one that starts off: Stack
+     tracking is off by default, so there is nothing for it to be about until
+     somebody turns that on. */
   function defaultNotif() {
     var o = {};
-    NOTIF.forEach(function (r) { o[r[0]] = true; });
+    NOTIF.forEach(function (r) {
+      if (r.k === 'workout') return;
+      o[r.k] = r.k !== 'compounds';
+    });
     return o;
+  }
+  function notifSpec(k) {
+    var hit = null;
+    NOTIF.forEach(function (r) { if (r.k === k) hit = r; });
+    return hit;
+  }
+  /* ONE RESOLVER PER PREFERENCE. The workout reminder is the shipped app's
+     lk_reminderOn / lk_reminderAt and has been since v6; the other eight live
+     in lk_notifPrefs and lk_notifTimes. A screen that kept its own second copy
+     of "is the workout reminder on" is how the old build ended up with a
+     switch in one card and a duplicate of it in another. */
+  function notifOn(k) { return k === 'workout' ? !!S.reminder : !!S.notif[k]; }
+  function notifSet(k, v) {
+    if (k === 'workout') { S.reminder = v; persist('reminder'); return; }
+    S.notif[k] = v;
+    put('lk_notifPrefs', S.notif);
   }
 
   /* One reader, called at boot and again whenever something outside these
@@ -329,8 +401,19 @@
     partials: !bool('lk_hidePartials', false),
     plateKg: Number(get('lk_plateKg', 2.5)) || 2.5,
     reminder: bool('lk_reminderOn', true),
+    /* THREE SEND TIMES, NOT ONE. lk_reminderAt is the shipped key and stays
+       the workout reminder's own time; the two other timed preferences keep
+       theirs in lk_notifTimes, one key holding one object rather than a new
+       top-level key per notification. */
     reminderAt: get('lk_reminderAt', '18:30'),
-    checkin: get('lk_checkin', checkinFromCount(get('lk_checkinPerDay', 1))),
+    checkinAt: (get('lk_notifTimes', null) || {}).checkin || '08:00',
+    restockAt: (get('lk_notifTimes', null) || {}).restock || '09:00',
+    checkin: checkinFromCount(get('lk_checkinPerDay', 1)),
+    /* The cycle log's own consent, read from the key cloud.js reads before it
+       will carry lk_mcProfile, lk_mcDays or lk_mcFuelAdjust in either
+       direction. The Cycle screen writes the same field; this is a second
+       surface on one key, not a second copy of the fact. */
+    cycleBackup: !!((get('lk_mcProfile', null) || {}).cloudBackup),
     notif: (function () {
       var d = defaultNotif(), st = get('lk_notifPrefs', null) || {};
       Object.keys(st).forEach(function (k) { if (d[k] !== undefined) d[k] = !!st[k]; });
@@ -338,13 +421,25 @@
     })(),
     notifOn: bool('lk_notifOn', false),
     restSound: get('lk_restSound', 'beep'),
+    /* NOTHING, WHEN NOTHING IS SET. These fell back to 29, female, 168 cm and
+       64.2 kg -- the seeded persona's body -- so an account that had never
+       opened the sheet was shown somebody else's stats as its own, and the
+       same numbers reached the calorie maths through lk_profile. A missing
+       figure is missing. */
     body: {
-      age: Number(PROF.age) || 29,
-      sex: PROF.sex === 'male' ? 'male' : 'female',
-      heightCm: Number(PROF.heightCm) || 168,
-      weightKg: Number(PROF.weightKg) || 64.2,
-      goal: PROF.goal || 'build'
+      age: Number(PROF.age) > 0 ? Number(PROF.age) : null,
+      sex: PROF.sex === 'male' ? 'male' : PROF.sex === 'female' ? 'female' : null,
+      heightCm: Number(PROF.heightCm) > 0 ? Number(PROF.heightCm) : null,
+      weightKg: Number(PROF.weightKg) > 0 ? Number(PROF.weightKg) : null,
+      goal: ({ cut: 1, maintain: 1, build: 1 })[PROF.goal] ? PROF.goal : null
     },
+    /* The deploy the browser is running, and whether a newer one is waiting.
+       Filled in by checkVersion() after the page paints -- a version that has
+       not been checked yet is not a version that is up to date. */
+    version: null,
+    versionState: 'unknown',   /* unknown | checking | current | stale | absent */
+    newVersion: null,
+    swState: 'unknown',        /* unknown | none | unsupported | insecure | active */
     sync: 'idle',          /* idle | busy | ok | failed */
     /* A real timestamp or nothing at all. It was the literal string
        "2 minutes ago" on a build that has never synced anything. */
@@ -353,6 +448,9 @@
     pwError: null,
     pwDone: false,
     restoreError: null,
+    /* replace | merge. Asked before the file picker opens, because a restore
+       that has already read the file has already decided. */
+    restoreMode: 'replace',
     sheet: null,
     dialog: null,
     toast: null
@@ -362,7 +460,10 @@
   function reseed() {
     var f = freshState();
     Object.keys(f).forEach(function (k) {
-      if (k === 'sheet' || k === 'dialog' || k === 'toast') return;
+      if (k === 'sheet' || k === 'dialog' || k === 'toast' || k === 'restoreMode') return;
+      /* What the version check found is not in the store, so re-reading the
+         store must not throw it away. */
+      if (k === 'version' || k === 'versionState' || k === 'newVersion' || k === 'swState') return;
       S[k] = f[k];
     });
   }
@@ -388,11 +489,21 @@
     if (k === 'plateKg') { put('lk_plateKg', S.plateKg); return; }
     if (k === 'reminder') { put('lk_reminderOn', S.reminder); return; }
     if (k === 'reminderAt') { put('lk_reminderAt', S.reminderAt); return; }
+    if (k === 'checkinAt') { patchKey('lk_notifTimes', { checkin: S.checkinAt }); return; }
+    if (k === 'restockAt') { patchKey('lk_notifTimes', { restock: S.restockAt }); return; }
     if (k === 'checkin') {
-      put('lk_checkin', S.checkin);
+      /* One key, holding 1, 2 or 4 -- the only three values coach.html's
+         checkinPerDay() accepts. lk_checkin, a second string saying the same
+         thing in different words, is no longer written: two keys for one fact
+         is how they come to disagree. */
       put('lk_checkinPerDay', PER_DAY[S.checkin]);
       return;
     }
+    /* THE CYCLE LOG'S CONSENT, on the key cloud.js gates the sync with. It is
+       a field inside lk_mcProfile rather than a key of its own, because the
+       profile is what the Cycle screen writes and a second key would have to
+       be kept in step with it forever. */
+    if (k === 'cycleBackup') { patchKey('lk_mcProfile', { cloudBackup: S.cycleBackup }); return; }
     if (k === 'fuelNumbers' || k === 'badges' || k === 'cycle' || k === 'perfTracking') {
       put('lk_' + k, S[k]);
       return;
@@ -443,7 +554,17 @@
     var keys = Object.keys(dump).length;
     if (!keys) { toast('Nothing to back up yet. Log something first.'); return; }
     var name = 'LOCKED-backup-' + todayStamp() + '.json';
-    var text = JSON.stringify({ app: 'LOCKED', exported: todayStamp(), keys: keys, data: dump }, null, 2);
+    /* EVERYTHING THE APP IS SHOWING, plus the two things a restore needs to
+       be able to decide anything: when each key last changed, and which
+       schema wrote it. Without the stamps a merge has no way to tell an old
+       backup from a new one and can only overwrite, which is how a restore
+       quietly loses a week of training. */
+    var text = JSON.stringify({
+      app: 'LOCKED', exported: todayStamp(), keys: keys,
+      schema: ST.schemaVersion ? ST.schemaVersion() : 0,
+      stamps: ST.changedAt ? ST.changedAt() : {},
+      data: dump
+    }, null, 2);
     var url;
     try {
       url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
@@ -503,9 +624,36 @@
       toast('No LOCKED data in ' + filename + '. Nothing was replaced.');
       return;
     }
-    var n = ST ? ST.load(data) : 0;
+    /* TWO WAYS TO RESTORE, AND THE READER PICKS. Replace was the only one
+       there was, so restoring a two-week-old backup to get one lost split
+       back also threw away two weeks of training, with no warning and no way
+       to tell it had happened.
+
+       Merge keeps whichever copy of each key is newer, by the same stamps
+       cloud.js merges on -- one rule for a restore and a sync, not two. A
+       backup written before this build carries no stamps; then the honest
+       merge is to add only the keys this phone has never written, and the
+       toast says that is what happened. */
+    var mode = S.restoreMode === 'merge' ? 'merge' : 'replace';
+    var stamps = parsed && parsed.stamps && typeof parsed.stamps === 'object' ? parsed.stamps : null;
+    var ours = ST && ST.changedAt ? ST.changedAt() : {};
+    var subset = {}, skipped = 0;
+    mine.forEach(function (k) {
+      if (mode === 'replace') { subset[k] = data[k]; return; }
+      if (ST && !ST.touched(k)) { subset[k] = data[k]; return; }
+      var theirs = stamps ? Number(stamps[k] || 0) : 0;
+      if (theirs && theirs > Number(ours[k] || 0)) { subset[k] = data[k]; return; }
+      skipped++;
+    });
+    var n = ST ? ST.load(subset) : 0;
     reload();
-    toast(n + (n === 1 ? ' key' : ' keys') + ' restored from ' + filename + '.');
+    toast(mode === 'replace'
+      ? n + (n === 1 ? ' key' : ' keys') + ' restored from ' + filename + '. ' +
+        'What was on this phone was replaced.'
+      : n + (n === 1 ? ' key' : ' keys') + ' merged from ' + filename + ', ' + skipped +
+        ' kept from this phone' +
+        (stamps ? ' because they had changed more recently.'
+                : '. That file carries no change dates, so nothing already written here was touched.'));
   }
 
   /* Back to what the store holds, after something outside these rows has
@@ -552,14 +700,32 @@
   }
   function testNotification() {
     if (notifPermission() !== 'granted') { toast('Allow notifications first.'); return; }
+    /* Through the service worker where there is one, because that is the only
+       path some browsers allow at all -- and because it is the path a real
+       reminder would take, so a test that works here tests the right thing.
+       What it does NOT do is schedule anything: this fires now, from this tap. */
+    if (S.swState === 'active' && navigator.serviceWorker) {
+      navigator.serviceWorker.ready.then(function (reg) {
+        return reg.showNotification('LOCKED', {
+          body: 'This is what one looks like. Sent now, by this tap — nothing is scheduled.',
+          tag: 'lk-test'
+        });
+      }).then(function () {
+        toast('Sent by the service worker, now. A reminder that arrives later needs a push ' +
+          'subscription and a server, and this build has neither.');
+      }, function () {
+        toast('Your browser would not show it. Nothing was sent.');
+      });
+      return;
+    }
     try {
       new Notification('LOCKED', { body: 'This is what one looks like. Sent from this phone, by this page.' });
-      toast('Sent from this page. A real reminder needs a service worker, which this build has none of.');
+      toast('Sent from this page, now. Nothing is scheduled: a reminder that arrives later needs a push subscription and a server.');
     } catch (e) {
       /* Chrome refuses a page-constructed Notification on some origins and
          tells you to use a service worker. That is the truth about this
          build too, so it is what the row says. */
-      toast('Your browser will only send one from a service worker. This build has none.');
+      toast('Your browser will only send one from a service worker, and none is running here.');
     }
   }
   /* A sound the page makes itself, rather than a file it does not ship.
@@ -628,9 +794,30 @@
                    '', '', '', '', '']);
       }
     });
-    if (!meals) { toast('No meals on this phone yet, so there is nothing to export.'); return; }
+    var wlog0 = (get('lk_weightLog', []) || []).filter(function (w) { return w && w.kg; });
+    if (!meals && !wlog0.length) {
+      toast('No meals and no weigh-ins on this phone yet, so there is nothing to export.');
+      return;
+    }
     var t = get('lk_fuelTargets', null) || nut.targets || {};
     if (t.kcal) rows.push(['', 'DAILY TARGET', '', t.kcal, t.pro, t.carb, t.fat, '', '', '', '', '']);
+    /* THE WEIGH-INS, IN THE SAME FILE. A nutrition export with no body weight
+       in it cannot answer the only question anybody exports one to ask --
+       what the eating did. Written as its own table under a blank line, in
+       kilograms, because kilograms is what is stored; a spreadsheet can
+       convert, and a relabelled number cannot be undone. */
+    var wlog = wlog0;
+    var bf = (get('lk_bfLog', []) || []).filter(function (w) { return w && (w.pct || w.bf); });
+    if (wlog.length || bf.length) {
+      rows.push([]);
+      rows.push(['date', 'measure', 'value', 'unit', '', '', '', '', '', '', '', '']);
+      wlog.forEach(function (w) {
+        rows.push([w.date || w.iso || '', 'body weight', round1(Number(w.kg)), 'kg', '', '', '', '', '', '', '', '']);
+      });
+      bf.forEach(function (w) {
+        rows.push([w.date || w.iso || '', 'body fat', Number(w.pct || w.bf), '%', '', '', '', '', '', '', '', '']);
+      });
+    }
     var csv = rows.map(function (r) {
       return r.map(function (c) {
         var v = c === undefined || c === null ? '' : String(c);
@@ -648,7 +835,8 @@
     a.click();
     setTimeout(function () { document.body.removeChild(a); try { URL.revokeObjectURL(url); } catch (e) {} }, 0);
     toast(name + ' saved. ' + meals + (meals === 1 ? ' meal' : ' meals') +
-      ' across ' + dates.length + (dates.length === 1 ? ' day.' : ' days.'));
+      ' across ' + dates.length + (dates.length === 1 ? ' day' : ' days') +
+      (wlog.length ? ', and ' + wlog.length + (wlog.length === 1 ? ' weigh-in.' : ' weigh-ins.') : '.'));
   }
 
   /* =============================================================
@@ -657,12 +845,95 @@
      row says so, because "refresh" next to "erase" needs to.
      ============================================================= */
   function forceRefresh() {
+    /* The version we are about to start running is the one the check found,
+       so it is recorded before the reload rather than after -- a refresh that
+       cleared the cache and then still claimed a new build was waiting is the
+       banner that never goes away. */
+    if (S.newVersion) { put('lk_deployVersion', S.newVersion); S.newVersion = null; }
     var done = function () { location.reload(); };
     if (window.caches && caches.keys) {
       caches.keys().then(function (names) {
         return Promise.all(names.map(function (k) { return caches['delete'](k); }));
       }).then(done, done);
     } else done();
+  }
+
+  /* =============================================================
+     WHICH BUILD IS RUNNING, AND WHETHER A NEWER ONE IS PUBLISHED.
+
+     There was no version check at all: Force refresh was the whole of it,
+     so a person had to guess that the app was stale and then know to press
+     a button under "Data and account" to find out.
+
+     The version is the service worker's own cache name. assemble.mjs writes
+     `var CACHE = 'locked-<byte length of the build>'` into sw.js, so the file
+     a deploy publishes beside the app already carries a version string that
+     changes on every rebuild and cannot be forgotten about. Fetching it with
+     cache: 'no-store' asks the host, not the cache, which is what makes the
+     answer worth having. No endpoint, no server code: a static host is
+     enough, which is what this app deploys to.
+
+     Nothing here reloads by itself. A build swapped under somebody mid-set
+     loses the set; the check says a new one is ready and the reader decides.
+     ============================================================= */
+  function versionFromText(txt) {
+    var m = /locked-(\w+)/.exec(String(txt || ''));
+    return m ? m[1] : null;
+  }
+  /* The worker's OWN script URL, taken from its registration rather than
+     guessed at. Fetching a path this page assumed was there is how a check
+     ends up reporting a 404 as a build. */
+  var SW_URL = null;
+  function checkVersion() {
+    if (!SW_URL) { S.versionState = 'absent'; render(); return; }
+    S.versionState = 'checking';
+    render();
+    fetch(SW_URL, { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error('no version file');
+      return r.text();
+    }).then(function (txt) {
+      var v = versionFromText(txt);
+      if (!v) throw new Error('no version in it');
+      S.version = v;
+      var known = get('lk_deployVersion', null);
+      if (!known) {
+        /* First look. There is nothing to compare against, so this is what
+           is running, not a new build. */
+        put('lk_deployVersion', v);
+        S.versionState = 'current';
+      } else if (String(known) !== String(v)) {
+        S.newVersion = v;
+        S.versionState = 'stale';
+        say('A new version of LOCKED is ready.');
+      } else {
+        S.newVersion = null;
+        S.versionState = 'current';
+      }
+      render();
+    }, function () {
+      S.versionState = 'absent';
+      render();
+    });
+  }
+
+  /* Whether a worker is actually running here. The card under Reminders says
+     what it can and cannot do, and that sentence has to be about this page,
+     not about what a build was like when somebody wrote the comment. */
+  function checkServiceWorker() {
+    if (!('serviceWorker' in navigator)) { S.swState = 'unsupported'; render(); return; }
+    if (location.protocol === 'file:') { S.swState = 'insecure'; render(); return; }
+    navigator.serviceWorker.getRegistration().then(function (reg) {
+      var w = reg && (reg.active || reg.installing || reg.waiting);
+      S.swState = w ? 'active' : 'none';
+      SW_URL = w ? w.scriptURL : null;
+      render();
+      if (!reg) { checkVersion(); return; }
+      checkVersion();
+      /* A worker that installs while this page is open is a new build
+         arriving, and it is the same news the version fetch carries. */
+      reg.addEventListener('updatefound', function () { checkVersion(); });
+      try { reg.update(); } catch (e) {}
+    }, function () { S.swState = 'none'; render(); });
   }
 
   /* =============================================================
@@ -703,12 +974,19 @@
   }
   var SEX = { female: 'Female', male: 'Male' };
   var GOAL = { cut: 'Lose fat', maintain: 'Maintain', build: 'Build muscle' };
-  var CHECKIN = { off: 'Off', morning: 'Morning', evening: 'Evening', both: 'Morning and evening' };
+  var CHECKIN = { once: 'Once a day', twice: 'Twice a day', four: 'Four times a day' };
 
+  /* Only what is actually set. The line used to print five figures whatever
+     the profile held, because every one of them had the seed's value as its
+     fallback. */
   function bodyLine() {
-    var b = S.body;
-    return n(b.age) + ' &middot; ' + SEX[b.sex] + ' &middot; ' + height(b.heightCm) +
-           ' &middot; ' + wt(b.weightKg) + ' &middot; ' + GOAL[b.goal];
+    var b = S.body, parts = [];
+    if (b.age) parts.push(n(b.age));
+    if (b.sex) parts.push(SEX[b.sex]);
+    if (b.heightCm) parts.push(height(b.heightCm));
+    if (b.weightKg) parts.push(wt(b.weightKg));
+    if (b.goal) parts.push(GOAL[b.goal]);
+    return parts.length ? parts.join(' &middot; ') : 'Nothing set yet. Tap to add it.';
   }
 
   /* =============================================================
@@ -716,6 +994,15 @@
      current value marked, opened from the row that shows that value.
      One level deep, and one implementation.
      ============================================================= */
+  /* The same list of hours for every send time, so three sheets do not drift
+     into three different sets of times. */
+  var TIMES = ['06:30', '08:00', '09:00', '12:00', '17:00', '18:30', '20:00', '21:30'];
+  function timeOptions() {
+    return TIMES.map(function (v) {
+      return { v: v, title: clock(v).replace(/<[^>]+>/g, ''), sub: '' };
+    });
+  }
+
   function opts() {
     return {
       unit: {
@@ -764,18 +1051,23 @@
         })
       },
       reminderAt: {
-        title: 'Reminder time',
-        options: ['06:30', '12:00', '17:00', '18:30', '20:00'].map(function (v) {
-          return { v: v, title: clock(v).replace(/<[^>]+>/g, ''), sub: '' };
-        })
+        title: 'Workout reminder time',
+        options: timeOptions()
+      },
+      checkinAt: {
+        title: 'Check-in time',
+        options: timeOptions()
+      },
+      restockAt: {
+        title: 'Restock time',
+        options: timeOptions()
       },
       checkin: {
-        title: 'Daily check-in',
+        title: 'Check-ins a day',
         options: [
-          { v: 'off', title: 'Off', sub: 'No check-in' },
-          { v: 'morning', title: 'Morning', sub: 'Asks how you slept before you train' },
-          { v: 'evening', title: 'Evening', sub: 'Asks how the day went after you train' },
-          { v: 'both', title: 'Morning and evening', sub: 'Two check-ins a day' }
+          { v: 'once', title: 'Once a day', sub: 'One reading, whenever you open it' },
+          { v: 'twice', title: 'Twice a day', sub: 'Morning and evening' },
+          { v: 'four', title: 'Four times a day', sub: 'For a week you want tracked closely' }
         ]
       }
     };
@@ -854,9 +1146,26 @@
      never the literal "2 minutes ago" it used to be on a build that has
      never reached a server. */
   function syncedLine() {
-    if (!S.syncedAt) return 'Never synced. This build has no server to sync with.';
+    /* Asked, not assumed. "This build has no server" is true today and would
+       become a lie the moment a deploy sets window.LK_CLOUD, so the sentence
+       reads the one seam that knows. */
+    var C = window.LKCloud;
+    if (!S.syncedAt) {
+      if (!C || !C.ready()) return 'Never synced. This build has no server to sync with.';
+      if (!C.signedIn()) return 'Never synced. Sign in to sync.';
+      return 'Never synced.';
+    }
     return 'Last sync ' + S.syncedAt;
   }
+  /* WHY THERE IS ONE SYNC BUTTON AND NOT TWO. v6 also had "Sync All to Server
+     Now" in its beta admin card: a force-push of every key regardless of what
+     had changed, for an operator chasing a tester's missing data. CUT. Sync now
+     is the same action with a better rule -- LKCloud.push() sends what changed
+     since the last sync and pulls what changed on the other side -- and a
+     second button beside it whose only difference is "ignore the change stamps"
+     is an admin tool in a consumer screen, one more thing to press when the
+     first one does not appear to work. Forcing a full push would also need an
+     API cloud.js does not have, and cloud.js belongs to another package. */
   function syncRow() {
     var sub, btn;
     if (S.sync === 'busy') {
@@ -1010,6 +1319,13 @@
      setting, off unless somebody turned them on" and there was no such
      setting either. Both are here now, where the copy already said they
      were. */
+  /* FUEL DISPLAY. "Show calorie numbers" is here because Fuel reads it
+     (fuel.html:6558, lk_fuelNumbers === 'false' hides the figures). The other
+     half of v6's card -- Left / Eaten dashboard framing -- is still not here:
+     fuel.html does not read a framing key, it belongs to that screen's own
+     package, and a switch on this screen that Fuel ignored would be a control
+     that does nothing, which is worse than one fewer control. It goes in Fuel
+     or it does not go in. */
   function seenSection() {
     return group('What you see',
       '<div class="card card--flush">' +
@@ -1026,6 +1342,25 @@
         switchRow('cycle', 'Cycle tracking',
           S.cycle ? 'On. Home shows where you are in it.' : 'Off',
           S.cycle, 'switch-cycle') +
+        /* THE CYCLE LOG'S OWN CONSENT. It is the one key set in this app that
+           a sync may not carry by default, so it has a switch of its own and
+           the row says exactly which records it governs -- not "sync my data".
+           cloud.js refuses lk_mcProfile, lk_mcDays and lk_mcFuelAdjust in both
+           directions while this is off, so turning it off later also stops a
+           copy already on a server from coming back. Shown only when cycle
+           tracking is on: a consent switch for a feature nobody uses is a
+           question with no subject. */
+        (S.cycle ? switchRow('cycleBackup', 'Back up your cycle log',
+          S.cycleBackup
+            ? 'On. Your cycle dates, symptoms and fuel adjustments would be included in a sync.'
+            : 'Off. Your cycle dates, symptoms and fuel adjustments stay on this phone, and a sync skips them.',
+          S.cycleBackup, 'switch-cycle-backup') +
+          '<div class="row row--static" data-testid="row-cycle-backup-note">' +
+            '<span class="row__main">' +
+              '<span class="row__sub">Nothing has been uploaded either way: this build has no server. ' +
+                'The switch decides what a sync would be allowed to carry once there is one.</span>' +
+            '</span>' +
+          '</div>' : '') +
         /* Stack. Off by default, and nothing about it appears anywhere in the
            app until this is on -- not a greyed chip, not an empty tab, absent.
            The sub-line says what it records rather than what it is called,
@@ -1037,13 +1372,15 @@
       '</div>');
   }
 
-  /* NOTIFICATIONS. The permission prompt is a real browser API and this
-     asks for it properly, including the state where the answer was no and
-     only the reader can change it. What a browser cannot do from a page is
-     schedule anything for later: that needs a service worker, and this build
-     ships none. So the preferences are real and stored, the test send is a
-     real notification, and the sentence under them says exactly which half
-     is missing rather than implying a reminder will arrive at 6:30 PM. */
+  /* NOTIFICATIONS. The permission prompt is a real browser API and this asks
+     for it properly, including the state where the answer was no and only the
+     reader can change it. Nine preferences, each stored, and the three that
+     are a time of day each carry their own send time. What still cannot
+     happen is the sending: a service worker can show a notification, and it
+     is a push from a server that wakes it to do so. There is no push
+     subscription and no sender here, so the card says that, in its own words,
+     under the switches -- rather than implying a reminder will arrive at
+     6:30 PM. */
   function notifCard() {
     var perm = notifPermission();
     var head;
@@ -1088,18 +1425,52 @@
 
     var on = perm === 'granted' && S.notifOn;
     var types = NOTIF.map(function (r) {
-      return '<div class="row">' +
+      /* A preference for a feature that is switched off is shown and
+         explained rather than hidden, so the list is the same list every
+         time somebody looks at it -- but it cannot be armed, because there
+         is nothing for it to be about. */
+      var blocked = r.needs && !S[r.needs];
+      /* A PREFERENCE IS NOT A PERMISSION. These were all disabled until the
+         browser had said yes, so somebody deciding what they wanted to be told
+         about had to grant a permission first -- and since nothing can fire
+         either way, the switch they were being refused only records an
+         intention. What the browser has allowed is the head of this card; what
+         the reader wants is these. The one control gated on permission is the
+         test send, because that one really does try to show a notification. */
+      var live = !blocked;
+      var sub = blocked ? 'Turn Stack tracking on to use this' : r.sub;
+      var row = '<div class="row">' +
                '<span class="row__main">' +
-                 '<span class="row__title" id="lbl-n-' + r[0] + '">' + r[1] + '</span>' +
-                 '<span class="row__sub">' + r[2] + '</span>' +
+                 '<span class="row__title" id="lbl-n-' + r.k + '">' + r.title + '</span>' +
+                 '<span class="row__sub">' + sub + '</span>' +
                '</span>' +
-               '<button class="switch" role="switch" aria-checked="' + !!S.notif[r[0]] + '" ' +
-                 'aria-labelledby="lbl-n-' + r[0] + '" data-action="notif-toggle" data-key="' + r[0] + '" ' +
-                 'data-name="' + esc(r[1]) + '" data-testid="switch-notif-' + r[0] + '"' +
-                 (on ? '' : ' disabled aria-disabled="true"') + '>' +
+               '<button class="switch" role="switch" aria-checked="' + notifOn(r.k) + '" ' +
+                 'aria-labelledby="lbl-n-' + r.k + '" data-action="notif-toggle" data-key="' + r.k + '" ' +
+                 'data-name="' + esc(r.title) + '" data-testid="switch-notif-' + r.k + '"' +
+                 (live ? '' : ' disabled aria-disabled="true"') + '>' +
                  '<span class="switch__track"></span><span class="switch__knob"></span>' +
                '</button>' +
              '</div>';
+      /* ITS OWN SEND TIME, under the preference it belongs to. One global
+         Reminder time meant moving the workout reminder to the morning moved
+         the check-in with it. */
+      if (r.time) {
+        row += '<button class="row row--sub" data-action="sheet" data-key="' + r.time +
+                 '" data-testid="row-time-' + r.k + '">' +
+                 '<span class="row__main">' +
+                   '<span class="row__title">Send at</span>' +
+                   '<span class="row__sub">' + clock(S[r.time]) + '</span>' +
+                 '</span>' +
+                 '<span class="row__chev">' + ICO.chev + '</span>' +
+               '</button>';
+      } else if (r.when) {
+        row += '<div class="row row--sub row--static" data-testid="row-when-' + r.k + '">' +
+                 '<span class="row__main">' +
+                   '<span class="row__sub">' + r.when + '</span>' +
+                 '</span>' +
+               '</div>';
+      }
+      return row;
     }).join('');
 
     var sounds = '<div class="row row--static">' +
@@ -1116,25 +1487,55 @@
         '</span>' +
       '</div>';
 
+    /* WHAT IS ACTUALLY MISSING, SAID WHERE IT MATTERS. The old sentence said
+       there was no service worker. There is one now -- assemble.mjs generates
+       demo/sw.js and registers it on a served build -- so that sentence had
+       become untrue, and "needs a service worker" was no longer the reason
+       nothing fires. The reason is the half after it: a worker can only show
+       a notification when something wakes it, and what wakes it is a push
+       from a server. There is no push subscription and no sender here, so
+       every switch above is a preference being recorded for the day there is
+       one, and none of them will fire. */
+    var swLine =
+      S.swState === 'active'
+        ? 'A service worker is running, so this app can show one. Nothing wakes it: a reminder that ' +
+          'arrives while the app is closed needs a push subscription and a server to send it, and ' +
+          'this build has neither.'
+        : S.swState === 'unsupported'
+          ? 'This browser has no service workers, so nothing can be shown while the app is closed.'
+          : S.swState === 'insecure'
+            ? 'Opened from a file, so no service worker can run. A served build registers one — and ' +
+              'even there, sending a reminder later needs a push subscription and a server.'
+            : 'No service worker is running here yet, so nothing can be shown while the app is closed.';
+
     var foot = '<div class="card__foot stack stack--2">' +
         '<button class="btn btn--secondary btn--block" data-action="notif-test" data-testid="notif-test"' +
           (on ? '' : ' disabled') + '>' +
           '<span class="btn__label">Send one now</span></button>' +
-        '<p class="t-detail">A notification sent while you are looking at this page is all a page can do. ' +
-          'Sending one later, when the app is closed, needs a service worker, and this build has none: ' +
-          'nothing here is scheduled.</p>' +
+        '<p class="t-detail" data-testid="notif-truth">These are preferences, not schedules. ' +
+          'A notification sent while you are looking at this page is all this build does: ' + swLine +
+          ' Nothing above is scheduled, and turning one on will not make it arrive.</p>' +
       '</div>';
 
     return '<div class="card card--flush">' + head + types + sounds + foot + '</div>';
   }
 
+  /* The workout reminder and its time used to sit here AND in the
+     notification list below, two switches over one idea, with a single
+     Reminder time standing in for every notification's send time. Both now
+     live once, in the list, each with its own time; what is left in this card
+     is the one thing that is not a notification -- how often the coach asks,
+     which it asks whether or not the app is allowed to speak. */
   function remindersSection() {
     return group('Reminders',
       '<div class="card card--flush">' +
-        switchRow('reminder', 'Workout reminder',
-          S.reminder ? 'On training days only' : 'Off', S.reminder, 'switch-workout-reminder') +
-        navRow('reminderAt', 'Reminder time', clock(S.reminderAt), 'row-reminder-time') +
-        navRow('checkin', 'Daily check-in', CHECKIN[S.checkin], 'row-checkin') +
+        navRow('checkin', 'Check-ins a day', CHECKIN[S.checkin], 'row-checkin') +
+        '<div class="row row--static" data-testid="row-checkin-note">' +
+          '<span class="row__main">' +
+            '<span class="row__sub">The coach accepts this many readings a day. ' +
+              'Whether it reminds you to leave one is the Daily check-in switch below.</span>' +
+          '</span>' +
+        '</div>' +
       '</div>' + notifCard());
   }
 
@@ -1142,6 +1543,28 @@
      5. Data and account. One-time and destructive actions, last,
      each behind a confirmation that names what it costs.
      ============================================================= */
+  /* What is running, checked rather than asserted, with the check offered
+     again because a person who has just been told to reload wants to see it
+     say so. "Unknown" is a real answer and is printed as one. */
+  function versionRow() {
+    var sub;
+    if (S.versionState === 'checking') sub = 'Checking with the server…';
+    else if (S.versionState === 'stale') sub = 'Build ' + esc(String(get('lk_deployVersion', '?'))) +
+      '. Build ' + esc(String(S.newVersion)) + ' is published — see the top of this screen.';
+    else if (S.versionState === 'current') sub = 'Build ' + esc(String(S.version)) + '. Up to date.';
+    else if (S.versionState === 'absent') sub = location.protocol === 'file:'
+      ? 'Opened from a file, so there is nothing to check against.'
+      : 'No service worker is published beside this app, so there is no version to check.';
+    else sub = 'Not checked yet.';
+    return '<button class="row" data-action="check-version" data-testid="row-version">' +
+             '<span class="row__main">' +
+               '<span class="row__title">App version</span>' +
+               '<span class="row__sub">' + sub + '</span>' +
+             '</span>' +
+             '<span class="row__chev">' + ICO.chev + '</span>' +
+           '</button>';
+  }
+
   function dataSection() {
     /* Measured, not asserted. This row said "1.2 MB of 5.0 MB" as a literal
        string; the whole store is a few tens of kilobytes. The figure is the
@@ -1166,9 +1589,19 @@
 
     var files =
       '<div class="card card--flush">' + storage +
-        actionRow('export', 'Export a backup', 'One file with every workout, split and record', 'row-export') +
-        actionRow('confirm-restore', 'Restore from a backup', 'Replaces what is on this phone', 'row-restore') +
-        actionRow('export-nutrition', 'Export your food log', 'A CSV of every meal you have logged, by date, with your targets', 'row-export-nutrition') +
+        /* EXPORT ALL DATA, and the whole of it. v6 had this twice: a consumer
+           backup, and a beta admin button that downloaded four collections --
+           the beta activity log, the tester roster and two counters -- which
+           were an operator's view of other people's usage, not this person's
+           training. That half is not reproduced: a product does not ship its
+           own admin console, LKStore.dump() already returns everything the app
+           is showing, and the four beta collections do not exist in this build
+           to export. What is here is one file with everything in it, written
+           through <a download>, with the change stamps a restore needs. */
+        actionRow('export', 'Export a backup', 'One file with everything: workouts, splits, records, meals and settings', 'row-export') +
+        actionRow('confirm-restore', 'Restore from a backup', 'Merge it with what is here, or replace what is here', 'row-restore') +
+        actionRow('export-nutrition', 'Export your food log', 'A CSV of every meal by date, with your targets and your weigh-ins', 'row-export-nutrition') +
+        versionRow() +
         actionRow('force-refresh', 'Force refresh', 'Clears what the browser cached and loads the app again. Your data is untouched', 'row-force-refresh') +
       '</div>';
 
@@ -1195,8 +1628,26 @@
     return group('Help', help) + group('Data and account', files + danger);
   }
 
+  /* The one thing on this screen that somebody did not come here to change.
+     It sits above everything because a stale build is the reason half the
+     other rows would be lying, and it is gone the moment it is dealt with. */
+  function updateBanner() {
+    if (S.versionState !== 'stale' || !S.newVersion) return '';
+    return '<section class="section"><div class="card" data-testid="update-ready">' +
+             '<div class="banner banner--info" role="status">' + ICO.cloud +
+               '<span><strong>A new version is ready</strong>' +
+               'Build ' + esc(String(S.newVersion)) + ' has been published. This phone is running ' +
+               esc(String(get('lk_deployVersion', 'an older build'))) + '. ' +
+               'Reloading clears what the browser cached and starts the new one. Nothing you have logged is touched.</span>' +
+             '</div>' +
+             '<button class="btn btn--primary btn--block mt-4" data-action="force-refresh" data-testid="update-now">' +
+               '<span class="btn__label">Reload into the new version</span></button>' +
+           '</div></section>';
+  }
+
   function screenHTML() {
-    return accountSection() + displaySection() + seenSection() + trainingSection() + remindersSection() + dataSection();
+    return updateBanner() + accountSection() + displaySection() + seenSection() +
+           trainingSection() + remindersSection() + dataSection();
   }
 
   /* =============================================================
@@ -1263,19 +1714,48 @@
              '</div>';
     }
     var b = S.body;
-    var weightVal = S.unit === 'kg' ? round1(b.weightKg) : round1(b.weightKg * LB);
-    var heightVal = S.unit === 'kg' ? b.heightCm : Math.round(b.heightCm / 2.54);
+    var weightVal = b.weightKg === null ? '' : (S.unit === 'kg' ? round1(b.weightKg) : round1(b.weightKg * LB));
+    /* HEIGHT IN THE UNITS THE PERSON THINKS IN. The row printed "5 ft 6 in"
+       and the editor behind it took centimetres, so a reader on pounds had to
+       convert their own height to open their own profile. Two fields, feet and
+       inches, whenever weights are in pounds -- and still one stored number,
+       in centimetres, because every screen reads that. */
+    var totalIn = b.heightCm === null ? null : Math.round(b.heightCm / 2.54);
+    var heightField;
+    if (S.unit === 'kg') {
+      heightField = '<label class="field">' +
+          '<span class="field__label t-detail">Height in centimetres</span>' +
+          '<input class="input num" id="f-height" inputmode="decimal" value="' +
+            (b.heightCm === null ? '' : b.heightCm) + '" data-testid="field-height">' +
+        '</label>';
+    } else {
+      heightField = '<div class="field">' +
+          '<span class="field__label t-detail">Height</span>' +
+          '<div class="hstack hstack--2">' +
+            '<label class="grow">' +
+              '<input class="input num" id="f-height-ft" inputmode="numeric" placeholder="ft" ' +
+                'aria-label="Height, feet" value="' +
+                (totalIn === null ? '' : Math.floor(totalIn / 12)) + '" data-testid="field-height-ft">' +
+            '</label>' +
+            '<label class="grow">' +
+              '<input class="input num" id="f-height-in" inputmode="numeric" placeholder="in" ' +
+                'aria-label="Height, inches" value="' +
+                (totalIn === null ? '' : totalIn % 12) + '" data-testid="field-height-in">' +
+            '</label>' +
+          '</div>' +
+          '<span class="field__help">Feet and inches. Stored in centimetres, so switching the unit ' +
+            'converts it rather than relabelling it.</span>' +
+        '</div>';
+    }
     return sheetShell('Body and goal',
       '<div class="sheet__body stack stack--4">' +
         '<label class="field">' +
           '<span class="field__label t-detail">Age</span>' +
-          '<input class="input num" id="f-age" inputmode="numeric" value="' + b.age + '" data-testid="field-age">' +
+          '<input class="input num" id="f-age" inputmode="numeric" value="' +
+            (b.age === null ? '' : b.age) + '" data-testid="field-age">' +
         '</label>' +
         segField('sex', 'Sex', SEX, 'seg-sex') +
-        '<label class="field">' +
-          '<span class="field__label t-detail">Height in ' + (S.unit === 'kg' ? 'centimetres' : 'inches') + '</span>' +
-          '<input class="input num" id="f-height" inputmode="decimal" value="' + heightVal + '" data-testid="field-height">' +
-        '</label>' +
+        heightField +
         '<label class="field">' +
           '<span class="field__label t-detail">Body weight in ' + (S.unit === 'kg' ? 'kilograms' : 'pounds') + '</span>' +
           '<input class="input num" id="f-weight" inputmode="decimal" value="' + weightVal + '" data-testid="field-weight">' +
@@ -1357,13 +1837,34 @@
     },
     'restore': {
       title: 'Restore from a backup?',
-      body: 'What is on this phone is replaced by the backup file you choose. Export one first if you want to keep it.',
+      body: 'Pick a backup file, and say what should happen where it disagrees with this phone.',
       go: 'Choose a file', danger: false
     }
   };
 
   function dialogHTML(id) {
     var c = CONFIRM[id];
+    /* Restore asks the one question a restore has to ask, and each answer is
+       its own button saying what it costs. A single "Choose a file" that
+       silently replaced everything was the whole of it before. */
+    if (id === 'restore') {
+      return '<div class="scrim" data-action="close-dialog" data-testid="scrim"></div>' +
+             '<div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dlg-title" ' +
+               'aria-describedby="dlg-body" data-testid="dialog-restore">' +
+               '<h2 class="t-section" id="dlg-title">' + c.title + '</h2>' +
+               '<p class="t-detail mt-2" id="dlg-body">' + c.body + '</p>' +
+               '<div class="stack stack--2 mt-5">' +
+                 '<button class="btn btn--secondary btn--block" data-action="confirm" data-id="restore" ' +
+                   'data-mode="merge" data-testid="confirm-restore-merge">' +
+                   '<span class="btn__label">Merge, keeping whichever is newer</span></button>' +
+                 '<button class="btn btn--danger-solid btn--block" data-action="confirm" data-id="restore" ' +
+                   'data-mode="replace" data-testid="confirm-restore">' +
+                   '<span class="btn__label">Replace everything on this phone</span></button>' +
+                 '<button class="btn btn--tertiary btn--block" data-action="close-dialog" data-testid="cancel-restore">' +
+                   '<span class="btn__label">Cancel</span></button>' +
+               '</div>' +
+             '</div>';
+    }
     return '<div class="scrim" data-action="close-dialog" data-testid="scrim"></div>' +
            '<div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dlg-title" ' +
              'aria-describedby="dlg-body" data-testid="dialog-' + id + '">' +
@@ -1403,6 +1904,11 @@
     var last = log.length ? log[log.length - 1] : null;
     var kg = last && last.kg ? Number(last.kg) : Number(p.weightKg);
     if (kg > 0 && kg !== S.body.weightKg) { S.body.weightKg = Math.round(kg * 10) / 10; render(); }
+    /* A screen that mounts once would otherwise check for a new build at the
+       moment the demo booted and never again -- and in the demo the worker is
+       registered on window load, which can be after this screen's first pass,
+       so the registration is looked for again rather than assumed. */
+    checkServiceWorker();
   });
 
   /* WHICH onboarding screen. Both of these landed on Welcome, so somebody
@@ -1593,17 +2099,29 @@
       var LABEL = { restTimer: 'Rest timer ', partials: 'Count partial reps ',
                     reminder: 'Workout reminder ', fuelNumbers: 'Calorie numbers ',
                     badges: 'Streaks and badges ', cycle: 'Cycle tracking ',
-                    perfTracking: 'Stack tracking ' };
+                    perfTracking: 'Stack tracking ', cycleBackup: 'Cycle log backup ' };
+      if (k === 'cycleBackup') {
+        toast(S.cycleBackup
+          ? 'Recorded. Your cycle log would be included in a sync. Nothing has been uploaded: this build has no server.'
+          : 'Recorded. A sync will skip your cycle log, in both directions.');
+      }
       say((LABEL[k] || 'Setting ') + (S[k] ? 'on' : 'off'));
 
     } else if (a === 'notif-toggle') {
       var nk = t.dataset.key;
-      S.notif[nk] = !S.notif[nk];
-      put('lk_notifPrefs', S.notif);
+      notifSet(nk, !notifOn(nk));
       render();
       var nel = document.querySelector('[data-testid="' + t.dataset.testid + '"]');
       if (nel) nel.focus();
-      say(t.dataset.name + ' ' + (S.notif[nk] ? 'on' : 'off'));
+      /* Said out loud at the point of use, not only in the paragraph at the
+         bottom of the card: turning one on is recording a preference, and
+         nothing about it will arrive. */
+      say(t.dataset.name + ' ' + (notifOn(nk) ? 'on' : 'off'));
+      if (notifOn(nk)) toast(t.dataset.name + ' is on. It is recorded, not scheduled: ' +
+        'nothing can send it until this app has a server to push from.');
+
+    } else if (a === 'check-version') {
+      checkVersion();
 
     } else if (a === 'notif-master') {
       askPermission();
@@ -1657,8 +2175,18 @@
 
     } else if (a === 'save-body') {
       var age = Number((document.getElementById('f-age') || {}).value);
-      var hv = Number((document.getElementById('f-height') || {}).value);
       var wv = Number((document.getElementById('f-weight') || {}).value);
+      /* One number out of either editor. Feet and inches are read as a pair
+         and inches alone is accepted, so "70" in the inches box is a height
+         and not a rejection. */
+      var hv;
+      if (S.unit === 'kg') {
+        hv = Number((document.getElementById('f-height') || {}).value);
+      } else {
+        var ft = Number((document.getElementById('f-height-ft') || {}).value) || 0;
+        var inch = Number((document.getElementById('f-height-in') || {}).value) || 0;
+        hv = ft * 12 + inch;
+      }
       /* BOUNDED, AND A REJECTION IS SAID OUT LOUD. Age 999 saved and came
          back after a reload; a weight of 0 was dropped in silence, leaving
          the old figure under a toast saying it had been saved. */
@@ -1666,13 +2194,14 @@
       var hCm = S.unit === 'kg' ? hv : hv * 2.54;
       var bad = null;
       if (!(age >= 13 && age <= 120)) bad = 'An age between 13 and 120.';
+      else if (!S.body.sex) bad = 'Choose one, so the calorie maths has something to work from.';
       else if (!(hCm >= 100 && hCm <= 250)) {
         bad = S.unit === 'kg' ? 'A height between 100 and 250 cm.'
-                              : 'A height between 39 and 98 inches.';
+                              : 'A height between 3 ft 3 in and 8 ft 2 in.';
       } else if (!(wKg >= 20 && wKg <= 400)) {
         bad = S.unit === 'kg' ? 'A body weight between 20 and 400 kg.'
                               : 'A body weight between 45 and 880 lb.';
-      }
+      } else if (!S.body.goal) bad = 'Pick a goal.';
       if (bad) { S.bodyError = bad; render(); return; }
       S.bodyError = null;
       S.body.age = Math.round(age);
@@ -1715,6 +2244,7 @@
       openOverlay('dialog', a.slice(8));
 
     } else if (a === 'confirm') {
+      if (t.dataset.mode) S.restoreMode = t.dataset.mode;
       confirmed(t.dataset.id);
 
     } else if (a === 'close-dialog') {
@@ -1787,7 +2317,8 @@
     return {
       unit: 'row-weight-unit', dist: 'row-distance-unit', weekStart: 'row-week-start',
       theme: 'row-appearance', restSec: 'row-rest-length', plateKg: 'row-plate-rounding',
-      reminderAt: 'row-reminder-time', checkin: 'row-checkin',
+      reminderAt: 'row-time-workout', checkinAt: 'row-time-checkin',
+      restockAt: 'row-time-restock', checkin: 'row-checkin',
       profile: 'row-identity', body: 'row-body', password: 'row-password'
     }[key] || 'back';
   }
@@ -1839,6 +2370,19 @@
     clearTimeout(syncTimer);
     render();
   });
+
+  /* After the first paint, because this does not decide what the screen looks
+     like -- it only corrects what the screen says about itself. The version
+     check runs off the back of it: the version IS the worker's cache name, so
+     there is nothing to ask for until there is a worker to ask about. */
+  checkServiceWorker();
+  /* A worker registered after this screen has painted -- which is what the
+     demo does, on window load -- is a worker this screen would otherwise
+     never see. */
+  window.addEventListener('load', function () { checkServiceWorker(); });
+  if (navigator.serviceWorker && navigator.serviceWorker.addEventListener) {
+    navigator.serviceWorker.addEventListener('controllerchange', function () { checkServiceWorker(); });
+  }
 
   var q = new URLSearchParams(location.search);
   var want = q.get('state');
