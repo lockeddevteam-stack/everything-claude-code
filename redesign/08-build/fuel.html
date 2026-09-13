@@ -657,20 +657,38 @@
      often list. Per-serving is derived on read, never stored, because a
      stored per-serving figure and a changed serving count disagree the moment
      either one moves. */
-  function recipe(key, name, servings, ing) {
+  function recipe(key, name, servings, ing, mins, tags, steps) {
     var f = FOODS[key];
     return { icon: f.icon, name: name, servings: servings, key: key,
              kcal: f.kcal * servings, pro: f.pro * servings,
-             carb: f.carb * servings, fat: f.fat * servings, ing: ing };
+             carb: f.carb * servings, fat: f.fat * servings, ing: ing,
+             mins: mins || 0, tags: tags || [], steps: steps || [] };
   }
+  /* A recipe is a thing somebody has to cook, so it carries how long it
+     takes and what it is. A list of names and calories is a menu, and a menu
+     does not help at six on a Tuesday. */
   var RECIPES = [
     recipe('chilli', 'Chilli, big batch', 6,
       ['1 kg beef mince, 5%', '2 tins kidney beans', '2 tins chopped tomatoes',
-       '1 onion', '2 peppers', 'Chilli, cumin, paprika']),
+       '1 onion', '2 peppers', 'Chilli, cumin, paprika'],
+      55, ['batch', 'freezes', 'high fibre'],
+      ['Brown the mince hard, in two batches, so it colours rather than steams.',
+       'Onion and peppers in the same pan until soft.',
+       'Spices in for a minute, then the tomatoes and beans.',
+       'Forty minutes at a bare simmer, lid off for the last ten.']),
     recipe('cnr', 'Chicken and rice, 4 days', 4,
-      ['800 g chicken thigh', '400 g rice, dry', '2 tbsp olive oil', 'Soy, garlic, ginger']),
+      ['800 g chicken thigh', '400 g rice, dry', '2 tbsp olive oil', 'Soy, garlic, ginger'],
+      40, ['batch', 'high protein'],
+      ['Thighs in the oven at 200C for 30 minutes, skin up.',
+       'Rice on at the same time, 400 g dry to 800 ml water, lid on, 12 minutes, then rest.',
+       'Soy, garlic and ginger through the rice while it is hot.',
+       'Divide into four while it is still warm, or it will not get divided.']),
     recipe('pancakes', 'Protein pancakes', 2,
-      ['100 g oats', '2 scoops whey', '2 eggs', '150 g skyr', 'Baking powder'])
+      ['100 g oats', '2 scoops whey', '2 eggs', '150 g skyr', 'Baking powder'],
+      15, ['quick', 'high protein'],
+      ['Blitz everything to a batter. It should pour, not drop.',
+       'Medium heat, dry pan, three minutes a side.',
+       'They brown faster than flour pancakes because of the whey, so go lower than you think.'])
   ];
 
   /* Recipes you built yourself, after the three above. A built recipe carries
@@ -693,6 +711,72 @@
     });
   }
   function allRecipes() { return RECIPES.concat(ownRecipes()); }
+
+  /* Ordered by what is left of the day, not alphabetically. A recipe list is
+     read at the point of "what do I cook", and the answer depends on what is
+     already eaten. */
+  function forYou() {
+    var proLeft = Math.max(0, DAY.macros[0].want - DAY.macros[0].have);
+    var kcalLeft = Math.max(0, DAY.target - DAY.eaten);
+    return allRecipes().map(function (r, i) {
+      var per = r.kcal / r.servings, pro = r.pro / r.servings;
+      var fits = kcalLeft === 0 || per <= kcalLeft;
+      var sc = (fits ? 40 : 0) + Math.min(pro, proLeft) * 2 - (r.mins || 0) / 10;
+      var note = !fits ? 'More than the ' + n(kcalLeft) + ' kcal left today'
+        : proLeft > 0 ? 'Covers ' + n(Math.round(Math.min(pro, proLeft))) + ' g of the protein left'
+        : '';
+      return { r: r, i: i, s: sc, note: note };
+    }).sort(function (a, b) { return b.s - a.s; });
+  }
+
+  /* How much of it is already in the cupboard. The shortest trip to the shop
+     is the top of the list, which is the only ordering this tab can honestly
+     offer: it is about what you have, not about what you want. */
+  function fromPantry() {
+    return allRecipes().map(function (r, i) {
+      var ing = r.ing || [];
+      var have = ing.filter(function (line) { return pantryMatch(line) >= 0; }).length;
+      return {
+        r: r, i: i, s: ing.length ? have / ing.length : 0,
+        note: ing.length ? have + ' of ' + ing.length + ' already in the cupboard'
+                         : 'No ingredient list on this one'
+      };
+    }).sort(function (a, b) { return b.s - a.s; });
+  }
+
+  /* Written down, and shown where food is suggested. It is not a filter --
+     the food table is eight rows and carries no ingredients, so a filter here
+     would be a safety claim nothing behind it can keep. */
+  function dietNote() {
+    var fp = stored('lk_fuelProfile', {}) || {};
+    var bits = [];
+    if (fp.diet) bits.push(fp.diet);
+    if (fp.allergy) bits.push('allergic to ' + fp.allergy);
+    if (!bits.length) return '';
+    return 'You have written down: ' + bits.join('; ') + '. Nothing here is filtered by it \u2014 ' +
+      'check the ingredients yourself.';
+  }
+
+  /* The missing half of a recipe, straight onto the list. */
+  function recipeToShop(r) {
+    var ing = (r.ing || []).filter(function (line) { return pantryMatch(line) < 0; });
+    if (!ing.length) { say('It is all in the cupboard already.'); return; }
+    var list = (stored('lk_shoppingList', []) || []).slice();
+    var now = Date.now(), added = 0;
+    ing.forEach(function (line, i) {
+      var already = list.some(function (rr) {
+        return String(rr.itemName || '').toLowerCase() === line.toLowerCase();
+      });
+      if (already) return;
+      list.push({ id: 'sh_' + (now + i) + '_rc', itemName: line, quantity: 1, unit: '',
+                  category: 'pantry', dateAdded: new Date().toISOString(), checked: false });
+      added++;
+    });
+    if (ST && persisting()) ST.set('lk_shoppingList', list);
+    render();
+    say(added ? added + (added === 1 ? ' thing' : ' things') + ' added to the list.'
+              : 'It is all on the list already.');
+  }
 
   /* The totals a half-built recipe shows while it is being built. Free-text
      lines contribute nothing, and the sheet says so rather than letting a
@@ -2111,33 +2195,84 @@
               '<div class="card card--flush mt-2">' + r.ing.map(function (x) {
                 return '<div class="row row--static"><span class="row__main"><span class="row__title">' + esc(x) + '</span></span></div>';
               }).join('') + '</div>' +
+              '<button class="btn btn--secondary btn--block mt-2" type="button" ' +
+                'data-action="recipe-shop" data-i="' + rOpen + '" data-testid="recipe-shop">' +
+                '<span class="btn__label">Add what is missing to the list</span></button>' +
+              (r.tags && r.tags.length
+                ? '<div class="chiprow mt-3">' + r.tags.map(function (t) {
+                    return '<span class="pill">' + esc(t) + '</span>';
+                  }).join('') + '</div>'
+                : '') +
+              (r.steps && r.steps.length
+                ? '<h3 class="t-label mt-5">How</h3>' +
+                  '<ol class="fuel-steps mt-2" data-testid="recipe-steps">' + r.steps.map(function (st) {
+                    return '<li class="t-detail">' + esc(st) + '</li>';
+                  }).join('') + '</ol>'
+                : '') +
+              /* Half a serving to twelve, because a recipe is cooked for a
+                 batch and eaten in whatever portion was actually taken. It
+                 logged exactly one serving and nothing else. */
+              '<label class="t-label field__label mt-5" for="rc-serv">How many servings</label>' +
+              '<input class="input num" id="rc-serv" type="number" min="0.5" max="12" step="0.5" ' +
+                'inputmode="decimal" value="' + (S.recipeServ || 1) + '" data-testid="recipe-servings">' +
+              '<div class="card card--sunken mt-3" data-testid="recipe-preview">' +
+                (function () {
+                  var k = (S.recipeServ || 1) / r.servings;
+                  return '<div class="hstack hstack--3"><span class="t-body grow">Energy</span>' +
+                      '<span class="t-body-em num">' + n(Math.round(r.kcal * k)) + ' kcal</span></div>' +
+                    '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Protein, carbs, fat</span>' +
+                      '<span class="t-body-em num">' + n(Math.round(r.pro * k)) + ' \u00b7 ' +
+                      n(Math.round(r.carb * k)) + ' \u00b7 ' + n(Math.round(r.fat * k)) + ' g</span></div>';
+                })() +
+              '</div>' +
+              slotPicker(S.logSlot || slotForNow(), 'pick-slot', 'recipe-slot') +
               '<button class="btn btn--primary btn--block mt-4" type="button" data-action="log-recipe" ' +
                 'data-i="' + rOpen + '" data-testid="log-recipe">' +
-                '<span class="btn__label">Log one serving</span></button>' +
+                '<span class="btn__label">Log ' + (S.recipeServ || 1) +
+                ((S.recipeServ || 1) === 1 ? ' serving' : ' servings') + '</span></button>' +
             '</div>' +
           '</div>';
       }
+      var tab = S.recipeTab || 'you';
+      var list = tab === 'pantry' ? fromPantry() : forYou();
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
         '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="rl-title" ' +
-          'data-detents="0.5 0.9" data-testid="sheet-recipes">' +
+          'data-detents="0.5 0.94" data-testid="sheet-recipes">' +
           '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
           '<div class="sheet__head"><h2 class="t-headline grow" id="rl-title">Recipes</h2>' +
             '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="recipes-close">' +
               '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
           '<div class="sheet__body">' +
-            '<p class="t-detail">Things you cook in batches. One tap logs a single serving, ' +
-              'with the division already done.</p>' +
-            '<div class="card card--flush mt-3">' + allRecipes().map(function (r, i) {
-              return '<button class="row" type="button" data-action="open-recipe" data-i="' + i +
-                '" data-testid="recipe-' + i + '">' +
-                '<span class="fuel-thumb" aria-hidden="true">' + r.icon + '</span>' +
-                '<span class="row__main stack">' +
-                  '<span class="row__title">' + esc(r.name) + '</span>' +
-                  '<span class="row__sub num">' + n(r.servings) + ' servings &middot; ' +
-                    n(Math.round(r.kcal / r.servings)) + ' kcal each</span>' +
-                '</span>' +
-                '<span class="row__chev">' + ICO.chev + '</span></button>';
-            }).join('') + '</div>' +
+            '<div class="seg seg--lg" role="radiogroup" aria-label="Which recipes" ' +
+                'data-testid="recipe-tabs">' +
+              [['you', 'For you'], ['pantry', 'From the pantry']].map(function (x) {
+                return '<button class="seg__item" type="button" role="radio" ' +
+                  'aria-checked="' + (tab === x[0]) + '" data-action="recipe-tab" data-v="' + x[0] + '" ' +
+                  'data-testid="recipe-tab-' + x[0] + '">' + x[1] + '</button>';
+              }).join('') + '</div>' +
+            '<p class="t-detail mt-3">' + (tab === 'pantry'
+              ? 'Ordered by how much of each one is already in the cupboard, so the top of the ' +
+                'list is the shortest trip to the shop.'
+              : 'Ordered by what fits the protein you have left today. One tap logs a single ' +
+                'serving, with the division already done.') + '</p>' +
+            (dietNote() ? '<p class="t-caption-1 quiet mt-2" data-testid="recipe-diet">' +
+              esc(dietNote()) + '</p>' : '') +
+            (list.length
+              ? '<div class="card card--flush mt-3">' + list.map(function (e) {
+                  var r = e.r;
+                  return '<button class="row" type="button" data-action="open-recipe" data-i="' + e.i +
+                    '" data-testid="recipe-' + e.i + '">' +
+                    '<span class="fuel-thumb" aria-hidden="true">' + r.icon + '</span>' +
+                    '<span class="row__main stack">' +
+                      '<span class="row__title">' + esc(r.name) + '</span>' +
+                      '<span class="row__sub num">' + n(r.servings) + ' servings &middot; ' +
+                        n(Math.round(r.kcal / r.servings)) + ' kcal each' +
+                        (r.mins ? ' &middot; ' + r.mins + ' min' : '') + '</span>' +
+                      (e.note ? '<span class="row__sub">' + esc(e.note) + '</span>' : '') +
+                    '</span>' +
+                    '<span class="row__chev">' + ICO.chev + '</span></button>';
+                }).join('') + '</div>'
+              : '<p class="t-body mt-4" data-testid="recipe-none">Nothing here yet.</p>') +
             '<button class="btn btn--secondary btn--block mt-3" type="button" data-action="new-recipe" ' +
               'data-testid="new-recipe"><span class="btn__label">Build a recipe</span></button>' +
           '</div>' +
@@ -3124,7 +3259,9 @@
     if (a === 'stack') { location.href = 'stack.html'; return; }
     if (a === 'recipes') { S.sheet = 'recipes'; S.recipeOpen = null; render(); return; }
     if (a === 'plan') { S.sheet = 'plan'; render(); return; }
-    if (a === 'open-recipe') { S.recipeOpen = +act.getAttribute('data-i'); render(); return; }
+    if (a === 'open-recipe') {
+      S.recipeOpen = +act.getAttribute('data-i'); S.recipeServ = 1; render(); return;
+    }
     if (a === 'recipes-back') { S.recipeOpen = null; render(); return; }
     /* Through addMeal, like every other logging path on this screen. Writing
        the totals here by hand was the first version of this handler and it
@@ -3134,12 +3271,21 @@
     if (a === 'log-recipe') {
       var lr = allRecipes()[+act.getAttribute("data-i")];
       if (!lr) return;
-      var sv = function (v) { return Math.round(v / lr.servings); };
-      addMeal({ icon: lr.icon, name: lr.name + ', one serving', kcal: sv(lr.kcal),
-                pro: sv(lr.pro), carb: sv(lr.carb), fat: sv(lr.fat), src: 'recipe' });
-      S.sheet = null; S.recipeOpen = null;
+      var srv = S.recipeServ || 1;
+      var el = document.getElementById('rc-serv');
+      if (el) {
+        var v = parseFloat(el.value);
+        if (!isNaN(v) && v >= 0.5 && v <= 12) srv = v;
+      }
+      var sv = function (v) { return Math.round(v / lr.servings * srv); };
+      addMeal({ icon: lr.icon, name: lr.name + ', ' +
+                  (srv === 1 ? 'one serving' : srv + ' servings'),
+                kcal: sv(lr.kcal), pro: sv(lr.pro), carb: sv(lr.carb), fat: sv(lr.fat),
+                src: 'recipe', slot: S.logSlot || slotForNow() });
+      S.sheet = null; S.recipeOpen = null; S.recipeServ = 1;
       render();
-      say('One serving of ' + lr.name + ' logged, ' + sv(lr.kcal) + ' kcal.');
+      say((srv === 1 ? 'One serving' : srv + ' servings') + ' of ' + lr.name +
+          ' logged, ' + n(sv(lr.kcal)) + ' kcal.');
       return;
     }
     /* A planned meal logs where it stands, so the plan and the day agree
@@ -3159,6 +3305,12 @@
                 src: 'plan', slot: ps.slot || null });
       render();
       say(ps.name + ' logged, ' + ps.kcal + ' kcal.');
+      return;
+    }
+    if (a === 'recipe-tab') { S.recipeTab = act.getAttribute('data-v'); render(); return; }
+    if (a === 'recipe-shop') {
+      var rs = allRecipes()[+act.getAttribute('data-i')];
+      if (rs) recipeToShop(rs);
       return;
     }
     if (a === 'new-recipe') {
@@ -3666,6 +3818,15 @@
        is typed. The name keeps its own value across that repaint through
        readDraft, and the caret is put back the same way the search field
        does it. */
+    if (e.target.id === 'rc-serv') {
+      var rv = parseFloat(e.target.value);
+      if (isNaN(rv) || rv < 0.5) return;
+      S.recipeServ = Math.min(12, rv);
+      render();
+      var rf2 = document.getElementById('rc-serv');
+      if (rf2) { rf2.focus(); try { rf2.setSelectionRange(rf2.value.length, rf2.value.length); } catch (err) {} }
+      return;
+    }
     if (e.target.id === 'cam-take' || e.target.id === 'cam-pick') {
       var file = e.target.files && e.target.files[0];
       if (!file) return;
