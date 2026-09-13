@@ -4055,6 +4055,11 @@ button.shelf:active { background: var(--fill-press); }
 .fuel-steps li { margin-top: var(--sp-2); }
 .fuel-steps li::marker { color: var(--text-tertiary); }
 
+/* A logged day in discreet mode: it happened, and that is all it says. No
+   flow level, no phase colour -- the whole point of the mode is that somebody
+   holding the phone learns nothing from the grid. */
+.cyccal-quiet { box-shadow: inset 0 0 0 1px var(--border); }
+
 </style>
 <style id="demo-chrome-css">
 /* Demo chrome. Namespaced so it cannot touch a screen, and outside every
@@ -11098,6 +11103,76 @@ button.shelf:active { background: var(--fill-press); }
                 "pinned": true
           }
     ],
+    cycles: [
+          {
+                "id": "c1",
+                "name": "Autumn block",
+                "status": "active",
+                "start": "2026-08-11",
+                "weeks": 12,
+                "endPlanned": "2026-11-02",
+                "endActual": null,
+                "note": "Bloods booked for week 6.",
+                "comps": [
+                      {
+                            "name": "Testosterone enanthate",
+                            "cat": "aas",
+                            "dose": "250 mg",
+                            "freq": "twice-weekly",
+                            "route": "Intramuscular",
+                            "at": "08:00",
+                            "halfLifeH": 192,
+                            "taken": [
+                                  "2026-09-07"
+                            ]
+                      },
+                      {
+                            "name": "Anastrozole",
+                            "cat": "anc",
+                            "dose": "0.5 mg",
+                            "freq": "eod",
+                            "route": "Oral",
+                            "at": "08:00",
+                            "since": "2026-08-11",
+                            "halfLifeH": 46,
+                            "taken": []
+                      },
+                      {
+                            "name": "BPC-157",
+                            "cat": "sarm",
+                            "dose": "250 mcg",
+                            "freq": "daily",
+                            "route": "Subcutaneous",
+                            "at": "21:00",
+                            "halfLifeH": 4,
+                            "taken": []
+                      }
+                ]
+          },
+          {
+                "id": "c2",
+                "name": "Spring cut",
+                "status": "completed",
+                "start": "2026-03-02",
+                "weeks": 10,
+                "endPlanned": "2026-05-11",
+                "endActual": "2026-04-27",
+                "note": "Ended two weeks early, shoulder.",
+                "comps": [
+                      {
+                            "name": "Testosterone propionate",
+                            "cat": "aas",
+                            "dose": "100 mg",
+                            "freq": "eod",
+                            "route": "Intramuscular",
+                            "at": "07:30",
+                            "since": "2026-03-02",
+                            "halfLifeH": 20,
+                            "taken": []
+                      }
+                ]
+          }
+    ],
 
     /* Every session on a date, newest first. */
     on: function (iso) {
@@ -11283,6 +11358,7 @@ button.shelf:active { background: var(--fill-press); }
       case 'lk_mcFuelAdjust':  return F.mcFuelAdjust;
       case 'lk_cardioPrefs':   return F.cardioPrefs;
       case 'lk_cardioFavorites': return F.cardioFavorites;
+      case 'lk_cycles':        return F.cycles;
       default:                  return undefined;
     }
   }
@@ -14215,7 +14291,12 @@ DEMO.define("home", function (document, window, location, fetch) {
     var streak = 0;
     while (dates[cur] && streak < 3650) { streak++; cur = addDays(cur, -1); }
     M.streak = streak;
-    M.gaming = bool('lk_gamingLayer');
+    /* lk_badges, which is the key Settings' "Streaks and badges" switch
+       writes and the key Profile reads. This read lk_gamingLayer, a third
+       name nothing in the build has ever written, so the streak pill could
+       not appear however long the streak ran: the switch was on, Profile
+       showed "3 days in a row", and Home showed nothing. */
+    M.gaming = bool('lk_badges');
 
     M.last = M.history[0] || null;
     M.lastLift = null;
@@ -16193,9 +16274,15 @@ DEMO.define("train", function (document, window, location, fetch) {
       if (act.id === 'row' || act.id === 'waterrow') add('Split', paceStr(w.min / (w.km * 2)) + ' /500 m');
     }
     add('Average power', w.watts != null ? w.watts + ' W' : null);
-    add('Heart rate', w.hr != null ? w.hr + ' bpm' : null);
+    /* Off the record, in the record's own shape. `w` here is what was just
+       written to lk_history, where a heart rate is heartRate.avg and a
+       machine is machine.category -- so reading w.hr and w.surface dropped
+       the two figures somebody had just typed, on the screen confirming what
+       had been saved. */
+    add('Heart rate', (w.heartRate && w.heartRate.avg != null) ? w.heartRate.avg + ' bpm'
+                    : (w.hr != null ? w.hr + ' bpm' : null));
     add('Effort', w.effort);
-    add('Surface', w.surface);
+    add('Surface', w.surface || (w.machine && w.machine.category) || null);
     add('Riding position', w.position);
     add('Gross burn', group(w.cal) + ' kcal');
     add('Net burn', group(w.calDetail ? w.calDetail.net : est.net) + ' kcal');
@@ -16658,20 +16745,27 @@ DEMO.define("train", function (document, window, location, fetch) {
         return '<div class="row" data-testid="fav-' + f.id + '">' +
           '<span class="ico-well">' + ICO.star + '</span>' +
           '<span class="row__main stack">' +
-            '<input class="input" type="text" value="' + esc(f.name) + '" aria-label="Name of favourite" ' +
+            /* favName/favMin, not f.name/f.min. A stored favourite carries
+               `label` and `defaults.durationSec` -- the shipped app's shape,
+               which is why the helpers exist two hundred lines above this --
+               so reading the raw keys rendered the literal string "undefined"
+               in the name field, in the sub-line, and in all three aria
+               labels. The helpers were written for exactly this and this row
+               was the one place that did not call them. */
+            '<input class="input" type="text" value="' + esc(favName(f)) + '" aria-label="Name of favourite" ' +
               'data-action="fav-rename" data-id="' + f.id + '" data-testid="fav-name-' + f.id + '">' +
-            '<span class="row__sub">' + n(f.min) + ' min' +
+            '<span class="row__sub">' + n(favMin(f)) + ' min' +
               (f.last ? ' &middot; saved ' + relDate(f.last) : '') + '</span>' +
           '</span>' +
           '<button class="iconbtn" type="button" data-action="fav-move" data-dir="-1" data-id="' + f.id + '" ' +
-            (i === 0 ? 'disabled aria-disabled="true" ' : '') + 'aria-label="Move ' + esc(f.name) + ' up" ' +
+            (i === 0 ? 'disabled aria-disabled="true" ' : '') + 'aria-label="Move ' + esc(favName(f)) + ' up" ' +
             'data-testid="fav-up-' + f.id + '">' + ICO.up + '</button>' +
           '<button class="iconbtn" type="button" data-action="fav-move" data-dir="1" data-id="' + f.id + '" ' +
-            (i === FAVS.length - 1 ? 'disabled aria-disabled="true" ' : '') + 'aria-label="Move ' + esc(f.name) + ' down" ' +
+            (i === FAVS.length - 1 ? 'disabled aria-disabled="true" ' : '') + 'aria-label="Move ' + esc(favName(f)) + ' down" ' +
             'data-testid="fav-down-' + f.id + '">' + ICO.down + '</button>' +
           '<button class="iconbtn iconbtn--danger' + (confirming ? '' : '-quiet') + '" type="button" ' +
             'data-action="fav-delete" data-id="' + f.id + '" data-testid="fav-delete-' + f.id + '" ' +
-            'aria-label="' + (confirming ? 'Confirm removing ' : 'Remove ') + esc(f.name) + '">' +
+            'aria-label="' + (confirming ? 'Confirm removing ' : 'Remove ') + esc(favName(f)) + '">' +
             (confirming ? '<span class="btn__label">Remove</span>' : ICO.trash) + '</button>' +
         '</div>';
       }).join('') + '</div>' +
@@ -17176,9 +17270,25 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     };
     ST.set('lk_fuelLog', FUELLOG);
     /* Supplements are one list the whole app reads, so today's ticks go back
-       to the key Stack and Recap read rather than only into the day. */
-    ST.set('lk_supplements', DAY.supps.map(function (sp) {
-      return { name: sp.name, dose: sp.dose, timeOf: sp.when, taken: sp.taken };
+       to the key Stack, Recap and Home read rather than only into the day.
+
+       MERGED, not rebuilt. Writing a fresh object per row dropped freq,
+       reminder and created -- fields this screen never shows and does not
+       own -- so one tick here silently deleted the data Home's
+       "supplements due" windows are computed from. Only `taken` is this
+       screen's to change. */
+    var kept = stored('lk_supplements', []) || [];
+    ST.set('lk_supplements', DAY.supps.map(function (sp, i) {
+      var was = kept[i] && kept[i].name === sp.name ? kept[i] : null;
+      if (!was) {
+        for (var j = 0; j < kept.length; j++) {
+          if (kept[j] && kept[j].name === sp.name) { was = kept[j]; break; }
+        }
+      }
+      var out = {};
+      if (was) Object.keys(was).forEach(function (k) { out[k] = was[k]; });
+      out.name = sp.name; out.dose = sp.dose; out.timeOf = sp.when; out.taken = sp.taken;
+      return out;
     }));
   }
 
@@ -24026,18 +24136,34 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
      different exercises is the worst possible answer to "what am I running".
 
      Which split: whichever Train handed over, else the first stored one. */
+  /* Through the store, so an edit saved here is the split Train and Home
+     read. The builder read the fixture directly, which was right when nothing
+     could be saved and wrong the moment anything could. */
+  function allSplits() {
+    if (window.LKStore) return window.LKStore.get('lk_splits', []) || [];
+    return (window.LKFixtures && LKFixtures.splits) || [];
+  }
+
   function splitFromFixture(id) {
-    var all = (window.LKFixtures && LKFixtures.splits) || [];
+    var all = allSplits();
     if (!all.length) return null;
     var sp = null;
     if (id) { for (var i = 0; i < all.length; i++) if (all[i].id === id) sp = all[i]; }
     if (!sp) sp = all[0];
     return {
       id: sp.id,
+      created: sp.created,
       name: sp.name,
       days: sp.days.map(function (d) {
         return { id: nid('d'), name: d.name,
-                 exercises: d.exercises.map(function (e) { return ex(e.name, e.muscle || ''); }) };
+                 exercises: d.exercises.map(function (e) {
+                   var row = ex(e.name, e.muscle || '');
+                   /* The catalogue id, kept so a saved split still points at
+                      the same exercises the rest of the app knows. */
+                   row.exId = e.id;
+                   row.group = e.group || '';
+                   return row;
+                 }) };
       })
     };
   }
@@ -24669,11 +24795,11 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
   var PRESETS = [
     ['Manual · empty', function () { reset(); }],
     ['Manual · loading', function () { reset(); S.manual.status = 'loading'; }],
-    ['Manual · populated', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.savedAt = '2 minutes ago'; }],
-    ['Manual · edit mode', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.savedAt = '2 minutes ago'; S.manual.edit = true; }],
-    ['Manual · unsaved', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; }],
-    ['Manual · leave prompt', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; S.modal = { type: 'leave' }; }],
-    ['Manual · save error', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; S.manual.error = 'No connection to the LOCKED server. The draft is on this phone and will go up when you are back online.'; }],
+    ['Manual · populated', function () { reset(); var s = seedSplit(); S.manual.id = s.id || null; S.manual.created = s.created || null; S.manual.name = s.name; S.manual.days = s.days; S.manual.savedAt = '2 minutes ago'; }],
+    ['Manual · edit mode', function () { reset(); var s = seedSplit(); S.manual.id = s.id || null; S.manual.created = s.created || null; S.manual.name = s.name; S.manual.days = s.days; S.manual.savedAt = '2 minutes ago'; S.manual.edit = true; }],
+    ['Manual · unsaved', function () { reset(); var s = seedSplit(); S.manual.id = s.id || null; S.manual.created = s.created || null; S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; }],
+    ['Manual · leave prompt', function () { reset(); var s = seedSplit(); S.manual.id = s.id || null; S.manual.created = s.created || null; S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; S.modal = { type: 'leave' }; }],
+    ['Manual · save error', function () { reset(); var s = seedSplit(); S.manual.id = s.id || null; S.manual.created = s.created || null; S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; S.manual.error = 'No connection to the LOCKED server. The draft is on this phone and will go up when you are back online.'; }],
     ['AI · description', function () { reset(); S.screen = 'ai'; }],
     ['AI · generating', function () { reset(); S.screen = 'ai'; S.ai.status = 'loading'; S.ai.note = 'Three days a week, barbell and cables, shoulders need volume.'; S.ai.step = 1; }],
     ['AI · failed', function () { reset(); S.screen = 'ai'; S.ai.status = 'error'; S.ai.note = 'Three days a week, barbell and cables, shoulders need volume.'; S.ai.error = 'The request timed out after 20 seconds. Nothing was charged and nothing was saved.'; }],
@@ -24683,7 +24809,8 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
   function reset() {
     clearTimers();
     S.screen = 'manual';
-    S.manual = { status: 'ready', name: '', days: [], dirty: false, savedAt: null, error: null, edit: false };
+    S.manual = { status: 'ready', id: null, created: null, name: '', days: [],
+                 dirty: false, savedAt: null, error: null, edit: false };
     S.ai = { status: 'idle', note: '', plan: null, error: null, step: 0 };
     S.lifted = null; S.dragging = null; S.modal = null; S.toast = null; S.swipe = null;
   }
@@ -24797,10 +24924,52 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     }, 450);
   }
 
+  /* It writes. This said "Split saved." and "saved just now" and wrote
+     nothing at all: a rename, a deleted lift, a whole new day, and after a
+     reload Train still showed the split as it was. A screen that reports a
+     save it did not perform is worse than one with no save button. */
+  function persistSplit() {
+    if (!window.LKStore) return false;
+    var list = allSplits().slice();
+    var rec = {
+      id: S.manual.id || ('s' + Date.now()),
+      name: S.manual.name.trim(),
+      created: S.manual.created || new Date().toLocaleDateString('en-US'),
+      days: S.manual.days.map(function (d) {
+        return {
+          name: d.name,
+          blocks: [],
+          exercises: d.exercises.map(function (x) {
+            /* The stored shape carries a catalogue id, a group and a muscle.
+               The builder's own rows carry a generated id and a muscle, so
+               anything already known keeps its figures and anything new
+               carries what the builder has. */
+            return { id: x.exId || x.id, name: x.name,
+                     group: x.group || '', muscle: x.muscle || '' };
+          })
+        };
+      })
+    };
+    S.manual.id = rec.id;
+    S.manual.created = rec.created;
+    var at = -1;
+    for (var i = 0; i < list.length; i++) if (list[i].id === rec.id) at = i;
+    if (at >= 0) list[at] = rec; else list.unshift(rec);
+    window.LKStore.set('lk_splits', list);
+    return true;
+  }
+
   function doSave(thenLeave) {
     S.manual.status = 'saving';
     render();
     later(function () {
+      if (!persistSplit()) {
+        S.manual.status = 'ready';
+        S.manual.error = 'This browser will not let the app store anything, so the split is ' +
+          'held for this visit only.';
+        render();
+        return;
+      }
       S.manual.status = 'ready';
       S.manual.dirty = false;
       S.manual.error = null;
@@ -24920,6 +25089,7 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
       var was = { name: S.manual.name, days: JSON.parse(JSON.stringify(S.manual.days)) };
       var fresh = seedSplit();
       S.modal = null;
+      S.manual.id = fresh.id || S.manual.id; S.manual.created = fresh.created || S.manual.created;
       S.manual.name = fresh.name; S.manual.days = fresh.days;
       S.manual.dirty = false; S.manual.edit = false; S.lifted = null; S.swipe = null;
       toast('Changes discarded.', 'Undo', function () {
@@ -25761,7 +25931,18 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
      dropped every custom out of browse. */
   /* lk_customEx, through the shared fixture. Two were invented here, so the
      library reported "Custom 2" where the stored data holds one. */
-  var CUSTOMS = ((window.LKFixtures && LKFixtures.customEx) || []).map(function (c) {
+  function saveCustoms() {
+    if (!window.LKStore) return;
+    /* The fixture's own keys -- eq, gid, sid -- so what is written reads
+       back through the same mapping the seed does. Writing a prettier shape
+       would mean this file could load its own output and get nothing. */
+    window.LKStore.set('lk_customEx', S.customs.map(function (c) {
+      return { id: c.id, name: c.name, eq: c.eq, gid: c.gid, sid: c.sid, custom: true };
+    }));
+  }
+
+  var CUSTOMS = ((window.LKStore ? window.LKStore.get('lk_customEx', null) : null) ||
+                 (window.LKFixtures && LKFixtures.customEx) || []).map(function (c) {
     return { id: c.id, name: c.name, eq: c.eq, gid: c.gid, sid: c.sid };
   });
 
@@ -26533,6 +26714,11 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
       if (!d.name.trim()) return;
       var id = 900001 + S.customs.length + 1;
       S.customs.push({ id: id, name: d.name.trim(), eq: 'Machine', gid: d.gid, sid: d.sid });
+      /* Written, because the sheet says "It is saved on this device" and it
+         was not: the exercise appeared in the list, in the counts and in
+         search, and was gone on the next load. A screen that claims a save it
+         did not perform is worse than one with no save at all. */
+      saveCustoms();
       rebuild();
       S.create = null; S.q = ''; input.value = ''; S.filter = 'all'; S.gid = d.gid;
       render({ scrollTop: true });
@@ -26857,6 +27043,101 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
     }
   ];
 
+  /* ---------------------------------------------------------------
+     The plan the answers actually build
+     ---------------------------------------------------------------
+
+     The overview said "6 exercises, about 59 minutes" from a lookup keyed on
+     the days answer. It was a number about the answer rather than a count of
+     anything, because there was no session behind it: the whole flow ended on
+     a description of a plan that did not exist, and finishing it wrote
+     nothing at all -- Object.keys(localStorage) came back empty, so the app
+     behind it had no name, no units and no split.
+
+     These are real days with real exercises out of the same catalogue Train
+     reads, so the count is a count and the split can be started. */
+  var EX = {
+    bench:   { id: 111, name: 'Barbell Bench Press', group: 'Chest', muscle: 'Mid Chest' },
+    incline: { id: 103, name: 'Incline Cable Fly', group: 'Chest', muscle: 'Upper Chest' },
+    ohp:     { id: 302, name: 'DB Shoulder Press', group: 'Shoulders', muscle: 'Front Delt' },
+    lat:     { id: 311, name: 'Lateral Raise', group: 'Shoulders', muscle: 'Side Delt' },
+    push:    { id: 411, name: 'Tricep Pushdown', group: 'Triceps', muscle: 'Lateral Head' },
+    row:     { id: 201, name: 'Barbell Row', group: 'Back', muscle: 'Lats' },
+    pull:    { id: 205, name: 'Lat Pulldown', group: 'Back', muscle: 'Lats' },
+    curl:    { id: 401, name: 'Barbell Curl', group: 'Biceps', muscle: 'Long Head' },
+    squat:   { id: 501, name: 'Barbell Squat', group: 'Legs', muscle: 'Quads' },
+    rdl:     { id: 503, name: 'Romanian Deadlift', group: 'Legs', muscle: 'Hamstrings' },
+    press:   { id: 511, name: 'Leg Press', group: 'Legs', muscle: 'Quads' },
+    ham:     { id: 513, name: 'Seated Leg Curl', group: 'Legs', muscle: 'Hamstrings' },
+    calf:    { id: 521, name: 'Seated Calf Raise', group: 'Legs', muscle: 'Calves' },
+    dead:    { id: 502, name: 'Barbell Deadlift', group: 'Back', muscle: 'Lower Back' }
+  };
+  function planDay(name) {
+    var ex = [];
+    for (var i = 1; i < arguments.length; i++) ex.push(EX[arguments[i]]);
+    return { name: name, blocks: [], exercises: ex };
+  }
+  /* Fewer days a week means each session carries more of the week, which is
+     why the two-day plan has the longest sessions and the six-day plan the
+     shortest. */
+  var PLANS = {
+    '2': { name: 'Full body', days: [
+            planDay('Full body A', 'squat', 'bench', 'row', 'ohp', 'rdl', 'curl', 'push', 'calf'),
+            planDay('Full body B', 'dead', 'incline', 'pull', 'press', 'lat', 'ham', 'curl', 'calf')] },
+    '3': { name: 'Full body', days: [
+            planDay('Day A', 'squat', 'bench', 'row', 'ohp', 'curl', 'calf', 'push'),
+            planDay('Day B', 'dead', 'incline', 'pull', 'lat', 'ham', 'curl', 'calf'),
+            planDay('Day C', 'press', 'bench', 'row', 'ohp', 'rdl', 'lat', 'push')] },
+    '4': { name: 'Upper / lower', days: [
+            planDay('Upper A', 'bench', 'row', 'ohp', 'pull', 'curl', 'push'),
+            planDay('Lower A', 'squat', 'rdl', 'press', 'ham', 'calf', 'curl'),
+            planDay('Upper B', 'incline', 'pull', 'lat', 'row', 'push', 'curl'),
+            planDay('Lower B', 'dead', 'press', 'ham', 'squat', 'calf', 'lat')] },
+    '5': { name: 'Upper / lower / accessory', days: [
+            planDay('Upper A', 'bench', 'row', 'ohp', 'pull', 'curl'),
+            planDay('Lower A', 'squat', 'rdl', 'press', 'ham', 'calf'),
+            planDay('Upper B', 'incline', 'pull', 'lat', 'push', 'curl'),
+            planDay('Lower B', 'dead', 'press', 'ham', 'calf', 'squat'),
+            planDay('Accessory', 'lat', 'curl', 'push', 'calf', 'ham')] },
+    '6': { name: 'Push / pull / legs', days: [
+            planDay('Push A', 'bench', 'ohp', 'incline', 'lat', 'push'),
+            planDay('Pull A', 'row', 'pull', 'curl', 'lat', 'dead'),
+            planDay('Legs A', 'squat', 'rdl', 'press', 'ham', 'calf'),
+            planDay('Push B', 'incline', 'ohp', 'bench', 'lat', 'push'),
+            planDay('Pull B', 'dead', 'pull', 'row', 'curl', 'lat'),
+            planDay('Legs B', 'press', 'squat', 'ham', 'rdl', 'calf')] }
+  };
+  function planFor(d) { return PLANS[d] || PLANS['4']; }
+
+  /* What finishing setup actually leaves behind: five answers written to the
+     same keys every other screen reads, so the app opens knowing who you are
+     and what you are training. */
+  function commitSetup() {
+    if (!window.LKStore) return false;
+    var a = S.answers;
+    var d = a.days || '4';
+    var plan = planFor(d);
+    var prof = window.LKStore.get('lk_profile', {}) || {};
+    prof.name = (a.name || '').trim() || prof.name || 'You';
+    prof.useKg = (a.units || 'kg') === 'kg';
+    prof.experience = a.experience || '1to3';
+    prof.daysPerWeek = Number(d);
+    prof.trainingGoal = a.goal || 'size';
+    prof.createdAt = prof.createdAt || new Date().toLocaleDateString('en-US');
+    window.LKStore.set('lk_profile', prof);
+    window.LKStore.set('lk_splits', [{
+      id: 's' + Date.now(), name: plan.name, created: prof.createdAt,
+      days: plan.days.map(function (x) {
+        return { name: x.name, blocks: [], exercises: x.exercises.slice() };
+      })
+    }]);
+    /* The one key that says setup has been through. Without it there is no
+       way to tell a first run from a returning one, which is why a cleared
+       phone landed straight on Home. */
+    window.LKStore.set('lk_onboarded', { at: new Date().toISOString(), answers: a });
+    return true;
+  }
+
   var SPLIT = { '2': 'Full body', '3': 'Full body', '4': 'Upper / lower', '5': 'Upper / lower / accessory', '6': 'Push / pull / legs' };
   var REPS = { strength: '3 to 6 reps', size: '6 to 12 reps', general: '8 to 15 reps' };
   /* The experience answer said it "sets how fast loads climb in the first
@@ -27053,9 +27334,27 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
       setBusy('signin-submit', true, 'Signing in');
     }
     if (S.variant === 'reset') {
-      email.value = 'cesco@example.com';
-      banner('#signin-banner', 'success', 'Reset link sent',
-        'If cesco@example.com has an account, a link is on the way. It expires in one hour.');
+      /* The typed address is left alone, and nothing claims a link was sent.
+         This overwrote whatever had been typed with cesco@example.com and
+         then asserted a reset link was on its way to that address -- for an
+         address the person had not entered, from a build with no server and
+         no way to send anything. An empty field produced the same claim.
+
+         Resetting a password needs a mail server; this says so. The address
+         is validated anyway, because the thing it CAN check is worth
+         checking. */
+      var typed = String(email.value || '').trim();
+      if (!typed) {
+        setError('signin-email', 'Enter the email address on the account first.');
+        email.focus();
+      } else if (!validEmail(typed)) {
+        setError('signin-email', 'This is not a complete email address. Add the part after the dot, like cesco@example.com.');
+        email.focus();
+      } else {
+        banner('#signin-banner', 'info', 'Resetting a password needs a server',
+          'There is no account system behind this build, so nothing can be sent to ' + typed +
+          '. In the live app this is where the link would go.');
+      }
     }
   }
 
@@ -27245,6 +27544,13 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
     renderSetup();
     window.setTimeout(function () {
       S.variant = 'default';
+      /* Written before the overview describes it, so that screen reads the
+         plan rather than predicting one. */
+      if (countAnswers() && !commitSetup()) {
+        S.variant = 'error';
+        renderSetup();
+        return;
+      }
       go('overview', 'loading');
       window.setTimeout(function () { go('overview', countAnswers() ? 'populated' : 'empty'); }, 1100);
     }, 800);
@@ -27302,9 +27608,14 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
     var units = a.units === 'lb' ? 'Pounds' : 'Kilograms';
     var who = a.name ? a.name : 'you';
     var exp = a.experience || '1to3';
-    var sessionName = SPLIT[days] === 'Upper / lower' ? 'Upper A' : SPLIT[days] === 'Push / pull / legs' ? 'Push A' : 'Full body A';
-    /* Fewer days means each session carries more of the week. */
-    var exCount = { '2': 8, '3': 7, '4': 6, '5': 5, '6': 5 }[days] || 6;
+    /* The first day of the split that was just written, and the count is its
+       exercises. It was a lookup keyed on the days answer: a number about the
+       answer rather than a count of anything, printed beside a session that
+       did not exist. */
+    var plan = planFor(days);
+    var first = plan.days[0];
+    var sessionName = first.name;
+    var exCount = first.exercises.length;
     var mins = exCount * 9 + 5;
 
     LKPatch(body, '<p class="t-label">Week 1 · Day 1</p>' +
@@ -27324,6 +27635,14 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
         row('Starting loads', 'Set by your first working set of each lift') +
       '</div>' +
 
+      '<div class="section">' +
+        '<div class="section__head"><h3 class="t-section">' + escapeHtml(sessionName) + '</h3></div>' +
+        '<div class="card card--flush">' + first.exercises.map(function (x) {
+          return '<div class="row row--static"><span class="row__main stack">' +
+            '<span class="row__title">' + escapeHtml(x.name) + '</span>' +
+            '<span class="row__sub">' + escapeHtml(x.group) + '</span></span></div>';
+        }).join('') + '</div>' +
+      '</div>' +
       '<div class="section">' +
         '<div class="section__head"><h3 class="t-section">Do this first</h3></div>' +
         '<div class="card">' +
@@ -30887,8 +31206,17 @@ DEMO.define("shopping", function (document, window, location, fetch) {
   var hdrCount = document.getElementById('hdr-count');
 
   /* One item is not "1 items". The toast had this and the dialog above it
-     did not, so the same act was counted two ways on one screen. */
-  function plural(n, word) { return n === 1 ? word : word + 's'; }
+     did not, so the same act was counted two ways on one screen.
+
+     A bare + 's' is not a plural rule. "search" came out "searchs" on screen
+     the moment this was used for a word that does not take a plain s, so the
+     three English endings that actually matter here are handled. */
+  function plural(n, word) {
+    if (n === 1) return word;
+    if (/(s|x|z|ch|sh)$/.test(word)) return word + 'es';
+    if (/[^aeiou]y$/.test(word)) return word.slice(0, -1) + 'ies';
+    return word + 's';
+  }
 
   function esc(s) {
     return String(s).replace(/[&<>"]/g, function (c) {
@@ -35227,9 +35555,16 @@ DEMO.define("cycle", function (document, window, location, fetch) {
 
   /* Recovery mode. Set by logging a pregnancy loss or an abortion in the
      events section, cleared by the reader. While it is on, nothing on this
-     screen predicts anything. */
+     screen predicts anything.
+
+     Dismissing it records WHICH event was dismissed, not a bare "off". A
+     single boolean meant that once somebody had pressed "Start estimating
+     again", a loss logged months later could never bring the card back: the
+     screen would keep predicting through it, permanently, and the one reason
+     recovery mode exists is that a body after a loss does not follow the
+     arithmetic. So a recovery event dated after the dismissed one opens it
+     again, and the reader can dismiss that one in its turn. */
   function recoveryDate() {
-    if (S.p.recoveryOff) return null;
     var keys = Object.keys(S.days).sort(), found = null;
     keys.forEach(function (k) {
       var ev = S.days[k].events || [];
@@ -35237,6 +35572,12 @@ DEMO.define("cycle", function (document, window, location, fetch) {
         if (ev.indexOf(RECOVERY_EVENTS[i]) >= 0) found = k;
       }
     });
+    if (!found) return null;
+    /* recoveryOff is the old shape: true meant "off for whatever was logged
+       then". Treated as dismissing everything up to today, so an upgrade does
+       not reopen a card somebody had already closed. */
+    var off = S.p.recoveryOffAt || (S.p.recoveryOff ? TODAY : null);
+    if (off && found <= off) return null;
     return found;
   }
   function ecDate() {
@@ -35411,8 +35752,12 @@ DEMO.define("cycle", function (document, window, location, fetch) {
     return '<div class="cycring mt-4">' +
       '<div class="cycring__box" id="ring-box" data-testid="cycle-ring" ' +
         'role="slider" tabindex="0" aria-label="Cycle ring. Drag or use the arrow keys to look at any day." ' +
-        'aria-valuemin="1" aria-valuemax="' + p.cycleLen + '" ' +
-        'aria-valuenow="' + (S.preview !== null ? S.preview : (d === null ? 1 : Math.min(d, p.cycleLen))) + '" ' +
+        /* The maximum is the cycle length OR the day actually reached,
+           whichever is larger. Past the estimated length the centre said
+           "Day 47" while the slider reported 28 of 28, so anything reading
+           the control rather than the label was told the cycle had ended. */
+        'aria-valuemin="1" aria-valuemax="' + Math.max(p.cycleLen, d || 1) + '" ' +
+        'aria-valuenow="' + (S.preview !== null ? S.preview : (d === null ? 1 : d)) + '" ' +
         'aria-valuetext="' + esc(S.preview !== null ? 'Day ' + S.preview : label) + '">' +
         '<svg class="cycring__svg" viewBox="0 0 ' + R_SIZE + ' ' + R_SIZE + '" aria-hidden="true" focusable="false">' +
           '<circle cx="' + R_C + '" cy="' + R_C + '" r="' + R_R + '" fill="none" ' +
@@ -35963,11 +36308,22 @@ DEMO.define("cycle", function (document, window, location, fetch) {
       var pt = paintOf(date);
       var future = daysBetween(TODAY, date) > 0;
       var cls = 'cal__d cyccal__d' + (future ? ' cal__d--future' : '');
-      if (pt && pt.kind === 'period') cls += ' cyccal-pred';
-      if (pt && pt.kind === 'fertile') cls += ' cyccal-fert';
-      if (pt && pt.kind === 'ov') cls += ' cyccal-ov';
-      if (pt && pt.kind === 'pms') cls += ' cyccal-pms';
-      var flow = pt && pt.kind === 'flow'
+      /* Discreet mode paints nothing predicted. The ring greys its arcs here
+         because colour IS the phase; the grid was still painting seventeen
+         fertile, ovulation, PMS and predicted-period cells with the legend
+         hidden, so the windows stayed perfectly visible to whoever was
+         holding the phone and only the words for them were gone. A logged day
+         keeps one neutral mark, because "something was logged" is what the
+         day sheet already shows in this mode. */
+      if (!S.p.discreet) {
+        if (pt && pt.kind === 'period') cls += ' cyccal-pred';
+        if (pt && pt.kind === 'fertile') cls += ' cyccal-fert';
+        if (pt && pt.kind === 'ov') cls += ' cyccal-ov';
+        if (pt && pt.kind === 'pms') cls += ' cyccal-pms';
+      } else if (pt && pt.kind === 'flow') {
+        cls += ' cyccal-quiet';
+      }
+      var flow = (!S.p.discreet && pt && pt.kind === 'flow')
         ? '<span class="cyccal__flow" style="opacity:' + (0.25 + pt.flow * 0.15) + '" aria-hidden="true"></span>'
         : '';
       var what = pt ? (pt.kind === 'flow' ? 'flow logged' :
@@ -35990,6 +36346,11 @@ DEMO.define("cycle", function (document, window, location, fetch) {
       '<div class="cal__dow mt-3" aria-hidden="true">' +
         DOW.map(function (x) { return '<span>' + x[0] + '</span>'; }).join('') + '</div>' +
       '<div class="cal">' + cells + '</div>' +
+      (S.p.discreet
+        ? '<p class="t-caption-1 quiet mt-3" data-testid="cal-discreet">Predicted days are not ' +
+          'painted in discreet mode. A day you logged carries one neutral mark and nothing ' +
+          'else.</p>'
+        : '') +
     '</div>';
   }
 
@@ -36679,6 +37040,8 @@ DEMO.define("cycle", function (document, window, location, fetch) {
       return;
     }
     if (a === 'end-recovery') {
+      /* The date of the event being dismissed, so a later one still counts. */
+      S.p.recoveryOffAt = recoveryDate() || TODAY;
       S.p.recoveryOff = true;
       persistProfile();
       render();
@@ -36727,10 +37090,6 @@ DEMO.define("cycle", function (document, window, location, fetch) {
       /* No lastStart is written here. The starts are read back out of the
          log whenever they are needed, which is what makes clearing this day
          undo exactly what saving it did. */
-      if (!blank && !S.p.recoveryOff) {
-        var started = (S.draft.events || []).filter(function (x) { return RECOVERY_EVENTS.indexOf(x) >= 0; });
-        if (started.length) S.p.recoveryOff = false;
-      }
       persistDays();
       persistProfile();
       S.sheet = null; S.draft = null; S.reveal = false;
@@ -37626,6 +37985,21 @@ DEMO.define("progress", function (document, window, location, fetch) {
             '<span class="row__value">' + kg(w[1]) + '</span>' +
             '<span class="row__chev">' + ICO.chev + '</span>' +
           '</button>' +
+          /* The body-fat log. lk_bfLog ships in the seed with two readings
+             and nothing in the build read it, so the one number a body-fat
+             goal is measured against could not be seen or added. */
+          '<button class="row" data-action="open-bf" data-testid="row-body-fat">' +
+            '<span class="ico-well">' + ICO.scale + '</span>' +
+            '<span class="row__main stack">' +
+              '<span class="row__title">Body fat</span>' +
+              '<span class="row__sub">' + (BF.length
+                ? n(BF.length) + (BF.length === 1 ? ' reading since ' : ' readings since ') +
+                  dayLabel(BF[BF.length - 1].date) + ' \u00b7 ' + bfMethodLabel(BF[0].method)
+                : 'Nothing logged') + '</span>' +
+            '</span>' +
+            '<span class="row__value">' + (BF.length ? num1(BF[0].pct) + '%' : '\u2014') + '</span>' +
+            '<span class="row__chev">' + ICO.chev + '</span>' +
+          '</button>' +
           '<button class="row" data-action="open-photos" data-testid="row-photos">' +
             '<span class="ico-well">' + ICO.cam + '</span>' +
             '<span class="row__main stack">' +
@@ -37791,21 +38165,71 @@ DEMO.define("progress", function (document, window, location, fetch) {
           }).join('') +
         '</div>' +
         '<div class="sheet__foot">' +
-          (S.goalForm
-            ? '<label class="t-label field__label" for="gl-name">What</label>' +
-              '<input class="input" id="gl-name" type="text" placeholder="e.g. Deadlift 140 kg for 3" ' +
-                'data-testid="gl-name">' +
-              '<label class="t-label field__label mt-3" for="gl-by">By</label>' +
-              '<input class="input" id="gl-by" type="text" placeholder="e.g. Dec 1, or Ongoing" ' +
-                'data-testid="gl-by">' +
-              (S.goalError ? '<p class="field__error" role="alert" data-testid="gl-error">' +
-                esc(S.goalError) + '</p>' : '') +
-              '<button class="btn btn--primary btn--block mt-3" data-action="save-goal" data-testid="goals-save">' +
-                '<span class="btn__label">Add it</span></button>'
+          (S.goalForm ? goalForm()
             : '<button class="btn btn--secondary btn--block" data-action="add-goal" data-testid="goals-add">' +
                 '<span class="btn__label">Add a goal</span></button>') +
         '</div>' +
       '</div>';
+  }
+
+  /* The type comes first because it decides what the rest of the form asks
+     for AND what number will measure the goal afterwards. A form that takes
+     a sentence and a date can only ever produce a bar that does not move. */
+  var GOAL_TYPES = [
+    ['weight', 'Body weight'], ['bodyfat', 'Body fat'],
+    ['lift', 'A lift'], ['custom', 'Something else']
+  ];
+  function liftOptions() {
+    return LIFTS.map(function (l) {
+      return '<option value="' + l.id + '">' + l.name + '</option>';
+    }).join('');
+  }
+  function goalForm() {
+    var type = S.goalType || 'weight';
+    var nowv = goalNow({ type: type, exId: Number((document.getElementById('gl-lift') || {}).value || 0) });
+    var unit = type === 'bodyfat' ? '%' : 'kg';
+    var out = '<div class="seg seg--lg" role="radiogroup" aria-label="What kind of goal" ' +
+        'data-testid="gl-type">' +
+      GOAL_TYPES.map(function (t) {
+        return '<button class="seg__item" type="button" role="radio" ' +
+          'aria-checked="' + (type === t[0]) + '" data-action="goal-type" data-v="' + t[0] + '" ' +
+          'data-testid="gl-type-' + t[0] + '">' + t[1] + '</button>';
+      }).join('') + '</div>';
+
+    if (type === 'lift') {
+      out += '<label class="t-label field__label mt-3" for="gl-lift">Which lift</label>' +
+        '<select class="input" id="gl-lift" data-testid="gl-lift">' +
+          liftOptions() + '</select>';
+    }
+    out += '<label class="t-label field__label mt-3" for="gl-name">What to call it</label>' +
+      '<input class="input" id="gl-name" type="text" ' +
+        'placeholder="' + (type === 'lift' ? 'Left blank, the lift names it' : 'e.g. Back to 62 kg') + '" ' +
+        'data-testid="gl-name">';
+    if (type !== 'custom') {
+      out += '<div class="hstack hstack--3 mt-3">' +
+          '<div class="grow"><label class="t-label field__label" for="gl-start">From</label>' +
+            '<input class="input num" id="gl-start" type="number" step="0.1" inputmode="decimal" ' +
+              'placeholder="' + (nowv === null || nowv === undefined ? 'now' : num1(nowv)) + '" ' +
+              'data-testid="gl-start"></div>' +
+          '<div class="grow"><label class="t-label field__label" for="gl-target">To</label>' +
+            '<input class="input num" id="gl-target" type="number" step="0.1" inputmode="decimal" ' +
+              'data-testid="gl-target"></div>' +
+        '</div>' +
+        '<p class="t-caption-1 quiet mt-1">' + unit + '. Left blank, From is where you are now' +
+          (nowv === null || nowv === undefined ? ', and nothing is logged yet.' : ': ' + num1(nowv) + ' ' + unit + '.') +
+        '</p>';
+    } else {
+      out += '<p class="t-caption-1 quiet mt-1">Nothing measures this one, so it carries no ' +
+        'percentage. It is a note with a date on it.</p>';
+    }
+    out += '<label class="t-label field__label mt-3" for="gl-date">By when</label>' +
+      '<input class="input" id="gl-date" type="date" min="' + TODAY + '" data-testid="gl-date">' +
+      '<p class="t-caption-1 quiet mt-1">Optional. No date means no deadline, not a failed goal.</p>' +
+      (S.goalError ? '<p class="field__error mt-2" role="alert" data-testid="gl-error">' +
+        esc(S.goalError) + '</p>' : '') +
+      '<button class="btn btn--primary btn--block mt-3" data-action="save-goal" data-testid="goals-save">' +
+        '<span class="btn__label">Add it</span></button>';
+    return out;
   }
 
   /* A record set outside a logged session. It happens, and refusing to
@@ -37823,7 +38247,7 @@ DEMO.define("progress", function (document, window, location, fetch) {
             'and your charts; it does not create a session.</p>' +
           '<label class="t-label field__label mt-4" for="rec-lift">Lift</label>' +
           '<select class="input" id="rec-lift" data-testid="rec-lift">' +
-            LIFTS.map(function (l) { return '<option value="' + l.id + '">' + l.name + '</option>'; }).join('') +
+            liftOptions() +
           '</select>' +
           '<div class="hstack hstack--3 mt-3">' +
             '<div class="field grow"><label class="t-label field__label" for="rec-kg">Weight, kg</label>' +
@@ -37847,6 +38271,7 @@ DEMO.define("progress", function (document, window, location, fetch) {
     if (S.sheet === 'weight') return weightSheet();
     if (S.sheet === 'goals') return goalsSheet();
     if (S.sheet === 'record') return recordSheet();
+    if (S.sheet === 'bf') return bfSheet();
     if (S.sheet === 'photos') return photosSheet();
     if (S.sheet === 'photo') return photoSheet();
     if (S.sheet === 'analyse-consent') return consentSheet();
@@ -37970,9 +38395,109 @@ DEMO.define("progress", function (document, window, location, fetch) {
     return '<button class="ph" type="button" data-action="open-photo" data-i="' + i +
         '" data-testid="photo-' + i + '" aria-label="' + esc(dayLabel(ph.date)) +
         (ph.note ? ', ' + esc(ph.note) : '') + '">' +
-      '<span class="ph__img" style="background:' + tone + '" aria-hidden="true"></span>' +
+      '<span class="ph__img" style="' + (ph.thumb
+        ? 'background-image:url(' + ph.thumb + ');background-size:cover;background-position:center'
+        : 'background:' + tone) + '" aria-hidden="true"></span>' +
       '<span class="ph__cap">' + esc(dayLabel(ph.date)) + '</span>' +
     '</button>';
+  }
+
+  /* Every reading, with the method beside it, because a caliper number and a
+     DEXA number are not the same measurement and a chart that mixes them
+     without saying so is a chart of two things. */
+  function bfSheet() {
+    var rows = BF.map(function (r, i) {
+      return '<div class="row row--withaside" data-testid="bf-row-' + i + '">' +
+        '<span class="row__main stack">' +
+          '<span class="row__title">' + num1(r.pct) + '%</span>' +
+          '<span class="row__sub">' + dayLabel(r.date) + ' \u00b7 ' + esc(bfMethodLabel(r.method)) + '</span>' +
+        '</span>' +
+        '<button class="iconbtn" type="button" data-action="del-bf" data-i="' + i + '" ' +
+          'aria-label="Remove the ' + esc(dayLabel(r.date)) + ' reading" ' +
+          'data-testid="bf-del-' + i + '">' + ICO.close + '</button>' +
+      '</div>';
+    }).join('');
+    return sheet('bf', 'Body fat', '0.55 0.9',
+      (BF.length
+        ? '<p class="t-detail">' + n(BF.length) + (BF.length === 1 ? ' reading' : ' readings') +
+            ', newest first. A goal set on body fat is measured against the top one.</p>' +
+          '<div class="card card--flush mt-3">' + rows + '</div>'
+        : '<p class="t-body">Nothing logged yet.</p>' +
+          '<p class="t-detail muted mt-1">Any method works as long as you keep using the same one. ' +
+            'The direction is the reading; the absolute number is not.</p>') +
+      '<h3 class="t-label mt-5">Add one</h3>' +
+      '<div class="hstack hstack--3 mt-2">' +
+        '<div class="grow"><label class="t-label field__label" for="bf-pct">Per cent</label>' +
+          '<input class="input num" id="bf-pct" type="number" min="1" max="70" step="0.1" ' +
+            'inputmode="decimal" data-testid="bf-pct"></div>' +
+        '<div class="grow"><label class="t-label field__label" for="bf-method">How</label>' +
+          '<select class="input" id="bf-method" data-testid="bf-method">' +
+            BF_METHODS.map(function (m) {
+              return '<option value="' + m[0] + '">' + m[1] + '</option>';
+            }).join('') + '</select></div>' +
+      '</div>' +
+      (S.bfError ? '<p class="field__error mt-2" role="alert" data-testid="bf-error">' +
+        esc(S.bfError) + '</p>' : '') +
+      '<button class="btn btn--primary btn--block mt-3" type="button" data-action="save-bf" ' +
+        'data-testid="bf-save"><span class="btn__label">Log it</span></button>');
+  }
+
+  /* Downscaled to 480px on the long edge and re-encoded as JPEG. A phone
+     photo is three to six megabytes; localStorage is five, so storing the
+     original would fill it with one picture and throw on the second. */
+  function addPhotoFile(file) {
+    if (!file) return;
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function () {
+      var max = 480;
+      var w = img.width, h = img.height;
+      var k = Math.min(1, max / Math.max(w, h));
+      var c = document.createElement('canvas');
+      c.width = Math.round(w * k); c.height = Math.round(h * k);
+      try {
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        var thumb = c.toDataURL('image/jpeg', 0.72);
+        var iso = todayISO();
+        PHOTOS.unshift({ date: iso, note: '', thumb: thumb, tone: PHOTOS.length % 4 });
+        savePhotos();
+        S.toast = 'Photo added for ' + dayLabel(iso) + '.';
+      } catch (e) {
+        /* A tainted canvas or a quota refusal. Said, not swallowed: a photo
+           the person believes was saved and was not is worse than a failure
+           they can see. */
+        S.toast = 'That photo could not be saved on this device.';
+      }
+      try { URL.revokeObjectURL(url); } catch (e) {}
+      render();
+    };
+    img.onerror = function () {
+      try { URL.revokeObjectURL(url); } catch (e) {}
+      S.toast = 'That file is not an image this browser can read.';
+      render();
+    };
+    img.src = url;
+  }
+
+  document.addEventListener('change', function (e) {
+    if (e.target.id === 'ph-take' || e.target.id === 'ph-pick') {
+      addPhotoFile(e.target.files && e.target.files[0]);
+    }
+  });
+
+  function logBF() {
+    var el = document.getElementById('bf-pct');
+    var v = el ? parseFloat(el.value) : NaN;
+    if (isNaN(v) || v < 1 || v > 70) { S.bfError = 'A percentage between 1 and 70.'; render(); focusIn('bf-pct'); return; }
+    var m = (document.getElementById('bf-method') || {}).value || 'manual';
+    var iso = todayISO();
+    /* One a day, the same rule the weigh-in follows. */
+    if (BF.length && BF[0].date === iso) { BF[0].pct = v; BF[0].method = m; }
+    else BF.unshift({ date: iso, pct: v, method: m });
+    saveBF();
+    S.bfError = null;
+    S.toast = num1(v) + '% logged.';
+    render();
   }
 
   function photosSheet() {
@@ -37996,8 +38521,24 @@ DEMO.define("progress", function (document, window, location, fetch) {
             ', stored on this device.</p>' + body
         : '<p class="t-body">No photos yet.</p>' +
           '<p class="t-detail muted mt-1">A photo every few weeks shows what the scale does not.</p>') +
-      '<button class="btn btn--primary btn--block mt-4" type="button" data-action="add-photo" ' +
-        'data-testid="add-photo"><span class="btn__label">Add a photo</span></button>');
+      /* Real inputs. "Add a photo" toasted, so there was no way to add one
+         at all -- on the screen whose whole point is a picture every few
+         weeks. The camera one opens the camera on a phone; the other opens
+         the library. What is stored is a downscaled JPEG, never the
+         full-resolution original, because the grid and the lightbox are all
+         that is ever drawn from it and a phone photo would fill localStorage
+         in a fortnight. */
+      '<div class="hstack hstack--3 mt-4">' +
+        '<label class="btn btn--primary grow" for="ph-take">' +
+          '<span class="btn__label">Take one</span></label>' +
+        '<input class="vis-hidden" id="ph-take" type="file" accept="image/*" capture="environment" ' +
+          'data-testid="add-photo">' +
+        '<label class="btn btn--secondary grow" for="ph-pick">' +
+          '<span class="btn__label">From the library</span></label>' +
+        '<input class="vis-hidden" id="ph-pick" type="file" accept="image/*" data-testid="pick-photo">' +
+      '</div>' +
+      '<p class="t-caption-1 muted mt-2">Downscaled and kept on this device. Nothing is uploaded, ' +
+        'and there is no server behind this screen to upload it to.</p>');
   }
 
   function photoSheet() {
@@ -38087,8 +38628,6 @@ DEMO.define("progress", function (document, window, location, fetch) {
       openSheet('photos');
     } else if (a === 'open-photo') {
       S.photoIdx = +t.getAttribute('data-i'); S.confirmDel = false; openSheet('photo');
-    } else if (a === 'add-photo') {
-      S.toast = 'Taking a photo needs a camera, which this build does not have.'; render();
     } else if (a === 'analyse') {
       openSheet('analyse-consent');
     } else if (a === 'analyse-no') {
@@ -38103,8 +38642,20 @@ DEMO.define("progress", function (document, window, location, fetch) {
     } else if (a === 'del-photo') {
       if (!S.confirmDel) { S.confirmDel = true; render(); return; }
       var gonePh = PHOTOS.splice(S.photoIdx, 1)[0];
+      savePhotos();
       S.photoIdx = null; S.confirmDel = false; S.sheet = 'photos'; render();
       S.toast = dayLabel(gonePh.date) + ' deleted.'; render();
+    } else if (a === 'open-bf') {
+      openSheet('bf');
+    } else if (a === 'save-bf') {
+      logBF(); return;
+    } else if (a === 'del-bf') {
+      var goneBf = BF.splice(+t.getAttribute('data-i'), 1)[0];
+      saveBF(); render();
+      if (goneBf) { S.toast = dayLabel(goneBf.date) + ' removed.'; render(); }
+      return;
+    } else if (a === 'goal-type') {
+      S.goalType = t.getAttribute('data-v'); S.goalError = null; render(); return;
     } else if (a === 'open-goals') {
       openSheet('goals');
     } else if (a === 'log-record') {
@@ -38112,7 +38663,8 @@ DEMO.define("progress", function (document, window, location, fetch) {
     } else if (a === 'log-weight') {
       logWeight();
     } else if (a === 'add-goal') {
-      S.goalForm = true; S.goalError = null; render(); focusIn('gl-name');
+      S.goalForm = true; S.goalError = null; S.goalType = S.goalType || 'weight';
+      render(); focusIn('gl-name');
     } else if (a === 'save-goal') {
       saveGoal();
     } else if (a === 'save-record') {
@@ -38158,6 +38710,7 @@ DEMO.define("progress", function (document, window, location, fetch) {
        segment in the trend. */
     if (last && last[0] === iso) last[1] = v;
     else WEIGHT_LOG.push([iso, v]);
+    saveWeight();
     S.weightError = null;
     S.sheet = false;
     S.toast = num1(v) + ' kg logged for today.';
@@ -38165,16 +38718,54 @@ DEMO.define("progress", function (document, window, location, fetch) {
     refocus('row-body-weight');
   }
 
+  /* The form writes the shape the screen READS. It used to push
+     `{name, by, now: 'Not started'}` -- three keys, none of which goalPct,
+     goalNow, goalBy, activeGoals or nextGoalDue look at -- so every goal
+     added by hand sat at 0% forever under a bar that could never move, and
+     the whole measured-goal machinery above only ever ran on the seed.
+
+     A goal is a type, a start, a target and a date. The type is what says
+     which number watches it: a weight goal reads the weigh-in log, a body-fat
+     goal reads the body-fat log, a lift goal reads your records. `custom` is
+     kept for the things nothing measures, and it says "You decide" rather
+     than printing a percentage it cannot compute. */
   function saveGoal() {
-    var name = (document.getElementById('gl-name') || {}).value || '';
-    var by = (document.getElementById('gl-by') || {}).value || '';
-    name = name.trim(); by = by.trim();
+    var val = function (id) { var e = document.getElementById(id); return e ? e.value : ''; };
+    var type = S.goalType || 'weight';
+    var name = String(val('gl-name')).trim();
+    var target = parseFloat(val('gl-target'));
+    var start = parseFloat(val('gl-start'));
+    var date = String(val('gl-date')).trim();
+    var exId = type === 'lift' ? Number(val('gl-lift')) : null;
+
+    if (type === 'lift' && !name) {
+      var lf = liftById(exId);
+      name = lf ? lf.name + ' to ' + num1(target || 0) + ' kg' : '';
+    }
     if (!name) { S.goalError = 'What are you aiming at?'; render(); focusIn('gl-name'); return; }
-    if (!by) { S.goalError = 'By when? "Ongoing" counts.'; render(); focusIn('gl-by'); return; }
-    /* pct 0 and "Not started": a goal added by hand has no measurement
-       behind it yet, and inventing a percentage would be inventing data. */
-    GOALS.push({ name: name, by: by, now: 'Not started' });
-    S.goalForm = false; S.goalError = null;
+    if (type !== 'custom') {
+      if (isNaN(target)) { S.goalError = 'What number are you aiming for?'; render(); focusIn('gl-target'); return; }
+      /* The start defaults to where you are now, which is the honest zero
+         point: a bar measured from nothing is measured from nothing. */
+      if (isNaN(start)) {
+        var nowv = goalNow({ type: type, exId: exId });
+        if (nowv === null || nowv === undefined) {
+          S.goalError = 'Nothing is logged to start from. Log one first, or type a starting figure.';
+          render(); focusIn('gl-start'); return;
+        }
+        start = nowv;
+      }
+      if (start === target) { S.goalError = 'The start and the target are the same number.'; render(); focusIn('gl-target'); return; }
+    }
+    GOALS.push(normGoal({
+      type: type, name: name, exId: exId,
+      target: type === 'custom' ? null : target,
+      start: type === 'custom' ? null : start,
+      unit: type === 'bodyfat' ? '%' : type === 'custom' ? '' : 'kg',
+      targetDate: date, status: 'active', created: new Date().toISOString()
+    }));
+    saveGoals();
+    S.goalForm = false; S.goalError = null; S.goalType = null;
     S.toast = 'Goal added.';
     render();
   }
@@ -38188,7 +38779,29 @@ DEMO.define("progress", function (document, window, location, fetch) {
     if (isNaN(load) || load <= 0) { S.recordError = 'How much did you lift?'; render(); focusIn('rec-kg'); return; }
     if (isNaN(reps) || reps < 1) { S.recordError = 'At least one rep.'; render(); focusIn('rec-reps'); return; }
     var id = liftSel ? Number(liftSel.value) : 0;
+    /* A record has to beat the record. This accepted 1 kg for 5 as a Leg
+       Press record against a stored best of 165 for 10, and then redated the
+       row to today -- so the screen asserted a personal best that had never
+       been lifted, and buried the real one.
+
+       Beating it means more weight at the same reps or better, or the same
+       weight for more reps. Anything else is a set, and a set belongs in a
+       session rather than in the record book. */
+    var beaten = null;
+    RECORDS.forEach(function (r) {
+      if (r.id !== id) return;
+      if (r.kg > load && r.reps >= reps) { if (!beaten || r.kg > beaten.kg) beaten = r; }
+      else if (r.kg === load && r.reps >= reps) { if (!beaten || r.reps > (beaten.reps || 0)) beaten = r; }
+    });
+    if (beaten) {
+      var lift0 = liftById(id);
+      S.recordError = (lift0 ? lift0.name : 'That lift') + ' already has ' + num1(beaten.kg) +
+        ' kg for ' + beaten.reps + '. A record has to beat the record \u2014 more weight at the ' +
+        'same reps, or the same weight for more. Log it as a set instead.';
+      render(); focusIn('rec-kg'); return;
+    }
     RECORDS.unshift({ id: id, reps: reps, kg: load, date: todayISO() });
+    saveRecords();
     S.recordError = null;
     S.sheet = false;
     var lift = liftById(id);
@@ -38971,32 +39584,23 @@ DEMO.define("stack", function (document, window, location, fetch) {
   ];
 
   /* ---------------------------------------------------------------
-     Data. lk_cycles, inlined from the fixture.
+     Data. lk_cycles, through LKStore.
 
-     endPlanned and endActual are separate fields. The shipped app had one,
-     and ending a cycle early overwrote the plan with the date you ended it,
-     so the schedule the cycle had been measured against disappeared.
+     This was a literal in this file while Home's "compounds due" card read
+     lk_cycles, so that card had nothing to read and never rendered: two
+     screens, one of them holding the data privately. The cycles are seed
+     data now and both screens read the same key, which is also what makes an
+     edit here show up there.
      --------------------------------------------------------------- */
-  var CYCLES = [
-    { id: 'c1', name: 'Autumn block', status: 'active',
-      start: '2026-08-11', weeks: 12, endPlanned: '2026-11-02', endActual: null,
-      note: 'Bloods booked for week 6.',
-      comps: [
-        { name: 'Testosterone enanthate', cat: 'aas', dose: '250 mg', freq: 'twice-weekly',
-          route: 'Intramuscular', at: '08:00', halfLifeH: 192, taken: ['2026-09-07'] },
-        { name: 'Anastrozole', cat: 'anc', dose: '0.5 mg', freq: 'eod',
-          route: 'Oral', at: '08:00', since: '2026-08-11', halfLifeH: 46, taken: [] },
-        { name: 'BPC-157', cat: 'sarm', dose: '250 mcg', freq: 'daily',
-          route: 'Subcutaneous', at: '21:00', halfLifeH: 4, taken: [] }
-      ] },
-    { id: 'c2', name: 'Spring cut', status: 'completed',
-      start: '2026-03-02', weeks: 10, endPlanned: '2026-05-11', endActual: '2026-04-27',
-      note: 'Ended two weeks early, shoulder.',
-      comps: [
-        { name: 'Testosterone propionate', cat: 'aas', dose: '100 mg', freq: 'eod',
-          route: 'Intramuscular', at: '07:30', since: '2026-03-02', halfLifeH: 20, taken: [] }
-      ] }
-  ];
+  function rdCycles() {
+    if (window.LKStore) return window.LKStore.get('lk_cycles', []) || [];
+    return (window.LKFixtures && window.LKFixtures.cycles) || [];
+  }
+  function wrCycles() {
+    if (window.LKStore) window.LKStore.set('lk_cycles', CYCLES);
+  }
+  var CYCLES = rdCycles();
+
 
   /* ---------------------------------------------------------------
      State
@@ -39503,11 +40107,12 @@ DEMO.define("stack", function (document, window, location, fetch) {
         /* Status is untouched on purpose. */
         c.name = nm.trim(); c.start = st; c.weeks = wk; c.note = nt.trim();
         c.endPlanned = endFrom(st, wk);
-        toast('Saved.');
+        wrCycles(); toast('Saved.');
       } else {
         CYCLES.unshift({ id: 'c' + Date.now(), name: nm.trim(), status: 'active', start: st,
           weeks: wk, endPlanned: endFrom(st, wk), endActual: null, note: nt.trim(), comps: [] });
         S.sel = 0;
+        wrCycles();
         toast('Cycle started.');
       }
       S.err = null; S.view = 'detail'; render({ scrollTop: true }); return;
@@ -39517,13 +40122,14 @@ DEMO.define("stack", function (document, window, location, fetch) {
       if (S.confirm !== 'end') { arm('end'); render(); return; }
       /* endPlanned is left alone. */
       c.status = 'completed'; c.endActual = TODAY; S.confirm = null;
-      render(); toast('Cycle ended. The planned end date is kept.'); return;
+      wrCycles(); render(); toast('Cycle ended. The planned end date is kept.'); return;
     }
-    if (a === 'reopen') { c.status = 'active'; c.endActual = null; render(); toast('Cycle reopened.'); return; }
+    if (a === 'reopen') { c.status = 'active'; c.endActual = null; wrCycles(); render(); toast('Cycle reopened.'); return; }
     if (a === 'delete') {
       if (S.confirm !== 'del') { arm('del'); render(); return; }
       var gone = CYCLES.splice(S.sel, 1)[0];
       S.sel = null; S.confirm = null; S.view = 'list';
+      wrCycles();
       render({ scrollTop: true }); toast(gone.name + ' deleted.'); return;
     }
 
@@ -39584,6 +40190,7 @@ DEMO.define("stack", function (document, window, location, fetch) {
                   taken: [] };
       if (S.compIdx === null) c.comps.push(rec);
       else { rec.taken = c.comps[S.compIdx].taken || []; c.comps[S.compIdx] = rec; }
+      wrCycles();
       S.err = null; S.view = 'detail'; S.compIdx = null;
       render({ scrollTop: true }); toast('Saved.'); return;
     }
@@ -39601,8 +40208,12 @@ DEMO.define("stack", function (document, window, location, fetch) {
         var comp = tc.comps[j];
         comp.taken = comp.taken || [];
         var at = comp.taken.indexOf(TODAY);
-        if (at >= 0) { comp.taken.splice(at, 1); render(); toast(comp.name + ' un-marked.'); }
-        else { comp.taken.push(TODAY); render(); toast(comp.name + ' logged.'); }
+        /* Written, not just rendered. A dose ticked here is what Home's
+           "compounds due" card counts down, and it was being kept in memory
+           only, so the card said the same dose was still due after a
+           reload. */
+        if (at >= 0) { comp.taken.splice(at, 1); wrCycles(); render(); toast(comp.name + ' un-marked.'); }
+        else { comp.taken.push(TODAY); wrCycles(); render(); toast(comp.name + ' logged.'); }
         return;
       }
       return;

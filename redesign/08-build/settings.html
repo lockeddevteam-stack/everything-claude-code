@@ -590,20 +590,43 @@
   }
 
   /* =============================================================
-     A nutrition export, from the same numbers Fuel shows.
+     A nutrition export: THE LOG, not the catalogue.
+
+     The row says "A CSV of every meal", and the file held the eight rows of
+     the built-in food table -- the list of foods that exist, not the list of
+     meals anybody ate -- with no date column at all, while lk_fuelLog sat
+     there holding four days of actual meals. Exporting a menu under the word
+     "meal" is the kind of wrong nobody catches until they open the file
+     looking for a week they remember eating.
      ============================================================= */
   function nutritionCSV() {
     var nut = get('lk_nutrition', null) || {};
-    var foods = nut.foods || {};
-    var ids = Object.keys(foods);
-    if (!ids.length) { toast('No meals on this phone yet, so there is nothing to export.'); return; }
-    var rows = [['name', 'kcal', 'protein_g', 'carbs_g', 'fat_g']];
-    ids.forEach(function (id) {
-      var f = foods[id];
-      rows.push([f.name, f.kcal, f.pro, f.carb, f.fat]);
+    var log = get('lk_fuelLog', null) || nut.days || {};
+    var dates = Object.keys(log).sort();
+    var rows = [['date', 'slot', 'food', 'kcal', 'protein_g', 'carbs_g', 'fat_g',
+                 'fibre_g', 'sugar_g', 'sat_fat_g', 'sodium_mg', 'source']];
+    var meals = 0;
+    dates.forEach(function (iso) {
+      var d = log[iso] || {};
+      (d.meals || []).forEach(function (m) {
+        meals++;
+        rows.push([iso, m.slot || '', m.name, m.kcal, m.pro, m.carb, m.fat,
+                   m.fibre === undefined ? '' : m.fibre,
+                   m.sugar === undefined ? '' : m.sugar,
+                   m.satfat === undefined ? '' : m.satfat,
+                   m.sodium === undefined ? '' : m.sodium,
+                   m.src || '']);
+      });
+      /* The day's own totals on their own line, so a spreadsheet does not
+         have to trust that the rows above add up. */
+      if ((d.meals || []).length) {
+        rows.push([iso, 'DAY TOTAL', '', d.eaten || '', d.pro || '', d.carb || '', d.fat || '',
+                   '', '', '', '', '']);
+      }
     });
-    var t = nut.targets || {};
-    if (t.kcal) rows.push(['DAILY TARGET', t.kcal, t.pro, t.carb, t.fat]);
+    if (!meals) { toast('No meals on this phone yet, so there is nothing to export.'); return; }
+    var t = get('lk_fuelTargets', null) || nut.targets || {};
+    if (t.kcal) rows.push(['', 'DAILY TARGET', '', t.kcal, t.pro, t.carb, t.fat, '', '', '', '', '']);
     var csv = rows.map(function (r) {
       return r.map(function (c) {
         var v = c === undefined || c === null ? '' : String(c);
@@ -620,7 +643,8 @@
     document.body.appendChild(a);
     a.click();
     setTimeout(function () { document.body.removeChild(a); try { URL.revokeObjectURL(url); } catch (e) {} }, 0);
-    toast(name + ' saved. ' + (rows.length - 1) + ' rows.');
+    toast(name + ' saved. ' + meals + (meals === 1 ? ' meal' : ' meals') +
+      ' across ' + dates.length + (dates.length === 1 ? ' day.' : ' days.'));
   }
 
   /* =============================================================
@@ -1133,7 +1157,7 @@
       '<div class="card card--flush">' + storage +
         actionRow('export', 'Export a backup', 'One file with every workout, split and record', 'row-export') +
         actionRow('confirm-restore', 'Restore from a backup', 'Replaces what is on this phone', 'row-restore') +
-        actionRow('export-nutrition', 'Export your food log', 'A CSV of every meal and your daily targets', 'row-export-nutrition') +
+        actionRow('export-nutrition', 'Export your food log', 'A CSV of every meal you have logged, by date, with your targets', 'row-export-nutrition') +
         actionRow('force-refresh', 'Force refresh', 'Clears what the browser cached and loads the app again. Your data is untouched', 'row-force-refresh') +
       '</div>';
 

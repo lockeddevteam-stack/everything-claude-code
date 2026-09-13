@@ -241,7 +241,15 @@
       var p2 = work[wi++];
       sets.push(set(null, null, p2 ? { prevKg: p2.kg, prevReps: p2.reps } : {}));
     }
-    return { id: id, name: name, muscle: muscle, note: note || '', sets: sets };
+    /* A note stored against this exercise wins over whatever was typed into
+       the seed, because it is the thing the reader actually wrote and it was
+       written to be read next time. */
+    var kept = '';
+    if (window.LKStore) {
+      var all = LKStore.get('lk_exNotes', {}) || {};
+      if (all[id]) kept = all[id];
+    }
+    return { id: id, name: name, muscle: muscle, note: kept || note || '', sets: sets };
   }
 
   function pushDay() {
@@ -263,6 +271,16 @@
   /* =============================================================
      State
      ============================================================= */
+  /* The session's own value wins where there is one -- turning auto-rest off
+     mid-workout should not come back on because Settings says so -- and
+     Settings is the default for a session that has not said otherwise. */
+  function readFlag(key, fallback) {
+    if (!window.LKStore) return fallback;
+    var v = window.LKStore.get(key, null);
+    if (v === null || v === undefined) return fallback;
+    return v === true || v === 'true';
+  }
+
   var S = {
     state: 'mid-session',
     name: 'PPL - Push',
@@ -276,8 +294,14 @@
     blocks: [],
     /* Which exercise the picker is replacing, or null when it is adding. */
     swapAt: null,
-    hidePartials: false,     /* lk_hidePartials */
-    restEnabled: true,       /* lk_restEnabled */
+    /* Settings' defaults, read rather than hardcoded. Settings has a "Rest
+       timer" switch and a "Count partial reps" switch, writes lk_restEnabled
+       and lk_hidePartials, and says of the second "Half reps count towards
+       the set" -- and this screen ignored both, so with partials switched
+       off four partials controls still rendered on every exercise. A switch
+       that changes nothing is worse than no switch. */
+    hidePartials: readFlag('lk_hidePartials', false),
+    restEnabled: readFlag('lk_restEnabled', true),
     restSeconds: 90,
     restLeft: 0,
     restRunning: false,
@@ -948,6 +972,8 @@
             '<input class="input" id="block-title" data-testid="block-title" placeholder="Shoulder warm-up, stretch, core finisher"></label>' +
           '<label class="field mt-3"><span class="field__label t-label">Notes or duration</span>' +
             '<input class="input" id="block-notes" data-testid="block-notes" placeholder="5 min bike, hip openers"></label>' +
+          (S.blockError ? '<p class="field__error mt-2" role="alert" data-testid="block-error">' +
+            esc(S.blockError) + '</p>' : '') +
         '</div>' +
         '<div class="sheet__foot"><div class="addrow">' +
           '<button class="btn btn--secondary" type="button" data-act="close" data-testid="block-cancel">Cancel</button>' +
@@ -1171,9 +1197,13 @@
       state: S.state,
       exercises: S.exercises,
       blocks: S.blocks,
+      /* Auto-rest and the rest length are per-session: turning them off
+         mid-workout should survive a reload of that workout. Partials
+         visibility is not -- it is a preference Settings owns, and storing it
+         per session meant a switch flipped in Settings could never reach a
+         phone that had ever opened this screen. */
       restEnabled: S.restEnabled,
-      restSeconds: S.restSeconds,
-      hidePartials: S.hidePartials
+      restSeconds: S.restSeconds
     });
   }
 
@@ -1190,7 +1220,16 @@
     S.blocks = rows.blocks || [];
     if (rows.restEnabled !== undefined) S.restEnabled = rows.restEnabled;
     if (rows.restSeconds !== undefined) S.restSeconds = rows.restSeconds;
-    if (rows.hidePartials !== undefined) S.hidePartials = rows.hidePartials;
+    /* The note belongs to the exercise, not to the session's saved rows. A
+       note typed mid-workout was written to lk_exNotes and then read back
+       over by the rows this same workout had saved a moment earlier, so it
+       came back as whatever the seed said. */
+    if (window.LKStore) {
+      var kept = LKStore.get('lk_exNotes', {}) || {};
+      S.exercises.forEach(function (e) {
+        if (e.id && kept[e.id] !== undefined) e.note = kept[e.id];
+      });
+    }
     return true;
   }
 
@@ -1329,7 +1368,18 @@
           if (st.kg === null) st.kg = st.prevKg;
           if (st.reps === null) st.reps = st.prevReps;
           startRest();
-          say('Set ' + (i + 1) + ' logged. ' + doneSets() + ' sets this session.');
+          /* The moment a best is beaten is the moment to say so. A 100 kg
+             set against a 72.5 kg best produced "Set 4 logged" and nothing
+             else, and the record only appeared days later on another
+             screen. */
+          var pr = prBeaten(S.exercises[e], st);
+          if (pr) {
+            recordPR(S.exercises[e], st);
+            toast('Personal best. ' + pr, 'info');
+            say(S.exercises[e].name + ', personal best. ' + pr);
+          } else {
+            say('Set ' + (i + 1) + ' logged. ' + doneSets() + ' sets this session.');
+          }
         } else {
           S.restRunning = false;
           say('Set ' + (i + 1) + ' reopened');
@@ -1584,7 +1634,12 @@
           toast('Swapped to ' + pick.name + '.', 'info');
           break;
         }
-        S.exercises.push({ id: pick.id, name: pick.name, muscle: pick.muscle, note: '', sets: [set(null, null, {}), set(null, null, {}), set(null, null, {})] });
+        var keptNote = '';
+        if (window.LKStore) {
+          var allN = LKStore.get('lk_exNotes', {}) || {};
+          if (allN[pick.id]) keptNote = allN[pick.id];
+        }
+        S.exercises.push({ id: pick.id, name: pick.name, muscle: pick.muscle, note: keptNote, sets: [set(null, null, {}), set(null, null, {}), set(null, null, {})] });
         S.overlay = null; S.addexQ = '';
         toast(pick.name + ' added.');
         break;
@@ -1593,12 +1648,36 @@
       case 'block-add': {
         var ti = document.getElementById('block-title');
         var no = document.getElementById('block-notes');
-        S.blocks.push({ title: (ti && ti.value.trim()) || 'Block', notes: no ? no.value.trim() : '', duration: '' });
+        var title = ti ? ti.value.trim() : '';
+        /* An untitled block called "Block" is a row that says nothing, in a
+           list whose whole job is to say what is next. It silently accepted
+           an empty title and named it for you. */
+        if (!title) {
+          S.blockError = 'Give the block a name, so the row says what it is.';
+          paint();
+          if (ti) ti.focus();
+          return;
+        }
+        S.blocks.push({ title: title, notes: no ? no.value.trim() : '', duration: '' });
+        S.blockError = null;
         S.overlay = null;
         toast('Block added.');
         break;
       }
-      case 'block-remove': S.blocks.splice(Number(t.getAttribute('data-i')), 1); break;
+      /* Undoable, not confirmed. Every other destructive control in this
+         build offers the thing back; this one deleted on the tap and left
+         nothing to press. */
+      case 'block-remove': {
+        var bi = Number(t.getAttribute('data-i'));
+        var goneB = S.blocks.splice(bi, 1)[0];
+        if (goneB) {
+          toast('\u201c' + goneB.title + '\u201d removed.', 'Undo', function () {
+            S.blocks.splice(bi, 0, goneB);
+            paint();
+          });
+        }
+        break;
+      }
 
       case 'toast-action': {
         var tf = S.toast && S.toast.fn;
@@ -1682,6 +1761,64 @@
     document.addEventListener('pointercancel', onUp);
   });
 
+  /* lk_prs comes in two shapes and both are real. The seed is a flat array of
+     {exId, kg, reps, date}; once Progress has written, it is a map of exercise
+     id to a list of {r, w, date}. Reading one and ignoring the other is how a
+     personal best goes missing, so this normalises both to one list and the
+     writer puts back the map shape, carrying the seed's records into it. */
+  function prMap() {
+    if (!window.LKStore) return {};
+    var raw = LKStore.get('lk_prs', null);
+    if (!raw) return {};
+    if (!Array.isArray(raw)) return raw;
+    var map = {};
+    raw.forEach(function (r) {
+      var k = String(r.exId);
+      (map[k] = map[k] || []).push({ r: r.reps, w: r.kg, date: r.date });
+    });
+    return map;
+  }
+
+  function bestFor(exId, reps) {
+    if (!exId) return null;
+    var map = prMap();
+    var list = map[exId] || map[String(exId)] || [];
+    var best = null;
+    list.forEach(function (r) {
+      if (reps !== undefined && r.r < reps) return;
+      if (!best || r.w > best.w) best = r;
+    });
+    return best;
+  }
+
+  /* Beaten means more weight at the same reps or better, or the same weight
+     for more reps. The same rule Progress uses to refuse a junk record. */
+  function prBeaten(ex, st) {
+    if (!ex || !ex.id || st.warm) return null;
+    if (st.kg === null || st.reps === null) return null;
+    var b = bestFor(ex.id, st.reps);
+    if (!b) {
+      var any = bestFor(ex.id);
+      if (!any) return null;              /* nothing to beat: not a claim */
+      if (st.kg > any.w) return st.kg + ' kg for ' + st.reps + ', past ' + any.w + ' kg for ' + any.r + '.';
+      return null;
+    }
+    if (st.kg > b.w) return st.kg + ' kg for ' + st.reps + ', past ' + b.w + ' kg.';
+    if (st.kg === b.w && st.reps > b.r) return st.kg + ' kg for ' + st.reps + ', past ' + b.r + ' reps.';
+    return null;
+  }
+
+  function recordPR(ex, st) {
+    if (!window.LKStore || !ex.id) return;
+    var map = prMap();
+    var key = map[ex.id] !== undefined ? ex.id : String(ex.id);
+    var list = (map[key] || []).slice();
+    list.push({ r: st.reps, w: st.kg,
+                date: (window.LKFixtures && LKFixtures.today) || new Date().toISOString().slice(0, 10) });
+    map[key] = list;
+    LKStore.set('lk_prs', map);
+  }
+
   document.addEventListener('keydown', function (ev) {
     if (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown') return;
     var grip = ev.target.closest ? ev.target.closest('[data-act="grip"]') : null;
@@ -1705,14 +1842,45 @@
   });
   document.addEventListener('input', function (ev) {
     var t = ev.target.closest('[data-act="note"]');
-    if (t) { S.exercises[S.overlayEx].note = t.value; return; }
+    if (t) {
+      var exn = S.exercises[S.overlayEx];
+      exn.note = t.value;
+      /* Per exercise, not per session. The sheet asks "what to remember next
+         time", and the note lived only in this workout's rows: next time was
+         exactly when it was gone. lk_exNotes is keyed by exercise id, so the
+         note comes back the next time that lift is opened, in any session. */
+      if (window.LKStore && exn.id) {
+        var notes = LKStore.get('lk_exNotes', {}) || {};
+        if (t.value.trim()) notes[exn.id] = t.value.trim();
+        else delete notes[exn.id];
+        LKStore.set('lk_exNotes', notes);
+      }
+      return;
+    }
     var q = ev.target.closest('[data-act="addex-q"]');
     if (q) { S.addexQ = q.value; S.addexN = ADDEX_PAGE; paint(); }
   });
   document.addEventListener('keydown', function (ev) {
-    if (ev.key !== 'Escape') return;
-    if (S.pad) { S.pad = null; paint(); }
-    else if (S.overlay) { S.overlay = null; paint(); }
+    if (ev.key === 'Escape') {
+      if (S.pad) { S.pad = null; paint(); }
+      else if (S.overlay) { S.overlay = null; paint(); }
+      return;
+    }
+    /* A modal that Tab walks out of is not modal. Fourteen presses inside
+       the plate sheet landed in the dev menu behind it, which is the whole
+       screen a dialog exists to keep you out of. Escape closed it; Tab did
+       not respect it. */
+    if (ev.key !== 'Tab') return;
+    var host = document.getElementById('overlay');
+    if (!host || (!S.overlay && !S.pad)) return;
+    var f = host.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), ' +
+      'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+    if (!f.length) return;
+    var first = f[0], last = f[f.length - 1];
+    if (!host.contains(document.activeElement)) { ev.preventDefault(); first.focus(); return; }
+    if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+    else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
   });
 
   /* What Review reviews. Review used to hold a fixed 16-set, 4,383 kg Push
