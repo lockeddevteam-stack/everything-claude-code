@@ -104,7 +104,7 @@ const MANIFEST = {
      source screen's shadow root; the demo takes the click before the screen's
      own handler sees it. */
   nav: [
-    { from: 'home', selector: '[data-testid="primary-action"]', to: 'train', mode: 'tab' },
+    { from: 'home', selector: '[data-testid="primary-action"]', to: 'workout-log', mode: 'push' },
     { from: 'home', selector: '[data-testid="action-choose-session"]', to: 'train', mode: 'tab' },
     /* Both rows name one session and open it. row-last-session went to the
        list of every session instead, and row-recent and See all were in no

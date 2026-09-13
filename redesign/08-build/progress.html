@@ -1064,14 +1064,23 @@
     ['weight', 'Body weight'], ['bodyfat', 'Body fat'],
     ['lift', 'A lift'], ['custom', 'Something else']
   ];
+  /* The chosen lift lives in state. The hint read the select's value while
+     the select was still being built, so exId was 0 and the From hint said
+     "nothing is logged yet" for every lift -- including Leg Press with
+     165 kg x 10 on record -- and changing the lift did not move it. */
+  function goalLiftId() {
+    if (S.goalLift && LIFTS.some(function (l) { return l.id === S.goalLift; })) return S.goalLift;
+    return LIFTS.length ? LIFTS[0].id : 0;
+  }
   function liftOptions() {
+    var want = goalLiftId();
     return LIFTS.map(function (l) {
-      return '<option value="' + l.id + '">' + l.name + '</option>';
+      return '<option value="' + l.id + '"' + (l.id === want ? ' selected' : '') + '>' + l.name + '</option>';
     }).join('');
   }
   function goalForm() {
     var type = S.goalType || 'weight';
-    var nowv = goalNow({ type: type, exId: Number((document.getElementById('gl-lift') || {}).value || 0) });
+    var nowv = goalNow({ type: type, exId: goalLiftId() });
     var unit = type === 'bodyfat' ? '%' : 'kg';
     var out = '<div class="seg seg--lg" role="radiogroup" aria-label="What kind of goal" ' +
         'data-testid="gl-type">' +
@@ -1380,6 +1389,12 @@
     if (e.target.id === 'ph-take' || e.target.id === 'ph-pick') {
       addPhotoFile(e.target.files && e.target.files[0]);
     }
+    /* Choosing a different lift moves the From hint with it. */
+    if (e.target.id === 'gl-lift') {
+      S.goalLift = Number(e.target.value) || null;
+      render();
+      focusIn('gl-lift');
+    }
   });
 
   function logBF() {
@@ -1633,7 +1648,7 @@
     var target = parseFloat(val('gl-target'));
     var start = parseFloat(val('gl-start'));
     var date = String(val('gl-date')).trim();
-    var exId = type === 'lift' ? Number(val('gl-lift')) : null;
+    var exId = type === 'lift' ? (Number(val('gl-lift')) || goalLiftId()) : null;
 
     if (type === 'lift' && !name) {
       var lf = liftById(exId);

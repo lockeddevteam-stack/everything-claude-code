@@ -24,7 +24,7 @@ console.log('D5 toast:',await p.locator('[data-testid="toast"]').innerText());aw
 await p.click('[data-testid="switch-cycle"]');await p.waitForTimeout(500);
 await p.locator('[data-testid="back"]').first().click();await p.waitForTimeout(900);
 const r=p.locator('[data-testid="row-cycle"]');
-if(await r.count()){await r.first().click();await p.waitForTimeout(1200);}
+if(await r.count()){await r.first().scrollIntoViewIfNeeded();await r.first().click({force:true});await p.waitForTimeout(1200);}
 console.log('D2 cycle screen:',T(await p.locator('[data-testid="screen-cycle"]').first().innerText()).slice(0,120));await b.close();}
 // D4 export keys
 {const {b,p,errs}=await open(DEMO+'#/profile/settings');await p.waitForTimeout(1400);

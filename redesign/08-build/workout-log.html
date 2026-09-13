@@ -308,8 +308,17 @@
     return true;
   }
 
+  /* A new session starts at zero. The live-session record carries the clock
+     once it exists, so starting a day while one is running left the header
+     reading twenty-one minutes into a workout with no sets in it. */
+  function beginFresh() {
+    if (window.LKSession && LKSession.end) LKSession.end();
+    S.elapsed = 0;
+    touchIdle();
+  }
+
   function startRequested() {
-    if (repeatRequested()) return true;
+    if (repeatRequested()) { beginFresh(); return true; }
     var key = null;
     try { key = localStorage.getItem('lk_startDay'); } catch (e) {}
     if (!key) return false;
@@ -317,6 +326,7 @@
     var d = splitDayFor(key);
     if (!d) return false;
     applyState('mid-session');
+    beginFresh();
     S.name = d.split + ' - ' + d.day;
     S.elapsed = 0;
     S.over = false;
@@ -418,6 +428,15 @@
 
   var STEPS = { kg: [-5, -2.5, 2.5, 5], lb: [-10, -5, 5, 10] };
   var PLATES = { kg: [1.25, 2.5, 5, 10, 15, 20, 25], lb: [2.5, 5, 10, 25, 35, 45] };
+  /* BARS COME IN REAL SIZES, not in converted ones. The three kg bars were
+     converted for display, so a reader in pounds was offered 44.1, 33.1 and
+     22 lb and a 45 lb bar with two 45s -- the commonest loading there is --
+     could not be made. Each unit gets the bars that exist in it. */
+  var BARS = {
+    kg: [[20, 'Olympic 20 kg'], [15, "Women's 15 kg"], [10, 'EZ bar 10 kg'], [0, 'No bar']],
+    lb: [[20.4117, 'Olympic 45 lb'], [15.8757, "Women's 35 lb"], [9.0718, 'EZ bar 20 lb'], [0, 'No bar']]
+  };
+  function barOptions() { return S.unit === 'kg' ? BARS.kg : BARS.lb; }
 
   /* Applies a named demo state on top of a fresh session. */
   function applyState(name) {
@@ -1039,10 +1058,19 @@
           '</div>' +
           '<div class="card mt-3"><span class="t-label">Watch form</span>' +
             '<p class="t-detail muted mt-2">No form video found for this exercise.</p></div>' +
+          /* READ FROM THE LAST SESSION, not from the per-row hints on today's
+             card. Built from ex.sets[].prevKg, the panel showed only as many
+             of last session's sets as today happens to have rows, so deleting
+             one of today's sets changed what it said had been done weeks ago. */
           '<div class="card mt-3"><span class="t-label">Last session</span>' +
-            '<p class="t-detail muted mt-2">' + ex.sets.map(function (s) {
-              return s.prevKg === null || s.prevKg === undefined ? '--' : trim(toDisplay(s.prevKg)) + unitLabel() + ' x ' + (s.prevReps || '--');
-            }).join(' · ') + '</p></div>' +
+            '<p class="t-detail muted mt-2">' + (function () {
+              var prev = lastSetsFor(ex.id);
+              if (!prev || !prev.length) return 'No earlier session with this lift.';
+              return prev.map(function (st) {
+                return trim(toDisplay(st.kg)) + unitLabel() + ' x ' + (st.reps || '--') +
+                  (st.warm ? ' (warm-up)' : '');
+              }).join(' \u00b7 ');
+            })() + '</p></div>' +
         '</div>' +
         '<div class="sheet__foot"><button class="btn btn--block btn--secondary" type="button" data-act="close" data-testid="detail-back">Back</button></div>' +
       '</div>';
@@ -1096,7 +1124,7 @@
         '<div class="sheet__head"><h2 class="t-section">Plate calculator</h2>' +
           '<button class="iconbtn" type="button" data-act="close" data-testid="plates-close" aria-label="Close plate calculator">' + ICO.close + '</button></div>' +
         '<div class="sheet__body">' +
-          '<div class="seg seg--lg" role="tablist" aria-label="Bar">' + [[20, 'Olympic 20kg'], [15, "Women's 15kg"], [10, 'EZ bar 10kg'], [0, 'No bar']].map(function (bopt) {
+          '<div class="seg seg--lg" role="tablist" aria-label="Bar">' + barOptions().map(function (bopt) {
             return '<button class="seg__item" type="button" role="tab" data-act="plate-bar" data-bar="' + bopt[0] + '" data-testid="plate-bar-' + bopt[0] + '" aria-selected="' + (pc.bar === bopt[0] ? 'true' : 'false') + '">' + (bopt[0] ? trim(toDisplay(bopt[0])) + unitLabel() : 'None') + '</button>';
           }).join('') + '</div>' +
           '<div class="seg seg--lg mt-2" role="tablist" aria-label="Readout">' +

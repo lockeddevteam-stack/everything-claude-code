@@ -155,7 +155,7 @@ pr-cat                  presets                 read-stack              reopen  
 save-comp               save-cycle              take                    use-preset
 ```
 
-**train.html** — 33
+**train.html** — 34
 
 ```
 ' +
@@ -164,8 +164,8 @@ cf-choice               cf-min                  cf-note                 cf-num  
 del-split               edit-split              fav-delete              fav-move                fav-rename
 filter                  log-cardio              nc-met                  nc-min                  nc-name
 nc-save                 new-cardio              new-split               open-activities         open-favs
-open-history            open-library            open-split              retry                   start-day
-start-today             undo                    use-cached
+open-history            open-library            open-session            open-split              retry
+start-day               start-today             undo                    use-cached
 ```
 
 **tutorial.html** — 4
@@ -238,12 +238,12 @@ The selectors every test and every audit script addresses.
 | `theme.js` | 0 |
 | `units.js` | 0 |
 
-## Storage keys — 10
+## Storage keys — 11
 
 ```
 lk_coachDataPrefs         lk_cycle                  lk_fuelNumbers            lk_lastSession
 lk_libBrowse              lk_openLift               lk_openSplit              lk_openWorkout
-lk_perfTracking           lk_tutorialSeen
+lk_perfTracking           lk_startDay               lk_tutorialSeen
 ```
 
 ## Per-screen totals
@@ -253,30 +253,30 @@ five columns after them are.
 
 | Screen | Lines | Listeners | Actions | Buttons | Inputs | testids |
 |---|---|---|---|---|---|---|
-| `coach.html` | 2411 | 7 | 59 | 66 | 5 | 120 |
+| `coach.html` | 2432 | 7 | 59 | 66 | 5 | 120 |
 | `cycle.html` | 2220 | 10 | 43 | 48 | 7 | 107 |
-| `exercise-library.html` | 1718 | 7 | 25 | 32 | 6 | 54 |
-| `fuel.html` | 4808 | 5 | 99 | 134 | 27 | 255 |
-| `home.html` | 1284 | 3 | 5 | 25 | 0 | 38 |
-| `onboarding.html` | 1384 | 10 | 0 | 34 | 5 | 69 |
+| `exercise-library.html` | 1799 | 7 | 25 | 32 | 6 | 54 |
+| `fuel.html` | 4955 | 5 | 99 | 134 | 27 | 255 |
+| `home.html` | 1322 | 4 | 5 | 25 | 0 | 38 |
+| `onboarding.html` | 1396 | 10 | 0 | 34 | 5 | 69 |
 | `profile.html` | 567 | 4 | 4 | 12 | 0 | 25 |
-| `progress.html` | 1759 | 8 | 25 | 37 | 14 | 86 |
-| `recap.html` | 691 | 4 | 13 | 15 | 0 | 25 |
-| `review.html` | 1300 | 6 | 0 | 24 | 1 | 52 |
-| `settings.html` | 1787 | 6 | 20 | 29 | 5 | 43 |
-| `shopping.html` | 2169 | 7 | 46 | 60 | 17 | 127 |
-| `split-builder.html` | 1413 | 12 | 28 | 36 | 4 | 70 |
+| `progress.html` | 1800 | 9 | 25 | 37 | 14 | 86 |
+| `recap.html` | 747 | 5 | 13 | 15 | 0 | 25 |
+| `review.html` | 1320 | 7 | 0 | 24 | 1 | 52 |
+| `settings.html` | 1797 | 7 | 20 | 29 | 5 | 43 |
+| `shopping.html` | 2179 | 8 | 46 | 60 | 17 | 127 |
+| `split-builder.html` | 1437 | 13 | 28 | 36 | 4 | 70 |
 | `stack.html` | 962 | 7 | 24 | 30 | 3 | 42 |
-| `train.html` | 2162 | 6 | 33 | 44 | 7 | 98 |
+| `train.html` | 2226 | 8 | 34 | 44 | 7 | 98 |
 | `tutorial.html` | 286 | 3 | 4 | 7 | 0 | 12 |
-| `workout-detail.html` | 907 | 5 | 17 | 18 | 3 | 43 |
-| `workout-log.html` | 2425 | 12 | 52 | 68 | 8 | 129 |
+| `workout-detail.html` | 939 | 6 | 17 | 18 | 3 | 43 |
+| `workout-log.html` | 2541 | 13 | 52 | 68 | 8 | 129 |
 | `app.js` | 708 | 0 | 0 | 0 | 1 | 1 |
 | `bodymap.js` | 443 | 4 | 0 | 1 | 0 | 0 |
 | `chrome.js` | 585 | 10 | 0 | 1 | 0 | 1 |
-| `fixtures.js` | 5189 | 0 | 0 | 0 | 0 | 0 |
+| `fixtures.js` | 5233 | 0 | 0 | 0 | 0 | 0 |
 | `session.js` | 243 | 3 | 2 | 3 | 0 | 3 |
 | `store.js` | 239 | 1 | 0 | 0 | 0 | 0 |
 | `theme.js` | 67 | 1 | 0 | 0 | 0 | 0 |
 | `units.js` | 117 | 1 | 0 | 0 | 0 | 0 |
-| **total** | **37844** | **142** | **499** | **724** | **113** | **1400** |
+| **total** | **38560** | **153** | **500** | **724** | **113** | **1400** |
