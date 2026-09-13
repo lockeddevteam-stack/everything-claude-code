@@ -15,6 +15,14 @@
    makes the demo open populated AND makes a logged meal survive a reload
    without the two fighting.
 
+   THERE IS NO ROOT COMPONENT, AND THAT IS THE DESIGN. v6 held global state
+   in an App root and pushed it down; here every screen reads and writes this
+   store directly and re-reads on lk:enter. So there is no global state to
+   hold and nothing to keep in step: a root would be a second place that
+   knows what a screen shows, which is the failure this build keeps finding
+   under other names -- a hand-typed PB table, a private seed copy, a cached
+   sentence. One key, one reader, no intermediary. (F-ROOT-001, cut.)
+
    ONE KEY PER THING. The keys are the shipped app's own -- lk_history,
    lk_prs, lk_shoppingList, lk_coachLastMsgs -- so a screen reading a key here
    is reading the same key the real app reads.
