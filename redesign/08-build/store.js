@@ -105,6 +105,8 @@
       case 'lk_cardioFavorites': return F.cardioFavorites;
       case 'lk_cycles':        return F.cycles;
       case 'lk_suppLog':       return F.suppLog;
+      case 'lk_feedback':      return F.feedback;
+      case 'lk_coachPlan':     return F.coachPlan;
       default:                  return undefined;
     }
   }

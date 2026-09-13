@@ -303,10 +303,50 @@
      the stored value wins -- that is the whole point of the store, and it is
      what makes a sent message still be there tomorrow. */
   var SEED_MEMORY = [{ text: 'Left knee gets tight on high-bar squats', src: 'added by you, Aug 25' }];
-  var SEED_CHECKINS = [
-    { when: 'Yesterday', v: { energy: 4, sleep: 4, soreness: 2, stress: 2, motivation: 4 } },
-    { when: 'Sun 6 Sep', v: { energy: 3, sleep: 3, soreness: 4, stress: 3, motivation: 3 } }
-  ];
+  /* lk_feedback, in the shape lk_feedback actually has. This screen carried
+     its own two-row history with a `motivation` field the key does not
+     carry -- the key carries `mood` -- so the rows on screen matched nothing
+     in the seed's six real entries, and injecting one of those entries threw
+     on `e.v.energy` and left the pane blank.
+
+     Normalised on the way in, written back in the same shape on the way out,
+     so a check-in saved here is one the rest of the app can read. */
+  var CHECKIN_FIELDS = ['energy', 'sleep', 'soreness', 'stress', 'mood'];
+  function normCheckin(e) {
+    if (!e) return null;
+    /* The old in-house shape, so nobody's saved answers are lost on upgrade. */
+    var v = e.v || e;
+    var iso = e.date ? String(e.date).slice(0, 10)
+            : e.dateStr ? isoFromUS(e.dateStr) : null;
+    return {
+      id: e.id || ('fb' + (iso || '') + Math.random().toString(36).slice(2, 7)),
+      date: e.date || (iso ? iso + 'T07:30:00.000Z' : null),
+      iso: iso,
+      energy: num(v.energy), sleep: num(v.sleep), soreness: num(v.soreness),
+      stress: num(v.stress),
+      /* motivation was this screen's own word for it. */
+      mood: num(v.mood !== undefined ? v.mood : v.motivation),
+      hoursSlept: e.hoursSlept, tags: e.tags || [], note: e.note || ''
+    };
+  }
+  function num(x) { var n2 = Number(x); return isNaN(n2) ? null : n2; }
+  function isoFromUS(d) {
+    var p = String(d).split('/');
+    if (p.length !== 3) return null;
+    return p[2] + '-' + ('0' + p[0]).slice(-2) + '-' + ('0' + p[1]).slice(-2);
+  }
+  function checkinLabel(e) {
+    if (!e.iso) return 'Undated';
+    var t = TODAY.getFullYear() + '-' + ('0' + (TODAY.getMonth() + 1)).slice(-2) +
+            '-' + ('0' + TODAY.getDate()).slice(-2);
+    if (e.iso === t) return 'Today';
+    var y = new Date(TODAY.getTime() - 86400000);
+    var yi = y.getFullYear() + '-' + ('0' + (y.getMonth() + 1)).slice(-2) +
+             '-' + ('0' + y.getDate()).slice(-2);
+    if (e.iso === yi) return 'Yesterday';
+    return dayLabel(e.iso);
+  }
+  var SEED_CHECKINS = ((window.LKFixtures && LKFixtures.feedback) || []).map(normCheckin);
   var SEED_INSTRUCTIONS = 'Keep replies under 80 words. Reference my actual numbers.';
 
   function reset(fresh) {
@@ -320,10 +360,12 @@
     if (!Array.isArray(msgs)) msgs = SEED_MSGS.slice();
     var log = rd('lk_feedback', null);
     if (!Array.isArray(log)) log = clone(SEED_CHECKINS);
+    log = log.map(normCheckin).filter(Boolean)
+      .sort(function (a, b) { return (b.iso || '') < (a.iso || '') ? -1 : 1; });
     var mem = rd('lk_coachMemory', null);
     if (!Array.isArray(mem)) mem = clone(SEED_MEMORY);
-    var plan = rd('lk_coachPlan', null);
-    if (!plan || !plan.phases) plan = clone(SEED_PLAN);
+    var plan = normPlan(rd('lk_coachPlan', null));
+    if (!plan) plan = clone(SEED_PLAN);
 
     S = {
       view: 'chat',
@@ -331,7 +373,8 @@
       name: rd('lk_coachName', null) ||
             ((window.LKFixtures && LKFixtures.profile && LKFixtures.profile.coachName) || 'Coach'),
       chat: { status: msgs.length ? 'ready' : 'empty', msgs: msgs, draft: '',
-              offer: null, offerSaved: false, trimmed: false, editAt: null, pinned: true },
+              offer: null, offerSaved: rd('lk_coachOfferSaved', false) === true,
+              trimmed: false, editAt: null, pinned: true },
       plan: { status: 'ready', data: plan },
       setup: {
         status: 'ready',
@@ -342,7 +385,13 @@
         perms: fresh ? defaultPerms() : storedPerms(),
         dirty: false
       },
-      interview: { open: false, step: 0, phase: 'ask', answers: [null, null, null, null, null, null], draft: '', error: null, writeStep: 0 },
+      /* Answers are STORED. Four surfaces promised it -- "3 of 6 answers
+         kept", "Nothing was lost", "Resume at question 4", "Your six answers
+         are already saved" -- and nothing was written, so a reload dropped
+         every one and the card offered to start the interview again. */
+      interview: { open: false, step: 0, phase: 'ask',
+                   answers: readAnswers(rd('lk_coachInterview', null)),
+                   draft: '', error: null, writeStep: 0 },
       /* The daily check-in. The draft is what today's answers go into until
          it is saved; `log` is every day already answered. */
       checkin: { draft: {}, saved: false, log: log },
@@ -352,8 +401,11 @@
     };
     /* Today's reading, if one was already saved, comes back into the form so
        the pane opens on what was answered rather than blank. */
-    if (S.checkin.log.length && S.checkin.log[0].when === 'Today') {
-      S.checkin.draft = clone(S.checkin.log[0].v);
+    var todayIso = isoToday();
+    if (S.checkin.log.length && S.checkin.log[0].iso === todayIso) {
+      var t0 = S.checkin.log[0];
+      S.checkin.draft = {};
+      FEEL.forEach(function (f) { S.checkin.draft[f[0]] = t0[f[0]]; });
       S.checkin.saved = true;
     }
   }
@@ -378,12 +430,33 @@
   var MSG_CAP = 40;
   function store() { return window.LKStore; }
 
+  /* Six slots, always. Anything shorter or longer than the question list is
+     not this interview's answers. */
+  function readAnswers(v) {
+    var out = [null, null, null, null, null, null];
+    if (!v || !Array.isArray(v.answers)) return out;
+    for (var i = 0; i < out.length; i++) {
+      if (typeof v.answers[i] === 'string' && v.answers[i]) out[i] = v.answers[i];
+    }
+    return out;
+  }
+  function persistInterview() {
+    if (!store()) return;
+    var any = S.interview.answers.some(function (a) { return a; });
+    if (!any) { store().remove('lk_coachInterview'); return; }
+    store().set('lk_coachInterview', { answers: S.interview.answers, at: new Date().toISOString() });
+  }
+
   function persistChat() {
     if (!store()) return;
     var msgs = S.chat.msgs;
     S.chat.trimmed = msgs.length > MSG_CAP;
     if (S.chat.trimmed) msgs = msgs.slice(msgs.length - MSG_CAP);
     store().set('lk_coachLastMsgs', msgs);
+    /* Whether the plan on offer has already been saved. The flag lived only
+       in memory, so after a reload the same reply offered "Save this plan"
+       again while the Plan tab already held it. */
+    store().set('lk_coachOfferSaved', !!S.chat.offerSaved);
   }
   function persistSetup() {
     if (!store()) return;
@@ -397,8 +470,30 @@
   function persistPlan() {
     if (store()) store().set('lk_coachPlan', S.plan.data);
   }
+  /* Written in the key's own shape, with a date on it. The stored entry was
+     `{when:'Today', v:{...}}` with no date at all, so on any later day the
+     pane reopened saying "Saved for today" with yesterday's answers and the
+     next save overwrote that day instead of adding one. */
   function persistCheckins() {
-    if (store()) store().set('lk_feedback', S.checkin.log);
+    if (!store()) return;
+    store().set('lk_feedback', S.checkin.log.map(function (e) {
+      return {
+        id: e.id, date: e.date, dateStr: usFromIso(e.iso),
+        mood: e.mood, energy: e.energy, stress: e.stress,
+        sleep: e.sleep, soreness: e.soreness,
+        hoursSlept: e.hoursSlept === undefined ? null : e.hoursSlept,
+        tags: e.tags || [], note: e.note || '', anchored: 'usual'
+      };
+    }));
+  }
+  function isoToday() {
+    return TODAY.getFullYear() + '-' + ('0' + (TODAY.getMonth() + 1)).slice(-2) +
+           '-' + ('0' + TODAY.getDate()).slice(-2);
+  }
+  function usFromIso(iso) {
+    if (!iso) return null;
+    var p = String(iso).split('-');
+    return Number(p[1]) + '/' + Number(p[2]) + '/' + p[0];
   }
 
   var timers = [];
@@ -408,7 +503,43 @@
   /* ---------------------------------------------------------------
      Plan arithmetic. Real numbers, computed, never a constant.
      --------------------------------------------------------------- */
-  function parseDate(s) { var p = s.split('-'); return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])); }
+  /* lk_coachPlan's own shape uses startDate, has no weeks or boundSplit, and
+     carries targets as strings like "70 kg". Reading `plan.start` off it threw
+     inside parseDate and left the Plan tab blank on the app's own data. */
+  function normPlan(p) {
+    if (!p || !p.phases || !p.phases.length) return null;
+    var weeks = p.weeks;
+    if (!weeks) {
+      weeks = 0;
+      p.phases.forEach(function (ph) { if (ph.weekEnd > weeks) weeks = ph.weekEnd; });
+    }
+    return {
+      name: p.name, description: p.description,
+      start: p.start || p.startDate || null,
+      weeks: weeks || 12,
+      boundSplit: p.boundSplit === undefined ? null : p.boundSplit,
+      nextDay: p.nextDay || null,
+      phases: p.phases.map(function (ph) {
+        return {
+          name: ph.name, weekStart: ph.weekStart, weekEnd: ph.weekEnd, focus: ph.focus,
+          note: ph.note || '',
+          targets: (ph.targets || []).map(function (t) {
+            /* "70 kg" and 70 are the same target. */
+            var v = typeof t.value === 'number' ? t.value : parseFloat(t.value);
+            return { name: t.name, value: isNaN(v) ? null : v };
+          })
+        };
+      }),
+      created: p.created, updatedAt: p.updatedAt
+    };
+  }
+
+  function parseDate(s) {
+    if (!s) return TODAY;
+    var p = String(s).split('-');
+    if (p.length !== 3) return TODAY;
+    return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  }
   function dayLabel(s) { var d = parseDate(s); return MONTHS[d.getMonth()] + ' ' + d.getDate(); }
   function todayLabel() { return MONTHS[TODAY.getMonth()] + ' ' + TODAY.getDate(); }
   function weekOf(plan) {
@@ -453,21 +584,58 @@
      not offered -- a suggestion about a stalled bench is only useful to
      somebody whose bench has stalled.
      --------------------------------------------------------------- */
+  /* What the coach can see, which is what the PERMISSIONS say it can see.
+     This listed sessions, weeks, record lifts and check-ins off the fixture
+     regardless: with all nine sources switched off, the receipt two inches
+     below it read "Coach can see 0 of 9 sources" while this line still
+     claimed eighteen sessions. Each item is now gated on the switch that
+     governs it, and with everything off the line says so. */
+  /* "db shoulder press" is not how anybody writes it. The opener lowercased
+     the whole stored name, which turns DB into db and RDL into rdl. */
+  function titleCase(name) {
+    return String(name).split(' ').map(function (w) {
+      if (w.length <= 3 && w === w.toUpperCase()) return w;    /* DB, EZ, RDL */
+      return w.charAt(0) + w.slice(1).toLowerCase();
+    }).join(' ');
+  }
+
   function introLine() {
     var F = window.LKFixtures;
+    var perms = (S.setup && S.setup.perms) || {};
     var bits = [];
-    if (F && F.totals) {
+    /* `training` and `checkins` are the switches this list actually has.
+       I first gated on `history` and `records`, which are not permission
+       names here, so every gate passed and the line still claimed eighteen
+       sessions with everything switched off. The training switch's own
+       description covers the records: "sets, loads and RIR, and your best set
+       for each lift". */
+    if (F && F.totals && perms.training) {
       var lifts = (F.history || []).filter(function (h) { return h.kind === 'lift'; });
       bits.push(n(lifts.length) + (lifts.length === 1 ? ' session' : ' sessions'));
       if (lifts.length) {
+        /* Whole weeks BETWEEN the first and the last, not a rounded span plus
+           one. 2026-07-30 to 2026-09-07 is 39 days, which is five and a half
+           weeks; the old sum rounded 39/7 to 6 and added one, and printed
+           "over 7 weeks" for a log that does not span seven. */
         var first = lifts[lifts.length - 1].date, last = lifts[0].date;
-        var wks = Math.max(1, Math.round((Date.parse(last) - Date.parse(first)) / 604800000) + 1);
+        var days = Math.round((Date.parse(last) - Date.parse(first)) / 86400000) + 1;
+        var wks = Math.max(1, Math.floor(days / 7));
         bits.push('over ' + n(wks) + (wks === 1 ? ' week' : ' weeks'));
       }
-      if (F.totals.recordLifts) bits.push(n(F.totals.recordLifts) + ' lifts with records');
+      if (F.totals.recordLifts) {
+        bits.push(n(F.totals.recordLifts) + ' lifts with records');
+      }
     }
-    if (S.checkin.log.length) bits.push(n(S.checkin.log.length) + ' check-ins');
-    if (!bits.length) return 'Nothing is logged yet. Ask me anything, or log a session and ask again.';
+    if (S.checkin.log.length && perms.checkins) {
+      bits.push(n(S.checkin.log.length) + ' check-ins');
+    }
+    if (!bits.length) {
+      var anyOn = Object.keys(perms).some(function (k) { return perms[k]; });
+      return anyOn
+        ? 'Nothing is logged yet. Ask me anything, or log a session and ask again.'
+        : 'Every source is switched off in Setup, so I can see nothing of yours. ' +
+          'Ask me anything general, or turn something on.';
+    }
     return 'I can see ' + bits.join(', ').replace(/, ([^,]*)$/, ' and $1') +
       '. Ask about any of it, or ask for a block and I will write one you can save.';
   }
@@ -479,11 +647,27 @@
     var F = window.LKFixtures;
     var dropped = (window.LKStore && LKStore.get('lk_coachOpenersOff', [])) || [];
 
-    if (F && F.prs && F.prs.length) {
-      /* The lift whose record is oldest is the one that has not moved. */
-      var stale = F.prs.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; })[0];
-      if (stale) out.push('Why has my ' + stale.name.toLowerCase() + ' stalled at ' +
-        LKUnits.fmt(stale.kg) + '?');
+    /* "Stalled" is a claim about time, so it needs a threshold rather than
+       a sort. The oldest record was offered unconditionally: with every PR in
+       the seed falling inside six days, the screen asked why a six-day-old
+       record had stalled, and which lift got accused was decided by the
+       comparator returning 1 on a tie. Three weeks without a record on a lift
+       you are still training is a fair thing to ask about; six days is not. */
+    if (F && F.prs && F.prs.length && S.setup.perms.training) {
+      var STALE_DAYS = 21;
+      var oldest = null;
+      F.prs.forEach(function (r) {
+        if (!r.date) return;
+        if (!oldest || r.date < oldest.date ||
+            (r.date === oldest.date && r.name < oldest.name)) oldest = r;
+      });
+      if (oldest) {
+        var age = Math.round((TODAY - Date.parse(oldest.date)) / 86400000);
+        if (age >= STALE_DAYS) {
+          out.push('Why has my ' + titleCase(oldest.name) + ' stalled at ' +
+            LKUnits.fmt(oldest.kg) + '?');
+        }
+      }
     }
     out.push('Write me the next 8-week block.');
     if (S.setup.memory.length) {
@@ -491,7 +675,7 @@
          about; it is the one thing here it already knows. */
       out.push(S.setup.memory[0].text.replace(/\.$/, '') + '. What now?');
     }
-    if (S.checkin.log.length && S.checkin.log[0].v.sleep <= 2) {
+    if (S.checkin.log.length && S.checkin.log[0].sleep <= 2) {
       out.push('I have slept badly. Should I still train today?');
     }
     return out.filter(function (t) { return dropped.indexOf(t) < 0; }).slice(0, 6);
@@ -1274,7 +1458,9 @@
     ['sleep', 'Sleep', 'Broken', 'Solid'],
     ['soreness', 'Soreness', 'None', 'Heavy'],
     ['stress', 'Stress', 'Low', 'High'],
-    ['motivation', 'Motivation', 'Low', 'High']
+    /* `mood` is the key's own name for it. The screen called it motivation
+       and wrote a field lk_feedback does not carry. */
+    ['mood', 'Motivation', 'Low', 'High']
   ];
 
   function checkinBody() {
@@ -1306,9 +1492,9 @@
           '<div class="card card--flush">' + S.checkin.log.slice(0, 5).map(function (e, i) {
             return '<div class="row row--static" data-testid="checkin-' + i + '">' +
               '<span class="row__main stack">' +
-                '<span class="row__title">' + esc(e.when) + '</span>' +
+                '<span class="row__title">' + esc(checkinLabel(e)) + '</span>' +
                 '<span class="row__sub">' + FEEL.map(function (f) {
-                  return f[1] + ' ' + e.v[f[0]];
+                  return f[1] + ' ' + (e[f[0]] === null || e[f[0]] === undefined ? '\u2014' : e[f[0]]);
                 }).join(' &middot; ') + '</span>' +
               '</span></div>';
           }).join('') + '</div>' +
@@ -1525,12 +1711,18 @@
           : missing.length + ' still to answer: ' + missing.map(function (f) { return f[1].toLowerCase(); }).join(', ') + '.');
         return;
       }
-      var v = {};
-      FEEL.forEach(function (f) { v[f[0]] = S.checkin.draft[f[0]]; });
-      /* One reading a day. Saving again replaces today's rather than
-         stacking two entries on one date. */
-      if (S.checkin.log.length && S.checkin.log[0].when === 'Today') S.checkin.log[0].v = v;
-      else S.checkin.log.unshift({ when: 'Today', v: v });
+      var iso = isoToday();
+      var entry = { id: 'fb' + Date.now(), date: iso + 'T07:30:00.000Z', iso: iso,
+                    hoursSlept: null, tags: [], note: '' };
+      FEEL.forEach(function (f) { entry[f[0]] = S.checkin.draft[f[0]]; });
+      /* One reading a day, matched on the DATE. It matched on the label
+         "Today", which no stored entry carried once the page had been
+         reloaded, so a save on any later day overwrote the newest row
+         whatever day that row belonged to. */
+      var at = -1;
+      S.checkin.log.forEach(function (e, i) { if (e.iso === iso) at = i; });
+      if (at >= 0) { entry.id = S.checkin.log[at].id; S.checkin.log[at] = entry; }
+      else S.checkin.log.unshift(entry);
       S.checkin.saved = true;
       persistCheckins();
       render();
@@ -1761,10 +1953,15 @@
       S.plan.data.boundSplit = sp.id;
       S.plan.data.nextDay = sp.days[0];
       S.modal = null;
+      /* Written. The screen changed to "Runs on PPL" and the stored plan kept
+         boundSplit null, so a reload put the pane back to "Before it can
+         run". */
+      persistPlan();
       render();
       toast(S.plan.data.name + ' runs on ' + sp.name + '. ' + sp.days[0] + ' is next.', 'Open in Train', function () {
-        toast('Opening ' + sp.name + ' in Train.');
-        render();
+        /* A real navigation. It toasted "Opening ... in Train" and stayed
+           here, which is the only kind of lie a toast can tell. */
+        location.href = 'train.html';
       });
     },
     'delete': function () { S.modal = 'delete'; render(); },
@@ -1772,11 +1969,15 @@
       var kept = clone(S.plan.data);
       S.plan.status = 'empty';
       S.modal = null;
+      /* Removed, not just hidden. The pane emptied, lk_coachPlan held the
+         whole plan verbatim, and the plan was back after a reload. */
+      if (store()) store().remove('lk_coachPlan');
       render();
       toast('Plan deleted.', 'Undo', function () {
         S.plan.status = 'ready';
         S.plan.data = kept;
         S.toast = null;
+        persistPlan();
         render();
       });
     },
@@ -1784,7 +1985,14 @@
     'toast': function () {
       var fn = S.toast && S.toast.fn;
       S.toast = null;
-      if (fn) fn(); else render();
+      /* Always repaints. The undo callbacks restored the state and left the
+         screen alone, so after Undo on a cleared chat the thread was still
+         empty, the empty-state intro was still up and the toast was still
+         there -- until the once-a-second shelf tick happened to repaint. A
+         callback that navigates never returns, so a second render costs
+         nothing. */
+      if (fn) fn();
+      render();
     },
 
     /* --- setup ---------------------------------------------------- */
@@ -1831,8 +2039,13 @@
     },
     'memory-on': function () {
       S.setup.memoryOn = !S.setup.memoryOn;
-      S.setup.dirty = true;
-      persistSetup();
+      /* Its own key only. This called persistSetup(), which writes
+         instructions, tone, memory and permissions wholesale -- so flipping
+         this switch silently committed an unsaved tone change while the
+         actionbar still read "Unsaved changes". A switch saves itself,
+         because it has no Save button of its own; it does not save the things
+         that do. */
+      if (store()) store().set('lk_coachMemoryOn', S.setup.memoryOn);
       render();
     },
     'add-memory': function () {
@@ -1917,6 +2130,7 @@
     },
     'iv-answer': function (el) {
       S.interview.answers[S.interview.step] = el.dataset.val;
+      persistInterview();
       render();
     },
     'iv-next': function () {
@@ -1965,11 +2179,15 @@
       toast('Instructions saved from your answers.');
     },
     'iv-edit-first': function () {
-      /* Saves first. The old build dropped the draft on this path. */
+      /* Saves first, which the comment claimed and the code did not do: this
+         path set the state and skipped persistSetup, so the toast said
+         "Saved" and the instructions were the seed's again after a reload.
+         Its sibling iv-use has always written. */
       S.setup.instructions = S.interview.draft || DRAFT_INSTRUCTIONS;
       S.setup.status = 'ready';
       S.setup.dirty = false;
       S.interview.open = false;
+      persistSetup();
       render();
       var t = phone.querySelector('[data-testid="setup-instructions"]');
       if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
@@ -2011,15 +2229,30 @@
         el.value = el.value.slice(0, INSTR_MAX);
         try { el.setSelectionRange(Math.min(at, INSTR_MAX), Math.min(at, INSTR_MAX)); } catch (e) {}
       }
+      var wasDirty = S.setup.dirty;
       S.setup.instructions = el.value;
       S.setup.dirty = true;
       var count = phone.querySelector('[data-testid="setup-instructions-block"] .t-meta');
       if (count) count.textContent = S.setup.instructions.length + ' / ' + INSTR_MAX;
+      /* The actionbar has to catch up on the FIRST keystroke. It updated the
+         state and the counter and left the bar reading "Saved just now" with
+         Save still disabled, until an unrelated once-a-second interval
+         happened to repaint -- so for up to a second the screen said the
+         opposite of the truth and the way to keep the change was greyed out.
+         Repainting on every keystroke would take the caret with it, so it
+         repaints once, on the edge. */
+      if (!wasDirty) {
+        var at2 = el.selectionStart;
+        render();
+        var back = phone.querySelector('[data-testid="setup-instructions"]');
+        if (back) { back.focus(); try { back.setSelectionRange(at2, at2); } catch (e) {} }
+      }
       return;
     }
     if (el.getAttribute('data-act') === 'iv-free') {
       S.interview.draft = el.value;
       S.interview.answers[S.interview.step] = el.value.trim() || null;
+      persistInterview();
       var next = phone.querySelector('[data-testid="iv-next"]');
       if (next) next.disabled = !el.value.trim();
     }

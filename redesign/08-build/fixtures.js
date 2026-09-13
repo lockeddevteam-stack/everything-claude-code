@@ -4970,6 +4970,147 @@
                 "Creatine"
           ]
     },
+    feedback: [
+          {
+                "id": "fb1788852600000",
+                "date": "2026-09-08T07:30:00.000Z",
+                "dateStr": "9/8/2026",
+                "mood": 3,
+                "energy": 3,
+                "stress": 2,
+                "sleep": 4,
+                "soreness": 3,
+                "hoursSlept": 7,
+                "tags": [
+                      "legs sore"
+                ],
+                "note": "",
+                "anchored": "usual"
+          },
+          {
+                "id": "fb1788766200000",
+                "date": "2026-09-07T07:30:00.000Z",
+                "dateStr": "9/7/2026",
+                "mood": 4,
+                "energy": 3,
+                "stress": 2,
+                "sleep": 3,
+                "soreness": 2,
+                "hoursSlept": 7.5,
+                "tags": [],
+                "note": "",
+                "anchored": "usual"
+          },
+          {
+                "id": "fb1788679800000",
+                "date": "2026-09-06T07:30:00.000Z",
+                "dateStr": "9/6/2026",
+                "mood": 3,
+                "energy": 3,
+                "stress": 2,
+                "sleep": 3,
+                "soreness": 2,
+                "hoursSlept": 8,
+                "tags": [],
+                "note": "",
+                "anchored": "usual"
+          },
+          {
+                "id": "fb1788507000000",
+                "date": "2026-09-04T07:30:00.000Z",
+                "dateStr": "9/4/2026",
+                "mood": 4,
+                "energy": 3,
+                "stress": 2,
+                "sleep": 3,
+                "soreness": 2,
+                "hoursSlept": 7,
+                "tags": [],
+                "note": "",
+                "anchored": "usual"
+          },
+          {
+                "id": "fb1788334200000",
+                "date": "2026-09-02T07:30:00.000Z",
+                "dateStr": "9/2/2026",
+                "mood": 3,
+                "energy": 3,
+                "stress": 2,
+                "sleep": 3,
+                "soreness": 2,
+                "hoursSlept": 7.5,
+                "tags": [],
+                "note": "",
+                "anchored": "usual"
+          },
+          {
+                "id": "fb1788161400000",
+                "date": "2026-08-31T07:30:00.000Z",
+                "dateStr": "8/31/2026",
+                "mood": 4,
+                "energy": 3,
+                "stress": 2,
+                "sleep": 3,
+                "soreness": 2,
+                "hoursSlept": 8,
+                "tags": [],
+                "note": "",
+                "anchored": "usual"
+          }
+    ],
+    coachPlan: {
+          "name": "12-week strength block",
+          "description": "Linear progression on PPL, deload week 7.",
+          "startDate": "2026-08-04",
+          "phases": [
+                {
+                      "name": "Base",
+                      "weekStart": 1,
+                      "weekEnd": 4,
+                      "focus": "volume",
+                      "targets": [
+                            {
+                                  "name": "Bench 5RM",
+                                  "value": "70 kg"
+                            },
+                            {
+                                  "name": "Squat 5RM",
+                                  "value": "85 kg"
+                            }
+                      ]
+                },
+                {
+                      "name": "Build",
+                      "weekStart": 5,
+                      "weekEnd": 8,
+                      "focus": "intensity",
+                      "targets": [
+                            {
+                                  "name": "Bench 5RM",
+                                  "value": "75 kg"
+                            },
+                            {
+                                  "name": "Deadlift 4RM",
+                                  "value": "120 kg"
+                            }
+                      ]
+                },
+                {
+                      "name": "Peak",
+                      "weekStart": 9,
+                      "weekEnd": 12,
+                      "focus": "strength",
+                      "targets": [
+                            {
+                                  "name": "Squat 1RM",
+                                  "value": "100 kg"
+                            }
+                      ]
+                }
+          ],
+          "created": "2026-08-04T09:00:00.000Z",
+          "updatedAt": "2026-08-04T09:00:00.000Z"
+    },
 
     /* Every session on a date, newest first. */
     on: function (iso) {

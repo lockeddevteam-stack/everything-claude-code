@@ -234,6 +234,12 @@ const goals = JSON.parse(seed.lk_goals);
 const budget = JSON.parse(seed.lk_budgetData);
 const stores = JSON.parse(seed.lk_myStores);
 const bfLog = JSON.parse(seed.lk_bfLog);
+/* The morning check-ins and the coach's plan. Both keys exist in the seed and
+   neither reached the build: Coach invented its own two-row check-in history
+   with a `motivation` field the key does not carry, and its own plan shape, so
+   the seed's own values crashed both panes. */
+const feedback = JSON.parse(seed.lk_feedback);
+const coachPlan = JSON.parse(seed.lk_coachPlan);
 /* The stored thumbs are 1x1 placeholder JPEGs. The screens draw their own
    tinted tile instead, so only the date and the note travel. */
 const photos = JSON.parse(seed.lk_progressPhotos).map((p) => ({ date: p.date, note: p.note }));
@@ -521,6 +527,8 @@ const body = `/* GENERATED — do not edit.
     cardioFavorites: ${JSON.stringify(cardioFavorites, null, 6).replace(/\n/g, '\n    ')},
     cycles: ${JSON.stringify(cycles, null, 6).replace(/\n/g, '\n    ')},
     suppLog: ${JSON.stringify(suppLog, null, 6).replace(/\n/g, '\n    ')},
+    feedback: ${JSON.stringify(feedback, null, 6).replace(/\n/g, '\n    ')},
+    coachPlan: ${JSON.stringify(coachPlan, null, 6).replace(/\n/g, '\n    ')},
 
     /* Every session on a date, newest first. */
     on: function (iso) {
