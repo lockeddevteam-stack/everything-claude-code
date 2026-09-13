@@ -486,6 +486,44 @@ const RUNTIME = String.raw`
     return rec;
   }
 
+  function failBoundary(rec, err) {
+    try {
+      var label = (rec.label || rec.id || 'This screen');
+      var host = document.createElement('div');
+      host.setAttribute('data-testid', 'screen-error');
+      host.setAttribute('role', 'alert');
+      host.style.cssText = 'padding:24px;display:flex;flex-direction:column;gap:12px;' +
+        'align-items:flex-start;font:15px/1.4 -apple-system,BlinkMacSystemFont,system-ui,sans-serif';
+      var h = document.createElement('p');
+      h.style.cssText = 'font-weight:600;margin:0';
+      h.textContent = label + ' could not start.';
+      var p1 = document.createElement('p');
+      p1.style.cssText = 'margin:0;opacity:.7';
+      p1.textContent = 'Nothing you have saved is affected, and the other screens still work. ' +
+        'The tab bar below will take you to them.';
+      var p2 = document.createElement('p');
+      p2.style.cssText = 'margin:0;opacity:.55;font-size:13px;font-family:ui-monospace,monospace';
+      p2.textContent = String((err && err.message) || err || 'Unknown error');
+      var b2 = document.createElement('button');
+      b2.type = 'button';
+      b2.setAttribute('data-testid', 'screen-error-retry');
+      b2.style.cssText = 'min-height:44px;padding:0 18px;border-radius:10px;border:1px solid currentColor;' +
+        'background:none;color:inherit;font:inherit';
+      b2.textContent = 'Try again';
+      b2.addEventListener('click', function () {
+        rec.booted = false;
+        if (rec.root) rec.root.innerHTML = '';
+        boot(rec);
+      });
+      host.appendChild(h); host.appendChild(p1); host.appendChild(p2); host.appendChild(b2);
+      if (rec.root) { rec.root.innerHTML = ''; rec.root.appendChild(host); }
+    } catch (e2) {
+      /* The boundary itself must never throw, or the failure it is reporting
+         becomes two failures and the page goes blank. */
+      console.error('[demo] error boundary failed', e2);
+    }
+  }
+
   function boot(rec) {
     if (rec.booted || !defs[rec.id]) { rec.booted = true; return; }
     rec.booted = true;
@@ -495,6 +533,14 @@ const RUNTIME = String.raw`
       defs[rec.id](doc, scopedWindow(rec, doc), window.location, scopedFetch(rec.id));
     } catch (err) {
       console.error('[demo] ' + rec.id + ' failed to boot', err);
+      /* SOMETHING ON THE SCREEN. A screen that threw on boot left its root
+         empty, so the page rendered the word "SCREENS" and the error went to
+         a console nobody on a phone can open. A reader cannot tell that from
+         a screen that has genuinely finished loading and has nothing to say.
+
+         The rest of the app keeps working: one screen failing is not a
+         reason to take the other seventeen down with it. */
+      failBoundary(rec, err);
     }
     var after = Object.getOwnPropertyNames(window);
     for (var i = 0; i < after.length; i++) {
@@ -805,7 +851,25 @@ const RUNTIME = String.raw`
       walked();
       render();
     });
-    if (!location.hash) location.replace(location.href.split('#')[0] + '#/' + TABS[0].id);
+    /* FIRST RUN GOES TO ONBOARDING. A cleared phone landed on Home, which is
+       a screen about training somebody has not done, with a split they have
+       not built, under a name the app does not know. lk_onboarded is written
+       when setup finishes; without it, and with nothing else stored either,
+       the first screen is the one that asks.
+
+       Gated on BOTH, so a reader upgrading from a build that predates the
+       marker is not sent back through setup on top of their own data. */
+    if (!location.hash) {
+      var first = TABS[0].id;
+      try {
+        var done = window.localStorage.getItem('lk_onboarded');
+        var used = window.localStorage.getItem('lk_profile') ||
+                   window.localStorage.getItem('lk_splits') ||
+                   window.localStorage.getItem('lk_history');
+        if (!done && !used && screens.onboarding) first = 'onboarding';
+      } catch (e) {}
+      location.replace(location.href.split('#')[0] + '#/' + first);
+    }
     render();
   }
 
@@ -821,6 +885,35 @@ const RUNTIME = String.raw`
   };
 })();
 `;
+
+/* A square mark rather than a letter: an icon is what somebody taps for on a
+   crowded home screen, and a glyph at 48px is a smudge. Inlined as an SVG
+   data URL so the build stays one file with no assets beside it. */
+const APP_ICON = 'data:image/svg+xml,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">' +
+  '<rect width="512" height="512" rx="114" fill="#0b0b0c"/>' +
+  '<rect x="150" y="150" width="212" height="212" rx="46" fill="none" stroke="#f2f2f4" stroke-width="34"/>' +
+  '<rect x="222" y="222" width="68" height="68" rx="18" fill="#f2f2f4"/>' +
+  '</svg>');
+
+function manifest() {
+  return {
+    name: 'LOCKED',
+    short_name: 'LOCKED',
+    description: 'Training, food and recovery, on your phone, on your device.',
+    start_url: './',
+    scope: './',
+    display: 'standalone',
+    orientation: 'portrait',
+    background_color: '#0b0b0c',
+    theme_color: '#0b0b0c',
+    categories: ['health', 'fitness'],
+    icons: [
+      { src: APP_ICON, sizes: '512x512', type: 'image/svg+xml', purpose: 'any' },
+      { src: APP_ICON, sizes: '512x512', type: 'image/svg+xml', purpose: 'maskable' }
+    ]
+  };
+}
 
 function demoCss() {
   return `
@@ -1034,6 +1127,23 @@ function build() {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>LOCKED demo</title>
+<!-- Installable, and it says what it is on the home screen. None of this
+     existed: a web app with no manifest and no apple metas installs as a
+     browser bookmark with a screenshot for an icon and a browser chrome
+     around it, which is a different product from the one being built. The
+     manifest is inlined as a data URL so the whole build stays one file. -->
+<link rel="manifest" href="data:application/manifest+json,${encodeURIComponent(JSON.stringify(manifest()))}">
+<meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f7f7f8" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LOCKED">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="color-scheme" content="dark light">
+<meta name="format-detection" content="telephone=no">
+<meta name="description" content="LOCKED. Training, food and recovery, on your phone, on your device.">
+<link rel="apple-touch-icon" href="${APP_ICON}">
+<link rel="icon" href="${APP_ICON}">
 <!--
   Generated by 10-final/assemble.mjs. Do not hand-edit: run the assembler.
 
