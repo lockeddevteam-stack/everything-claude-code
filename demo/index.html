@@ -11681,6 +11681,28 @@ button.shelf:active { background: var(--fill-press); }
     delete mem[GONE_KEY];
   }
 
+  /* The stamps, under one key of their own. Kept beside the data rather than
+     inside each value, so a key's shape is still exactly what the app stores
+     and a screen reading it sees no bookkeeping. */
+  var STAMP_KEY = 'lk_changedAt';
+  var stampMem = null;
+  function stamps() {
+    if (stampMem) return stampMem;
+    var raw = null;
+    if (canWrite()) { try { raw = g.localStorage.getItem(STAMP_KEY); } catch (e) {} }
+    else raw = mem[STAMP_KEY] === undefined ? null : mem[STAMP_KEY];
+    try { stampMem = raw ? (JSON.parse(raw) || {}) : {}; } catch (e) { stampMem = {}; }
+    return stampMem;
+  }
+  function stamp(key) {
+    if (key === STAMP_KEY || key === GONE_KEY) return;
+    var all = stamps();
+    all[key] = Date.now();
+    var str = JSON.stringify(all);
+    if (canWrite()) { try { g.localStorage.setItem(STAMP_KEY, str); return; } catch (e) {} }
+    mem[STAMP_KEY] = str;
+  }
+
   function fire(key, value) {
     (listeners[key] || []).forEach(function (fn) {
       try { fn(value, key); } catch (e) {}
@@ -11783,8 +11805,27 @@ button.shelf:active { background: var(--fill-press); }
       var str = typeof value === 'string' ? value : JSON.stringify(value);
       unGone(key);
       var ok = rawSet(key, str);
+      stamp(key);
       fire(key, value);
       return ok;
+    },
+
+    /* WHEN EACH KEY LAST CHANGED. Nothing recorded this, so two devices with
+       the same key could never be merged: a sync can tell that both wrote,
+       and not which wrote last. One stamp per key, written on every set and
+       remove, is what makes last-write-wins possible at cutover.
+
+       Returns a map of key to epoch milliseconds. */
+    changedAt: function (key) {
+      var all = stamps();
+      return key === undefined ? all : (all[key] || 0);
+    },
+
+    /* Everything written since a moment, which is what a sync pushes. */
+    changedSince: function (ms) {
+      var all = stamps(), out = {};
+      Object.keys(all).forEach(function (k) { if (all[k] > ms) out[k] = all[k]; });
+      return out;
     },
 
     /* Merge into an object key. Reads the current value, so the caller does
@@ -11808,6 +11849,7 @@ button.shelf:active { background: var(--fill-press); }
       if (canWrite()) { try { g.localStorage.removeItem(key); } catch (e) {} }
       delete mem[key];
       markGone(key);
+      stamp(key);
       fire(key, undefined);
     },
 
@@ -11830,6 +11872,9 @@ button.shelf:active { background: var(--fill-press); }
       /* Erase everything means back to the seed, which is the one case where
          a removed key must NOT be remembered as removed. */
       clearGone();
+      stampMem = {};
+      if (canWrite()) { try { g.localStorage.removeItem(STAMP_KEY); } catch (e) {} }
+      delete mem[STAMP_KEY];
       return keys.length;
     },
 
@@ -11862,6 +11907,7 @@ button.shelf:active { background: var(--fill-press); }
       }
       Object.keys(mem).forEach(function (k) { if (out[k] === undefined) out[k] = mem[k]; });
       delete out[GONE_KEY];
+      delete out[STAMP_KEY];
       if (writtenOnly) return out;
       SEEDED_KEYS.forEach(function (k) {
         if (out[k] !== undefined || isGone(k)) return;
@@ -14628,6 +14674,13 @@ window.__DEMO_CFG__ = {"tabs":[{"id":"home","label":"Home","screen":"home"},{"id
                    window.localStorage.getItem('lk_splits') ||
                    window.localStorage.getItem('lk_history');
         if (!done && !used && screens.onboarding) first = 'onboarding';
+        /* Setup done, the walkthrough not yet seen: show it once. tutorial.html
+           writes lk_tutorialSeen on both finish and skip and nothing read it,
+           so the walkthrough was built, animated, and never shown to anybody
+           who had not gone looking for it in Settings. */
+        else if (done && !window.localStorage.getItem('lk_tutorialSeen') && screens.tutorial) {
+          first = 'tutorial';
+        }
       } catch (e) {}
       location.replace(location.href.split('#')[0] + '#/' + first);
     }
@@ -29675,7 +29728,10 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
     var id = t.dataset.testid;
 
     switch (id) {
-      case 'welcome-create': go('signup'); break;
+      case 'welcome-create':
+        /* Making an account is the end of being a guest. */
+        try { localStorage.removeItem('lk_guestMode'); } catch (err) {}
+        go('signup'); break;
       case 'welcome-signin': go('signin'); break;
       case 'welcome-guest': go('guest'); break;
       case 'welcome-back': location.href = 'home.html'; break;
@@ -29708,6 +29764,10 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
       case 'guest-warning-back': go('welcome'); break;
       case 'guest-warning-create': go('signup'); break;
       case 'guest-warning-continue':
+        /* WRITTEN. Choosing guest never recorded the choice, so Settings and
+           Profile both opened in the signed-in state afterwards -- offering
+           to sign out of an account that was never made. */
+        try { localStorage.setItem('lk_guestMode', '1'); } catch (err) {}
         S.variant = 'busy'; renderGuest();
         window.setTimeout(function () { go('setup'); }, 700);
         break;

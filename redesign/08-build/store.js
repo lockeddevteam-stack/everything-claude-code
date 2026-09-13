@@ -102,6 +102,28 @@
     delete mem[GONE_KEY];
   }
 
+  /* The stamps, under one key of their own. Kept beside the data rather than
+     inside each value, so a key's shape is still exactly what the app stores
+     and a screen reading it sees no bookkeeping. */
+  var STAMP_KEY = 'lk_changedAt';
+  var stampMem = null;
+  function stamps() {
+    if (stampMem) return stampMem;
+    var raw = null;
+    if (canWrite()) { try { raw = g.localStorage.getItem(STAMP_KEY); } catch (e) {} }
+    else raw = mem[STAMP_KEY] === undefined ? null : mem[STAMP_KEY];
+    try { stampMem = raw ? (JSON.parse(raw) || {}) : {}; } catch (e) { stampMem = {}; }
+    return stampMem;
+  }
+  function stamp(key) {
+    if (key === STAMP_KEY || key === GONE_KEY) return;
+    var all = stamps();
+    all[key] = Date.now();
+    var str = JSON.stringify(all);
+    if (canWrite()) { try { g.localStorage.setItem(STAMP_KEY, str); return; } catch (e) {} }
+    mem[STAMP_KEY] = str;
+  }
+
   function fire(key, value) {
     (listeners[key] || []).forEach(function (fn) {
       try { fn(value, key); } catch (e) {}
@@ -204,8 +226,27 @@
       var str = typeof value === 'string' ? value : JSON.stringify(value);
       unGone(key);
       var ok = rawSet(key, str);
+      stamp(key);
       fire(key, value);
       return ok;
+    },
+
+    /* WHEN EACH KEY LAST CHANGED. Nothing recorded this, so two devices with
+       the same key could never be merged: a sync can tell that both wrote,
+       and not which wrote last. One stamp per key, written on every set and
+       remove, is what makes last-write-wins possible at cutover.
+
+       Returns a map of key to epoch milliseconds. */
+    changedAt: function (key) {
+      var all = stamps();
+      return key === undefined ? all : (all[key] || 0);
+    },
+
+    /* Everything written since a moment, which is what a sync pushes. */
+    changedSince: function (ms) {
+      var all = stamps(), out = {};
+      Object.keys(all).forEach(function (k) { if (all[k] > ms) out[k] = all[k]; });
+      return out;
     },
 
     /* Merge into an object key. Reads the current value, so the caller does
@@ -229,6 +270,7 @@
       if (canWrite()) { try { g.localStorage.removeItem(key); } catch (e) {} }
       delete mem[key];
       markGone(key);
+      stamp(key);
       fire(key, undefined);
     },
 
@@ -251,6 +293,9 @@
       /* Erase everything means back to the seed, which is the one case where
          a removed key must NOT be remembered as removed. */
       clearGone();
+      stampMem = {};
+      if (canWrite()) { try { g.localStorage.removeItem(STAMP_KEY); } catch (e) {} }
+      delete mem[STAMP_KEY];
       return keys.length;
     },
 
@@ -283,6 +328,7 @@
       }
       Object.keys(mem).forEach(function (k) { if (out[k] === undefined) out[k] = mem[k]; });
       delete out[GONE_KEY];
+      delete out[STAMP_KEY];
       if (writtenOnly) return out;
       SEEDED_KEYS.forEach(function (k) {
         if (out[k] !== undefined || isGone(k)) return;

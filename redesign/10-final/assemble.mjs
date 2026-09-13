@@ -901,6 +901,13 @@ const RUNTIME = String.raw`
                    window.localStorage.getItem('lk_splits') ||
                    window.localStorage.getItem('lk_history');
         if (!done && !used && screens.onboarding) first = 'onboarding';
+        /* Setup done, the walkthrough not yet seen: show it once. tutorial.html
+           writes lk_tutorialSeen on both finish and skip and nothing read it,
+           so the walkthrough was built, animated, and never shown to anybody
+           who had not gone looking for it in Settings. */
+        else if (done && !window.localStorage.getItem('lk_tutorialSeen') && screens.tutorial) {
+          first = 'tutorial';
+        }
       } catch (e) {}
       location.replace(location.href.split('#')[0] + '#/' + first);
     }
