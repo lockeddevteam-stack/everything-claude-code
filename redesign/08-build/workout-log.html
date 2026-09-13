@@ -1148,17 +1148,46 @@
           return x.name.toLowerCase().indexOf(q) > -1 || (x.muscle || '').toLowerCase().indexOf(q) > -1;
         })
       : LIBRARY;
+    /* A SWAP WANTS THE SAME MUSCLE. Swapping the bench press opened the
+       library at 3/4 Sit-Up and 45-degree Incline Lateral Raise -- an
+       alphabetical list of 866 lifts, when the question being asked is "what
+       else trains this". Anything hitting the same muscle comes first, and
+       with nothing typed only those are offered, with a way to see the rest.
+       A plain Add is unchanged: there the whole library IS the answer. */
+    var swapping = S.swapAt !== null && S.exercises[S.swapAt];
+    var sameOnly = false;
+    if (swapping && !q) {
+      var want = String(S.exercises[S.swapAt].muscle || '').toLowerCase();
+      var same = all.filter(function (x) {
+        return want && String(x.muscle || '').toLowerCase() === want;
+      });
+      if (same.length && !S.addexAll) { all = same; sameOnly = true; }
+    } else if (swapping && q) {
+      var want2 = String(S.exercises[S.swapAt].muscle || '').toLowerCase();
+      all = all.slice().sort(function (a, b) {
+        var sa = String(a.muscle || '').toLowerCase() === want2 ? 0 : 1;
+        var sb = String(b.muscle || '').toLowerCase() === want2 ? 0 : 1;
+        return sa - sb;
+      });
+    }
     /* 866 rows in one sheet is a scroll nobody finishes, and it is the
        search field's job anyway. A page at a time, with the count and a way
        to see more, so the number offered is never hidden. */
     var rows = all.slice(0, S.addexN || ADDEX_PAGE);
+    var sameNote = sameOnly
+      ? '<p class="t-detail muted" data-testid="addex-same">' + n(all.length) +
+        (all.length === 1 ? ' lift' : ' lifts') + ' for ' +
+        esc(S.exercises[S.swapAt].muscle) + ', which is what this one trains. ' +
+        '<button class="btn btn--tertiary btn--sm" type="button" data-act="addex-all" ' +
+        'data-testid="addex-all">Show the whole library</button></p>'
+      : '';
     if (!all.length) {
       return '<div class="empty" data-testid="addex-empty">' +
         '<p class="empty__title">Nothing matches &ldquo;' + esc(S.addexQ.trim()) + '&rdquo;</p>' +
         '<p class="empty__body">Search by the lift or by the muscle it works. ' +
           'The full library has more than this session offers.</p></div>';
     }
-    return '<div class="card card--flush">' + rows.map(function (x) {
+    return sameNote + '<div class="card card--flush' + (sameNote ? ' mt-2' : '') + '">' + rows.map(function (x) {
       var i = LIBRARY.indexOf(x);
       return '<button class="row" type="button" data-act="addex-pick" data-i="' + i + '" data-testid="addex-pick-' + x.id + '">' +
         '<span class="row__main"><span class="row__title">' + esc(x.name) + '</span><span class="row__sub">' + esc(x.muscle) + '</span></span>' +
@@ -1632,7 +1661,10 @@
            "Swap exercise" left the original in place and appended the new
            one beside it: five exercises became six. S.swapAt records which
            one is being replaced, and the picker reads it. */
-        if (key === 'swap') { S.swapAt = S.overlayEx; S.overlay = 'addex'; break; }
+        if (key === 'swap') {
+          S.swapAt = S.overlayEx; S.addexAll = false; S.addexQ = ''; S.addexN = ADDEX_PAGE;
+          S.overlay = 'addex'; break;
+        }
         if (key === 'superset') {
           /* A superset is with the NEXT exercise, so the last one has
              nothing to pair with and the sheet used to say it had. */
@@ -1799,6 +1831,7 @@
         say('Set ' + (ki + 1) + ' is a ' + KIND_WORD[next] + '.');
         break;
       }
+      case 'addex-all': { S.addexAll = true; S.addexN = ADDEX_PAGE; break; }
       case 'delrow-go': {
         var dre = S.overlayEx, dri = Number(t.getAttribute('data-i'));
         var dex = S.exercises[dre];
