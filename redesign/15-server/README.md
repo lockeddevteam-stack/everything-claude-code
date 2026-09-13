@@ -1,19 +1,50 @@
 # The server half
 
-Nothing in this directory is deployed, and the app knows it. `LKCloud.ready()`
-is false until a deploy sets `window.LK_CLOUD`, and every method refuses with a
-reason the screens print at the point of use. That is deliberate: a client that
-answered plausibly with no server behind it would be impossible to tell apart
-from a working one.
+**It is deployed, and the app is pointed at it.** `08-build/cloud-config.js`
+carries the project URL, the publishable key and the Worker's address; every
+method in `LKCloud` refuses with a reason the screens print when that file is
+cleared. That path is still worth keeping: a client that answered plausibly
+with no server behind it would be impossible to tell apart from a working one.
 
-## What is here
+## What is actually running
+
+| Piece | Where | What it does |
+|---|---|---|
+| Supabase | `fwimdnukebbrwpwdyjbv` | Accounts, `profiles` (subscription state), `user_data` (one row per key per person), `store_push` (the conflict rule), usage counters. Row level security pins every row to `auth.uid()`. |
+| Worker | `lockedapi.cescocugliari.workers.dev` | `POST /` is the coach. Also food search, photo analysis, receipt parsing, store search, push keys and subscriptions, and a cron that delivers reminders. It holds every model key, which is the reason it exists. |
+
+`supabase-schema.sql` describes the live project rather than proposing one:
+it was a blueprint for a schema that did not match what was already there
+and already had people's data in it. Running it against the live project is
+a no-op; running it against a fresh project reproduces it.
+
+`coach-worker.js` is **not** what is deployed. It was written before this
+work found the running Worker, and it calls Anthropic with tool-use for
+structured actions, where the deployed one calls Gemini with Groq behind it
+and reads a JSON envelope out of the text. It is kept as the reference for
+what a purpose-built coach endpoint looks like; `cloud.js` speaks to the
+deployed contract, not to this file.
 
 | File | What it is |
 |---|---|
-| `coach-worker.js` | The Cloudflare Worker. `POST /coach` — thread in, prose plus proposed actions out. |
-| `supabase-schema.sql` | Tables, row level security, the push function and entitlements. |
-| `../08-build/cloud.js` | `LKCloud` — the one seam in the client. Accounts, sync, entitlements, the coach. |
+| `coach-worker.js` | A reference implementation. Not deployed. |
+| `supabase-schema.sql` | The live schema, described, plus this work's one migration. |
+| `../08-build/cloud-config.js` | The only file a deploy edits. Publishable key only. |
+| `../08-build/cloud.js` | `LKCloud` — the one seam. Accounts, sync, entitlements, the coach, food, reminders. |
 | `../08-build/coach-actions.js` | `LKCoachActions` — the gate everything the coach proposes passes through, on the device. |
+| `../08-build/exercises.js` | The 866-row catalogue the gate resolves every exercise id against. |
+
+## What is still owed
+
+Forty-five rows in `../14-signoff/REGISTER.json` still say NEEDS_SERVER, and
+they group into five kinds: a model writing something (19), a model reading a
+picture (6), push delivery beyond the subscription (8), a third-party key or
+feed (4), and eight others. Each screen says at the point of use what it
+cannot do. None of them is a broken control.
+
+One setting this repository cannot change: leaked password protection is off
+on the Supabase project. It checks new passwords against HaveIBeenPwned and
+is a switch under Authentication → Policies.
 
 ## The shape of it
 
