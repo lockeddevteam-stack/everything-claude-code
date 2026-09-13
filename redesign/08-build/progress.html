@@ -465,11 +465,40 @@
          when the deadlift's own latest record is Sep 5 as well. The heaviest
          set is still what the row and the est. 1RM report. */
       var latest = rs.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; })[0];
+      /* Three figures, not one. A lift's records answer three different
+         questions -- what is the most you have lifted, what is the most you
+         have lifted for a working set of six to eight, and what does that
+         extrapolate to -- and the row showed only the last, which is the one
+         that was never actually lifted. */
+      var heaviest = rs.slice().sort(function (a, b) { return b.kg - a.kg; })[0];
+      var rep68 = rs.filter(function (x) { return x.reps >= 6 && x.reps <= 8; })
+        .sort(function (a, b) { return b.kg - a.kg; })[0] || null;
       out.push({ id: r.id, name: l ? l.name : '', muscle: l ? l.muscle : '',
-                 best: rs[0], date: latest.date, count: rs.length });
+                 best: rs[0], heaviest: heaviest, rep68: rep68,
+                 date: latest.date, count: rs.length });
     });
-    out.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+    /* Compounds first. A list sorted by date puts whatever you happened to
+       log last at the top, so the lifts a reader actually tracks sink under
+       a lateral raise. Within each group the most recent record still leads. */
+    out.sort(function (a, b) {
+      var ca = isCompound(a.name) ? 0 : 1, cb = isCompound(b.name) ? 0 : 1;
+      if (ca !== cb) return ca - cb;
+      return a.date < b.date ? 1 : a.date > b.date ? -1 : 0;
+    });
     return out;
+  }
+
+  /* The lifts a programme is built around. Named rather than inferred: a
+     rule over muscle groups would call a lateral raise a compound the first
+     time somebody logged one under Back. */
+  var COMPOUNDS = ['squat', 'deadlift', 'bench', 'press', 'row', 'pull-up', 'pullup',
+                   'chin-up', 'chinup', 'dip', 'lunge', 'clean', 'snatch'];
+  function isCompound(name) {
+    var nm = String(name).toLowerCase();
+    /* A leg press is a machine, not the press a programme means. */
+    if (nm.indexOf('leg press') >= 0 || nm.indexOf('calf') >= 0) return false;
+    for (var i = 0; i < COMPOUNDS.length; i++) if (nm.indexOf(COMPOUNDS[i]) >= 0) return true;
+    return false;
   }
 
   /* =============================================================
@@ -509,6 +538,58 @@
     var ticks = [], v = lo, guard = 0;
     while (v <= hi + step * 0.001 && guard++ < 20) { ticks.push(Math.round(v * 100) / 100); v += step; }
     return { lo: lo, hi: ticks[ticks.length - 1], ticks: ticks };
+  }
+
+  /* The weigh-ins, drawn. Body weight was a drill-down to a list of dates
+     and deltas with no chart at all, on the screen whose other trend -- a
+     lift's estimated 1RM -- gets a full plot. A column of numbers is the one
+     way to hide a trend from somebody looking for one.
+
+     Same axes, same scale-picking and same description as the lift chart, so
+     the two read alike; a trend line is a trend line. */
+  function weightChartSVG(width) {
+    if (WEIGHT_LOG.length < 2) return '';
+    var W = Math.max(240, Math.round(width));
+    var H = 164;
+    var padL = 42, padR = 10, padT = 12, padB = 26;
+    var plotW = W - padL - padR, plotH = H - padT - padB;
+    var vals = WEIGHT_LOG.map(function (w) { return LKUnits.v(w[1]); });
+    var ys = yScale(vals);
+    var t0 = ms(WEIGHT_LOG[0][0]), t1 = ms(WEIGHT_LOG[WEIGHT_LOG.length - 1][0]);
+    if (t1 === t0) { t0 -= 86400000; t1 += 86400000; }
+    var X = function (t) { return padL + (t - t0) / (t1 - t0) * plotW; };
+    var Y = function (v) { return padT + (1 - (v - ys.lo) / (ys.hi - ys.lo)) * plotH; };
+    var out = [];
+    ys.ticks.forEach(function (t) {
+      var y = Math.round(Y(t)) + 0.5;
+      out.push('<line class="chart__grid" x1="' + padL + '" y1="' + y + '" x2="' + (padL + plotW) + '" y2="' + y + '"/>');
+      out.push('<text class="chart__axis" x="' + (padL - 8) + '" y="' + (y + 4) + '" text-anchor="end">' + num1(t) + '</text>');
+    });
+    var mid = t0 + (t1 - t0) / 2;
+    [[t0, 'start'], [mid, 'middle'], [t1, 'end']].forEach(function (pp) {
+      var x = X(pp[0]);
+      out.push('<line class="chart__grid" x1="' + x.toFixed(1) + '" y1="' + (padT + plotH) + '" x2="' + x.toFixed(1) + '" y2="' + (padT + plotH + 4) + '"/>');
+      out.push('<text class="chart__axis" x="' + x.toFixed(1) + '" y="' + (H - 8) + '" text-anchor="' + pp[1] + '">' + dayLabelFromMs(pp[0]) + '</text>');
+    });
+    var poly = WEIGHT_LOG.map(function (w) {
+      return X(ms(w[0])).toFixed(1) + ',' + Y(LKUnits.v(w[1])).toFixed(1);
+    }).join(' ');
+    out.push('<polyline class="chart__line" points="' + poly + '"/>');
+    WEIGHT_LOG.forEach(function (w, i) {
+      var last = i === WEIGHT_LOG.length - 1;
+      out.push('<circle class="chart__dot' + (last ? ' chart__dot--last' : '') + '" cx="' +
+        X(ms(w[0])).toFixed(1) + '" cy="' + Y(LKUnits.v(w[1])).toFixed(1) + '" r="' + (last ? 4.5 : 3) + '"/>');
+    });
+    var f = WEIGHT_LOG[0], l = WEIGHT_LOG[WEIGHT_LOG.length - 1];
+    var desc = 'Body weight, ' + WEIGHT_LOG.length + ' readings from ' + longDate(f[0]) +
+      ' to ' + longDate(l[0]) + '. ' + num1(LKUnits.v(f[1])) + ' to ' + num1(LKUnits.v(l[1])) +
+      ' ' + LKUnits.label() + ', ' +
+      (l[1] > f[1] ? 'up ' : l[1] < f[1] ? 'down ' : 'unchanged, ') +
+      num1(Math.abs(LKUnits.v(l[1]) - LKUnits.v(f[1]))) + '. Points: ' +
+      WEIGHT_LOG.map(function (w) { return dayLabel(w[0]) + ' ' + num1(LKUnits.v(w[1])); }).join('; ') + '.';
+    return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H +
+      '" role="img" aria-label="' + esc(desc) + '" data-testid="weight-chart" ' +
+      'data-points="' + WEIGHT_LOG.length + '">' + out.join('') + '</svg>';
   }
 
   function chartSVG(lift, pts, days, width) {
@@ -569,6 +650,8 @@
   var S = {
     view: 'populated',
     range: '12w',
+    /* What is typed into the records search. */
+    recordQ: '',
     /* lk_featuredLifts[0], unless a screen said which lift it meant. */
     liftId: (function () {
       var want = null;
@@ -694,15 +777,31 @@
   }
 
   function recordsSection() {
-    var rows = recordLifts();
+    var all = recordLifts();
+    var q = String(S.recordQ || '').trim().toLowerCase();
+    var rows = q ? all.filter(function (r) {
+      return r.name.toLowerCase().indexOf(q) >= 0 || String(r.muscle).toLowerCase().indexOf(q) >= 0;
+    }) : all;
     return '' +
       '<div class="section">' +
         '<div class="section__head">' +
           '<h2 class="t-label">Records</h2>' +
-          '<span class="t-meta">' + n(RECORDS.length) + ' across ' + n(rows.length) + ' lifts</span>' +
+          '<span class="t-meta">' + n(RECORDS.length) + ' across ' + n(all.length) + ' lifts</span>' +
         '</div>' +
-        '<div class="card card--flush" role="radiogroup" aria-label="Lift plotted on the chart above" data-testid="records-list">' +
-          rows.map(function (r) {
+        /* Nine lifts fit on a screen; thirty do not, and a vault nobody can
+           search is a list to scroll past. */
+        /* Gated on the FULL list, not the filtered one. Gating on `rows`
+           made the box vanish the moment a search matched nothing, so there
+           was no way to correct a typo. */
+        (all.length > 6
+          ? '<input class="input" id="rec-q" type="search" autocomplete="off" ' +
+              'placeholder="Find a lift" value="' + esc(S.recordQ || '') + '" ' +
+              'aria-label="Find a lift in your records" data-testid="records-search">'
+          : '') +
+        '<div class="card card--flush' + (all.length > 6 ? ' mt-2' : '') + '" role="radiogroup" ' +
+            'aria-label="Lift plotted on the chart above" data-testid="records-list">' +
+          (rows.length
+            ? rows.map(function (r) {
             var sel = r.id === S.liftId;
             /* A radio, not a link. Tapping it plots that lift on the chart
                above, which is the same job as the picker sheet's rows and is
@@ -718,11 +817,21 @@
                   ' &times; ' + n(r.best.reps) + (r.count > 1 ? ' &middot; ' + n(r.count) + ' records' : '') + '</span>' +
               '</span>' +
               '<span class="row__value stack" style="text-align: right">' +
+                '<span class="num">' + kg(r.heaviest.kg) + '</span>' +
+                '<span class="t-caption-2 quiet">heaviest</span>' +
+              '</span>' +
+              '<span class="row__value stack" style="text-align: right">' +
+                '<span class="num">' + (r.rep68 ? kg(r.rep68.kg) : '\u2014') + '</span>' +
+                '<span class="t-caption-2 quiet">6\u20138 reps</span>' +
+              '</span>' +
+              '<span class="row__value stack" style="text-align: right">' +
                 '<span class="num">' + kg(e1rm(r.best.kg, r.best.reps)) + '</span>' +
                 '<span class="t-caption-2 quiet">est. 1RM</span>' +
               '</span>' +
             '</button>';
-          }).join('') +
+          }).join('')
+            : '<div class="row row--static"><span class="row__main"><span class="row__title">' +
+              'Nothing matches \u201c' + esc(S.recordQ || '') + '\u201d.</span></span></div>') +
         '</div>' +
         '<button class="btn btn--tertiary btn--block mt-2" data-action="log-record" data-testid="log-record">' +
           ICO.plus + '<span class="btn__label">Log a record without a workout</span>' +
@@ -871,7 +980,8 @@
           '<button class="iconbtn" data-action="close-sheet" data-testid="weight-close" aria-label="Close body weight">' +
             ICO.close + '</button></div>' +
         '<div class="sheet__body">' +
-          '<p class="t-detail">' + signedKg(d) + ' over ' + weeks + ' weeks, or ' +
+          weightChartSVG(320) +
+          '<p class="t-detail mt-3">' + signedKg(d) + ' over ' + weeks + ' weeks, or ' +
             signedKg(d / weeks) + ' a week. A weekly figure is the only one worth reading: ' +
             'a single morning moves a kilo on water alone.</p>' +
           '<div class="card card--flush mt-4">' + log.map(function (r, i) {
@@ -1575,6 +1685,14 @@
     var back = document.querySelector('[data-testid="' + testid + '"]');
     if (back) back.focus();
   }
+
+  document.addEventListener('input', function (e) {
+    if (e.target.id !== 'rec-q') return;
+    S.recordQ = e.target.value;
+    render();
+    var back = document.getElementById('rec-q');
+    if (back) { back.focus(); try { back.setSelectionRange(back.value.length, back.value.length); } catch (err) {} }
+  });
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && S.sheet) { e.preventDefault(); closeSheet(true); return; }
