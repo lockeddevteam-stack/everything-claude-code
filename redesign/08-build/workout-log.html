@@ -348,7 +348,7 @@
       S.restRunning = true; S.restLeft = 84;
     } else if (name === 'plates') {
       S.overlay = 'plates';
-      S.plate = { total: 20, bar: 20, added: [], perSide: true };
+      S.plate = { total: 20, bar: 20, added: [], perSide: true, solveNote: null };
     } else if (name === 'loading') {
       S.aiBusyEx = 0;
     } else if (name === 'error') {
@@ -541,19 +541,30 @@
   /* W for a warm-up, the set's position for a working set, and the position
      with the side on it -- 1L, 1R -- for an exercise tracked left and
      right. */
+  /* W warm-up, D drop set, F to failure, or the set's position. A drop and a
+     failure set are still work, so they keep their number in the count and
+     carry a letter instead of replacing it -- a drop set that vanished from
+     the volume would make the session read light. */
+  var SET_KINDS = ['work', 'warm', 'drop', 'fail'];
+  var KIND_WORD = { work: 'working set', warm: 'warm-up', drop: 'drop set', fail: 'set to failure' };
+  function kindOf(st) { return st.warm ? 'warm' : (st.kind || 'work'); }
   function setNumber(ex, i) {
     var st = ex.sets[i];
     if (st.warm) return 'W';
     var c = 0;
     for (var k = 0; k <= i; k++) { if (counts(ex.sets[k])) c++; }
-    return String(c) + (st.side || '');
+    var mark = st.kind === 'drop' ? 'D' : st.kind === 'fail' ? 'F' : '';
+    return String(c) + (st.side || '') + mark;
   }
 
   function setRows(ex, e, letter) {
     var rows = '';
     ex.sets.forEach(function (st, i) {
-      rows += '<div class="setgrid__n' + (st.warm ? ' setgrid__n--warm' : '') + '" aria-hidden="true">' +
-          (letter || '') + (st.warm ? 'W' : n(setNumber(ex, i))) + '</div>' +
+      rows += '<button class="setgrid__n setgrid__n--btn' + (st.warm ? ' setgrid__n--warm' : '') +
+          '" type="button" data-act="set-kind" data-ex="' + e + '" data-set="' + i + '" ' +
+          'data-testid="set-kind-' + e + '-' + i + '" ' +
+          'aria-label="Set ' + (i + 1) + ' is a ' + KIND_WORD[kindOf(st)] + '. Change it.">' +
+          (letter || '') + (st.warm ? 'W' : n(setNumber(ex, i))) + '</button>' +
         cellHTML(e, i, 'weight') +
         cellHTML(e, i, 'reps') +
         rirHTML(e, i) +
@@ -903,6 +914,29 @@
     return '<svg class="platebar" viewBox="0 0 ' + w + ' 64" role="img" aria-label="Loaded bar diagram">' + out + '</svg>';
   }
 
+  /* Work the plates out from the weight, which is the direction the question
+     is actually asked in. The sheet could only go the other way: tap plates
+     until the number matches, which is arithmetic the calculator was supposed
+     to do. Greedy from the heaviest plate down, which is optimal for a real
+     plate set because every plate divides the ones above it.
+
+     It says what it CAN reach, not what was asked for. A 20 kg bar and a
+     1.25 kg smallest plate cannot make 101 kg, and quietly loading 100 and
+     calling it 101 is how a log stops matching the rack. */
+  function solvePlates(target, bar) {
+    var perSide = (target - bar) / 2;
+    if (perSide < 0) return null;
+    var sizes = PLATES[S.unit].map(function (x) {
+      return S.unit === 'kg' ? x : Math.round((x / LB_PER_KG) * 100) / 100;
+    }).slice().sort(function (a, b) { return b - a; });
+    var out = [], left = perSide;
+    sizes.forEach(function (sz) {
+      while (left >= sz - 0.0001) { out.push(sz); left = Math.round((left - sz) * 1000) / 1000; }
+    });
+    var made = bar + out.reduce(function (a, b) { return a + b; }, 0) * 2;
+    return { plates: out, made: Math.round(made * 100) / 100, exact: Math.abs(made - target) < 0.01 };
+  }
+
   function platesHTML() {
     var pc = S.plate;
     var perSide = pc.added.reduce(function (a, b) { return a + b; }, 0);
@@ -934,6 +968,16 @@
             '<button class="btn btn--secondary" type="button" data-act="plate-undo" data-testid="plates-undo"' + (pc.added.length ? '' : ' disabled') + '>Undo</button>' +
             '<button class="btn btn--secondary" type="button" data-act="plate-clear" data-testid="plates-clear"' + (pc.added.length ? '' : ' disabled') + '>Clear all</button>' +
           '</div>' +
+          '<h3 class="t-label mt-4">Or work it out from the weight</h3>' +
+          '<div class="addrow mt-2">' +
+            '<input class="input num" id="plate-target" type="number" min="0" max="500" step="0.5" ' +
+              'inputmode="decimal" placeholder="' + trim(toDisplay(total)) + '" ' +
+              'aria-label="Target weight in ' + unitWord() + '" data-testid="plate-target">' +
+            '<button class="btn btn--secondary" type="button" data-act="plate-solve" ' +
+              'data-testid="plate-solve">Load it</button>' +
+          '</div>' +
+          (pc.solveNote ? '<p class="t-detail mt-2" data-testid="plate-solved">' +
+            esc(pc.solveNote) + '</p>' : '') +
           (target ? '<div class="card mt-3"><span class="t-label">Next uncompleted set</span>' +
             '<p class="t-body-em mt-2">' + esc(target.name) + '</p>' +
             '<p class="t-detail muted">Set ' + (nx.set + 1) + ' · will receive ' + n(trim(toDisplay(total))) + unitLabel() + '</p></div>' : '') +
@@ -956,6 +1000,19 @@
           '<div class="plates mt-2">' + presets.map(function (p) {
             return '<button class="plate" type="button" data-act="rest-set" data-secs="' + p + '" data-testid="rest-' + p + '" aria-pressed="' + (S.restSeconds === p ? 'true' : 'false') + '">' + n(clock(p)) + '</button>';
           }).join('') + '</div>' +
+          /* Six presets are six opinions about how long a set takes to
+             recover from, and a heavy triple is not on the list. */
+          '<p class="t-label mt-4">Or a length of your own</p>' +
+          '<div class="addrow mt-2">' +
+            '<input class="input num" id="rest-custom" type="number" min="5" max="900" step="5" ' +
+              'inputmode="numeric" placeholder="' + S.restSeconds + '" ' +
+              'aria-label="Rest in seconds" data-testid="rest-custom">' +
+            '<button class="btn btn--secondary" type="button" data-act="rest-custom" ' +
+              'data-testid="rest-custom-set">Use it</button>' +
+          '</div>' +
+          '<p class="t-meta mt-1">Seconds, 5 to 900. Now: ' + n(clock(S.restSeconds)) + '.</p>' +
+          (S.restError ? '<p class="field__error mt-2" role="alert" data-testid="rest-error">' +
+            esc(S.restError) + '</p>' : '') +
         '</div>' +
       '</div>';
   }
@@ -1476,8 +1533,36 @@
         if (key === 'info') { S.overlay = 'detail'; break; }
         if (key === 'unit') { setUnit(S.unit === 'kg' ? 'lb' : 'kg'); S.overlay = null; toast('Showing ' + unitLabel() + ' everywhere.'); break; }
         if (key === 'warmup') {
-          cur.sets.unshift(set(cur.sets[0] ? Math.round((cur.sets[0].prevKg || 20) * 0.5 * 2) / 2 : 20, 10, { warm: true, rir: 4 }));
-          S.overlay = null; toast('Warm-up set added.'); break;
+          /* A ramp, not the same set twice. Pressing this twice put two
+             identical 50% warm-ups on the exercise, which is not how anybody
+             warms up: the rungs are 50, 70 and 85 per cent of the working
+             weight, inserted in order, with the reps coming down as the
+             weight goes up. Past three it stops, because a fourth warm-up on
+             one lift is a different session. */
+          var RAMP = [[0.5, 10], [0.7, 6], [0.85, 3]];
+          var warms = cur.sets.filter(function (x) { return x.warm; }).length;
+          if (warms >= RAMP.length) {
+            S.overlay = null;
+            toast('Three warm-ups is the most this adds. Edit one, or add a plain set.');
+            break;
+          }
+          var work = null;
+          cur.sets.forEach(function (x) {
+            if (x.warm || work !== null) return;
+            work = x.kg !== null ? x.kg : x.prevKg;
+          });
+          if (work === null || work === undefined) work = 20;
+          var rung = RAMP[warms];
+          var at = 0;
+          /* After the warm-ups already there, before the first working set,
+             so the ramp reads in the order it is performed. */
+          while (at < cur.sets.length && cur.sets[at].warm) at++;
+          cur.sets.splice(at, 0, set(Math.round(work * rung[0] * 2) / 2, rung[1],
+                                     { warm: true, rir: 4 }));
+          S.overlay = null;
+          toast('Warm-up at ' + trim(toDisplay(Math.round(work * rung[0] * 2) / 2)) + ' ' +
+                unitLabel() + ' added.');
+          break;
         }
         if (key === 'delset') {
           if (cur.sets.length <= 1) { S.overlay = null; toast('An exercise keeps at least one set.'); break; }
@@ -1645,6 +1730,54 @@
         break;
       }
       case 'block': S.overlay = 'block'; break;
+      /* Cycles rather than opening a menu: four states, one tap each, on a
+         control that is already on every row. A menu for a four-way choice
+         is a sheet to open, read and dismiss for something that takes a
+         tap. */
+      case 'rest-custom': {
+        var rf = document.getElementById('rest-custom');
+        var secs = rf ? parseInt(rf.value, 10) : NaN;
+        if (isNaN(secs) || secs < 5 || secs > 900) {
+          S.restError = 'Between 5 and 900 seconds.';
+          break;
+        }
+        S.restSeconds = secs;
+        S.restError = null;
+        toast('Rest set to ' + clock(secs) + '.');
+        break;
+      }
+      case 'set-kind': {
+        var ke = Number(t.getAttribute('data-ex')), ki = Number(t.getAttribute('data-set'));
+        var ks = S.exercises[ke].sets[ki];
+        var at = SET_KINDS.indexOf(kindOf(ks));
+        var next = SET_KINDS[(at + 1) % SET_KINDS.length];
+        ks.warm = next === 'warm';
+        ks.kind = next === 'warm' ? null : next;
+        say('Set ' + (ki + 1) + ' is a ' + KIND_WORD[next] + '.');
+        break;
+      }
+      case 'plate-solve': {
+        var tf = document.getElementById('plate-target');
+        var want = tf ? parseFloat(tf.value) : NaN;
+        if (isNaN(want) || want <= 0) { S.plate.solveNote = 'Type the weight you want on the bar.'; break; }
+        var wantKg = S.unit === 'kg' ? want : want / LB_PER_KG;
+        var sol = solvePlates(wantKg, S.plate.bar);
+        if (!sol) { S.plate.solveNote = 'That is less than the bar on its own.'; break; }
+        S.plate.added = sol.plates;
+        if (sol.exact) {
+          S.plate.solveNote = 'Per side: ' + sol.plates.map(function (x) {
+            return trim(toDisplay(x));
+          }).join(' + ') + ' ' + unitLabel() + '.';
+        } else {
+          /* Named, not silently rounded. */
+          S.plate.solveNote = 'The nearest this bar and these plates can make is ' +
+            trim(toDisplay(sol.made)) + ' ' + unitLabel() + ', not ' + trim(toDisplay(wantKg)) + ' ' + unitLabel() +
+            '. Per side: ' + (sol.plates.length
+              ? sol.plates.map(function (x) { return trim(toDisplay(x)); }).join(' + ') + ' ' + unitLabel()
+              : 'nothing, the bar alone') + '.';
+        }
+        break;
+      }
       case 'block-add': {
         var ti = document.getElementById('block-title');
         var no = document.getElementById('block-notes');
