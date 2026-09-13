@@ -263,13 +263,47 @@
      total is the sum of them. The sheet printed days.length * 5, which is
      true of PPL and of nothing else: an Upper/Lower of 10 exercises read 10
      only by coincidence, and a day with four lifts was still counted as five. */
+  /* The median length of the sessions logged under a day's name, to the
+     nearest five minutes. Home computes the same figure the same way; two
+     screens describing one session must not disagree about how long it is. */
+  function medianMinutes(dayName) {
+    var raw = (window.LKStore ? window.LKStore.get('lk_history', null) : null) ||
+              (window.LKFixtures && LKFixtures.history) || [];
+    var needle = String(dayName || '').toLowerCase(), mins = [];
+    if (!needle) return 0;
+    raw.forEach(function (w) {
+      if (w.kind !== 'lift' || !w.min) return;
+      if (String(w.name).toLowerCase().indexOf(needle) < 0) return;
+      mins.push(w.min);
+    });
+    if (!mins.length) return 0;
+    mins.sort(function (a, b) { return a - b; });
+    return Math.round(mins[Math.floor(mins.length / 2)] / 5) * 5;
+  }
+
+  /* WHICH day the log should open. Handed over by id, because the log used
+     to open its own seeded Push session whatever was pressed. */
+  function handStartDay(key) {
+    try { localStorage.setItem('lk_startDay', String(key || '')); } catch (e) {}
+  }
+  function todayDayKey() {
+    if (!SPLITS.length || !SPLITS[0].days.length) return '';
+    return SPLITS[0].id + ':' + SPLITS[0].days[0].id;
+  }
+
   function loadSplits(fresh) {
     var raw = rd('lk_splits', [], fresh) || [];
     SPLITS = raw.map(function (sp, i) {
       var days = (sp.days || []).map(function (d, j) {
         var count = (d.exercises || []).length;
+        /* How long this day has ACTUALLY taken, the median of the sessions
+           logged under its name, rounded to five minutes. A flat ten minutes
+           a lift put Train at 50 min for the same Push session Home called
+           55, on the same screenful. */
+        var mins = medianMinutes(d.name);
         return { id: (d.name || ('day' + j)).toLowerCase().replace(/\W+/g, '-'), name: d.name,
-                 exercises: count, minutes: count * MIN_PER_EX, next: i === 0 && j === 0 };
+                 exercises: count, minutes: mins || (count * MIN_PER_EX),
+                 measured: !!mins, next: i === 0 && j === 0 };
       });
       return {
         id: sp.id, name: sp.name, current: i === 0,
@@ -351,6 +385,33 @@
       }
     });
   }
+
+  /* The router claims these clicks in the demo -- the handler below leaves
+     with location.href -- so the builder was opened without being told which
+     split to open and edited whichever one happened to be first. */
+  document.addEventListener('lk:handoff', function (e) {
+    var d = e.detail || {};
+    if (d.selector === '[data-action="start-today"]') handStartDay(todayDayKey());
+    if (d.selector === '[data-action="start-day"]' && d.el) handStartDay(d.el.getAttribute('data-id') || '');
+    if (d.selector === '[data-action="open-session"]' && d.el) {
+      try { localStorage.setItem('lk_openWorkout', d.el.getAttribute('data-id') || ''); } catch (err) {}
+    }
+    if (d.selector === '[data-action="edit-split"]') {
+      var id = d.el ? (d.el.getAttribute('data-id') || '') : '';
+      try { localStorage.setItem('lk_openSplit', id); } catch (err) {}
+    } else if (d.selector === '[data-action="new-split"]') {
+      try { localStorage.setItem('lk_openSplit', '__new__'); } catch (err) {}
+    }
+  });
+
+  /* Every screen is mounted once in the demo, so a split saved in the builder
+     or a session finished in the log reached Train only after a full reload.
+     The route announces itself; re-read the keys when it does. */
+  document.addEventListener('lk:enter', function () {
+    if (S.state !== 'populated') return;
+    loadData(false);
+    render(true);
+  });
 
   function loadData(fresh) {
     loadSplits(fresh);
@@ -2000,8 +2061,11 @@
        and stay put, which is a sentence that describes what a working button
        would have done. In the demo the router takes them first, by the same
        selectors, and every destination below is declared in MANIFEST.nav. */
-    if (a === 'start-today') { location.href = 'workout-log.html'; return; }
-    if (a === 'start-day') { closeSheet(); location.href = 'workout-log.html'; return; }
+    /* WHICH day. The log opened its own seeded Push session whatever was
+       pressed, so "Start Upper A" landed in a PPL - Push already 21 minutes
+       in with 1,088 kg on it. The day is handed over by id. */
+    if (a === 'start-today') { handStartDay(todayDayKey()); location.href = 'workout-log.html'; return; }
+    if (a === 'start-day') { handStartDay(t.getAttribute('data-id') || ''); closeSheet(); location.href = 'workout-log.html'; return; }
     /* WHICH split. Both of these opened the builder with no idea which split
        was meant, so "Edit split" and "New split" landed on the same thing. */
     if (a === 'del-split') {

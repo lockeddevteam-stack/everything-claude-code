@@ -1360,9 +1360,33 @@
     document.addEventListener('pointerup', onUp);
   });
 
-  /* Boot on the populated manual builder, the common case. */
-  PRESETS[2][1]();
-  render();
+  /* Open what the caller asked for. Booting on the dev switcher's populated
+     preset meant "New split" opened the stored PPL split, under a line
+     saying it had been "Saved 2 minutes ago" -- a split nobody had saved and
+     a name nobody had typed. A new split is empty and has never been saved. */
+  function openRequested() {
+    var want = null;
+    try { want = localStorage.getItem('lk_openSplit'); } catch (e) {}
+    reset();
+    if (want === '__new__') { render(); return; }
+    var sp = seedSplit();
+    S.manual.id = sp.id || null;
+    S.manual.created = sp.created || null;
+    S.manual.name = sp.name;
+    S.manual.days = sp.days;
+    /* Saved, but not by this session: say when, not "2 minutes ago". */
+    S.manual.savedAt = sp.id ? (sp.created ? 'on ' + sp.created : null) : null;
+    render();
+  }
+  openRequested();
+
+  /* In the demo this screen is mounted once, at boot, and Train's Edit and
+     New both landed on whatever it had opened then. The route announces
+     itself; open what was asked for, unless there are unsaved edits to lose. */
+  document.addEventListener('lk:enter', function () {
+    if (S.manual.dirty) return;
+    openRequested();
+  });
 
   /* THE WHOLE CATALOGUE in the picker. It held fourteen exercises against a
      library of 867, so building a split meant building it out of whatever

@@ -106,7 +106,13 @@ const MANIFEST = {
   nav: [
     { from: 'home', selector: '[data-testid="primary-action"]', to: 'train', mode: 'tab' },
     { from: 'home', selector: '[data-testid="action-choose-session"]', to: 'train', mode: 'tab' },
-    { from: 'home', selector: '[data-testid="row-last-session"]', to: 'train', mode: 'tab' },
+    /* Both rows name one session and open it. row-last-session went to the
+       list of every session instead, and row-recent and See all were in no
+       manifest row at all -- so in the demo they left for a file that is not
+       beside locked-demo.html and the whole demo died on the tap. */
+    { from: 'home', selector: '[data-testid="row-last-session"]', to: 'workout-detail', mode: 'push' },
+    { from: 'home', selector: '[data-testid="row-recent"]', to: 'workout-detail', mode: 'push' },
+    { from: 'home', selector: '[data-testid="recent-see-all"]', to: 'train', mode: 'tab' },
     { from: 'home', selector: '[data-testid="row-climbing-lift"]', to: 'progress', mode: 'push' },
     { from: 'home', selector: '[data-testid="row-recap"]', to: 'recap', mode: 'push' },
     /* Every session row on the recap, at all three scales, opens that
@@ -579,6 +585,14 @@ const RUNTIME = String.raw`
   function parseHash(h) {
     var raw = (h === undefined ? (location.hash || '') : (h || '')).replace(/^#\/?/, '');
     var parts = raw.split('/').filter(Boolean);
+    /* A bare screen id in the first segment is a pushed screen over its own
+       parent tab. Only a tab id was accepted here, so #/onboarding -- which
+       is exactly what the first-run gate sets -- fell back to Home and a
+       brand-new reader landed on a stranger's five weeks of training. */
+    if (parts[0] && !tabOf(parts[0]) && screens[parts[0]]) {
+      var owner = (PUSHED[parts[0]] && PUSHED[parts[0]].parent) || TABS[0].id;
+      return { base: tabOf(owner) ? owner : TABS[0].id, top: parts[0] };
+    }
     var base = tabOf(parts[0]) ? parts[0] : TABS[0].id;
     var top = parts[1] && screens[parts[1]] ? parts[1] : null;
     return { base: base, top: top };
@@ -722,7 +736,8 @@ const RUNTIME = String.raw`
       for (var i = 0; i < CFG.nav.length; i++) {
         var n = CFG.nav[i];
         if (n.from !== rec.id) continue;
-        if (hit(n.selector)) {
+        var crossed = hit(n.selector);
+        if (crossed) {
           e.preventDefault(); e.stopPropagation();
           /* The screen's own handler is never going to run -- it navigates
              with location.href and would take the demo with it -- so tell the
@@ -731,7 +746,7 @@ const RUNTIME = String.raw`
              opened on a session nobody had done. */
           try {
             rec.root.dispatchEvent(new CustomEvent('lk:handoff', {
-              detail: { selector: n.selector, from: n.from, to: n.to }
+              detail: { selector: n.selector, from: n.from, to: n.to, el: crossed }
             }));
           } catch (err) {}
           if (n.endsSession && window.LKSession) window.LKSession.end();

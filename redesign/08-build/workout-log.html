@@ -268,6 +268,47 @@
     ];
   }
 
+  /* THE DAY TRAIN ASKED FOR. Every route into this screen opened the same
+     seeded PPL - Push, twenty-one minutes in with 1,088 kg on it, so
+     "Start Upper A" began somebody else's Push session. lk_startDay carries
+     "<splitId>:<dayId>"; the day it names is built here, empty, at zero. */
+  function splitDayFor(key) {
+    if (!key) return null;
+    var cut = String(key).indexOf(':');
+    if (cut < 0) return null;
+    var wantSplit = String(key).slice(0, cut), wantDay = String(key).slice(cut + 1);
+    var all = (window.LKStore ? window.LKStore.get('lk_splits', null) : null) ||
+              (window.LKFixtures && LKFixtures.splits) || [];
+    for (var i = 0; i < all.length; i++) {
+      if (String(all[i].id) !== wantSplit) continue;
+      var days = all[i].days || [];
+      for (var j = 0; j < days.length; j++) {
+        var slug = String(days[j].name || ('day' + j)).toLowerCase().replace(/\W+/g, '-');
+        if (slug !== wantDay) continue;
+        return { split: all[i].name, day: days[j].name, exercises: days[j].exercises || [] };
+      }
+    }
+    return null;
+  }
+  function startRequested() {
+    var key = null;
+    try { key = localStorage.getItem('lk_startDay'); } catch (e) {}
+    if (!key) return false;
+    try { localStorage.removeItem('lk_startDay'); } catch (e) {}
+    var d = splitDayFor(key);
+    if (!d) return false;
+    applyState('mid-session');
+    S.name = d.split + ' - ' + d.day;
+    S.elapsed = 0;
+    S.over = false;
+    /* Nothing is logged yet. Each lift carries its planned rows, empty, with
+       last session's figures beside them the way every other card does. */
+    S.exercises = d.exercises.map(function (e) {
+      return exFromHistory(e.id, e.name, e.muscle || '', '', [], 3);
+    });
+    return true;
+  }
+
   /* =============================================================
      State
      ============================================================= */
@@ -2367,6 +2408,8 @@
      session" dropped the reader back into the workout they had just saved --
      sets still ticked, clock still running past the finish. */
   document.addEventListener('lk:enter', function () {
+    /* A day asked for from Train wins: it is a new session, not this one. */
+    if (startRequested()) { paintMenu(); paint(); return; }
     if (!S.over) return;
     applyState('mid-session');
     paint();
@@ -2434,7 +2477,10 @@
 
   /* A workout already running gets its own rows back, not the fixture's.
      This is the whole point of writing them down. */
-  var restored = restoreRows();
+  /* A day asked for from Train replaces the seeded session outright, and it
+     is not something to "pick up where you left off" from. */
+  var asked = startRequested();
+  var restored = asked ? false : restoreRows();
 
   paintMenu();
   paint();
