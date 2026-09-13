@@ -350,6 +350,75 @@ for (const [mode, reduce] of [['normal', false], ['reduced motion', true]]) {
   await c2.close();
 }
 
+/* ---- 6. a real first run has no data -------------------------------
+   The walkthrough teaches on the screens, and on a brand new phone those
+   screens have nothing on them. Every track's FIRST control is checked
+   with the seed withheld, because that is the one a person meets before
+   they have done anything: a track that cannot start is a track that
+   opens on an apology. Later steps are not checked this way -- most of
+   them only exist inside a state the earlier steps create. */
+const SCREEN_OF = {};
+Object.keys(TRACKS).forEach((id) => {
+  const first = TRACKS[id].steps[0];
+  SCREEN_OF[id] = { screen: first.screen, sel: first.sel || '[data-testid="' + first.testid + '"]' };
+});
+
+for (const id of Object.keys(SCREEN_OF)) {
+  const { screen, sel } = SCREEN_OF[id];
+  /* A track may declare what it needs. Progress answers "am I getting
+     stronger", which has no answer before the first session, so its
+     screen correctly shows an empty state and the module is offered as
+     a reason rather than as a broken row. Such a track is exempt from
+     the check below and held to a stricter one instead: it must say why,
+     and it must refuse to start. */
+  if (TRACKS[id].needs) {
+    ok(!!TRACKS[id].needsWhy, id + ': says what it needs instead of starting empty',
+       TRACKS[id].needsWhy || '(no reason given)');
+    const refused = await page.evaluate((t) => {
+      const track = window.LKTutorSteps[t];
+      const was = track.needs;
+      track.needs = function () { return false; };
+      const out = window.LKTutor.start(t);
+      track.needs = was;
+      return out === false;
+    }, id);
+    ok(refused, id + ': refuses to start without it');
+    continue;
+  }
+  /* A FRESH CONTEXT, because localStorage on file:// is shared by every
+     page in one: probing this in the context the six tracks just ran in
+     measured their leftovers and passed for the wrong reason. */
+  const c3 = await browser.newContext({ viewport: { width: 393, height: 852 },
+                                        isMobile: true, hasTouch: true });
+  const p3 = await c3.newPage();
+  const errs3 = [];
+  p3.on('pageerror', (e) => errs3.push(String(e)));
+  /* The seed withheld the way a product build ships without it. */
+  await p3.route('**/fixtures.js', (r) => r.abort());
+  /* And the state onboarding leaves behind, since the walkthrough runs
+     immediately after it: the marker, the profile, and the split it
+     builds. Without these, home.html correctly sends a new phone back to
+     onboarding, and the thing under test never renders. */
+  await p3.goto('file://' + ROOT + '/08-build/onboarding.html');
+  await p3.evaluate(() => {
+    localStorage.setItem('lk_onboarded', 'true');
+    localStorage.setItem('lk_profile', JSON.stringify({ name: 'Ada', unit: 'kg' }));
+    localStorage.setItem('lk_splits', JSON.stringify([{ id: 1, name: 'Push Pull Legs', active: true,
+      days: [{ name: 'Push', exercises: [{ id: 1, name: 'Bench Press', sets: 3, reps: 8 }] }] }]));
+  });
+  await p3.goto('file://' + ROOT + '/08-build/' + screen + '.html');
+  await p3.waitForTimeout(800);
+  const found = await p3.evaluate((q) => {
+    const el = document.querySelector(q);
+    return { there: !!el, shown: !!(el && el.getClientRects().length),
+             text: el ? (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60) : null };
+  }, sel);
+  ok(found.there && found.shown, id + ': starts on a phone with nothing on it',
+     screen + ' ' + sel + ' — ' + JSON.stringify(found));
+  ok(errs3.length === 0, id + ': and nothing throws getting there', errs3.slice(0, 1).join(''));
+  await c3.close();
+}
+
 ok(errors.length === 0, 'zero console errors across all six tracks', errors.slice(0, 3).join(' | '));
 
 await browser.close();

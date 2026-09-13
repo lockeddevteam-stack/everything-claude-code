@@ -65,6 +65,19 @@
     return function () { if (location.hash !== hash) location.hash = hash; };
   }
 
+  /* SOME MODULES NEED SOMETHING TO SHOW. Progress answers "am I getting
+     stronger", and on a phone with no sessions on it there is no chart,
+     no record and no answer -- the screen correctly shows its empty
+     state instead, and a tour of that teaches nothing and points at
+     controls that are not there. A track can say what it needs, and the
+     hub offers it as a reason rather than as a broken row. */
+  function hasTraining() {
+    var S = g.LKStore;
+    if (!S) return false;
+    var h = S.get('lk_history', []);
+    return !!(h && h.length);
+  }
+
   var TRACKS = {
 
     /* ---------------------------------------------------------------
@@ -307,6 +320,8 @@
     progress: {
       name: 'Progress',
       blurb: 'Am I getting stronger, answered once',
+      needs: hasTraining,
+      needsWhy: 'after your first session',
       enter: go('#/home/progress'),
       steps: [
         { screen: 'progress', testid: 'card-answer', read: true,

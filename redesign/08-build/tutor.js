@@ -515,7 +515,10 @@
     tracks: function () {
       var T = g.LKTutorSteps || {};
       return Object.keys(T).map(function (k) {
-        return { id: k, name: T[k].name, blurb: T[k].blurb, steps: T[k].steps.length };
+        var ready = true;
+        try { ready = T[k].needs ? !!T[k].needs() : true; } catch (e) { ready = false; }
+        return { id: k, name: T[k].name, blurb: T[k].blurb, steps: T[k].steps.length,
+                 ready: ready, why: ready ? null : (T[k].needsWhy || null) };
       });
     },
 
@@ -531,6 +534,10 @@
       var track = T[id];
       if (!track) return false;
       if (!API.available()) return false;
+      /* A module that needs data it does not have would open on controls
+         that are not there. Refusing is the honest answer; the hub has
+         already said why. */
+      try { if (track.needs && !track.needs()) return false; } catch (e) { return false; }
       build();
       L.hidden = false;
       doc.documentElement.setAttribute('data-tutor', id);

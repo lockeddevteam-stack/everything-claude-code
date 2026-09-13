@@ -13776,6 +13776,19 @@ window.LK_CLOUD = {
     return function () { if (location.hash !== hash) location.hash = hash; };
   }
 
+  /* SOME MODULES NEED SOMETHING TO SHOW. Progress answers "am I getting
+     stronger", and on a phone with no sessions on it there is no chart,
+     no record and no answer -- the screen correctly shows its empty
+     state instead, and a tour of that teaches nothing and points at
+     controls that are not there. A track can say what it needs, and the
+     hub offers it as a reason rather than as a broken row. */
+  function hasTraining() {
+    var S = g.LKStore;
+    if (!S) return false;
+    var h = S.get('lk_history', []);
+    return !!(h && h.length);
+  }
+
   var TRACKS = {
 
     /* ---------------------------------------------------------------
@@ -14018,6 +14031,8 @@ window.LK_CLOUD = {
     progress: {
       name: 'Progress',
       blurb: 'Am I getting stronger, answered once',
+      needs: hasTraining,
+      needsWhy: 'after your first session',
       enter: go('#/home/progress'),
       steps: [
         { screen: 'progress', testid: 'card-answer', read: true,
@@ -14634,7 +14649,10 @@ window.LK_CLOUD = {
     tracks: function () {
       var T = g.LKTutorSteps || {};
       return Object.keys(T).map(function (k) {
-        return { id: k, name: T[k].name, blurb: T[k].blurb, steps: T[k].steps.length };
+        var ready = true;
+        try { ready = T[k].needs ? !!T[k].needs() : true; } catch (e) { ready = false; }
+        return { id: k, name: T[k].name, blurb: T[k].blurb, steps: T[k].steps.length,
+                 ready: ready, why: ready ? null : (T[k].needsWhy || null) };
       });
     },
 
@@ -14650,6 +14668,10 @@ window.LK_CLOUD = {
       var track = T[id];
       if (!track) return false;
       if (!API.available()) return false;
+      /* A module that needs data it does not have would open on controls
+         that are not there. Refusing is the honest answer; the hub has
+         already said why. */
+      try { if (track.needs && !track.needs()) return false; } catch (e) { return false; }
       build();
       L.hidden = false;
       doc.documentElement.setAttribute('data-tutor', id);
@@ -54333,9 +54355,13 @@ DEMO.define("tutorial", function (document, window, location, fetch) {
     var rows = LKTutor.tracks().filter(function (t) { return t.id !== 'quick'; })
       .map(function (t) {
         var at = done[t.id] || 0;
-        var state = at >= t.steps ? 'Done' : at > 0 ? 'Resume, step ' + (at + 1) : t.steps + ' steps';
-        return '<button class="btn btn--secondary btn--block mt-2" type="button" ' +
-            'data-action="module" data-module="' + t.id + '" data-testid="tut-module-' + t.id + '">' +
+        var state = !t.ready ? (t.why || 'not yet')
+                  : at >= t.steps ? 'Done'
+                  : at > 0 ? 'Resume, step ' + (at + 1)
+                  : t.steps + ' steps';
+        return '<button class="btn btn--secondary btn--block mt-2" type="button"' +
+            (t.ready ? '' : ' disabled') +
+            ' data-action="module" data-module="' + t.id + '" data-testid="tut-module-' + t.id + '">' +
             '<span class="btn__label">' + esc(t.name) + ' \u00b7 ' + esc(state) + '</span></button>';
       }).join('');
     return '<div class="tut__intro">' +
