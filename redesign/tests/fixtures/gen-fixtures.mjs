@@ -207,6 +207,27 @@ const cardioPrefs = JSON.parse(seed.lk_cardioPrefs);
 const cardioFavorites = JSON.parse(seed.lk_cardioFavorites);
 
 const supplements = JSON.parse(seed.lk_supplements);
+
+/* What was actually swallowed, by day. The supplements list says what is on
+   the shelf; this says which of them went down on which morning, and without
+   it a streak is a number with nothing behind it.
+
+   Fourteen days ending on TODAY. Creatine is the habit -- missed once, eleven
+   days ago -- and Vitamin D is the one that slips, so the two streaks differ
+   and the screen has something to show rather than two identical rows. */
+const SUPP_LOG_END = '2026-09-09';
+const suppLog = {};
+for (let i = 13; i >= 0; i--) {
+  const iso = new Date(Date.parse(SUPP_LOG_END + 'T00:00:00Z') - i * 86400000)
+    .toISOString().slice(0, 10);
+  const taken = [];
+  if (i !== 11) taken.push('Creatine');
+  if (i % 3 !== 0) taken.push('Vitamin D');
+  if (taken.length) suppLog[iso] = taken;
+}
+/* Today is deliberately not complete: Creatine down, Vitamin D still due, so
+   the Home card has something to ask for and the tick has somewhere to go. */
+suppLog[SUPP_LOG_END] = ['Creatine'];
 const shoppingList = JSON.parse(seed.lk_shoppingList);
 const pantry = JSON.parse(seed.lk_pantryItems);
 const goals = JSON.parse(seed.lk_goals);
@@ -499,6 +520,7 @@ const body = `/* GENERATED — do not edit.
     cardioPrefs: ${JSON.stringify(cardioPrefs, null, 6).replace(/\n/g, '\n    ')},
     cardioFavorites: ${JSON.stringify(cardioFavorites, null, 6).replace(/\n/g, '\n    ')},
     cycles: ${JSON.stringify(cycles, null, 6).replace(/\n/g, '\n    ')},
+    suppLog: ${JSON.stringify(suppLog, null, 6).replace(/\n/g, '\n    ')},
 
     /* Every session on a date, newest first. */
     on: function (iso) {

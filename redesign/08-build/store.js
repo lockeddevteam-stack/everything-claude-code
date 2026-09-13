@@ -104,6 +104,7 @@
       case 'lk_cardioPrefs':   return F.cardioPrefs;
       case 'lk_cardioFavorites': return F.cardioFavorites;
       case 'lk_cycles':        return F.cycles;
+      case 'lk_suppLog':       return F.suppLog;
       default:                  return undefined;
     }
   }

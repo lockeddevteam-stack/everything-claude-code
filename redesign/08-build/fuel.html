@@ -127,6 +127,10 @@
     swap: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 8h13l-3.5-3.5M20 16H7l3.5 3.5"/></svg>',
     star: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m12 4 2.5 5.2 5.5.8-4 3.9 1 5.5-5-2.7-5 2.7 1-5.5-4-3.9 5.5-.8z"/></svg>',
     starOn: '<svg class="ico" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m12 4 2.5 5.2 5.5.8-4 3.9 1 5.5-5-2.7-5 2.7 1-5.5-4-3.9 5.5-.8z"/></svg>',
+    /* Edit, remove, and back. The supplements list needs all three per row. */
+    pencil: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 20h4L20 8l-4-4L4 16z"/></svg>',
+    trash: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13"/></svg>',
+    back: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6"/></svg>',
     /* A balance, for setting an amount. */
     scale: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 4v16M5 20h14M7 7h10M7 7l-3 6h6zM17 7l3 6h-6z"/></svg>'
   };
@@ -1063,6 +1067,109 @@
   function writePlans(list) { if (ST && persisting()) ST.set('lk_fuelPlans', list); }
 
   /* ---------------------------------------------------------------
+     Supplements
+     ---------------------------------------------------------------
+
+     This was two seeded rows and a tick. The whole area -- the list with its
+     streaks, adding, editing, the preset picker, the dose and frequency and
+     time-of-day controls, the per-supplement reminder, the history screen and
+     a two-tap delete -- did not exist, and lk_suppLog was never written, so a
+     tick was a tick and nothing counted it.
+
+     TWO KEYS, TWO JOBS. lk_supplements is what is on the shelf. lk_suppLog is
+     what went down on which day, keyed by date. A streak is read from the
+     second, never stored, so it cannot drift from the ticks that made it. */
+  var SUPP_TIMES = ['Morning', 'Pre-Workout', 'With Food', 'Before Bed', 'Custom'];
+  var SUPP_FREQ = ['Daily', 'Every Other Day', 'Weekly'];
+  /* Common enough to be worth one tap, and short enough to scan. Names only:
+     a preset that carried a dose would be this app telling somebody how much
+     to take, which it is not qualified to do. */
+  var PRESET_SUPPS = [
+    'Creatine', 'Vitamin D', 'Omega-3', 'Magnesium', 'Zinc', 'Whey protein',
+    'Caffeine', 'Beta-alanine', 'Vitamin B12', 'Iron', 'Ashwagandha',
+    'Electrolytes', 'Collagen', 'Multivitamin', 'Citrulline'
+  ];
+
+  function supps() { return stored('lk_supplements', []) || []; }
+  function writeSupps(list) {
+    if (ST && persisting()) ST.set('lk_supplements', list);
+  }
+  function suppLog() { return stored('lk_suppLog', {}) || {}; }
+  function writeSuppLog(map) {
+    if (ST && persisting()) ST.set('lk_suppLog', map);
+  }
+  function tookToday(name) {
+    return (suppLog()[DAY.iso] || []).indexOf(name) >= 0;
+  }
+  function markSupp(name, on) {
+    var map = suppLog();
+    var day = (map[DAY.iso] || []).slice();
+    var at = day.indexOf(name);
+    if (on && at < 0) day.push(name);
+    if (!on && at >= 0) day.splice(at, 1);
+    if (day.length) map[DAY.iso] = day; else delete map[DAY.iso];
+    writeSuppLog(map);
+  }
+
+  function isoBack(n) {
+    return new Date(Date.parse(DAY.iso + 'T00:00:00Z') - n * 86400000)
+      .toISOString().slice(0, 10);
+  }
+
+  /* Consecutive days back from today, counting today only if it is already
+     ticked: at eight in the morning a streak of six should not read as broken
+     because the day is not finished. */
+  function suppStreak(name) {
+    var map = suppLog();
+    var i = (map[DAY.iso] || []).indexOf(name) >= 0 ? 0 : 1;
+    var run = 0;
+    while (i < 400) {
+      if ((map[isoBack(i)] || []).indexOf(name) >= 0) run++;
+      else break;
+      i++;
+    }
+    return run;
+  }
+
+  function suppLast14(name) {
+    var map = suppLog(), out = [];
+    for (var i = 13; i >= 0; i--) {
+      var iso = isoBack(i);
+      out.push({ iso: iso, on: (map[iso] || []).indexOf(name) >= 0 });
+    }
+    return out;
+  }
+
+  /* Due, by the clock and by the frequency. Every Other Day counts days since
+     it was added rather than the parity of the epoch, so two supplements added
+     a day apart alternate with each other instead of both landing on the same
+     days. */
+  function suppDue(sp) {
+    if (sp.reminder === false) return false;
+    if (tookToday(sp.name)) return false;
+    var since = sp.created
+      ? Math.round((Date.parse(DAY.iso + 'T00:00:00Z') - Date.parse(sp.created)) / 86400000)
+      : 0;
+    if (sp.freq === 'Every Other Day' && since % 2 !== 0) return false;
+    if (sp.freq === 'Weekly') {
+      var dow = new Date(Date.parse(DAY.iso + 'T00:00:00Z')).getUTCDay();
+      var madeDow = sp.created ? new Date(Date.parse(sp.created)).getUTCDay() : 1;
+      if (dow !== madeDow) return false;
+    }
+    var h = new Date().getHours();
+    if (sp.timeOf === 'Morning') return h >= 5 && h < 12;
+    if (sp.timeOf === 'Pre-Workout') return h >= 12 && h < 18;
+    if (sp.timeOf === 'With Food') return h >= 11 && h < 14;
+    if (sp.timeOf === 'Before Bed') return h >= 19;
+    return true;                        /* a custom time is always due */
+  }
+
+  var TIME_TONE = {
+    'Morning': 'id-3', 'Pre-Workout': 'id-2', 'With Food': 'id-1', 'Before Bed': 'id-4'
+  };
+  function timeTone(t) { return TIME_TONE[t] || 'text-tertiary'; }
+
+  /* ---------------------------------------------------------------
      Things you keep
      --------------------------------------------------------------- */
 
@@ -1180,7 +1287,10 @@
             /* Which recipe is open inside the recipes sheet. The list and the
                detail are one sheet with two faces rather than two sheets, so
                Back returns to the list without closing and losing the place. */
-            recipeOpen: null };
+            recipeOpen: null,
+            /* The supplements sheet has three faces: the list, the add or edit
+               form, and one supplement's history. Null means the list. */
+            suppForm: null, suppHist: null, suppDel: null };
 
   /* The same strip Home shows, from the same facts. It is here because
      eating during or straight after a session is exactly when somebody
@@ -2106,29 +2216,211 @@
           '</div>' +
         '</div>';
     }
-    if (S.sheet === 'supps') {
-      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
-        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sp-title" ' +
-          'data-detents="0.55 0.88" data-testid="sheet-supps">' +
-          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
-          '<div class="sheet__head"><h2 class="t-headline grow" id="sp-title">Supplements</h2>' +
-            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="supps-close">' +
-              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
-            '</button></div>' +
-          '<div class="sheet__body">' +
-            '<div class="card card--flush">' + DAY.supps.map(function (sp, i) {
-              return '<button class="row" type="button" data-action="supp" data-i="' + i +
-                '" aria-pressed="' + sp.taken + '" data-testid="supp-' + i + '">' +
-                '<span class="tick"><span class="tick__box">' + (sp.taken ? ICO.tick : '') + '</span></span>' +
-                '<span class="row__main stack">' +
-                  '<span class="row__title">' + esc(sp.name) + '</span>' +
-                  '<span class="row__sub">' + esc(sp.dose) + ' &middot; ' + esc(sp.when) + '</span>' +
-                '</span></button>';
-            }).join('') + '</div>' +
-            '<p class="t-caption-1 quiet mt-3">Whey is in your food log as food, because that is what it is. ' +
-              'It sits here so the list matches what is on the shelf.</p>' +
-          '</div>' +
+  function suppShell(title, body, foot, testid, back) {
+    return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sp-title" ' +
+        'data-detents="0.6 0.94" data-testid="' + testid + '">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+        '<div class="sheet__head">' +
+          (back
+            ? '<button class="iconbtn" type="button" data-action="' + back + '" ' +
+              'aria-label="Back to the list" data-testid="supp-back">' + ICO.back + '</button>'
+            : '') +
+          '<h2 class="t-headline grow" id="sp-title">' + title + '</h2>' +
+          '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="supps-close">' +
+            '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+          '</button></div>' +
+        '<div class="sheet__body">' + body + '</div>' +
+        (foot ? '<div class="sheet__foot">' + foot + '</div>' : '') +
+      '</div>';
+  }
+
+  function suppListSheet() {
+    var list = supps();
+    var body = list.length
+      ? '<div class="card card--flush">' + list.map(function (sp, i) {
+          var on = tookToday(sp.name);
+          var run = suppStreak(sp.name);
+          return '<div class="row row--withaside' + (on ? ' row--done' : '') + '" ' +
+              'data-testid="supp-row-' + i + '">' +
+            '<button class="iconbtn" type="button" data-action="supp" data-i="' + i + '" ' +
+              'aria-pressed="' + on + '" aria-label="' + (on ? 'Un-mark ' : 'Mark ') +
+              esc(sp.name) + ' taken today" data-testid="supp-' + i + '">' +
+              '<span class="tick"><span class="tick__box">' + (on ? ICO.tick : '') + '</span></span>' +
+            '</button>' +
+            '<button class="row__main row__main--btn" type="button" data-action="supp-hist" ' +
+              'data-i="' + i + '" data-testid="supp-hist-' + i + '">' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + esc(sp.name) +
+                  (run > 1 ? ' <span class="pill pill--streak" data-testid="supp-streak-' + i + '">' +
+                    run + ' days</span>' : '') + '</span>' +
+                '<span class="row__sub">' + esc(sp.dose || 'no dose set') +
+                  ' · <span style="color: var(--' + timeTone(sp.timeOf) + ')">' +
+                  esc(sp.timeOf || 'any time') + '</span>' +
+                  (sp.freq && sp.freq !== 'Daily' ? ' · ' + esc(sp.freq) : '') +
+                  (sp.reminder === false ? ' · no reminder' : '') + '</span>' +
+              '</span>' +
+            '</button>' +
+            '<button class="iconbtn" type="button" data-action="supp-edit" data-i="' + i + '" ' +
+              'aria-label="Edit ' + esc(sp.name) + '" data-testid="supp-edit-' + i + '">' +
+              ICO.pencil + '</button>' +
+            '<button class="iconbtn' + (S.suppDel === i ? ' iconbtn--danger' : '') + '" type="button" ' +
+              'data-action="supp-del" data-i="' + i + '" ' +
+              'aria-label="' + (S.suppDel === i ? 'Confirm removing ' : 'Remove ') + esc(sp.name) + '" ' +
+              'data-testid="supp-del-' + i + '">' +
+              (S.suppDel === i ? '<span class="btn__label">Remove</span>' : ICO.trash) + '</button>' +
+          '</div>';
+        }).join('') + '</div>' +
+        (S.suppDel !== null && S.suppDel !== undefined
+          ? '<p class="t-caption-1 quiet mt-2" data-testid="supp-del-note">Tap the bin again to ' +
+            'remove it. Nothing else on the row will do it.</p>'
+          : '<p class="t-caption-1 quiet mt-2">Tap a name for its history. Whey is in your food ' +
+            'log as food, because that is what it is.</p>')
+      : '<p class="t-body" data-testid="supps-empty">No supplements added yet.</p>' +
+        '<p class="t-detail quiet mt-1">Add what you actually take. The list is the shelf; ticking ' +
+        'one is what builds the streak.</p>';
+    return suppShell('Supplements', body,
+      '<button class="btn btn--secondary btn--block" type="button" data-action="supp-add" ' +
+        'data-testid="supp-add"><span class="btn__label">Add a supplement</span></button>',
+      'sheet-supps');
+  }
+
+  function suppFormSheet() {
+    var f = S.suppForm;
+    var editing = f.idx !== null && f.idx !== undefined;
+    var custom = SUPP_TIMES.indexOf(f.timeOf) < 0 || f.timeOf === 'Custom';
+    var body =
+      '<label class="t-label field__label" for="sp-name">Name</label>' +
+      '<input class="input" id="sp-name" type="text" autocomplete="off" ' +
+        'placeholder="Creatine" value="' + esc(f.name) + '" data-testid="sp-name">' +
+      /* Only offered on a new one with nothing typed: a preset list beside a
+         name somebody is already writing is a list of ways to lose it. */
+      (!f.name && !editing
+        ? '<button class="btn btn--tertiary btn--block mt-2" type="button" data-action="supp-presets" ' +
+            'aria-expanded="' + !!f.presets + '" data-testid="sp-presets">' +
+            '<span class="btn__label">' + (f.presets ? 'Hide the presets' : 'Choose from presets') +
+            '</span></button>' +
+          (f.presets
+            ? '<input class="input mt-2" id="sp-q" type="search" autocomplete="off" ' +
+                'placeholder="Search presets" value="' + esc(f.q || '') + '" data-testid="sp-q">' +
+              (function () {
+                var have = supps().map(function (x) { return String(x.name).toLowerCase(); });
+                var q = String(f.q || '').toLowerCase();
+                var hits = PRESET_SUPPS.filter(function (nm) {
+                  return have.indexOf(nm.toLowerCase()) < 0 &&
+                         (!q || nm.toLowerCase().indexOf(q) >= 0);
+                });
+                if (!hits.length) {
+                  return '<p class="t-detail quiet mt-2" data-testid="sp-nopreset">No matches. ' +
+                    'Type a name below instead.</p>';
+                }
+                return '<div class="chiprow mt-2">' + hits.map(function (nm, pi) {
+                  return '<button class="chip" type="button" data-action="supp-preset" ' +
+                    'data-v="' + esc(nm) + '" data-testid="sp-preset-' + pi + '">' + esc(nm) +
+                    '</button>';
+                }).join('') + '</div>';
+              })()
+            : '')
+        : '') +
+      '<label class="t-label field__label mt-4" for="sp-dose">Dose</label>' +
+      '<input class="input" id="sp-dose" type="text" autocomplete="off" ' +
+        'placeholder="5 g, 2 capsules, 1000 IU" value="' + esc(f.dose) + '" data-testid="sp-dose">' +
+      '<p class="t-caption-1 quiet mt-1">Written down as you type it. Nothing here reads it as a ' +
+        'number or adds it to anything.</p>' +
+      '<h3 class="t-label mt-4">How often</h3>' +
+      '<div class="seg seg--lg mt-2" role="radiogroup" aria-label="How often" data-testid="sp-freq">' +
+        SUPP_FREQ.map(function (x) {
+          return '<button class="seg__item" type="button" role="radio" ' +
+            'aria-checked="' + (f.freq === x) + '" data-action="supp-freq" data-v="' + esc(x) + '" ' +
+            'data-testid="sp-freq-' + x.replace(/\W+/g, '-').toLowerCase() + '">' + esc(x) +
+            '</button>';
+        }).join('') + '</div>' +
+      '<h3 class="t-label mt-4">When</h3>' +
+      '<div class="chiprow mt-2" role="radiogroup" aria-label="When" data-testid="sp-when">' +
+        SUPP_TIMES.map(function (x) {
+          var sel = x === 'Custom' ? custom : f.timeOf === x;
+          return '<button class="chip' + (sel ? ' chip--on' : '') + '" type="button" role="radio" ' +
+            'aria-checked="' + sel + '" data-action="supp-time" data-v="' + esc(x) + '" ' +
+            'data-testid="sp-time-' + x.replace(/\W+/g, '-').toLowerCase() + '">' + esc(x) +
+            '</button>';
+        }).join('') + '</div>' +
+      (custom
+        ? '<input class="input mt-2" id="sp-custom" type="text" autocomplete="off" ' +
+            'placeholder="After dinner" value="' + esc(f.timeOf === 'Custom' ? '' : f.timeOf) + '" ' +
+            'aria-label="Your own time" data-testid="sp-custom">' +
+          '<p class="t-caption-1 quiet mt-1">A time of your own has no window, so it is due all ' +
+            'day rather than at a guess.</p>'
+        : '<p class="t-caption-1 quiet mt-1">' + esc(f.timeOf) + ' is ' +
+            ({ 'Morning': 'five in the morning to noon',
+               'Pre-Workout': 'noon to six',
+               'With Food': 'eleven to two',
+               'Before Bed': 'seven at night onwards' }[f.timeOf] || 'all day') +
+            ' on the reminder card.</p>') +
+      '<div class="row row--withaside mt-4">' +
+        '<span class="row__main stack">' +
+          '<span class="row__title" id="sp-rem-lbl">Remind me</span>' +
+          '<span class="row__sub">' + (f.reminder
+            ? 'It appears on the Home card when it is due.'
+            : 'It stays on this list and off the Home card.') + '</span>' +
+        '</span>' +
+        '<button class="switch" role="switch" aria-checked="' + !!f.reminder + '" ' +
+          'aria-labelledby="sp-rem-lbl" data-action="supp-remind" data-testid="sp-remind">' +
+          '<span class="switch__knob"></span></button>' +
+      '</div>' +
+      '<p class="t-caption-1 quiet mt-2">A card on Home, not a push notification. Push needs a ' +
+        'server and a permission this build does not ask for.</p>' +
+      (f.error ? '<p class="field__error mt-2" role="alert" data-testid="sp-error">' +
+        esc(f.error) + '</p>' : '');
+    return suppShell(editing ? 'Edit supplement' : 'Add a supplement', body,
+      '<button class="btn btn--primary btn--block" type="button" data-action="supp-save" ' +
+        'data-testid="sp-save"><span class="btn__label">' +
+        (editing ? 'Save changes' : 'Add it') + '</span></button>',
+      'sheet-supp-form', 'supp-list');
+  }
+
+  function suppHistorySheet() {
+    var sp = supps()[S.suppHist];
+    if (!sp) { S.suppHist = null; return suppListSheet(); }
+    var days = suppLast14(sp.name);
+    var hit = days.filter(function (d) { return d.on; }).length;
+    var run = suppStreak(sp.name);
+    var body =
+      '<p class="t-detail">' + esc(sp.dose || 'no dose set') + ' · ' +
+        esc(sp.timeOf || 'any time') + ' · ' + esc(sp.freq || 'Daily') + '</p>' +
+      '<div class="hstack hstack--3 mt-4">' +
+        '<div class="card grow"><span class="t-label">Streak</span>' +
+          '<p class="money num mt-1" data-testid="supp-hist-streak">' + run + '</p>' +
+          '<p class="t-caption-1 quiet">' + (run === 1 ? 'day' : 'days') + ' in a row</p></div>' +
+        '<div class="card grow"><span class="t-label">Last 14 days</span>' +
+          '<p class="money num mt-1" data-testid="supp-hist-count">' + hit + '</p>' +
+          '<p class="t-caption-1 quiet">of 14</p></div>' +
+      '</div>' +
+      '<h3 class="t-label mt-5">Day by day</h3>' +
+      '<div class="suppgrid mt-2" data-testid="supp-hist-grid">' + days.map(function (d) {
+        var p = d.iso.split('-');
+        return '<div class="suppday' + (d.on ? ' suppday--on' : '') + '" ' +
+          'aria-label="' + d.iso + (d.on ? ', taken' : ', not taken') + '">' +
+          '<span class="suppday__mark" aria-hidden="true">' + (d.on ? ICO.tick : '·') + '</span>' +
+          '<span class="suppday__d">' + p[1] + '-' + p[2] + '</span>' +
         '</div>';
+      }).join('') + '</div>' +
+      '<p class="t-caption-1 quiet mt-3">Counted from the ticks, never stored, so the streak and ' +
+        'the grid cannot disagree with each other.</p>';
+    return suppShell(esc(sp.name), body,
+      '<button class="btn btn--secondary btn--block" type="button" data-action="supp" ' +
+        'data-i="' + S.suppHist + '" data-testid="supp-hist-tick">' +
+        '<span class="btn__label">' + (tookToday(sp.name) ? 'Un-mark today' : 'Mark today taken') +
+        '</span></button>',
+      'sheet-supp-hist', 'supp-list');
+  }
+
+    if (S.sheet === 'supps') {
+      /* Three screens behind one sheet: the list, the form, and one
+         supplement's history. Each returns early, so only one is ever drawn
+         and the sheet does not become a page with three things on it. */
+      if (S.suppHist !== null && S.suppHist !== undefined) return suppHistorySheet();
+      if (S.suppForm) return suppFormSheet();
+      return suppListSheet();
     }
     if (S.sheet === 'trends') {
       /* 7, 14 or 30 -- three slices of one series, not three numbers. */
@@ -3395,11 +3687,67 @@
     if (a === 'meals' || a === 'trends' || a === 'water' || a === 'supps') { S.sheet = a; render(); return; }
     if (a === 'water-add') { DAY.waterMl = Math.min(4000, DAY.waterMl + 250); saveDay(); render(); return; }
     if (a === 'water-sub') { DAY.waterMl = Math.max(0, DAY.waterMl - 250); saveDay(); render(); return; }
+    /* The tick writes to lk_suppLog, which is the thing streaks are counted
+       from. It used to flip a flag on the day record and nothing counted it. */
     if (a === 'supp') {
-      var k = act.getAttribute('data-i');
-      DAY.supps[k].taken = !DAY.supps[k].taken;
+      var sp0 = supps()[+act.getAttribute('data-i')];
+      if (!sp0) return;
+      var was = tookToday(sp0.name);
+      markSupp(sp0.name, !was);
+      /* The day record keeps its copy in step, because Recap reads it. */
+      DAY.supps.forEach(function (x) { if (x.name === sp0.name) x.taken = !was; });
       saveDay();
+      render();
+      say(sp0.name + (was ? ' un-marked.' : ' taken. ' +
+        (function () { var r = suppStreak(sp0.name); return r > 1 ? r + ' days in a row.' : ''; })()));
+      return;
+    }
+    if (a === 'supp-list') { S.suppForm = null; S.suppHist = null; S.suppDel = null; render(); return; }
+    if (a === 'supp-hist') { S.suppHist = +act.getAttribute('data-i'); S.suppDel = null; render(); return; }
+    if (a === 'supp-add') {
+      S.suppForm = { idx: null, name: '', dose: '', freq: 'Daily', timeOf: 'Morning',
+                     reminder: true, presets: false, q: '', error: null };
+      S.suppDel = null;
+      render();
+      var nf = document.getElementById('sp-name'); if (nf) nf.focus();
+      return;
+    }
+    if (a === 'supp-edit') {
+      var se0 = supps()[+act.getAttribute('data-i')];
+      if (!se0) return;
+      S.suppForm = { idx: +act.getAttribute('data-i'), name: se0.name || '', dose: se0.dose || '',
+                     freq: se0.freq || 'Daily', timeOf: se0.timeOf || 'Morning',
+                     reminder: se0.reminder !== false, presets: false, q: '', error: null };
+      S.suppDel = null;
       render(); return;
+    }
+    if (a === 'supp-presets') { readSuppForm(); S.suppForm.presets = !S.suppForm.presets; render(); return; }
+    if (a === 'supp-preset') {
+      readSuppForm();
+      S.suppForm.name = act.getAttribute('data-v');
+      S.suppForm.presets = false; S.suppForm.q = '';
+      render(); return;
+    }
+    if (a === 'supp-freq') { readSuppForm(); S.suppForm.freq = act.getAttribute('data-v'); render(); return; }
+    if (a === 'supp-time') { readSuppForm(); S.suppForm.timeOf = act.getAttribute('data-v'); render(); return; }
+    if (a === 'supp-remind') { readSuppForm(); S.suppForm.reminder = !S.suppForm.reminder; render(); return; }
+    if (a === 'supp-save') { saveSupp(); return; }
+    /* Two taps, like every other destructive control here. Tapping anything
+       else on the row disarms it, so an armed bin cannot be hit by accident
+       three scrolls later. */
+    if (a === 'supp-del') {
+      var di = +act.getAttribute('data-i');
+      if (S.suppDel !== di) { S.suppDel = di; render(); return; }
+      var list = supps().slice();
+      var goneS = list.splice(di, 1)[0];
+      writeSupps(list);
+      S.suppDel = null;
+      /* The log keeps its history. Removing a supplement from the shelf is not
+         a claim that it was never taken, and deleting the record would rewrite
+         every streak behind it. */
+      render();
+      say(goneS ? goneS.name + ' removed. Its history is kept.' : 'Removed.');
+      return;
     }
     if (a === 'cam-oil') { S.camOil = act.getAttribute('data-oil'); render(); return; }
     if (a === 'cam-log') { camLog(); return; }
@@ -3972,6 +4320,67 @@
     say(kg.toFixed(1) + ' kg saved.');
   }
 
+  function readSuppForm() {
+    if (!S.suppForm) return;
+    var g = function (id) { var e = document.getElementById(id); return e ? e.value : null; };
+    var nm = g('sp-name'); if (nm !== null) S.suppForm.name = nm;
+    var ds = g('sp-dose'); if (ds !== null) S.suppForm.dose = ds;
+    var q = g('sp-q'); if (q !== null) S.suppForm.q = q;
+    var ct = g('sp-custom');
+    if (ct !== null && String(ct).trim()) S.suppForm.timeOf = String(ct).trim();
+  }
+
+  function saveSupp() {
+    readSuppForm();
+    var f = S.suppForm;
+    var name = String(f.name || '').trim();
+    if (!name) { f.error = 'What is it called?'; render(); focusSupp('sp-name'); return; }
+    var list = supps().slice();
+    /* One row per thing. Two rows called Creatine would split one streak in
+       half and neither half would be true. */
+    var clash = -1;
+    list.forEach(function (x, i) {
+      if (String(x.name).toLowerCase() === name.toLowerCase() && i !== f.idx) clash = i;
+    });
+    if (clash >= 0) { f.error = name + ' is already on the list.'; render(); focusSupp('sp-name'); return; }
+    var timeOf = f.timeOf === 'Custom' ? 'Any time' : f.timeOf;
+    var rec = {
+      name: name, dose: String(f.dose || '').trim(), freq: f.freq || 'Daily',
+      timeOf: timeOf, reminder: !!f.reminder
+    };
+    if (f.idx !== null && f.idx !== undefined && list[f.idx]) {
+      /* created is kept: it is what Every Other Day and Weekly count from, so
+         an edit must not reset the schedule. */
+      rec.created = list[f.idx].created || new Date().toISOString();
+      /* A rename carries its history with it, or the streak dies on a typo
+         being fixed. */
+      var oldName = list[f.idx].name;
+      list[f.idx] = rec;
+      if (oldName !== name) renameInLog(oldName, name);
+    } else {
+      rec.created = new Date().toISOString();
+      list.push(rec);
+    }
+    writeSupps(list);
+    S.suppForm = null;
+    render();
+    say(name + ' saved.');
+  }
+
+  function renameInLog(from, to) {
+    var map = suppLog(), touched = false;
+    Object.keys(map).forEach(function (iso) {
+      var at = map[iso].indexOf(from);
+      if (at >= 0) { map[iso][at] = to; touched = true; }
+    });
+    if (touched) writeSuppLog(map);
+  }
+
+  function focusSupp(id) {
+    var e = document.getElementById(id);
+    if (e) { e.focus(); try { e.setSelectionRange(e.value.length, e.value.length); } catch (err) {} }
+  }
+
   function readManual() {
     if (!S.man) S.man = { name: '', kcal: '', pro: '', carb: '', fat: '', error: null };
     ['name', 'kcal', 'pro', 'carb', 'fat'].forEach(function (k) {
@@ -4272,6 +4681,13 @@
       render();
       return;
     }
+    if (e.target.id === 'sp-q') {
+      readSuppForm();
+      render();
+      focusSupp('sp-q');
+      return;
+    }
+    if (e.target.id && e.target.id.indexOf('sp-') === 0) { readSuppForm(); return; }
     if (e.target.id === 'mn-name' || e.target.id === 'mn-kcal') {
       var wid = e.target.id;
       readManual();

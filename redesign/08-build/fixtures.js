@@ -4918,6 +4918,58 @@
                 ]
           }
     ],
+    suppLog: {
+          "2026-08-27": [
+                "Creatine",
+                "Vitamin D"
+          ],
+          "2026-08-28": [
+                "Creatine"
+          ],
+          "2026-08-29": [
+                "Vitamin D"
+          ],
+          "2026-08-30": [
+                "Creatine",
+                "Vitamin D"
+          ],
+          "2026-08-31": [
+                "Creatine"
+          ],
+          "2026-09-01": [
+                "Creatine",
+                "Vitamin D"
+          ],
+          "2026-09-02": [
+                "Creatine",
+                "Vitamin D"
+          ],
+          "2026-09-03": [
+                "Creatine"
+          ],
+          "2026-09-04": [
+                "Creatine",
+                "Vitamin D"
+          ],
+          "2026-09-05": [
+                "Creatine",
+                "Vitamin D"
+          ],
+          "2026-09-06": [
+                "Creatine"
+          ],
+          "2026-09-07": [
+                "Creatine",
+                "Vitamin D"
+          ],
+          "2026-09-08": [
+                "Creatine",
+                "Vitamin D"
+          ],
+          "2026-09-09": [
+                "Creatine"
+          ]
+    },
 
     /* Every session on a date, newest first. */
     on: function (iso) {
