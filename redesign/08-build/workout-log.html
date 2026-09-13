@@ -498,11 +498,21 @@
     var blank = shown === null || shown === undefined;
     var ghost = blank || own === null;
     var text = blank ? '--' : (field === 'weight' ? trim(shown) : String(shown));
+    /* Partials belong ON the reps, because that is what they are: eight and
+       three halves is one set. They were a separate cell in a separate row
+       and the reps column read 8, so the figure a reader checks the session
+       against left them out. */
+    var partial = (field === 'reps' && !blank && st.partials) ? st.partials : 0;
     var label = 'Set ' + (i + 1) + ' ' + field + (blank ? ', empty'
-      : (ghost ? ', last session ' : ', ') + text + (field === 'weight' ? ' ' + unitWord() : ' reps'));
+      : (ghost ? ', last session ' : ', ') + text + (field === 'weight' ? ' ' + unitWord() : ' reps')) +
+      (partial ? ' plus ' + partial + (partial === 1 ? ' partial' : ' partials') : '');
     return '<button class="cell' + (ghost ? ' cell--empty' : '') + (editing ? ' cell--editing' : '') + '" type="button" ' +
       'data-act="edit" data-ex="' + e + '" data-set="' + i + '" data-field="' + field + '" ' +
-      'data-testid="cell-' + e + '-' + i + '-' + field + '" aria-label="' + esc(label) + '">' + n(esc(text)) + '</button>';
+      'data-testid="cell-' + e + '-' + i + '-' + field + '" aria-label="' + esc(label) + '">' +
+      n(esc(text)) +
+      (partial ? '<span class="cell__plus" aria-hidden="true" data-testid="cell-partials-' + e + '-' + i + '">+' +
+        partial + '</span>' : '') +
+      '</button>';
   }
 
   function rirHTML(e, i) {
@@ -858,6 +868,7 @@
       /* Add Set is one tap on every card and nothing took one off. The only
          way to shed a set was to delete the whole exercise. */
       ['delset', ICO.trash, 'Remove the last set', ''],
+      ['delrow', ICO.trash, 'Remove a set by number', ''],
       ['remove', ICO.trash, 'Remove exercise', ' sheetact--danger']
     ];
     return '<div class="scrim" data-act="close" data-testid="exsheet-scrim" role="presentation"></div>' +
@@ -1017,6 +1028,30 @@
       '</div>';
   }
 
+  /* Which one. A list of the sets as they read on the card, so the row being
+     removed is identified by what is in it rather than by a number somebody
+     has to count to. */
+  function pickSetHTML() {
+    var ex = S.exercises[S.overlayEx];
+    if (!ex) return '';
+    return '<div class="scrim" data-act="close" data-testid="pickset-scrim" role="presentation"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-label="Remove a set" data-testid="pickset-sheet">' +
+        '<div class="sheet__grab" aria-hidden="true"></div>' +
+        '<div class="sheet__head"><h2 class="t-section">Remove a set</h2>' +
+          '<button class="iconbtn" type="button" data-act="close" data-testid="pickset-close" aria-label="Close">' + ICO.close + '</button></div>' +
+        '<div class="sheet__body"><div class="sheetlist">' +
+          ex.sets.map(function (st, i) {
+            var w = st.kg !== null ? trim(toDisplay(st.kg)) + ' ' + unitLabel() : 'no weight';
+            var r = st.reps !== null ? st.reps + ' reps' : 'no reps';
+            return '<button class="sheetact" type="button" data-act="delrow-go" data-i="' + i + '" ' +
+              'data-testid="pickset-' + i + '">' +
+              '<span class="sheetact__ico">' + (st.warm ? 'W' : n(setNumber(ex, i))) + '</span>' +
+              esc(w + ' \u00d7 ' + r) + (st.done ? ' \u00b7 logged' : '') + '</button>';
+          }).join('') +
+        '</div></div>' +
+      '</div>';
+  }
+
   function blockModalHTML() {
     return '<div class="scrim" data-act="close" data-testid="block-scrim" role="presentation"></div>' +
       '<div class="sheet" role="dialog" aria-modal="true" aria-label="Add block" data-testid="block-sheet">' +
@@ -1156,6 +1191,7 @@
       case 'plates': return platesHTML();
       case 'rest': return restSettingsHTML();
       case 'block': return blockModalHTML();
+      case 'pickset': return pickSetHTML();
       case 'addex': return addExHTML();
       case 'discard': return discardHTML();
       default: return '';
@@ -1564,6 +1600,13 @@
                 unitLabel() + ' added.');
           break;
         }
+        /* Any set, not only the last. delset pops, so shedding the second of
+           four meant deleting two and retyping one. */
+        if (key === 'delrow') {
+          if (cur.sets.length <= 1) { S.overlay = null; toast('An exercise keeps at least one set.'); break; }
+          S.overlay = 'pickset';
+          break;
+        }
         if (key === 'delset') {
           if (cur.sets.length <= 1) { S.overlay = null; toast('An exercise keeps at least one set.'); break; }
           var lastIx = cur.sets.length - 1, goneSet = cur.sets.pop();
@@ -1754,6 +1797,18 @@
         ks.warm = next === 'warm';
         ks.kind = next === 'warm' ? null : next;
         say('Set ' + (ki + 1) + ' is a ' + KIND_WORD[next] + '.');
+        break;
+      }
+      case 'delrow-go': {
+        var dre = S.overlayEx, dri = Number(t.getAttribute('data-i'));
+        var dex = S.exercises[dre];
+        if (!dex || dex.sets.length <= 1) { S.overlay = null; break; }
+        var goneRow = dex.sets.splice(dri, 1)[0];
+        S.overlay = null;
+        toast('Set removed.', 'info', 'Undo', function () {
+          dex.sets.splice(dri, 0, goneRow);
+          paint();
+        });
         break;
       }
       case 'plate-solve': {
