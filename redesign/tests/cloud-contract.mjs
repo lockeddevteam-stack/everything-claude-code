@@ -90,6 +90,16 @@ const server = http.createServer(async (req, res) => {
     if (!signedIn) return send(200, []);
     return send(200, profile ? [profile] : []);
   }
+  if (url.pathname === '/push/key') return send(200, { publicKey: 'BFakeKeyForTheMirror-0123456789abcdefghijklmnopqrstuvwxyz_ABCDEFGHIJKLMNOPQRSTUVWX' });
+  if (url.pathname === '/push/subscribe') {
+    if (!/^[A-Za-z0-9_-]{8,64}$/.test(String(json.deviceId || ''))) return send(400, { error: 'Bad device id' });
+    return send(200, { ok: true });
+  }
+  if (url.pathname === '/push/prefs') {
+    if (!/^[A-Za-z0-9_-]{8,64}$/.test(String(json.deviceId || ''))) return send(400, { error: 'Bad device id' });
+    return send(200, { ok: true, prefs: json.prefs });
+  }
+  if (url.pathname === '/push/unsubscribe') return send(200, { ok: true });
   if (url.pathname === '/food-search') {
     /* The Worker answers per 100 g, with brand and type alongside. */
     return send(200, { items: [
@@ -322,6 +332,46 @@ fr = await C.foodSearch('chicken');
 ok(!fr.ok && fr.error === 'not_configured',
    'with no server it refuses rather than returning an empty shelf', fr.message);
 global.window.LK_CLOUD = { supabaseUrl: BASE, supabaseKey: 'anon-key', apiUrl: BASE };
+
+/* ---- 9c. reminders --------------------------------------------------
+   The browser half cannot run here -- there is no service worker and no
+   push manager in this process -- so what is checked is the half this
+   file owns: the device id the server keys a schedule by, the prefs it
+   sends, and that every call refuses honestly when it cannot work. */
+const P = C.reminders;
+ok(P.supported() === false, 'no push in this process, and it says so rather than throwing');
+
+const dev = P.deviceId();
+ok(/^[A-Za-z0-9_-]{8,64}$/.test(dev), 'the device id is the shape the server accepts', dev);
+ok(P.deviceId() === dev, 'and it is made once, not per call');
+ok(S.syncKeys().indexOf('lk_pushDevice') === -1,
+   'the device id does not sync: a reminder belongs to a phone, not an account');
+
+let kr = await P.key();
+ok(kr.ok && typeof kr.data === 'string' && kr.data.length > 40, 'the push key comes back', kr.data && kr.data.slice(0, 12));
+
+let sr = await P.subscribe();
+ok(!sr.ok && sr.error === 'unsupported',
+   'subscribing without a push manager says the browser cannot, not that it failed', sr.message);
+
+let pr = await P.prefs({ rest: true, training: true, trainingTime: '07:30',
+                         checkin: false, checkinTime: '08:00', idle: true });
+const sentPrefs = seen.filter(function (x) { return x.path === '/push/prefs'; }).pop();
+ok(pr.ok, 'the schedule reaches the server', pr.message);
+ok(sentPrefs.body.deviceId === dev, 'keyed by this phone');
+ok(sentPrefs.body.prefs.trainingTime === '07:30' && sentPrefs.body.prefs.checkin === false,
+   'with the times and switches as shown', JSON.stringify(sentPrefs.body.prefs));
+ok(typeof sentPrefs.body.tz === 'string',
+   'and a timezone, because 07:30 means 07:30 where they are');
+
+const noServer = { supabaseUrl: BASE, supabaseKey: 'anon-key' };
+const had = global.window.LK_CLOUD;
+global.window.LK_CLOUD = noServer;
+ok((await P.key()).error === 'not_configured', 'with no server the key refuses');
+ok((await P.subscribe()).error === 'not_configured', 'with no server subscribing refuses');
+ok((await P.prefs({})).error === 'not_configured', 'with no server the schedule refuses');
+ok((await P.unsubscribe()).ok === true, 'and unsubscribing still succeeds locally');
+global.window.LK_CLOUD = had;
 
 /* ---- 10. signing out ------------------------------------------------- */
 await C.signOut();

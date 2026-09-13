@@ -12910,6 +12910,21 @@ window.LK_CLOUD = {
      push and pull cannot drift apart on what counts as the cycle log. */
   var CYCLE_KEYS = { lk_mcProfile: 1, lk_mcDays: 1, lk_mcFuelAdjust: 1 };
 
+  /* The schedule is kept in the reader's own timezone, because a reminder
+     at 07:30 means 07:30 where they are. */
+  function tz() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; }
+  }
+
+  /* A VAPID key travels as base64url text and the browser wants bytes. */
+  function b64url(s) {
+    var pad = '='.repeat((4 - s.length % 4) % 4);
+    var raw = g.atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
+    var out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
   function coachEndpoint() {
     var c = cfg() || {};
     return c.coachUrl || String(c.apiUrl || '').replace(/\/$/, '') + '/';
@@ -13274,6 +13289,113 @@ window.LK_CLOUD = {
             };
           }).filter(Boolean) };
         }, function () { return { ok: true, data: [] }; });
+    },
+
+    /* ---- reminders --------------------------------------------------
+       The notification switches in Settings were preferences with nothing
+       behind them: turning one on changed a stored value and nothing ever
+       arrived. The server holds the subscription and the schedule, keyed
+       by a device id this file makes once and keeps, because a reminder
+       belongs to a phone rather than to an account -- somebody signed in
+       on two devices should not get every reminder twice on both.
+
+       Everything here answers honestly when there is no server, when the
+       browser has no push at all, and when permission was refused. Those
+       are three different states and Settings prints a different sentence
+       for each. */
+    /* Named reminders, not push: LKCloud.push is already the outgoing half
+       of the sync, and this quietly replaced it -- every sync in the app
+       became a type error the moment this file loaded. */
+    reminders: {
+      supported: function () {
+        return !!(g.navigator && g.navigator.serviceWorker && g.PushManager && g.Notification);
+      },
+
+      /* One id per phone, made once. It is not a secret and identifies
+         nothing about a person: it is what the server keys a schedule by. */
+      deviceId: function () {
+        var S = ST();
+        var id = S ? S.get('lk_pushDevice', null) : null;
+        if (!id || !/^[A-Za-z0-9_-]{8,64}$/.test(id)) {
+          id = '';
+          var abc = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+          var n = 24, r = null;
+          try { r = new Uint8Array(n); g.crypto.getRandomValues(r); } catch (e) { r = null; }
+          for (var i = 0; i < n; i++) {
+            id += abc.charAt(r ? (r[i] % abc.length) : Math.floor(Math.random() * abc.length));
+          }
+          if (S) S.set('lk_pushDevice', id);
+        }
+        return id;
+      },
+
+      key: function () {
+        var c = cfg();
+        if (!c || !c.apiUrl) return Promise.resolve({ ok: false, error: 'not_configured' });
+        return fetch(c.apiUrl.replace(/\/$/, '') + '/push/key')
+          .then(function (r) { return r.json(); }, fail)
+          .then(function (j) {
+            return j && j.publicKey ? { ok: true, data: j.publicKey }
+                                    : { ok: false, error: 'server', message: 'No push key.' };
+          });
+      },
+
+      subscribe: function () {
+        var c = cfg(), P = API.reminders;
+        if (!c || !c.apiUrl) {
+          return Promise.resolve({ ok: false, error: 'not_configured',
+            message: 'Reminders need a server, and this build has none.' });
+        }
+        if (!P.supported()) {
+          return Promise.resolve({ ok: false, error: 'unsupported',
+            message: 'This browser cannot receive reminders.' });
+        }
+        return P.key().then(function (k) {
+          if (!k.ok) return k;
+          return g.navigator.serviceWorker.ready.then(function (reg) {
+            return reg.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: b64url(k.data)
+            });
+          }).then(function (sub) {
+            return post(c.apiUrl.replace(/\/$/, '') + '/push/subscribe', {
+              deviceId: P.deviceId(),
+              subscription: JSON.parse(JSON.stringify(sub)),
+              tz: tz()
+            });
+          }, function (e) {
+            /* A refusal and a failure are different, and a screen that
+               says "something went wrong" to somebody who pressed Block
+               is telling them to retry a decision they made. */
+            var why = String(e && e.name || e);
+            return { ok: false, error: why === 'NotAllowedError' ? 'denied' : 'browser',
+                     message: why === 'NotAllowedError'
+                       ? 'This phone is set to block notifications from LOCKED.'
+                       : 'This browser refused to set reminders up.' };
+          });
+        });
+      },
+
+      prefs: function (prefs) {
+        var c = cfg();
+        if (!c || !c.apiUrl) return Promise.resolve({ ok: false, error: 'not_configured' });
+        return post(c.apiUrl.replace(/\/$/, '') + '/push/prefs',
+                    { deviceId: API.reminders.deviceId(), prefs: prefs || {}, tz: tz() });
+      },
+
+      test: function () {
+        var c = cfg();
+        if (!c || !c.apiUrl) return Promise.resolve({ ok: false, error: 'not_configured' });
+        return post(c.apiUrl.replace(/\/$/, '') + '/push/test', { deviceId: API.reminders.deviceId() });
+      },
+
+      unsubscribe: function () {
+        var c = cfg();
+        if (!c || !c.apiUrl) return Promise.resolve({ ok: true });
+        return post(c.apiUrl.replace(/\/$/, '') + '/push/unsubscribe',
+                    { deviceId: API.reminders.deviceId() })
+          .then(function (r) { return r; }, function () { return { ok: true }; });
+      }
     },
 
     /* Delete the account and everything under it. The row cascade is on
@@ -32148,7 +32270,15 @@ DEMO.define("profile", function (document, window, location, fetch) {
           '<span class="row__sub">' + (guest
             ? 'Nothing leaves this device'
             : synced ? 'Last synced ' + esc(String(synced))
-                     : 'Nothing has left this device. This build has no server to sync with.') + '</span>' +
+            /* Two different facts, and saying the wrong one is the failure
+               this whole build is written against. A build with no server
+               has nothing to sync with; a build that has one and has not
+               synced is waiting on a sign-in. */
+            : (window.LKCloud && LKCloud.ready())
+                ? (window.LKCloud.signedIn()
+                    ? 'Nothing has left this device yet. It syncs on your next change.'
+                    : 'Nothing has left this device. Sign in to back it up.')
+                : 'Nothing has left this device. This build has no server to sync with.') + '</span>' +
         '</span>' +
       '</div>' +
       '<button class="row" type="button" data-action="settings" data-testid="open-settings">' +
@@ -36305,9 +36435,20 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
             'data or losing the phone loses the history with it, which is why the guest screen says ' +
             'so before you choose it.</p>' +
           '<h3 class="t-label mt-4">This build</h3>' +
-          '<p class="t-body mt-2">This is a demo. There is no server behind it, no account is really ' +
-            'created, and no terms have been agreed to \u2014 the full text belongs here and is not ' +
-            'written yet. Nothing you type into it is transmitted anywhere.</p>' +
+          /* THIS PARAGRAPH IS THE ONE PLACE A PERSON IS TOLD WHAT HAPPENS
+             TO WHAT THEY TYPE, so it has to be read off the build rather
+             than written into it. It said "there is no server behind it,
+             no account is really created" -- a sentence that becomes a
+             lie the moment a deploy configures one, in the direction that
+             matters most. */
+          (serverReady()
+            ? '<p class="t-body mt-2">Creating an account sends your email and password to the ' +
+                'server that holds your account, and nothing else. Your training stays on this ' +
+                'phone until you are signed in and sync it. No terms have been agreed to \u2014 ' +
+                'the full text belongs here and is not written yet.</p>'
+            : '<p class="t-body mt-2">There is no server behind this build, no account is really ' +
+                'created, and no terms have been agreed to \u2014 the full text belongs here and ' +
+                'is not written yet. Nothing you type into it is transmitted anywhere.</p>') +
         '</div>' +
         '<div class="sheet__foot">' +
           '<button class="btn btn--secondary btn--block" data-testid="legal-done">' +
@@ -37306,8 +37447,8 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
       (S.pushLost
         ? '<div class="banner banner--warn mt-4" role="status" data-testid="push-lost">' + ICO.alert +
             '<span class="grow"><strong>Reminders are not set up</strong>Notifications are allowed ' +
-            'on this phone but there is no push subscription, and resubscribing needs a push server ' +
-            'this build has none of. Nothing will arrive.</span></div>'
+            'on this phone, but it is not registered to receive any. Turn the switch in Settings ' +
+            'off and on again to register it. Until then nothing will arrive.</span></div>'
         : '') +
 
       proBlockHTML() +
@@ -38584,7 +38725,14 @@ DEMO.define("settings", function (document, window, location, fetch) {
      Persistence. One place writes, so a row and the key behind it
      cannot drift. Every one of these keys is the shipped app's own.
      ============================================================= */
+  /* Which of these the server's schedule is made of. Anything on this
+     list moving has to reach the server, or the times shown here and the
+     times reminders arrive at drift apart with nothing saying so. */
+  var SCHEDULED = { restTimer: 1, reminder: 1, reminderAt: 1, checkin: 1,
+                    checkinAt: 1, notifTimes: 1, notifOn: 1 };
+
   function persist(k) {
+    if (SCHEDULED[k]) setTimeout(syncPushPrefs, 0);
     if (k === 'unit') { if (window.LKUnits) LKUnits.set(S.unit === 'kg'); return; }
     if (k === 'theme') { if (window.LKTheme) LKTheme.set(S.theme); return; }
     if (k === 'dist') {
@@ -38778,6 +38926,31 @@ DEMO.define("settings", function (document, window, location, fetch) {
      half is not, and the screen says so where it would matter.
      ============================================================= */
   function notifSupported() { return typeof window.Notification === 'function'; }
+  /* Whether reminders can actually arrive, as opposed to whether the
+     browser will show one this second. Three things have to be true and
+     the switches say which one is missing. */
+  function pushReady() {
+    var C = window.LKCloud;
+    return !!(C && C.ready() && C.reminders && C.reminders.supported());
+  }
+  /* Every switch on this screen, in the shape the server's schedule uses. */
+  function pushPrefs() {
+    var t = S.notifTimes || {};
+    return {
+      rest: !!S.restTimer,
+      training: !!S.reminder,
+      trainingTime: t.workout || S.reminderAt || '07:30',
+      checkin: !!S.checkin,
+      checkinTime: t.checkin || '08:00',
+      idle: !!S.notifOn
+    };
+  }
+  /* Sent whenever one of them moves, so the schedule on the server is
+     never a version of what this screen shows. */
+  function syncPushPrefs() {
+    if (!pushReady() || !S.notifOn) return;
+    try { window.LKCloud.reminders.prefs(pushPrefs()); } catch (e) {}
+  }
   function notifPermission() {
     try { return notifSupported() ? Notification.permission : 'unsupported'; }
     catch (e) { return 'unsupported'; }
@@ -38795,6 +38968,20 @@ DEMO.define("settings", function (document, window, location, fetch) {
       put('lk_notifOn', S.notifOn);
       render();
       say('Notifications ' + (S.notifOn ? 'on' : 'off'));
+      /* The switch is not the subscription. Turning it on registers this
+         phone with the server that sends the reminders, and turning it
+         off removes it -- otherwise the app would keep sending to a
+         person who told it to stop. */
+      if (pushReady()) {
+        if (S.notifOn) {
+          window.LKCloud.reminders.subscribe().then(function (r) {
+            if (r && r.ok) { syncPushPrefs(); toast('Reminders are set up on this phone.'); }
+            else { S.pushLost = true; render(); toast(r && r.message || 'Reminders could not be set up.'); }
+          });
+        } else {
+          window.LKCloud.reminders.unsubscribe();
+        }
+      }
       return;
     }
     var res;
@@ -38803,8 +38990,16 @@ DEMO.define("settings", function (document, window, location, fetch) {
       S.notifOn = perm === 'granted';
       put('lk_notifOn', S.notifOn);
       render();
+      if (perm === 'granted' && pushReady()) {
+        window.LKCloud.reminders.subscribe().then(function (r) {
+          if (r && r.ok) { syncPushPrefs(); toast('Allowed, and this phone is registered for reminders.'); }
+          else { toast(r && r.message || 'Allowed, but reminders could not be set up.'); }
+        });
+        return;
+      }
       toast(perm === 'granted'
-        ? 'Allowed. Nothing is scheduled in this build: see the note under the switches.'
+        ? (pushReady() ? 'Allowed.'
+                       : 'Allowed. Nothing is scheduled in this build: see the note under the switches.')
         : 'Not allowed. Nothing will be sent.');
     };
     if (res && typeof res.then === 'function') res.then(done, function () { done('denied'); });
@@ -39624,9 +39819,16 @@ DEMO.define("settings", function (document, window, location, fetch) {
         '<button class="btn btn--secondary btn--block" data-action="notif-test" data-testid="notif-test"' +
           (on ? '' : ' disabled') + '>' +
           '<span class="btn__label">Send one now</span></button>' +
-        '<p class="t-detail" data-testid="notif-truth">These are preferences, not schedules. ' +
-          'A notification sent while you are looking at this page is all this build does: ' + swLine +
-          ' Nothing above is scheduled, and turning one on will not make it arrive.</p>' +
+        /* WHICHEVER OF THE TWO THIS BUILD IS. A screen that says nothing is
+           scheduled while a server is scheduling it is as wrong as one
+           that promises reminders it cannot send. */
+        (pushReady()
+          ? '<p class="t-detail" data-testid="notif-truth">These are schedules. This phone is ' +
+              'registered with the server that sends them, at the times above, in your own ' +
+              'timezone. ' + swLine + ' Turn the switch off and the registration goes with it.</p>'
+          : '<p class="t-detail" data-testid="notif-truth">These are preferences, not schedules. ' +
+            'A notification sent while you are looking at this page is all this build does: ' + swLine +
+            ' Nothing above is scheduled, and turning one on will not make it arrive.</p>') +
       '</div>';
 
     return '<div class="card card--flush">' + head + types + sounds + foot + '</div>';
@@ -44094,7 +44296,7 @@ DEMO.define("shopping", function (document, window, location, fetch) {
          presented as a measurement, which then wrote itself into the history
          and the pantry. There is no parser in this build and no server to
          run one, so the photo is kept and the lines are typed. */
-      '<p class="t-detail">Photograph it in the shop and type the total in while you still have it. Reading the lines off a photo needs a server, and this build has none, so nothing is read for you and nothing leaves this device.</p>' +
+      '<p class="t-detail">Photograph it in the shop and type the total in while you still have it. Nothing is read off the photo for you: the lines are typed in, and the photo does not leave this device.</p>' +
       '<div class="hstack hstack--3 mt-3">' +
         '<button class="btn btn--secondary grow" type="button" data-action="scan-cam" data-testid="scan-cam">' +
           ICO.cam + '<span class="btn__label">Camera</span></button>' +
@@ -44189,7 +44391,7 @@ DEMO.define("shopping", function (document, window, location, fetch) {
       '<div class="section__head"><h2 class="t-label">Receipt photo</h2>' +
         '<span class="t-meta">' + esc(S.photo.name) + '</span></div>' +
       '<img class="shop-photo mt-2" src="' + S.photo.url + '" alt="The receipt photo you just chose" data-testid="receipt-photo">' +
-      '<p class="t-detail mt-3">Nothing has left this device, and nothing has read it. Reading a receipt needs a server and this build has none, so the lines have to be typed in. The photo stays here while you do it, and is not saved when you leave.</p>' +
+      '<p class="t-detail mt-3">Nothing has left this device, and nothing has read it. The lines are typed in. The photo stays here while you do it, and is not saved when you leave.</p>' +
       '<div class="hstack hstack--3 mt-3">' +
         '<button class="btn btn--secondary grow" type="button" data-action="photo-discard" data-testid="receipt-discard">' +
           '<span class="btn__label">Discard photo</span></button>' +
@@ -44262,7 +44464,7 @@ DEMO.define("shopping", function (document, window, location, fetch) {
             (blank.length
               ? 'No price on record at ' + esc(blank.map(function (s) { return s.name; }).join(', ')) + '. '
               : '') +
-            'These are prices you paid, not quotes. Live store prices need the server, and this build has none.</p>'
+            'These are prices you paid, not quotes. LOCKED does not read live shop prices.</p>'
         : '<p class="t-detail mt-3">Type something you buy to see what it cost you at each shop, and when.</p>') +
     '</div>';
   }
@@ -44315,8 +44517,8 @@ DEMO.define("shopping", function (document, window, location, fetch) {
                     usd(s.paid - s.price) + '</span>' +
                 '</div>';
               }).join('') + '</div>'
-            : '<p class="t-detail mt-2" data-testid="swaps-none">Nothing you bought this week is cheaper anywhere else in your history. Swaps from live store prices need the server, and this build has none, so this only knows what you have paid.</p>')
-        : '<p class="t-detail mt-2">Checks this week\'s shop against every price already in your history. It cannot see live store prices: that needs the server.</p>') +
+            : '<p class="t-detail mt-2" data-testid="swaps-none">Nothing you bought this week is cheaper anywhere else in your history. This compares what you have actually paid; it does not read live shop prices.</p>')
+        : '<p class="t-detail mt-2">Checks this week\'s shop against every price already in your history. It does not read live shop prices.</p>') +
     '</div>';
   }
 
@@ -51893,8 +52095,12 @@ DEMO.define("progress", function (document, window, location, fetch) {
           '<span class="btn__label">From the library</span></label>' +
         '<input class="vis-hidden" id="ph-pick" type="file" accept="image/*" data-testid="pick-photo">' +
       '</div>' +
-      '<p class="t-caption-1 muted mt-2">Downscaled and kept on this device. Nothing is uploaded, ' +
-        'and there is no server behind this screen to upload it to.</p>');
+      /* Not uploaded because progress photos are not the app's to hold,
+         which stays true whether or not a server exists. The second half
+         of this used to lean on there being no server at all, and a
+         promise that rests on a missing deploy is not a promise. */
+      '<p class="t-caption-1 muted mt-2">Downscaled and kept on this device. Progress photos are ' +
+        'never uploaded, and the sync does not carry them.</p>');
   }
 
   function photoSheet() {

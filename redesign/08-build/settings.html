@@ -472,7 +472,14 @@
      Persistence. One place writes, so a row and the key behind it
      cannot drift. Every one of these keys is the shipped app's own.
      ============================================================= */
+  /* Which of these the server's schedule is made of. Anything on this
+     list moving has to reach the server, or the times shown here and the
+     times reminders arrive at drift apart with nothing saying so. */
+  var SCHEDULED = { restTimer: 1, reminder: 1, reminderAt: 1, checkin: 1,
+                    checkinAt: 1, notifTimes: 1, notifOn: 1 };
+
   function persist(k) {
+    if (SCHEDULED[k]) setTimeout(syncPushPrefs, 0);
     if (k === 'unit') { if (window.LKUnits) LKUnits.set(S.unit === 'kg'); return; }
     if (k === 'theme') { if (window.LKTheme) LKTheme.set(S.theme); return; }
     if (k === 'dist') {
@@ -666,6 +673,31 @@
      half is not, and the screen says so where it would matter.
      ============================================================= */
   function notifSupported() { return typeof window.Notification === 'function'; }
+  /* Whether reminders can actually arrive, as opposed to whether the
+     browser will show one this second. Three things have to be true and
+     the switches say which one is missing. */
+  function pushReady() {
+    var C = window.LKCloud;
+    return !!(C && C.ready() && C.reminders && C.reminders.supported());
+  }
+  /* Every switch on this screen, in the shape the server's schedule uses. */
+  function pushPrefs() {
+    var t = S.notifTimes || {};
+    return {
+      rest: !!S.restTimer,
+      training: !!S.reminder,
+      trainingTime: t.workout || S.reminderAt || '07:30',
+      checkin: !!S.checkin,
+      checkinTime: t.checkin || '08:00',
+      idle: !!S.notifOn
+    };
+  }
+  /* Sent whenever one of them moves, so the schedule on the server is
+     never a version of what this screen shows. */
+  function syncPushPrefs() {
+    if (!pushReady() || !S.notifOn) return;
+    try { window.LKCloud.reminders.prefs(pushPrefs()); } catch (e) {}
+  }
   function notifPermission() {
     try { return notifSupported() ? Notification.permission : 'unsupported'; }
     catch (e) { return 'unsupported'; }
@@ -683,6 +715,20 @@
       put('lk_notifOn', S.notifOn);
       render();
       say('Notifications ' + (S.notifOn ? 'on' : 'off'));
+      /* The switch is not the subscription. Turning it on registers this
+         phone with the server that sends the reminders, and turning it
+         off removes it -- otherwise the app would keep sending to a
+         person who told it to stop. */
+      if (pushReady()) {
+        if (S.notifOn) {
+          window.LKCloud.reminders.subscribe().then(function (r) {
+            if (r && r.ok) { syncPushPrefs(); toast('Reminders are set up on this phone.'); }
+            else { S.pushLost = true; render(); toast(r && r.message || 'Reminders could not be set up.'); }
+          });
+        } else {
+          window.LKCloud.reminders.unsubscribe();
+        }
+      }
       return;
     }
     var res;
@@ -691,8 +737,16 @@
       S.notifOn = perm === 'granted';
       put('lk_notifOn', S.notifOn);
       render();
+      if (perm === 'granted' && pushReady()) {
+        window.LKCloud.reminders.subscribe().then(function (r) {
+          if (r && r.ok) { syncPushPrefs(); toast('Allowed, and this phone is registered for reminders.'); }
+          else { toast(r && r.message || 'Allowed, but reminders could not be set up.'); }
+        });
+        return;
+      }
       toast(perm === 'granted'
-        ? 'Allowed. Nothing is scheduled in this build: see the note under the switches.'
+        ? (pushReady() ? 'Allowed.'
+                       : 'Allowed. Nothing is scheduled in this build: see the note under the switches.')
         : 'Not allowed. Nothing will be sent.');
     };
     if (res && typeof res.then === 'function') res.then(done, function () { done('denied'); });
@@ -1512,9 +1566,16 @@
         '<button class="btn btn--secondary btn--block" data-action="notif-test" data-testid="notif-test"' +
           (on ? '' : ' disabled') + '>' +
           '<span class="btn__label">Send one now</span></button>' +
-        '<p class="t-detail" data-testid="notif-truth">These are preferences, not schedules. ' +
-          'A notification sent while you are looking at this page is all this build does: ' + swLine +
-          ' Nothing above is scheduled, and turning one on will not make it arrive.</p>' +
+        /* WHICHEVER OF THE TWO THIS BUILD IS. A screen that says nothing is
+           scheduled while a server is scheduling it is as wrong as one
+           that promises reminders it cannot send. */
+        (pushReady()
+          ? '<p class="t-detail" data-testid="notif-truth">These are schedules. This phone is ' +
+              'registered with the server that sends them, at the times above, in your own ' +
+              'timezone. ' + swLine + ' Turn the switch off and the registration goes with it.</p>'
+          : '<p class="t-detail" data-testid="notif-truth">These are preferences, not schedules. ' +
+            'A notification sent while you are looking at this page is all this build does: ' + swLine +
+            ' Nothing above is scheduled, and turning one on will not make it arrive.</p>') +
       '</div>';
 
     return '<div class="card card--flush">' + head + types + sounds + foot + '</div>';

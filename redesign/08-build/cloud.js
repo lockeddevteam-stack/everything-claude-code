@@ -87,6 +87,21 @@
      push and pull cannot drift apart on what counts as the cycle log. */
   var CYCLE_KEYS = { lk_mcProfile: 1, lk_mcDays: 1, lk_mcFuelAdjust: 1 };
 
+  /* The schedule is kept in the reader's own timezone, because a reminder
+     at 07:30 means 07:30 where they are. */
+  function tz() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; }
+  }
+
+  /* A VAPID key travels as base64url text and the browser wants bytes. */
+  function b64url(s) {
+    var pad = '='.repeat((4 - s.length % 4) % 4);
+    var raw = g.atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
+    var out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
   function coachEndpoint() {
     var c = cfg() || {};
     return c.coachUrl || String(c.apiUrl || '').replace(/\/$/, '') + '/';
@@ -451,6 +466,113 @@
             };
           }).filter(Boolean) };
         }, function () { return { ok: true, data: [] }; });
+    },
+
+    /* ---- reminders --------------------------------------------------
+       The notification switches in Settings were preferences with nothing
+       behind them: turning one on changed a stored value and nothing ever
+       arrived. The server holds the subscription and the schedule, keyed
+       by a device id this file makes once and keeps, because a reminder
+       belongs to a phone rather than to an account -- somebody signed in
+       on two devices should not get every reminder twice on both.
+
+       Everything here answers honestly when there is no server, when the
+       browser has no push at all, and when permission was refused. Those
+       are three different states and Settings prints a different sentence
+       for each. */
+    /* Named reminders, not push: LKCloud.push is already the outgoing half
+       of the sync, and this quietly replaced it -- every sync in the app
+       became a type error the moment this file loaded. */
+    reminders: {
+      supported: function () {
+        return !!(g.navigator && g.navigator.serviceWorker && g.PushManager && g.Notification);
+      },
+
+      /* One id per phone, made once. It is not a secret and identifies
+         nothing about a person: it is what the server keys a schedule by. */
+      deviceId: function () {
+        var S = ST();
+        var id = S ? S.get('lk_pushDevice', null) : null;
+        if (!id || !/^[A-Za-z0-9_-]{8,64}$/.test(id)) {
+          id = '';
+          var abc = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+          var n = 24, r = null;
+          try { r = new Uint8Array(n); g.crypto.getRandomValues(r); } catch (e) { r = null; }
+          for (var i = 0; i < n; i++) {
+            id += abc.charAt(r ? (r[i] % abc.length) : Math.floor(Math.random() * abc.length));
+          }
+          if (S) S.set('lk_pushDevice', id);
+        }
+        return id;
+      },
+
+      key: function () {
+        var c = cfg();
+        if (!c || !c.apiUrl) return Promise.resolve({ ok: false, error: 'not_configured' });
+        return fetch(c.apiUrl.replace(/\/$/, '') + '/push/key')
+          .then(function (r) { return r.json(); }, fail)
+          .then(function (j) {
+            return j && j.publicKey ? { ok: true, data: j.publicKey }
+                                    : { ok: false, error: 'server', message: 'No push key.' };
+          });
+      },
+
+      subscribe: function () {
+        var c = cfg(), P = API.reminders;
+        if (!c || !c.apiUrl) {
+          return Promise.resolve({ ok: false, error: 'not_configured',
+            message: 'Reminders need a server, and this build has none.' });
+        }
+        if (!P.supported()) {
+          return Promise.resolve({ ok: false, error: 'unsupported',
+            message: 'This browser cannot receive reminders.' });
+        }
+        return P.key().then(function (k) {
+          if (!k.ok) return k;
+          return g.navigator.serviceWorker.ready.then(function (reg) {
+            return reg.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: b64url(k.data)
+            });
+          }).then(function (sub) {
+            return post(c.apiUrl.replace(/\/$/, '') + '/push/subscribe', {
+              deviceId: P.deviceId(),
+              subscription: JSON.parse(JSON.stringify(sub)),
+              tz: tz()
+            });
+          }, function (e) {
+            /* A refusal and a failure are different, and a screen that
+               says "something went wrong" to somebody who pressed Block
+               is telling them to retry a decision they made. */
+            var why = String(e && e.name || e);
+            return { ok: false, error: why === 'NotAllowedError' ? 'denied' : 'browser',
+                     message: why === 'NotAllowedError'
+                       ? 'This phone is set to block notifications from LOCKED.'
+                       : 'This browser refused to set reminders up.' };
+          });
+        });
+      },
+
+      prefs: function (prefs) {
+        var c = cfg();
+        if (!c || !c.apiUrl) return Promise.resolve({ ok: false, error: 'not_configured' });
+        return post(c.apiUrl.replace(/\/$/, '') + '/push/prefs',
+                    { deviceId: API.reminders.deviceId(), prefs: prefs || {}, tz: tz() });
+      },
+
+      test: function () {
+        var c = cfg();
+        if (!c || !c.apiUrl) return Promise.resolve({ ok: false, error: 'not_configured' });
+        return post(c.apiUrl.replace(/\/$/, '') + '/push/test', { deviceId: API.reminders.deviceId() });
+      },
+
+      unsubscribe: function () {
+        var c = cfg();
+        if (!c || !c.apiUrl) return Promise.resolve({ ok: true });
+        return post(c.apiUrl.replace(/\/$/, '') + '/push/unsubscribe',
+                    { deviceId: API.reminders.deviceId() })
+          .then(function (r) { return r; }, function () { return { ok: true }; });
+      }
     },
 
     /* Delete the account and everything under it. The row cascade is on
