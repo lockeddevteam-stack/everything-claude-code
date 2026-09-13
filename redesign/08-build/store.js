@@ -259,12 +259,25 @@
       return key === undefined ? all : (all[key] || 0);
     },
 
-    /* Everything written since a moment, which is what a sync pushes. */
+    /* Everything written since a moment, which is what a sync pushes.
+
+       The comparison is inclusive on purpose. Stamps and the last-sync
+       mark are both Date.now(), so a key written in the same millisecond
+       a sync finished would test as older than the sync and never go up
+       again -- not this time, but never. Being inclusive resends at most
+       the keys written in one millisecond, and the server compares
+       changed_at anyway, so a resend costs nothing and a miss costs
+       somebody their data. */
     changedSince: function (ms) {
       var all = stamps(), out = {};
-      Object.keys(all).forEach(function (k) { if (all[k] > ms) out[k] = all[k]; });
+      Object.keys(all).forEach(function (k) { if (all[k] >= ms) out[k] = all[k]; });
       return out;
     },
+
+    /* Deliberately deleted here, as opposed to never written. A sync has
+       to be able to tell those apart: the first must be sent so the
+       deletion reaches the other device, and the second must not. */
+    removed: function (key) { return isGone(key); },
 
     /* Merge into an object key. Reads the current value, so the caller does
        not have to. */
@@ -429,8 +442,42 @@
     'lk_pantryItems', 'lk_myStores', 'lk_budgetData', 'lk_cycles', 'lk_feedback',
     'lk_coachPlan', 'lk_coachInstructions', 'lk_coachMemory', 'lk_coachLastMsgs',
     'lk_mcProfile', 'lk_mcDays', 'lk_mcFuelAdjust', 'lk_cardioPrefs',
-    'lk_cardioFavorites', 'lk_cardioCustom', 'lk_onboarded', 'lk_removedKeys'
+    'lk_cardioFavorites', 'lk_cardioCustom', 'lk_onboarded', 'lk_removedKeys',
+
+    /* Work somebody did that is not a workout. A custom food typed in by
+       hand, a recipe the coach wrote, a saved meal plan: all of it is as
+       much theirs as a logged set, and all of it was staying on one phone.
+       Signing in on a new device and finding the food list empty is the
+       same loss as finding the history empty. */
+    'lk_myFoods', 'lk_coachRecipes', 'lk_fuelPlan', 'lk_fuelPlans',
+    'lk_fuelFavourites', 'lk_tdeeHistory', 'lk_badges', 'lk_nutrition',
+
+    /* The coach's setup. The interview is the longest thing anybody does
+       in this app, and it was being asked again on every new device. */
+    'lk_coachInterview', 'lk_coachName', 'lk_coachStyle', 'lk_coachDataPrefs',
+    'lk_coachMemoryOn', 'lk_coachOpenersOff', 'lk_checkinPerDay',
+
+    /* Whether a feature is on at all. lk_cycle and lk_perfTracking turn on
+       compound tracking, which somebody switched on deliberately and does
+       not want to go hunting for twice. */
+    'lk_cycle', 'lk_perfTracking', 'lk_fuelAdaptive', 'lk_fuelRefeed',
+    'lk_fuelRefeedNo', 'lk_fuelNumbers', 'lk_hidePartials', 'lk_homeLayout',
+
+    /* Preferences. Every one of these is a choice somebody made on purpose,
+       and a preference that resets is read as the app forgetting them. */
+    'lk_theme', 'lk_notifOn', 'lk_notifPrefs', 'lk_notifTimes',
+    'lk_reminderOn', 'lk_reminderAt', 'lk_restEnabled', 'lk_restSec',
+    'lk_restSound', 'lk_startDay', 'lk_weekStart', 'lk_plateKg'
   ];
+
+  /* WHAT IS DELIBERATELY NOT IN THAT LIST, so the next person to add a key
+     has the rule rather than the list: anything true of a device and not of
+     a person. A half-finished workout (lk_liveSession), what screen was open
+     (lk_openLift, lk_openSplit, lk_openWorkout), a tip already dismissed
+     (lk_holdTipSeen, lk_tutorialSeen, lk_throwbackDismissed), a migration
+     marker, and lk_session itself, which is the credential and would be a
+     hole rather than a feature. Syncing a live session would resume a
+     workout on a phone nobody is holding. */
 
   /* Each entry returns true when it changed something. Order is the version.
      A migration must be safe to run against data it has already migrated,

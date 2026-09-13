@@ -1,0 +1,306 @@
+/* THE SEAM, AGAINST THE SERVER THAT ACTUALLY EXISTS.
+
+   supabase.co and workers.dev are unreachable from this container, so
+   this stands up a server on localhost that mirrors the real one: the
+   same routes, the same column names, the same conflict rule, the same
+   reply shape. A mirror only proves anything if it is built from what
+   the live backend does rather than from what cloud.js hopes, so every
+   shape below was read off the live project and the deployed Worker:
+
+     user_data(user_id, key, value jsonb, changed_at bigint)
+       unique (user_id, key), RLS auth.uid() = user_id
+     store_push(rows jsonb) -> integer
+       writes a row only when its changed_at beats the stored one
+     profiles(subscription_status, current_plan, plan_expires_at,
+              trial_ends_at)
+     POST / on the Worker -> { content: [{ type:'text', text }] }
+       and { gated: true, limit } when the free ten a day are spent
+
+   The one thing a mirror cannot prove is that the live server behaves
+   this way. That half is proven against the live project directly: the
+   migration that added changed_at and store_push, and the grants that
+   keep a signed-out caller out of it. */
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const BUILD = path.join(HERE, '..', '08-build');
+
+let fails = 0;
+const ok = (pass, name, detail) => {
+  if (!pass) fails++;
+  console.log((pass ? 'PASS ' : 'FAIL ') + name + (detail ? ' — ' + detail : ''));
+};
+
+/* ---- the mirror ---------------------------------------------------- */
+const TOKEN = 'jwt-for-ada';
+const UID = 'ada';
+let table = [];            /* user_data rows */
+let profile = null;        /* the profiles row */
+let coachReply = '';       /* what the model says next */
+let coachGated = false;
+const seen = [];           /* every request, so the suite can assert headers */
+
+function body(req) {
+  return new Promise(res => { let b = ''; req.on('data', c => (b += c)); req.on('end', () => res(b)); });
+}
+
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, 'http://127.0.0.1');
+  const raw = await body(req);
+  const json = raw ? JSON.parse(raw) : {};
+  seen.push({ path: url.pathname, method: req.method, headers: req.headers, body: json });
+  const send = (code, obj) => {
+    res.writeHead(code, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(obj));
+  };
+  const signedIn = (req.headers.authorization || '') === 'Bearer ' + TOKEN;
+
+  if (url.pathname === '/auth/v1/token') {
+    if (json.password !== 'right') return send(400, { error: 'invalid_grant', error_description: 'Invalid login credentials' });
+    return send(200, { access_token: TOKEN, expires_at: Math.floor(Date.now() / 1000) + 3600,
+                       user: { id: UID, email: json.email } });
+  }
+  if (url.pathname === '/auth/v1/signup') {
+    return send(200, { access_token: TOKEN, expires_at: Math.floor(Date.now() / 1000) + 3600,
+                       user: { id: UID, email: json.email } });
+  }
+  if (url.pathname === '/auth/v1/logout') return send(204, {});
+
+  if (url.pathname === '/rest/v1/rpc/store_push') {
+    /* The RPC is SECURITY DEFINER and raises when auth.uid() is null. */
+    if (!signedIn) return send(401, { message: 'not signed in' });
+    let n = 0;
+    (json.rows || []).forEach(r => {
+      if (!r.key || !/^[0-9]+$/.test(String(r.changed_at))) return;
+      const value = r.deleted ? null : r.value;
+      const hit = table.find(t => t.key === r.key);
+      if (!hit) { table.push({ key: r.key, value, changed_at: Number(r.changed_at) }); n++; return; }
+      if (hit.changed_at < Number(r.changed_at)) { hit.value = value; hit.changed_at = Number(r.changed_at); n++; }
+    });
+    return send(200, n);
+  }
+  if (url.pathname === '/rest/v1/user_data') {
+    if (!signedIn) return send(200, []);   /* RLS: no rows, not an error */
+    return send(200, table.map(r => ({ key: r.key, value: r.value, changed_at: r.changed_at })));
+  }
+  if (url.pathname === '/rest/v1/profiles') {
+    if (!signedIn) return send(200, []);
+    return send(200, profile ? [profile] : []);
+  }
+  if (url.pathname === '/') {
+    if (coachGated) {
+      return send(200, { content: [{ type: 'text', text: "You've used your 10 daily AI chats. Upgrade to Pro for unlimited coaching." }],
+                         gated: true, limit: { used: 10, max: 10 } });
+    }
+    return send(200, { content: [{ type: 'text', text: coachReply }] });
+  }
+  send(404, { message: 'no route' });
+});
+
+await new Promise(r => server.listen(0, '127.0.0.1', r));
+const BASE = 'http://127.0.0.1:' + server.address().port;
+
+/* ---- the app, loaded the way the page loads it ---------------------- */
+const memory = {};
+global.window = global;
+global.localStorage = {
+  getItem: k => (k in memory ? memory[k] : null),
+  setItem: (k, v) => { memory[k] = String(v); },
+  removeItem: k => { delete memory[k]; },
+  key: i => Object.keys(memory)[i],
+  get length() { return Object.keys(memory).length; }
+};
+eval(fs.readFileSync(path.join(BUILD, 'store.js'), 'utf8'));
+eval(fs.readFileSync(path.join(BUILD, 'cloud.js'), 'utf8'));
+eval(fs.readFileSync(path.join(BUILD, 'coach-actions.js'), 'utf8'));
+const S = global.window.LKStore;
+const C = global.window.LKCloud;
+const CA = global.window.LKCoachActions;
+CA.setCatalogue(JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'exercise-db.json'), 'utf8')));
+
+/* ---- 1. nothing pretends without a server --------------------------- */
+ok(C.ready() === false, 'with no config, ready() is false');
+ok(C.coachReady() === false, 'with no config, coachReady() is false');
+ok((await C.sync()).error === 'not_configured', 'sync refuses with a reason, not a lie');
+ok((await C.ask([{ role: 'user', content: 'hi' }])).error === 'not_configured', 'ask refuses with a reason');
+ok((await C.entitlement()).data.tier === 'free', 'with no server, nobody is Pro');
+
+/* ---- 2. the real config shape turns it on --------------------------- */
+global.window.LK_CLOUD = { supabaseUrl: BASE, supabaseKey: 'anon-key', apiUrl: BASE };
+ok(C.ready() === true, 'the shipped config shape is the one cloud.js reads');
+ok(C.coachReady() === true, 'coachUrl defaults to apiUrl');
+
+/* the config the build actually ships must parse and name this project */
+const cfgSrc = fs.readFileSync(path.join(BUILD, 'cloud-config.js'), 'utf8');
+ok(/supabase\.co/.test(cfgSrc) && /workers\.dev/.test(cfgSrc), 'cloud-config.js names a real project and Worker');
+ok(!/service_role|SUPABASE_SERVICE|sk-|GEMINI_KEY|GROQ_KEY/.test(cfgSrc),
+   'cloud-config.js carries no key that row level security does not cover');
+
+/* ---- 3. accounts ----------------------------------------------------- */
+let r = await C.signIn('ada@example.com', 'wrong');
+ok(!r.ok && /invalid login/i.test(r.message), 'a wrong password is refused in words', r.message);
+ok(C.signedIn() === false, 'a refused sign-in leaves nobody signed in');
+
+r = await C.signIn('ada@example.com', 'right');
+ok(r.ok && C.signedIn(), 'a right password signs in');
+ok(C.user() && C.user().email === 'ada@example.com', 'the signed-in person is readable');
+const authed = seen.filter(s => s.path === '/rest/v1/user_data' || s.path === '/rest/v1/rpc/store_push');
+
+/* ---- 4. push sends what changed, and only that ----------------------- */
+S.set('lk_prs', [{ id: 1, kg: 100 }]);
+S.set('lk_theme', 'kg');
+r = await C.push();
+const pushed = seen.filter(s => s.path === '/rest/v1/rpc/store_push').pop();
+ok(r.ok, 'push succeeds', r.message);
+ok(pushed.headers.apikey === 'anon-key', 'every request carries the project key');
+ok(pushed.headers.authorization === 'Bearer ' + TOKEN, 'every request carries the person');
+const keys = pushed.body.rows.map(x => x.key);
+ok(keys.includes('lk_prs') && keys.includes('lk_theme'), 'what changed went up', keys.join(','));
+ok(pushed.body.rows.every(x => typeof x.changed_at === 'number' && x.changed_at > 0),
+   'every row carries the device clock, which is what makes conflicts decidable');
+
+/* ---- 5. THE CYCLE LOG ONLY LEAVES WITH CONSENT ----------------------- */
+S.set('lk_mcProfile', { tracking: true, cloudBackup: false });
+S.set('lk_mcDays', [{ date: '2026-09-01', flow: 2 }]);
+r = await C.push();
+let up = seen.filter(s => s.path === '/rest/v1/rpc/store_push').pop().body.rows.map(x => x.key);
+ok(!up.includes('lk_mcDays') && !up.includes('lk_mcProfile'),
+   'with the switch off, no part of the cycle log leaves the device', up.join(','));
+
+S.set('lk_mcProfile', { tracking: true, cloudBackup: true });
+S.set('lk_mcDays', [{ date: '2026-09-02', flow: 1 }]);
+r = await C.push();
+up = seen.filter(s => s.path === '/rest/v1/rpc/store_push').pop().body.rows.map(x => x.key);
+ok(up.includes('lk_mcDays'), 'with the switch on, it syncs like anything else', up.join(','));
+
+/* ---- 6. the conflict rule, from both ends ---------------------------- */
+table = [{ key: 'lk_theme', value: 'lb', changed_at: Date.now() + 60000 }];
+S.set('lk_theme', 'kg');
+await C.pull();
+ok(S.get('lk_theme', null) === 'lb', 'a newer server row wins');
+
+table = [{ key: 'lk_theme', value: 'st', changed_at: 1 }];
+await C.pull();
+ok(S.get('lk_theme', null) === 'lb', 'an older server row does not');
+
+table = [{ key: 'lk_prs', value: null, changed_at: Date.now() + 60000 }];
+await C.pull();
+ok(S.removed('lk_prs') === true && S.get('lk_prs', null) === null,
+   'a null value is a deletion, and it syncs');
+
+/* and the deletion travels back up, rather than being a row that simply
+   stops arriving — which is how a deleted thing returns from the other phone */
+table = [];
+S.set('lk_lastSync', 0);
+await C.push();
+const del = seen.filter(s => s.path === '/rest/v1/rpc/store_push').pop()
+  .body.rows.filter(x => x.key === 'lk_prs')[0];
+ok(del && del.deleted === true && del.value === null,
+   'a deletion goes up as a deletion, not as a missing row',
+   JSON.stringify(del));
+
+table = [{ key: 'lk_somethingFromANewerBuild', value: 9, changed_at: Date.now() + 60000 }];
+await C.pull();
+ok(S.get('lk_somethingFromANewerBuild', null) === null,
+   'a key this build does not know is left alone, not written');
+
+/* the server half of the same rule: a stale device cannot overwrite */
+table = [{ key: 'lk_theme', value: 'kg', changed_at: 5000 }];
+let res = await fetch(BASE + '/rest/v1/rpc/store_push', {
+  method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + TOKEN },
+  body: JSON.stringify({ rows: [{ key: 'lk_theme', value: 'lb', changed_at: 4000 }] })
+});
+ok((await res.json()) === 0 && table[0].value === 'kg', 'a stale phone coming back online overwrites nothing');
+
+/* and a signed-out caller cannot push at all */
+res = await fetch(BASE + '/rest/v1/rpc/store_push', {
+  method: 'POST', headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ rows: [{ key: 'lk_theme', value: 'x', changed_at: 9e12 }] })
+});
+ok(res.status === 401, 'signed out, store_push refuses');
+
+/* ---- 7. entitlements, read off a profile row ------------------------- */
+const DAY = 86400000;
+const cases = [
+  [{ subscription_status: 'trial', trial_ends_at: new Date(Date.now() + 5 * DAY).toISOString() }, true,  'a live trial is Pro'],
+  [{ subscription_status: 'trial', trial_ends_at: new Date(Date.now() - DAY).toISOString() },     false, 'a trial that ran out is not'],
+  [{ subscription_status: 'active', current_plan: 'annual', plan_expires_at: new Date(Date.now() + 300 * DAY).toISOString() }, true, 'a paid plan is Pro'],
+  [{ subscription_status: 'active', plan_expires_at: new Date(Date.now() - DAY).toISOString() }, false, 'a paid plan past its date is not'],
+  [{ subscription_status: 'past_due', plan_expires_at: new Date(Date.now() + 3 * DAY).toISOString() }, true, 'time already paid for survives a bounced card'],
+  [{ subscription_status: 'canceled', plan_expires_at: new Date(Date.now() + 3 * DAY).toISOString() }, true, 'a cancelled plan runs to the end of what was bought'],
+  [{ subscription_status: 'expired' }, false, 'expired is expired'],
+  [null, false, 'no profile row at all is free, not an error']
+];
+for (const [p, pro, name] of cases) {
+  profile = p;
+  const e = await C.entitlement();
+  ok(e.ok && (e.data.tier === 'pro') === pro, name, JSON.stringify(e.data));
+  ok(C.can('coach_unlimited') === pro, name + ' — and can() agrees');
+  ok(C.can('log') === true, name + ' — and logging is never behind the paywall');
+}
+
+/* ---- 8. the coach ----------------------------------------------------- */
+profile = { subscription_status: 'active', plan_expires_at: new Date(Date.now() + DAY).toISOString() };
+
+coachReply = JSON.stringify({ reply: 'Two more sets on the last one.', actions: [] });
+r = await C.ask([{ role: 'user', content: 'how did I do' }]);
+ok(r.ok && r.data.reply === 'Two more sets on the last one.' && r.data.actions.length === 0,
+   'a plain answer comes back as a plain answer');
+const sent = seen.filter(s => s.path === '/').pop();
+ok(/Return ONLY a JSON/.test(sent.body.system),
+   'the phrase the Worker switches structured mode on is still in the prompt');
+
+coachReply = '```json\n' + JSON.stringify({ reply: 'Here is the week.', actions: [{ kind: 'fact', text: 'You squat on Mondays.' }] }) + '\n```';
+r = await C.ask([{ role: 'user', content: 'plan me' }]);
+ok(r.ok && r.data.actions.length === 1, 'a fenced block is still JSON');
+
+coachReply = 'Sure. ' + JSON.stringify({ reply: 'Done.', actions: [{ kind: 'fact', text: 'x' }] }) + ' Hope that helps.';
+r = await C.ask([{ role: 'user', content: 'x' }]);
+ok(r.ok && r.data.actions.length === 1, 'JSON buried in prose is still found');
+
+coachReply = 'I just felt like talking.';
+r = await C.ask([{ role: 'user', content: 'x' }]);
+ok(r.ok && r.data.reply === 'I just felt like talking.' && r.data.actions.length === 0,
+   'no JSON at all is a reply with no actions, never an error');
+
+coachGated = true;
+r = await C.ask([{ role: 'user', content: 'x' }]);
+ok(r.ok && r.data.gated === true && r.data.limit.max === 10 && r.data.actions.length === 0,
+   'the free ten a day is said plainly and carries no actions');
+coachGated = false;
+
+/* ---- 9. NOTHING THE COACH SENDS REACHES DATA WITHOUT THE GATE --------- */
+const real = CA.kinds.length;
+ok(real === 8, 'the gate still knows eight kinds', CA.kinds.join(','));
+
+coachReply = JSON.stringify({ reply: 'Your new split.', actions: [
+  { kind: 'split', split: { name: 'PPL', days: [{ name: 'Push', exercises: [{ id: 99999, name: 'Bench Press', sets: 3, reps: 8 }] }] } },
+  { kind: 'fact', text: 'You train five days.' }
+]});
+r = await C.ask([{ role: 'user', content: 'make me a split' }]);
+const checked = CA.checkAll(r.data.actions);
+ok(checked.length === 2, 'every action is checked, none skipped');
+ok(checked[0].ok === false && /catalogue/.test(checked[0].problems.join(' ')),
+   'an invented exercise id is refused by name', checked[0].problems.join('; '));
+ok(checked[1].ok === true, 'a sound action still passes');
+
+coachReply = JSON.stringify({ reply: 'Recipe.', actions: [
+  { kind: 'recipe', recipe: { name: 'Bowl', servings: 1, kcal: 4, items: [{ name: 'rice', grams: 200 }], steps: ['cook'] } }
+]});
+r = await C.ask([{ role: 'user', content: 'recipe' }]);
+const rec = CA.check(r.data.actions[0]);
+ok(rec.ok === false || !('kcal' in (rec.action || {})) || rec.action.kcal !== 4,
+   'a total the model stated is never the total that gets stored');
+
+/* ---- 10. signing out ------------------------------------------------- */
+await C.signOut();
+ok(C.signedIn() === false, 'signing out signs you out');
+r = await C.push();
+ok(!r.ok && r.error === 'signed_out', 'and push then says so rather than failing silently');
+
+server.close();
+console.log(fails ? '\n' + fails + ' FAILED' : '\nall good');
+process.exit(fails ? 1 : 0);

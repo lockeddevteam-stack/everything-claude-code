@@ -47,12 +47,19 @@ const MANIFEST = {
      were linked by the standalone screens and missing from this list, so in
      the demo every `if (window.LKSession)` guard failed silently and the
      session shelf did not exist on any route. */
-  /* store.js before cloud.js: the cloud seam reads the session out of the
+  /* cloud-config.js before cloud.js: the seam reads window.LK_CLOUD on
+     every call, but a screen that asks ready() during its own load would
+     get false and paint the no-server state permanently.
+     tutor-steps.js before tutor.js, and both at page level rather than
+     inside a screen: the walkthrough is a layer ABOVE every shadow root
+     and reaches into them, so it cannot live in one of them.
+     store.js before cloud.js: the cloud seam reads the session out of the
      store on load. coach-actions.js before any screen that renders a coach
      card, for the same reason. */
   js: ['theme.js', 'app.js', 'chrome.js', 'vendor/body-art.js', 'bodymap.js',
        'session.js', 'fixtures.js', 'store.js', 'units.js',
-       'cloud.js', 'coach-actions.js'],
+       'cloud-config.js', 'cloud.js', 'coach-actions.js',
+       'tutor-steps.js', 'tutor.js'],
 
   /* Files in srcDir that are not app screens. */
   exclude: [/^mockup-/],
@@ -183,6 +190,11 @@ const MANIFEST = {
     { from: 'coach', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'profile', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'progress', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    /* The library's own way out. Without it the screen could only be left
+       with the browser's back gesture, which an installed app does not have. */
+    { from: 'exercise-library', selector: '[data-testid="library-exit"]', to: 'train', mode: 'tab' },
+    /* Progress had no exit of its own either. Same arrow, same place. */
+    { from: 'progress', selector: '[data-action="progress-back"]', to: 'home', mode: 'tab' },
     { from: 'exercise-library', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'shopping', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'cycle', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
@@ -190,6 +202,10 @@ const MANIFEST = {
     { from: 'split-builder', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'workout-detail', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'review', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    /* Save used to end on a disabled button. Done is the way out of a
+       finished session, and it goes to Home rather than back to the log,
+       because the log is the thing that just ended. */
+    { from: 'review', selector: '[data-testid="action-done"]', to: 'home', mode: 'tab' },
     { from: 'recap', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'stack', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     /* Coach's "open this lift in Progress", and Train's session-picker day.

@@ -6,25 +6,39 @@
    place that knows a server exists and exactly one place to change when
    it does.
 
-   IT IS NOT CONFIGURED IN THIS BUILD, AND IT SAYS SO. `LKCloud.ready()`
-   is false until a deploy sets window.LK_CLOUD, and every call refuses
-   with a reason a screen can print. Nothing here pretends: a method that
-   returned a plausible answer with no server behind it would make the
-   app impossible to tell apart from a working one, which is the failure
-   this whole build is written against.
+   LKCloud.ready() is false until a deploy sets window.LK_CLOUD, and
+   every call refuses with a reason a screen can print. Nothing here
+   pretends: a method that returned a plausible answer with no server
+   behind it would make the app impossible to tell apart from a working
+   one, which is the failure this whole build is written against.
 
    To configure, before the screens load:
 
      window.LK_CLOUD = {
        supabaseUrl: 'https://<ref>.supabase.co',
-       supabaseKey: '<publishable anon key>',   // public by design
-       coachUrl:    'https://<worker>.workers.dev/coach'
+       supabaseKey: '<anon or publishable key>',   // public by design
+       apiUrl:      'https://<worker>.workers.dev'
      };
+
+   coachUrl is optional and defaults to apiUrl, which is where the
+   Worker answers a chat.
 
    The anon key is meant to be in the client; row level security is what
    protects the data, not the secrecy of that string. Nothing else goes
-   in here — no service role key, no model key. The model key lives on
-   the Worker.
+   in here -- no service role key, no model key. The model key lives on
+   the Worker, which is the only reason the Worker exists.
+
+   WHAT THE SERVER ACTUALLY IS, so this file can be checked against it:
+     user_data   one row per key per person, unique on (user_id, key),
+                 value jsonb, changed_at bigint device clock, RLS
+                 auth.uid() = user_id.
+     store_push  an RPC that takes rows and writes each one only when it
+                 is newer than the row already there.
+     profiles    subscription_status, current_plan, plan_expires_at,
+                 trial_ends_at. Written by the payment webhook with the
+                 service key. The client only ever reads it.
+     Worker      POST / for the coach, answering { content: [{ text }] },
+                 and DELETE /user/delete for an account.
    =================================================================== */
 (function (g) {
   'use strict';
@@ -69,6 +83,107 @@
     return { ok: false, error: 'network', message: 'Could not reach the server.', detail: String(e && e.message || e) };
   }
 
+  /* The three keys that never leave without the switch. Named once so
+     push and pull cannot drift apart on what counts as the cycle log. */
+  var CYCLE_KEYS = { lk_mcProfile: 1, lk_mcDays: 1, lk_mcFuelAdjust: 1 };
+
+  function coachEndpoint() {
+    var c = cfg() || {};
+    return c.coachUrl || String(c.apiUrl || '').replace(/\/$/, '') + '/';
+  }
+
+  var FREE_TIER = { tier: 'free', status: 'none', trial_ends: null, renews_at: null };
+
+  /* A profile row says subscription_status, current_plan and two dates.
+     The rest of the app asks a simpler question, so the translation
+     happens here rather than in eighteen screens.
+
+     A trial that has run out is not Pro. The server's own status can lag
+     a day behind the clock, so the date is checked here too and the
+     stricter of the two answers wins. */
+  function readEntitlement(p) {
+    if (!p) return FREE_TIER;
+    var now = Date.now();
+    var trialEnds = p.trial_ends_at ? Date.parse(p.trial_ends_at) : 0;
+    var planEnds = p.plan_expires_at ? Date.parse(p.plan_expires_at) : 0;
+    var st = p.subscription_status || 'expired';
+    var out = { tier: 'free', status: st, trial_ends: p.trial_ends_at || null,
+                renews_at: p.plan_expires_at || null, plan: p.current_plan || null };
+    if (st === 'active' || st === 'past_due') {
+      /* past_due is still paid-for time somebody has already bought.
+         Cutting it off the hour a card bounces punishes the wrong thing. */
+      if (!planEnds || planEnds > now) { out.tier = 'pro'; out.status = 'active'; }
+      return out;
+    }
+    if (st === 'trial' && trialEnds > now) { out.tier = 'pro'; out.status = 'trialing'; return out; }
+    if (st === 'canceled' && planEnds > now) { out.tier = 'pro'; out.status = 'active'; return out; }
+    return out;
+  }
+
+  /* ---- what the coach is told ------------------------------------
+     The phrase "Return ONLY a JSON" is not decoration: the endpoint
+     reads it and switches the model into structured mode. Losing it
+     loses every action. */
+  function systemPrompt(ctx) {
+    var lines = [
+      'You are the coach inside LOCKED, a training and nutrition app.',
+      'Answer in the second person, plainly, with no preamble and no markdown.',
+      '',
+      'Return ONLY a JSON object of this shape and nothing else:',
+      '{"reply":"what you say to them","actions":[]}',
+      '',
+      'Each action is one of:',
+      '{"kind":"split","split":{"name":"","days":[{"name":"","exercises":[{"id":0,"name":"","sets":0,"reps":0}]}]}}',
+      '{"kind":"goal","goal":{"title":"","target":0,"unit":"","by":"YYYY-MM-DD"}}',
+      '{"kind":"recipe","recipe":{"name":"","servings":1,"items":[{"name":"","grams":0}],"steps":[""]}}',
+      '{"kind":"shopping","items":[{"name":"","qty":1,"unit":""}]}',
+      '{"kind":"food","food":{"name":"","kcal":0,"protein":0,"carbs":0,"fat":0,"servings":1}}',
+      '{"kind":"cardio","cardio":{"name":"","minutes":0,"km":0}}',
+      '{"kind":"instructions","text":""}',
+      '{"kind":"fact","text":""}',
+      '',
+      'Rules you cannot break:',
+      '- Every exercise must be one from the catalogue below, by its id. Never invent an id or a lift.',
+      '- Never state a total you have not been given. The app computes every total itself.',
+      '- Send actions only when they were asked for. A question gets a reply and an empty list.',
+      '- actions is always present, even when empty.'
+    ];
+    if (ctx.catalogue && ctx.catalogue.length) {
+      lines.push('', 'The exercise catalogue, id and name:');
+      lines.push(ctx.catalogue.map(function (e) {
+        return e.id + ' ' + e.name;
+      }).join('; '));
+    }
+    if (ctx.profile) lines.push('', 'About them: ' + JSON.stringify(ctx.profile));
+    if (ctx.instructions) lines.push('', 'Standing instructions they gave you: ' + String(ctx.instructions).slice(0, 2000));
+    if (ctx.memory) lines.push('', 'What you know about them: ' + String(ctx.memory).slice(0, 2000));
+    return lines.join('\n');
+  }
+
+  /* Models put JSON in fenced blocks, in prose, or not at all. Each of
+     those is recoverable except the last, and the last is a reply with
+     no actions rather than an error: the gate refuses bad actions, so
+     the only thing this needs to be is honest about what it found. */
+  function envelope(text) {
+    var raw = String(text || '').trim();
+    var body = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    var tries = [body];
+    var first = body.indexOf('{'), last = body.lastIndexOf('}');
+    if (first > 0 && last > first) tries.push(body.slice(first, last + 1));
+    for (var i = 0; i < tries.length; i++) {
+      try {
+        var o = JSON.parse(tries[i]);
+        if (o && typeof o === 'object' && !Array.isArray(o)) {
+          return {
+            reply: typeof o.reply === 'string' ? o.reply : raw,
+            actions: Array.isArray(o.actions) ? o.actions : []
+          };
+        }
+      } catch (e) { /* not this one */ }
+    }
+    return { reply: raw, actions: [] };
+  }
+
   function post(url, body, opts) {
     return fetch(url, { method: 'POST', headers: headers((opts || {}).headers), body: JSON.stringify(body) })
       .then(function (r) {
@@ -89,7 +204,7 @@
       var c = cfg();
       return !!(c && c.supabaseUrl && c.supabaseKey);
     },
-    coachReady: function () { var c = cfg(); return !!(c && c.coachUrl); },
+    coachReady: function () { var c = cfg(); return !!(c && (c.coachUrl || c.apiUrl)); },
     signedIn: function () { return !!session(); },
     user: function () { var s = session(); return s ? (s.user || null) : null; },
 
@@ -127,8 +242,15 @@
 
     /* ---- sync -----------------------------------------------------
        Push what changed since the last push, pull what changed since
-       the last pull, and let the newer write win by the device clock.
-       LKStore.changedAt() is what makes this decidable at all. */
+       the last pull, and let the newer edit win by the device clock.
+
+       The table is user_data: one row per key per person, unique on
+       (user_id, key), with RLS pinning every row to auth.uid(). Its
+       updated_at is stamped by a trigger, so it records when the server
+       heard rather than when somebody edited, and two phones cannot be
+       ordered by it. changed_at carries the device's own clock and is
+       what the conflict rule reads. LKStore.changedAt() is the other
+       half; without it none of this is decidable. */
     lastSync: function () { return Number(ST() ? ST().get('lk_lastSync', 0) : 0) || 0; },
 
     push: function () {
@@ -144,18 +266,26 @@
          where that is not a bug but a breach. */
       var mc = S.get('lk_mcProfile', null);
       var cycleOk = !!(mc && mc.cloudBackup);
-      var CYCLE_KEYS = { lk_mcProfile: 1, lk_mcDays: 1, lk_mcFuelAdjust: 1 };
       var rows = [];
       keys.forEach(function (k) {
         if (!changed[k]) return;
         if (CYCLE_KEYS[k] && !cycleOk) return;
-        rows.push({ key: k, value: S.get(k, null), changed_at: changed[k], deleted: !S.touched(k) });
+        /* A deletion is a row with deleted set, not a missing row: a key
+           somebody removed has to travel, or it comes back on the next
+           pull from the device that still has it. LKStore.removed is the
+           only thing that tells a deletion from a key never written. */
+        var gone = S.removed(k);
+        rows.push({ key: k, value: gone ? null : S.get(k, null), changed_at: changed[k], deleted: gone });
       });
       if (!rows.length) return Promise.resolve({ ok: true, data: { pushed: 0 } });
+      /* store_push resolves the whole conflict rule in one statement on the
+         server: a row lands only when its changed_at beats the one already
+         there. Sending the rows one at a time would let a half-finished
+         sync leave a person's data in a state neither device holds. */
       return post(cfg().supabaseUrl + '/rest/v1/rpc/store_push', { rows: rows })
         .then(function (r) {
           if (r.ok) S.set('lk_lastSync', Date.now());
-          return r;
+          return r.ok ? { ok: true, data: { pushed: rows.length, applied: Number(r.data) || 0 } } : r;
         });
     },
 
@@ -163,7 +293,7 @@
       if (!API.ready()) return Promise.resolve(NOT_READY);
       if (!session()) return Promise.resolve({ ok: false, error: 'signed_out', message: 'Sign in to sync.' });
       var S = ST();
-      return fetch(cfg().supabaseUrl + '/rest/v1/store?select=key,value,changed_at,deleted',
+      return fetch(cfg().supabaseUrl + '/rest/v1/user_data?select=key,value,changed_at',
                    { headers: headers() })
         .then(function (r) { return r.json(); }, fail)
         .then(function (rows) {
@@ -171,17 +301,26 @@
           var applied = 0;
           var mc2 = S.get('lk_mcProfile', null);
           var cycleOk2 = !!(mc2 && mc2.cloudBackup);
-          var CYCLE_KEYS2 = { lk_mcProfile: 1, lk_mcDays: 1, lk_mcFuelAdjust: 1 };
+          var mine = {};
+          S.syncKeys().forEach(function (k) { mine[k] = 1; });
           rows.forEach(function (row) {
+            /* A key this build does not sync is left alone rather than
+               written. The table outlives any one version of the app, and
+               a row from a newer build is not this build's to interpret. */
+            if (!mine[row.key]) return;
             /* Consent governs both directions: a cycle log that reached the
                server before the switch was turned off does not come back. */
-            if (CYCLE_KEYS2[row.key] && !cycleOk2) return;
+            if (CYCLE_KEYS[row.key] && !cycleOk2) return;
             /* The device's own copy wins when it is newer. This is the
                whole of the conflict rule and it is deliberately dumb:
                anything cleverer needs a merge per key, and a wrong merge
                loses work in a way a person cannot see. */
             if (S.changedAt(row.key) >= Number(row.changed_at || 0)) return;
-            if (row.deleted) S.remove(row.key); else S.set(row.key, row.value);
+            /* A null value is a tombstone. The row stays so the deletion
+               itself syncs; treating it as a value would restore a thing
+               somebody deleted on their other phone. */
+            if (row.value === null || row.value === undefined) S.remove(row.key);
+            else S.set(row.key, row.value);
             applied++;
           });
           return { ok: true, data: { applied: applied, rows: rows.length } };
@@ -200,20 +339,26 @@
     /* ---- entitlements ---------------------------------------------
        Read-only, and never cached as a yes. A stale "Pro" is somebody
        using something they stopped paying for; a stale "free" is a
-       moment of friction. Fail closed. */
+       moment of friction. Fail closed.
+
+       Subscription state lives on the profile row, written by the
+       payment webhook with the service key. Nothing a person does in
+       this app can make them Pro: the client only ever reads. */
     entitlement: function () {
       if (!API.ready() || !session()) {
-        return Promise.resolve({ ok: true, data: { tier: 'free', status: 'none' } });
+        return Promise.resolve({ ok: true, data: FREE_TIER });
       }
-      return fetch(cfg().supabaseUrl + '/rest/v1/entitlements?select=tier,status,trial_ends,renews_at',
+      return fetch(cfg().supabaseUrl +
+                   '/rest/v1/profiles?select=subscription_status,current_plan,plan_expires_at,trial_ends_at&limit=1',
                    { headers: headers() })
         .then(function (r) { return r.json(); }, fail)
         .then(function (rows) {
-          var e = Array.isArray(rows) && rows[0] ? rows[0] : { tier: 'free', status: 'none' };
+          var p = Array.isArray(rows) && rows[0] ? rows[0] : null;
+          var e = readEntitlement(p);
           if (ST()) ST().set('lk_entitlement', e);
           return { ok: true, data: e };
         }, function () {
-          return { ok: true, data: { tier: 'free', status: 'none' } };
+          return { ok: true, data: FREE_TIER };
         });
     },
 
@@ -233,13 +378,54 @@
        through LKCoachActions.checkAll before anything is shown: this
        function deliberately does no validation, so there is one place
        that decides what may touch somebody's data and it is on the
-       device. */
+       device, where it can be read.
+
+       The endpoint answers in the shape { content: [{ text }] }. The
+       model is asked for a JSON envelope and usually sends one; when it
+       does not, the whole answer is the reply and there are no actions.
+       A coach that talks but changes nothing is a worse day than a
+       crash, not a broken app. */
     ask: function (messages, context) {
       if (!API.coachReady()) {
         return Promise.resolve({ ok: false, error: 'not_configured',
           message: 'The coach needs a server, and this build has none.' });
       }
-      return post(cfg().coachUrl, { messages: messages, context: context || {} });
+      var body = {
+        system: systemPrompt(context || {}),
+        messages: (messages || []).map(function (m) {
+          return { role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content || '') };
+        }),
+        max_tokens: 3500
+      };
+      return post(coachEndpoint(), body).then(function (r) {
+        if (!r.ok) return r;
+        var d = r.data || {};
+        var text = d.content && d.content[0] && d.content[0].text || '';
+        /* The free tier is ten chats a day and the server, not this
+           file, decides when that is spent. Saying so plainly beats a
+           reply that reads like the coach lost interest. */
+        if (d.gated) {
+          return { ok: true, data: { reply: text, actions: [], gated: true, limit: d.limit || null } };
+        }
+        var parsed = envelope(text);
+        return { ok: true, data: { reply: parsed.reply, actions: parsed.actions, gated: false, limit: null } };
+      });
+    },
+
+    /* Delete the account and everything under it. The row cascade is on
+       the server; this is here so there is one name for it. */
+    deleteAccount: function () {
+      if (!API.ready()) return Promise.resolve(NOT_READY);
+      if (!session()) return Promise.resolve({ ok: false, error: 'signed_out', message: 'Sign in first.' });
+      var c = cfg();
+      if (!c.apiUrl) return Promise.resolve({ ok: false, error: 'not_configured',
+        message: 'This build cannot delete an account from here.' });
+      return fetch(c.apiUrl.replace(/\/$/, '') + '/user/delete', { method: 'DELETE', headers: headers() })
+        .then(function (r) {
+          if (!r.ok) return { ok: false, error: 'server', status: r.status, message: 'The server refused that.' };
+          setSession(null);
+          return { ok: true };
+        }, fail);
     }
   };
 
