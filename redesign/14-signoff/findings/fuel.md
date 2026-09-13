@@ -103,3 +103,65 @@ F-FUEL-007 (live camera barcode decoding — already cut with a note, keep it).
 For each: build the form and the local fallback, and have the screen say what
 the remaining half needs. The search sheet's existing line is the model —
 "A real search reaches a food database; this one does not pretend to."
+
+---
+
+## Done, and how to check it (rebuild pass, 12 commits)
+
+Everything above is built unless this section says otherwise. Each line names
+the control to press, so none of it has to be taken on trust.
+
+**Class 1, untrue copy.** All five fixed. The hero reads `-0.47% / wk, the
+wrong way for a build`, computed from `lk_weightLog` over a span stretched to
+at least five days, with the verdict checking direction against the goal.
+Search results carry a `Table` provenance instead of claiming a barcode; the
+seed stops calling eggs-and-toast barcode evidence too. The water target is
+35 ml per kilo rounded to 50, so the sentence about it is true, and where
+there is no weight the sheet says which figure it is showing. The plan swap
+exists. The first-weeks state says what the target is.
+
+**Class 2, figures that do not reproduce.** All four fixed. `goal` reads
+`lk_profile`. The frequency counts are tallied from the log. Trends uses the
+day's running total for today. Portion steps scale from the logged portion,
+so a fifth less then a quarter more returns 52 g to 52 g.
+
+**Class 3, inert controls.** Both fixed. The plan swap picks from the table
+and your own recipes. "Build a recipe" builds one, with a live per-serving
+total and free-text lines counted as zero and labelled as such.
+
+**Persistence.** `lk_fuelLog` (per date), `lk_fuelTargets`, `lk_fuelPlan`,
+`lk_fuelPlans`, `lk_recipes`, `lk_fuelProfile`, `lk_fuelFavourites`,
+`lk_myFoods`, `lk_fuelRefeed`, plus writes through to `lk_supplements`,
+`lk_weightLog`, `lk_profile`, `lk_pantryItems` and `lk_shoppingList`. Only
+the populated and hidden states write; the dev switcher's synthetic states
+stay in memory.
+
+**Built from the missing list.** Micronutrients with a day panel and per-meal
+figures (001). Trends range toggle, target line, weight line, averages grid
+(002). Recipe servings stepper with live preview (003). Recipe builder (004).
+Favourites (005). Scan idle / looking / not found / logged, with a manual
+barcode field (006, 009, 010, 011). Adaptive TDEE with its working shown
+(014, 216). Free-text parsing with a unit table and aliases (016, 401).
+Pantry depletion onto the shopping list (018). Weekly rate from the log
+(019). slotForNow, water goal, favourites, frequency (020). Meal slots with a
+grouped diary and per-slot footers (400, 403). Fuel Profile with calcTDEE and
+calcMacros (204-212). Water card with a unit toggle (213). Suggestion card
+with its reason (214). Refeed (217). Weight card (218). Plan accordion and
+shopping list (221, 223). Plan generator and saved weeks (224, 226).
+Itemised photo preview with per-item remove (402). Manual macro entry (405,
+406). Search ranking with a best-match label (408). Food detail with grams
+and serving chips (409). My Store (410). Barcode handoff from search (412).
+Photo capture and library inputs, preview, discard, re-estimate (413, 415).
+For You / From Pantry with tags, times and steps (416, 417). Add a recipe to
+the shop (419). Log a full planned day (422). Recipes from the pantry (423).
+
+**Deliberately not built, with the reason on the screen.** F-FUEL-203, the
+macro ring: a ring shows one quantity and this screen has four that matter at
+once. Four concentric rings cannot be read off, and bars compare across rows,
+which is the question being asked. The reasoning is in the code above
+`macros()`. F-FUEL-007, live camera decoding, stays cut and the scan sheet
+says so.
+
+**Still needs a server, local half built, said on screen.** F-FUEL-407
+(multi-source search), 411 (a USDA key screen), 414 (real photo analysis),
+420/421 (AI meal ideas and plan-my-day), 424 (coach recipes).

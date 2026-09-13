@@ -53,16 +53,28 @@ media-retry             open                    retry                   save-cus
 try                     undo
 ```
 
-**fuel.html** — 28
+**fuel.html** — 88
 
 ```
-' + c[0] +
-          '  cam                     cam-log                 cam-oil                 close
-log-often               log-recipe              log-search              meal                    meal-delete
-meal-portion            meals                   mic                     mic-log                 new-recipe
-open-recipe             plan-log                recipes-back            retry                   scan
-scan-log                search                  supp                    targets                 targets-save
-undo                    water-add               water-sub
+' + act + '             ' + c[0] +
+          '  br-add                  br-add-note             br-drop-note
+br-less                 br-more                 br-save                 build-plan              cam
+cam-discard             cam-drop                cam-log                 cam-oil                 cam-redo
+close                   fav                     fd-chip                 fd-keep                 fd-log
+food-detail             fp-act                  fp-goal                 fp-mm                   fp-save
+fp-sex                  fuel-profile            gp-build                gp-days                 gp-del
+gp-meals                gp-save                 gp-star                 gp-use                  log-often
+log-recipe              log-search              manual                  meal                    meal-delete
+meal-portion            meals                   mic                     mic-drop                mic-eg
+mic-log                 micros                  mn-add                  new-recipe              open-recipe
+plan-day                plan-log                plan-log-day            plan-shop               plan-swap
+recipe-shop             recipe-tab              recipes-back            refeed-no               refeed-off
+refeed-on               retry                   scan                    scan-again              scan-log
+scan-look               scan-manual             scan-try                search                  search-to-scan
+store-drop              store-log               suggest-log             supp                    swap-pick
+targets                 targets-save            tdee-keep               tdee-take               tdee-why
+trend-range             undo                    water                   water-add               water-add5
+water-sub               water-unit              weigh-in
 ```
 
 **home.html** — 5
@@ -198,8 +210,8 @@ The selectors every test and every audit script addresses.
 | `coach.html` | 120 |
 | `cycle.html` | 106 |
 | `exercise-library.html` | 51 |
-| `fuel.html` | 83 |
-| `home.html` | 36 |
+| `fuel.html` | 229 |
+| `home.html` | 38 |
 | `onboarding.html` | 69 |
 | `profile.html` | 25 |
 | `progress.html` | 71 |
@@ -237,30 +249,30 @@ five columns after them are.
 
 | Screen | Lines | Listeners | Actions | Buttons | Inputs | testids |
 |---|---|---|---|---|---|---|
-| `coach.html` | 2158 | 7 | 59 | 66 | 5 | 120 |
+| `coach.html` | 2178 | 7 | 59 | 66 | 5 | 120 |
 | `cycle.html` | 2189 | 10 | 43 | 48 | 7 | 106 |
 | `exercise-library.html` | 1633 | 7 | 22 | 31 | 4 | 51 |
-| `fuel.html` | 1455 | 5 | 28 | 49 | 4 | 83 |
-| `home.html` | 1231 | 3 | 5 | 25 | 0 | 36 |
+| `fuel.html` | 4376 | 5 | 88 | 122 | 23 | 229 |
+| `home.html` | 1279 | 3 | 5 | 25 | 0 | 38 |
 | `onboarding.html` | 1251 | 10 | 0 | 34 | 5 | 69 |
 | `profile.html` | 567 | 4 | 4 | 12 | 0 | 25 |
 | `progress.html` | 1387 | 6 | 22 | 34 | 6 | 71 |
 | `recap.html` | 691 | 4 | 13 | 15 | 0 | 25 |
 | `review.html` | 1300 | 6 | 0 | 24 | 1 | 52 |
-| `settings.html` | 1756 | 6 | 20 | 29 | 5 | 43 |
+| `settings.html` | 1763 | 6 | 20 | 29 | 5 | 43 |
 | `shopping.html` | 2160 | 7 | 46 | 60 | 17 | 127 |
 | `split-builder.html` | 1353 | 12 | 28 | 36 | 4 | 70 |
 | `stack.html` | 964 | 7 | 24 | 30 | 3 | 42 |
-| `train.html` | 1983 | 6 | 32 | 43 | 7 | 93 |
+| `train.html` | 1986 | 6 | 32 | 43 | 7 | 93 |
 | `tutorial.html` | 286 | 3 | 4 | 7 | 0 | 12 |
 | `workout-detail.html` | 907 | 5 | 17 | 18 | 3 | 43 |
 | `workout-log.html` | 1839 | 12 | 42 | 56 | 5 | 102 |
 | `app.js` | 708 | 0 | 0 | 0 | 1 | 1 |
 | `bodymap.js` | 443 | 4 | 0 | 1 | 0 | 0 |
 | `chrome.js` | 585 | 10 | 0 | 1 | 0 | 1 |
-| `fixtures.js` | 4577 | 0 | 0 | 0 | 0 | 0 |
+| `fixtures.js` | 4926 | 0 | 0 | 0 | 0 | 0 |
 | `session.js` | 243 | 3 | 2 | 3 | 0 | 3 |
 | `store.js` | 235 | 1 | 0 | 0 | 0 | 0 |
 | `theme.js` | 67 | 1 | 0 | 0 | 0 | 0 |
 | `units.js` | 117 | 1 | 0 | 0 | 0 | 0 |
-| **total** | **32085** | **140** | **411** | **622** | **77** | **1175** |
+| **total** | **35433** | **140** | **471** | **695** | **96** | **1323** |
