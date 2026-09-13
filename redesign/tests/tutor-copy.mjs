@@ -186,6 +186,77 @@ const afterSkip = await page.evaluate(() => ({
 ok(!afterSkip.running && afterSkip.hidden, 'skipping leaves within a frame');
 ok(!!afterSkip.seen, 'skipping still satisfies the first-run gate', String(afterSkip.seen));
 
+/* ---- 4. the ways in ------------------------------------------------
+   A walkthrough nobody can reach is the same as no walkthrough, which is
+   what the shipped one was: it wrote the gate and nothing anywhere
+   opened it again. */
+
+/* A first run lands on it. */
+await page.evaluate(() => {
+  localStorage.clear();
+  localStorage.setItem('lk_onboarded', 'true');
+  localStorage.setItem('lk_profile', JSON.stringify({ name: 'Ada' }));
+});
+/* Opened at the bare URL, the way a phone opens it: the gate only runs
+   when there is no hash to honour. */
+await page.goto(DEMO);
+await page.waitForFunction(() => window.DEMO && Object.keys(window.DEMO.screens).length > 0);
+await page.waitForTimeout(400);
+ok(await page.evaluate(() => location.hash) === '#/tutorial',
+   'setup done and the walkthrough unseen lands on it',
+   await page.evaluate(() => location.hash));
+
+/* Finishing Quick start offers the rest, and does not play it. */
+await page.evaluate(() => window.LKTutor.start('quick'));
+await page.waitForTimeout(400);
+await page.evaluate(() => {
+  /* Straight to the end, the way a reader who completed it arrives. */
+  const t = window.LKTutorSteps.quick.steps.length;
+  for (let i = 0; i < t; i++) { /* the player walks itself when told to stop at the end */ }
+});
+await page.evaluate(() => window.LKTutor.stop());
+await page.waitForTimeout(200);
+
+/* Settings offers both, separately. */
+await page.evaluate(() => { location.hash = '#/profile/settings'; });
+await page.waitForTimeout(600);
+const rows = await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-settings');
+  if (!r || !r.shadowRoot) return null;
+  return ['row-tutorial', 'row-tutorial-tour'].map((id) => {
+    const el = r.shadowRoot.querySelector('[data-testid="' + id + '"]');
+    return el ? el.textContent.replace(/\s+/g, ' ').trim() : null;
+  });
+});
+ok(rows && rows[0] && /quick start/i.test(rows[0]), 'Settings offers Quick start', rows && rows[0]);
+ok(rows && rows[1] && /full tour/i.test(rows[1]), 'Settings offers the Full tour', rows && rows[1]);
+
+/* A module resumes where it was left. */
+await page.evaluate(() => {
+  localStorage.setItem('lk_tutorialSteps', JSON.stringify({ fuel: 4 }));
+  location.hash = '#/fuel';
+});
+await page.waitForTimeout(400);
+const resumed = await page.evaluate(() => {
+  window.LKTutor.start('fuel', { resume: true });
+  return window.LKTutor.at();
+});
+ok(resumed && resumed.step === 4, 'a half-finished module resumes rather than restarts',
+   JSON.stringify(resumed));
+await page.evaluate(() => window.LKTutor.stop());
+
+/* And the three keys that carry all of this sync. */
+const synced = await page.evaluate(() => {
+  const k = window.LKStore.syncKeys();
+  return { seen: k.indexOf('lk_tutorialSeen') !== -1,
+           track: k.indexOf('lk_tutorialTrack') !== -1,
+           steps: k.indexOf('lk_tutorialSteps') !== -1,
+           session: k.indexOf('lk_session') !== -1 };
+});
+ok(synced.seen && synced.track && synced.steps,
+   'what somebody learned follows them to a new device', JSON.stringify(synced));
+ok(!synced.session, 'the credential does not', JSON.stringify(synced));
+
 ok(errors.length === 0, 'zero console errors across all six tracks', errors.slice(0, 3).join(' | '));
 
 await browser.close();

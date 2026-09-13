@@ -133,6 +133,7 @@ const MANIFEST = {
     /* Into the walkthrough from Settings' Help row, which is the only route
        to it: nothing opened tutorial.html at all. */
     { from: 'settings', selector: '[data-testid="row-tutorial"]', to: 'tutorial', mode: 'push' },
+    { from: 'settings', selector: '[data-testid="row-tutorial-tour"]', to: 'tutorial', mode: 'push' },
     { from: 'tutorial', selector: '[data-testid="tut-skip"]', to: 'home', mode: 'tab' },
     { from: 'tutorial', selector: '[data-testid="tut-finish"]', to: 'home', mode: 'tab' },
     { from: 'train', selector: '[data-action="open-library"]', to: 'exercise-library', mode: 'push' },

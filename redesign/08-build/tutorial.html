@@ -218,8 +218,20 @@
           '<span class="btn__label">Skip</span></button>';
     }
     if (S.phase === 'done') {
+      /* THE FULL TOUR IS OFFERED HERE AND NOWHERE ELSE ON A FIRST RUN.
+         One row, under the primary, so the person who wants the rest can
+         have it and the person who wants to train is one tap from doing
+         so. */
       return '<button class="btn btn--primary btn--block" type="button" data-action="finish" data-testid="tut-finish">' +
-        '<span class="btn__label">Start training</span></button>';
+          '<span class="btn__label">Start training</span></button>' +
+        (hasApp()
+          ? '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="tour" data-testid="tut-tour">' +
+              '<span class="btn__label">Take the full tour</span></button>'
+          : '');
+    }
+    if (S.phase === 'hub') {
+      return '<button class="btn btn--secondary btn--block" type="button" data-action="finish" data-testid="tut-finish">' +
+        '<span class="btn__label">Not now</span></button>';
     }
     var last = S.i === CARDS.length - 1;
     return '<div class="tut__dots" role="group" aria-label="Step ' + (S.i + 1) + ' of ' + CARDS.length + '">' +
@@ -239,9 +251,45 @@
     '</div>';
   }
 
+  /* ---------------------------------------------------------------
+     THE HUB. Five modules, each ending where the app actually leaves
+     you, each resuming where it was left rather than starting again.
+     It is only offered, never played: a five minute tutorial that
+     starts itself is a five minute tutorial nobody finishes.
+     --------------------------------------------------------------- */
+  /* Named hasApp, not live: `live` is already the aria-live element on
+     this page, and a var assignment at load quietly overwrote the
+     function declaration that shared its name. */
+  function hasApp() { return !!(window.LKTutor && LKTutor.available()); }
+
+  function hubHTML() {
+    if (!hasApp()) {
+      return '<div class="tut__intro">' +
+        '<h1 class="tut__word is-in">The tour</h1>' +
+        '<p class="tut__tag is-in">The full tour drives the real screens, so it ' +
+          'runs inside the app rather than on this page on its own.</p>' +
+      '</div>';
+    }
+    var done = LKTutor.progress();
+    var rows = LKTutor.tracks().filter(function (t) { return t.id !== 'quick'; })
+      .map(function (t) {
+        var at = done[t.id] || 0;
+        var state = at >= t.steps ? 'Done' : at > 0 ? 'Resume, step ' + (at + 1) : t.steps + ' steps';
+        return '<button class="btn btn--secondary btn--block mt-2" type="button" ' +
+            'data-action="module" data-module="' + t.id + '" data-testid="tut-module-' + t.id + '">' +
+            '<span class="btn__label">' + esc(t.name) + ' \u00b7 ' + esc(state) + '</span></button>';
+      }).join('');
+    return '<div class="tut__intro">' +
+      '<h1 class="tut__word is-in">The full tour</h1>' +
+      '<p class="tut__tag is-in">Five modules. Take one, or take none.</p>' +
+    '</div>' + rows;
+  }
+
   function paint() {
     screen.setAttribute('data-state', S.phase);
-    LKPatch(body, S.phase === 'intro' ? introHTML() : S.phase === 'done' ? doneHTML() : cardHTML());
+    LKPatch(body, S.phase === 'intro' ? introHTML()
+                : S.phase === 'done' ? doneHTML()
+                : S.phase === 'hub'  ? hubHTML() : cardHTML());
     LKPatch(foot, footHTML());
     Array.prototype.forEach.call(document.querySelectorAll('.dev__item'), function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.state === S.phase));
@@ -252,12 +300,40 @@
     try { localStorage.setItem('lk_tutorialSeen', 'true'); } catch (e) {}
   }
 
+  /* Hand over to the player, which routes to the screen the track starts
+     on and takes this screen out from under itself. Finishing comes back
+     here so the offer of the rest is made once, in the one place a
+     person has just proved they will read. Skipping does not: somebody
+     who left is not asked again on the way out. */
+  function runTrack(id) {
+    if (!hasApp()) return;
+    LKTutor.start(id, { resume: id !== 'quick', onEnd: function (end) {
+      if (end.why !== 'finished') { location.href = 'home.html'; return; }
+      if (id === 'quick') {
+        location.hash = '#/tutorial';
+        S.phase = 'done'; paint(); say('Ready');
+      } else {
+        location.hash = '#/tutorial';
+        S.phase = 'hub'; paint(); say('The full tour');
+      }
+    } });
+  }
+
   document.addEventListener('click', function (e) {
     var t = e.target.closest ? e.target.closest('[data-action]') : null;
     if (!t) return;
     var a = t.getAttribute('data-action');
     stop();
-    if (a === 'begin') { S.phase = 'cards'; S.i = 0; playCard(); say(CARDS[0].tab); return; }
+    if (a === 'begin') {
+      /* WHEN THE APP IS THERE, TEACH ON THE APP. The cards below are the
+         fallback for this screen opened on its own, where there is
+         nothing to drive and spotlighting thin air would be a lie about
+         what the reader is looking at. */
+      if (hasApp()) { runTrack('quick'); return; }
+      S.phase = 'cards'; S.i = 0; playCard(); say(CARDS[0].tab); return;
+    }
+    if (a === 'tour') { S.phase = 'hub'; paint(); say('The full tour'); return; }
+    if (a === 'module') { runTrack(t.getAttribute('data-module')); return; }
     if (a === 'next') {
       if (S.i < CARDS.length - 1) { S.i++; playCard(); say(CARDS[S.i].tab); }
       else { S.phase = 'done'; paint(); say('Ready'); }
@@ -269,7 +345,19 @@
     if (a === 'finish') { seen(); location.href = 'home.html'; return; }
   });
 
-  var PRESETS = [['intro', 'Intro'], ['cards', 'Cards'], ['done', 'Ready']];
+  /* Settings' Full tour row asks for the hub rather than the intro. It is
+     sessionStorage because it is about this navigation and nothing else:
+     a preference that outlived the trip would open the hub every time. */
+  try {
+    if (sessionStorage.getItem('lk_tutorialOpen') === 'hub') {
+      sessionStorage.removeItem('lk_tutorialOpen');
+      S.phase = 'hub';
+      stop();
+      paint();
+    }
+  } catch (e) {}
+
+  var PRESETS = [['intro', 'Intro'], ['cards', 'Cards'], ['done', 'Ready'], ['hub', 'Full tour']];
   var menu = document.getElementById('dev-menu');
   var toggle = document.getElementById('dev-toggle');
   LKPatch(menu, PRESETS.map(function (p) {

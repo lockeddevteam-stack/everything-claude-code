@@ -467,14 +467,19 @@
        and a preference that resets is read as the app forgetting them. */
     'lk_theme', 'lk_notifOn', 'lk_notifPrefs', 'lk_notifTimes',
     'lk_reminderOn', 'lk_reminderAt', 'lk_restEnabled', 'lk_restSec',
-    'lk_restSound', 'lk_startDay', 'lk_weekStart', 'lk_plateKg'
+    'lk_restSound', 'lk_startDay', 'lk_weekStart', 'lk_plateKg',
+
+    /* The walkthrough teaches the app, not the device. Somebody who took
+       it on their phone should not be shown it again on their tablet, and
+       a module left halfway should resume rather than restart. */
+    'lk_tutorialSeen', 'lk_tutorialTrack', 'lk_tutorialSteps'
   ];
 
   /* WHAT IS DELIBERATELY NOT IN THAT LIST, so the next person to add a key
      has the rule rather than the list: anything true of a device and not of
      a person. A half-finished workout (lk_liveSession), what screen was open
      (lk_openLift, lk_openSplit, lk_openWorkout), a tip already dismissed
-     (lk_holdTipSeen, lk_tutorialSeen, lk_throwbackDismissed), a migration
+     (lk_holdTipSeen, lk_throwbackDismissed), a migration
      marker, and lk_session itself, which is the credential and would be a
      hole rather than a feature. Syncing a live session would resume a
      workout on a phone nobody is holding. */

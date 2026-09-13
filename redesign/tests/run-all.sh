@@ -40,6 +40,7 @@ run "catalogue ids — a lift is its own id"         node catalogue-ids.mjs
 run "empty state — a first run with no seed"      node empty-state.mjs
 run "coach actions — what the gate refuses"       node coach-actions.mjs
 run "cloud — the seam against the real contract"  node cloud-contract.mjs
+run "walkthrough — six tracks, on the real screens" node tutor-copy.mjs
 run "crossings — every selector names a control"   node nav-selectors.mjs
 run "session — a workout survives leaving"        node session-persist.mjs
 run "demo — assembled"                             sh -c 'node ../10-final/assemble.mjs && node ../10-final/verify-demo.mjs'
