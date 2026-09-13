@@ -541,6 +541,72 @@
     }
   }
 
+  /* ------------------------------------------------------------------
+     SCROLL LOCK. A sheet takes the screen, and the page behind it went on
+     scrolling under the scrim: flick a sheet's list past its end and the
+     screen under it moved instead, so closing the sheet returned somebody
+     to a different place than they left. On iOS the same gesture drags the
+     whole page and rubber-bands it away from the sheet.
+
+     Locked by fixing the scroller in place and holding its offset, because
+     `overflow: hidden` alone loses the position on every browser and
+     scrolls to the top on none of them consistently. Restored exactly,
+     including the scroll position, when the last sheet closes.
+     ------------------------------------------------------------------ */
+  /* `.body` is the only scrolling element on a screen — components.css says
+     so in as many words. A screen without one scrolls nothing and needs no
+     lock. */
+  function scroller(root) {
+    return root.querySelector ? root.querySelector('.body') : null;
+  }
+
+  function lockScroll(root) {
+    var el = scroller(root);
+    if (!el || el.__lk_locked) return;
+    el.__lk_locked = { top: el.scrollTop, position: el.style.position,
+                       topStyle: el.style.top, width: el.style.width,
+                       overflow: el.style.overflow };
+    el.style.overflow = 'hidden';
+    /* touch-action stops the rubber-band on iOS, which overflow alone does
+       not: the gesture is handled before any scroll happens. */
+    el.style.touchAction = 'none';
+  }
+
+  function unlockScroll(root) {
+    var el = scroller(root);
+    if (!el || !el.__lk_locked) return;
+    var was = el.__lk_locked;
+    el.style.overflow = was.overflow || '';
+    el.style.touchAction = '';
+    el.scrollTop = was.top;
+    el.__lk_locked = null;
+  }
+
+  /* The sheets a screen renders come and go with its own paint, so this
+     watches what is on screen rather than being told. One observer per
+     root, and it only touches the scroller when the count crosses zero. */
+  function watchScrollLock(root) {
+    if (root.__lk_scrolllock || typeof MutationObserver !== 'function') return;
+    var open = -1;
+    function check() {
+      var n = root.querySelectorAll ? root.querySelectorAll('.sheet, .scrim, [role="dialog"]').length : 0;
+      var now = n > 0 ? 1 : 0;
+      if (now === open) return;
+      open = now;
+      if (now) lockScroll(root); else unlockScroll(root);
+    }
+    var pending = false;
+    var obs = new MutationObserver(function () {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(function () { pending = false; check(); });
+    });
+    try { obs.observe(root, { childList: true, subtree: true }); }
+    catch (e) { return; }
+    root.__lk_scrolllock = true;
+    check();
+  }
+
   function init(root) {
     root = root || doc;
     initTabLinks(root);
@@ -550,6 +616,7 @@
     initScrollEdge(root);
     initSheets(root);
     watchSheets(root);
+    watchScrollLock(root);
     initOverlayFocus(root);
   }
 
@@ -635,7 +702,91 @@
     }, { passive: false });
   }
 
-  global.LKChrome = { init: init, watchKeyboard: watchKeyboard };
+  /* ------------------------------------------------------------------
+     WHEN SOMETHING THROWS THAT NOBODY CAUGHT.
+
+     The demo catches a screen's boot and renders a per-screen error host.
+     Nothing caught a throw after boot, so a bug in a handler left the app
+     looking alive and doing nothing: taps landed, nothing happened, and
+     the only signal was in a console nobody on a phone can open.
+
+     What this says matters more than that it appears. The first thing
+     somebody wants to know is whether they have lost the workout they
+     just logged, and the answer is no -- every write went to the device
+     as it happened. So it says that first, and offers the reload second.
+     ------------------------------------------------------------------ */
+  var crashed = false;
+  function crashScreen(what) {
+    if (crashed) return;
+    crashed = true;
+    try {
+      var host = doc.createElement('div');
+      host.setAttribute('role', 'alert');
+      host.setAttribute('data-testid', 'app-crash');
+      host.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;' +
+        'flex-direction:column;gap:12px;align-items:flex-start;justify-content:center;' +
+        'padding:32px;background:var(--bg,#000);color:var(--text,#fff);' +
+        'font:16px/1.45 -apple-system,BlinkMacSystemFont,system-ui,sans-serif';
+      var h = doc.createElement('p');
+      h.textContent = 'Something broke on this screen.';
+      h.style.cssText = 'font-size:22px;font-weight:600;margin:0';
+      var p1 = doc.createElement('p');
+      p1.textContent = 'Your training is safe. Everything you logged was saved to this ' +
+        'device as you logged it, and none of it is lost.';
+      p1.style.cssText = 'margin:0;opacity:.8';
+      var p2 = doc.createElement('p');
+      p2.textContent = String(what || '').slice(0, 200);
+      p2.style.cssText = 'margin:0;opacity:.5;font-size:13px;font-family:ui-monospace,monospace';
+      var b1 = doc.createElement('button');
+      b1.textContent = 'Reload';
+      b1.setAttribute('data-testid', 'crash-reload');
+      b1.style.cssText = 'margin-top:8px;min-height:44px;padding:0 20px;border:0;' +
+        'border-radius:999px;background:var(--accent,#fff);color:var(--on-accent,#000);' +
+        'font:inherit;font-weight:600';
+      b1.onclick = function () { try { global.location.reload(); } catch (e) {} };
+      host.appendChild(h); host.appendChild(p1);
+      if (p2.textContent) host.appendChild(p2);
+      host.appendChild(b1);
+      (doc.body || doc.documentElement).appendChild(host);
+    } catch (e) { /* the crash screen must never be the thing that crashes */ }
+  }
+
+  /* A WRITE THAT DID NOT REACH THE DISK. store.js keeps the value for the
+     session and fires this. Said out loud, because the alternative is
+     somebody logging a week of training and losing it on reload having
+     never been told they were at risk. */
+  function storageBanner() {
+    try {
+      if (doc.querySelector('[data-testid="storage-full"]')) return;
+      var el = doc.createElement('div');
+      el.setAttribute('role', 'alert');
+      el.setAttribute('data-testid', 'storage-full');
+      el.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:99998;' +
+        'padding:12px 16px;border-radius:14px;background:var(--warning,#b45309);' +
+        'color:#fff;font:14px/1.4 -apple-system,system-ui,sans-serif';
+      el.textContent = 'This phone is out of storage. Anything you log now is kept ' +
+        'only until you close the app. Free some space, or export a backup from Settings.';
+      (doc.body || doc.documentElement).appendChild(el);
+    } catch (e) {}
+  }
+
+  if (global.addEventListener) {
+    global.addEventListener('error', function (e) {
+      /* A failed image or script is not a dead app. */
+      if (e && e.target && e.target !== global && e.target.tagName) return;
+      crashScreen(e && e.message);
+    });
+    global.addEventListener('unhandledrejection', function (e) {
+      crashScreen(e && e.reason && (e.reason.message || e.reason));
+    });
+  }
+  if (global.LKStore && global.LKStore.onChange) {
+    global.LKStore.onChange('lk:storage-full', storageBanner);
+  }
+
+  global.LKChrome = { init: init, watchKeyboard: watchKeyboard,
+                      lockScroll: lockScroll, unlockScroll: unlockScroll,
+                      crashScreen: crashScreen };
 
   if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', function () { init(doc); });
   else init(doc);
