@@ -290,7 +290,26 @@
     }
     return null;
   }
+  /* "Do this session again", handed over by workout-detail. The key was
+     written and nothing ever read it, so Repeat opened today's split day
+     instead of the session being read. */
+  function repeatRequested() {
+    if (!window.LKStore) return false;
+    var rec = LKStore.get('lk_repeatWorkout', null);
+    if (!rec || !rec.exercises || !rec.exercises.length) return false;
+    LKStore.remove('lk_repeatWorkout');
+    applyState('mid-session');
+    S.name = rec.name || 'Workout';
+    S.elapsed = 0;
+    S.over = false;
+    S.exercises = rec.exercises.map(function (e) {
+      return exFromHistory(e.id, e.name, e.muscle || '', '', [], e.sets || 3);
+    });
+    return true;
+  }
+
   function startRequested() {
+    if (repeatRequested()) return true;
     var key = null;
     try { key = localStorage.getItem('lk_startDay'); } catch (e) {}
     if (!key) return false;

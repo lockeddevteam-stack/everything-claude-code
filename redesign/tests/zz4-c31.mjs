@@ -1,0 +1,18 @@
+import {open,DEMO,T,ids as IDS} from './zz4-lib.mjs';
+const {b,p,errs}=await open(DEMO+'#/coach');
+await p.waitForTimeout(900);
+await p.click('[data-testid="seg-plan"]'); await p.waitForTimeout(400);
+await p.click('[data-testid="plan-delete"]'); await p.waitForTimeout(400);
+await p.click('[data-testid="delete-confirm"]'); await p.waitForTimeout(700);
+await p.click('[data-testid="seg-chat"]'); await p.waitForTimeout(400);
+await p.fill('[data-testid="composer-input"]','Write me the next 8-week block.');
+await p.click('[data-testid="composer-send"]'); await p.waitForTimeout(4000);
+await p.click('[data-testid="chat-save-plan"]'); await p.waitForTimeout(900);
+const t=p.locator('[data-testid="toast"]'); console.log('toast:',await t.count()?T(await t.innerText()):'(none)');
+await p.click('[data-testid="seg-plan"]'); await p.waitForTimeout(600);
+console.log('PLAN:',T(await p.locator('[data-testid="view-plan"]').innerText()).slice(0,700));
+console.log('stored:',String(await p.evaluate(()=>localStorage.getItem('lk_coachPlan'))).slice(0,160));
+await p.reload(); await p.waitForTimeout(1400); await p.click('[data-testid="seg-plan"]'); await p.waitForTimeout(600);
+console.log('\nAFTER RELOAD:',T(await p.locator('[data-testid="view-plan"]').innerText()).slice(0,700));
+console.log('ERRS',errs);
+await b.close();

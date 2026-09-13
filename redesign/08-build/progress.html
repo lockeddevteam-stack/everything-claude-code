@@ -262,6 +262,12 @@
   }).sort(function (a, b) { return a[0] < b[0] ? -1 : 1; });
   function saveWeight() {
     put('lk_weightLog', WEIGHT_LOG.map(function (w) { return { date: w[0], kg: w[1] }; }));
+    /* The latest weigh-in IS the body weight. Settings reads
+       lk_profile.weightKg and nothing here updated it, so a weigh-in here
+       left Settings showing the weight somebody typed into setup months
+       ago. Fuel's weigh-in already writes both. */
+    var last = WEIGHT_LOG[WEIGHT_LOG.length - 1];
+    if (last && ST && ST.patch) ST.patch('lk_profile', { weightKg: last[1] });
   }
 
   /* lk_bfLog. It ships in the seed with two readings and nothing in the
@@ -565,7 +571,10 @@
     ys.ticks.forEach(function (t) {
       var y = Math.round(Y(t)) + 0.5;
       out.push('<line class="chart__grid" x1="' + padL + '" y1="' + y + '" x2="' + (padL + plotW) + '" y2="' + y + '"/>');
-      out.push('<text class="chart__axis" x="' + (padL - 8) + '" y="' + (y + 4) + '" text-anchor="end">' + num1(t) + '</text>');
+      /* The tick LABEL converts; the tick's position does not, because the
+         geometry is in kilograms either way. The axis used to print kg
+         numbers under figures reading in pounds on the same card. */
+      out.push('<text class="chart__axis" x="' + (padL - 8) + '" y="' + (y + 4) + '" text-anchor="end">' + num1(LKUnits.v(t)) + '</text>');
     });
     var mid = t0 + (t1 - t0) / 2;
     [[t0, 'start'], [mid, 'middle'], [t1, 'end']].forEach(function (pp) {
@@ -632,13 +641,15 @@
     });
 
     var first = pts[0], lastp = pts[pts.length - 1];
+    var U = LKUnits.useKg() ? 'kilograms' : 'pounds';
+    var cv = function (v) { return num1(LKUnits.v(v)); };
     var desc = lift.name + ', estimated 1 rep max. ' + pts.length + ' sessions from ' +
       longDate(first[0]) + ' to ' + longDate(lastp[0]) + '. ' +
-      num1(first[1]) + ' to ' + num1(lastp[1]) + ' kilograms, ' +
+      cv(first[1]) + ' to ' + cv(lastp[1]) + ' ' + U + ', ' +
       (lastp[1] > first[1] ? 'up ' : lastp[1] < first[1] ? 'down ' : 'unchanged, ') +
-      num1(Math.abs(lastp[1] - first[1])) + ' kilograms. Vertical axis ' +
-      num1(ys.lo) + ' to ' + num1(ys.hi) + ' kilograms. Points: ' +
-      pts.map(function (p) { return dayLabel(p[0]) + ' ' + num1(p[1]) + ', from ' + num1(p[2]) + ' kilograms for ' + p[3] + ' reps'; }).join('; ') + '.';
+      cv(Math.abs(lastp[1] - first[1])) + ' ' + U + '. Vertical axis ' +
+      cv(ys.lo) + ' to ' + cv(ys.hi) + ' ' + U + '. Points: ' +
+      pts.map(function (p) { return dayLabel(p[0]) + ' ' + cv(p[1]) + ', from ' + cv(p[2]) + ' ' + U + ' for ' + p[3] + ' reps'; }).join('; ') + '.';
 
     return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H +
       '" role="img" aria-label="' + esc(desc) + '" data-testid="trend-chart" data-range="' + days +
@@ -763,8 +774,9 @@
             '</div>' +
           '</div>' +
           '<div class="mt-3" id="chart-holder" data-testid="chart-holder"></div>' +
-          '<p class="t-meta mt-2" data-testid="chart-caption">Vertical axis in kilograms, starting at ' +
-            '<span class="num" data-testid="axis-floor">' + num1(chartFloor(pts)) + '</span>, not at zero. ' +
+          '<p class="t-meta mt-2" data-testid="chart-caption">Vertical axis in ' +
+            (LKUnits.useKg() ? 'kilograms' : 'pounds') + ', starting at ' +
+            '<span class="num" data-testid="axis-floor">' + num1(LKUnits.v(chartFloor(pts))) + '</span>, not at zero. ' +
             'Points sit on the day they were lifted.</p>' +
           '<p class="t-detail mt-3">Last set: ' + kg(cur[2]) + ' &times; ' + n(cur[3]) +
             ' on ' + dayLabel(cur[0]) + '.</p>' +

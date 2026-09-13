@@ -467,6 +467,17 @@
     return 'snack';
   }
 
+  /* The suggestion closes the rest of the day, so it belongs in the first
+     meal that has nothing in it rather than wherever the wall clock points:
+     it filed dinner under Breakfast at three in the morning. The clock is
+     the fallback when every slot already has something in it. */
+  function nextEmptySlot() {
+    var used = {};
+    (DAY.meals || []).forEach(function (m) { used[slotOf(m)] = 1; });
+    for (var i = 0; i < SLOTS.length; i++) if (!used[SLOTS[i][0]]) return SLOTS[i][0];
+    return slotForNow();
+  }
+
   /* Anything logged before slots existed still has to land somewhere. The
      clock times on this screen are 12-hour and carry no am or pm, so 8:05
      could be breakfast or a late dinner and guessing would put meals in the
@@ -2286,6 +2297,16 @@
     }
     if (S.sheet === 'water') {
       var pctW = Math.min(100, Math.round(DAY.waterMl / DAY.waterGoalMl * 100));
+      /* The card above offers ml or fl oz and this sheet ignored the choice,
+         so the card read "2,250 ml" and the sheet "2.3 L" on the same tap. */
+      var wOz = !!(stored('lk_fuelProfile', {}) || {}).flOz;
+      var bigW = function (ml) {
+        return wOz ? (ml / 29.5735).toFixed(0) : (ml / 1000).toFixed(2);
+      };
+      var bigGoal = function (ml) {
+        return wOz ? (ml / 29.5735).toFixed(0) + ' fl oz' : (ml / 1000).toFixed(1) + ' L';
+      };
+      var stepW = wOz ? '8 fl oz' : '250 ml';
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
         '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="wt-title" data-testid="sheet-water">' +
           '<div class="sheet__head"><h2 class="t-headline grow" id="wt-title">Water</h2>' +
@@ -2294,18 +2315,18 @@
             '</button></div>' +
           '<div class="sheet__body">' +
             '<div class="hstack hstack--2" style="align-items: baseline">' +
-              '<p class="money num" data-testid="water-value">' + (DAY.waterMl / 1000).toFixed(2) + '</p>' +
-              '<p class="hero__unit grow">of ' + (DAY.waterGoalMl / 1000).toFixed(1) + ' L</p>' +
+              '<p class="money num" data-testid="water-value">' + bigW(DAY.waterMl) + '</p>' +
+              '<p class="hero__unit grow">of ' + bigGoal(DAY.waterGoalMl) + '</p>' +
             '</div>' +
             '<div class="meter mt-3" role="img" aria-label="' + pctW + ' per cent of today&rsquo;s water">' +
               '<span class="meter__fill" style="width:' + pctW + '%"></span></div>' +
             '<div class="hstack hstack--3 mt-4">' +
               '<button class="btn btn--secondary grow" type="button" data-action="water-sub" data-testid="water-sub">' +
-                '<span class="btn__label">&minus; 250 ml</span></button>' +
+                '<span class="btn__label">&minus; ' + stepW + '</span></button>' +
               '<button class="btn btn--primary grow" type="button" data-action="water-add" data-testid="water-add">' +
-                '<span class="btn__label">+ 250 ml</span></button>' +
+                '<span class="btn__label">+ ' + stepW + '</span></button>' +
             '</div>' +
-            '<p class="t-caption-1 quiet mt-3">A glass is about 250 ml. ' +
+            '<p class="t-caption-1 quiet mt-3">A glass is about ' + stepW + '. ' +
               (DAY.waterGoalComputed
                 ? 'The target is 35 ml for every kilo you weigh, rounded to the nearest 50, so it ' +
                   'moves when your weight does rather than sitting on a round number somebody picked.'
@@ -3700,7 +3721,8 @@
                 'Estimate again to start over.</p>') +
             (items.length
               ? '<p class="t-detail mt-2" data-testid="cam-total">' + n(plate.kcal) + ' kcal, ' +
-                  n(plate.pro) + ' g protein. <span class="quiet">Estimated, 71% confident.' +
+                  n(plate.pro) + ' g protein. <span class="quiet">From the worked example, ' +
+                  'not from your photo, so there is no confidence to report.' +
                   (S.camOil ? ' Adjusted for ' + { none: 'no oil', little: 'a little oil', lot: 'a lot of oil' }[S.camOil] + '.' : '') +
                   '</span></p>' +
                 '<p class="t-label mt-5">Was there oil or sauce?</p>' +
@@ -3999,10 +4021,11 @@
     if (a === 'suggest-log') {
       var sk = act.getAttribute('data-k'), sf = FOODS[sk];
       if (!sf) return;
-      addMeal(withMicros({ key: sk, icon: sf.icon, name: sf.name, kcal: sf.kcal,
+      var sslot = nextEmptySlot();
+      addMeal(withMicros({ key: sk, icon: sf.icon, name: sf.name, kcal: sf.kcal, slot: sslot,
                            pro: sf.pro, carb: sf.carb, fat: sf.fat, src: 'table' }, sf));
       render();
-      say(esc(sf.name) + ' logged, ' + n(sf.kcal) + ' kcal.');
+      say(esc(sf.name) + ' logged to ' + esc(slotName(sslot)) + ', ' + n(sf.kcal) + ' kcal.');
       return;
     }
     if (a === 'tdee-why') { S.tdeeWhy = !S.tdeeWhy; render(); return; }
