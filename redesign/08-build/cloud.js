@@ -255,6 +255,36 @@
                                                                   function () { return { ok: true }; });
     },
 
+    /* Changing a password is the server's to do: the rules a screen can
+       check are about the new one, and whether the old one is right is a
+       question only the account can answer. Supabase re-authenticates the
+       session first, so a stolen unlocked phone cannot change it blind. */
+    changePassword: function (current, next) {
+      if (!API.ready()) return Promise.resolve(NOT_READY);
+      var s = session();
+      if (!s) return Promise.resolve({ ok: false, error: 'signed_out', message: 'Sign in first.' });
+      var email = s.user && s.user.email;
+      if (!email) return Promise.resolve({ ok: false, error: 'signed_out', message: 'Sign in first.' });
+      return post(cfg().supabaseUrl + '/auth/v1/token?grant_type=password',
+                  { email: email, password: current })
+        .then(function (r) {
+          if (!r.ok) {
+            return { ok: false, error: 'wrong_password',
+                     message: 'That is not the password you use now.' };
+          }
+          if (r.data && r.data.access_token) setSession(r.data);
+          return fetch(cfg().supabaseUrl + '/auth/v1/user',
+                       { method: 'PUT', headers: headers(), body: JSON.stringify({ password: next }) })
+            .then(function (res) {
+              return res.json().catch(function () { return {}; }).then(function (j) {
+                return res.ok ? { ok: true }
+                              : { ok: false, error: 'server',
+                                  message: j.msg || j.message || 'The server refused that password.' };
+              });
+            }, fail);
+        });
+    },
+
     /* ---- sync -----------------------------------------------------
        Push what changed since the last push, pull what changed since
        the last pull, and let the newer edit win by the device clock.

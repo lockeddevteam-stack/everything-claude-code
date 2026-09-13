@@ -68,6 +68,11 @@ const server = http.createServer(async (req, res) => {
                        user: { id: UID, email: json.email } });
   }
   if (url.pathname === '/auth/v1/logout') return send(204, {});
+  if (url.pathname === '/auth/v1/user' && req.method === 'PUT') {
+    if (!signedIn) return send(401, { msg: 'not signed in' });
+    if (String(json.password || '').length < 8) return send(422, { msg: 'Password too short' });
+    return send(200, { id: UID, email: 'ada@example.com' });
+  }
 
   if (url.pathname === '/rest/v1/rpc/store_push') {
     /* The RPC is SECURITY DEFINER and raises when auth.uid() is null. */
@@ -166,6 +171,19 @@ r = await C.signIn('ada@example.com', 'right');
 ok(r.ok && C.signedIn(), 'a right password signs in');
 ok(C.user() && C.user().email === 'ada@example.com', 'the signed-in person is readable');
 const authed = seen.filter(s => s.path === '/rest/v1/user_data' || s.path === '/rest/v1/rpc/store_push');
+
+/* ---- 3b. changing a password is the account's business --------------- */
+let cp = await C.changePassword('wrong', 'a-good-long-one');
+ok(!cp.ok && cp.error === 'wrong_password',
+   'the current password is checked by the account, not by the screen', cp.message);
+
+cp = await C.changePassword('right', 'short');
+ok(!cp.ok && /short/i.test(cp.message || ''),
+   'and the server has the last word on the new one too', cp.message);
+
+cp = await C.changePassword('right', 'a-good-long-one');
+ok(cp.ok, 'a right password and a good new one goes through', cp.message);
+ok(C.signedIn(), 'and you are still signed in afterwards');
 
 /* ---- 4. push sends what changed, and only that ----------------------- */
 S.set('lk_prs', [{ id: 1, kg: 100 }]);

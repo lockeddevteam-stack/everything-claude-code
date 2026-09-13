@@ -13078,6 +13078,36 @@ window.LK_CLOUD = {
                                                                   function () { return { ok: true }; });
     },
 
+    /* Changing a password is the server's to do: the rules a screen can
+       check are about the new one, and whether the old one is right is a
+       question only the account can answer. Supabase re-authenticates the
+       session first, so a stolen unlocked phone cannot change it blind. */
+    changePassword: function (current, next) {
+      if (!API.ready()) return Promise.resolve(NOT_READY);
+      var s = session();
+      if (!s) return Promise.resolve({ ok: false, error: 'signed_out', message: 'Sign in first.' });
+      var email = s.user && s.user.email;
+      if (!email) return Promise.resolve({ ok: false, error: 'signed_out', message: 'Sign in first.' });
+      return post(cfg().supabaseUrl + '/auth/v1/token?grant_type=password',
+                  { email: email, password: current })
+        .then(function (r) {
+          if (!r.ok) {
+            return { ok: false, error: 'wrong_password',
+                     message: 'That is not the password you use now.' };
+          }
+          if (r.data && r.data.access_token) setSession(r.data);
+          return fetch(cfg().supabaseUrl + '/auth/v1/user',
+                       { method: 'PUT', headers: headers(), body: JSON.stringify({ password: next }) })
+            .then(function (res) {
+              return res.json().catch(function () { return {}; }).then(function (j) {
+                return res.ok ? { ok: true }
+                              : { ok: false, error: 'server',
+                                  message: j.msg || j.message || 'The server refused that password.' };
+              });
+            }, fail);
+        });
+    },
+
     /* ---- sync -----------------------------------------------------
        Push what changed since the last push, pull what changed since
        the last pull, and let the newer edit win by the device clock.
@@ -38006,6 +38036,16 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
         renderInterview();
         return;
       }
+      /* THE FREE LIMIT ARRIVES AS A SUCCESS. The endpoint answers a spent
+         allowance with HTTP 200 and gated: true, carrying the sentence to
+         show -- so the 429 branch above never sees it, and without this the
+         paywall would only appear for the one failure mode that is not the
+         paywall. */
+      if (r.data && r.data.gated) {
+        renderInterview();
+        openPro(r.data.reply || 'You have used what Free includes of the coach.');
+        return;
+      }
       /* Only now do the turns join the thread: a question that failed to
          send is not a question that was asked. */
       IV.msgs = msgs;
@@ -40751,6 +40791,23 @@ DEMO.define("settings", function (document, window, location, fetch) {
      nothing but change a variable and print a sentence claiming otherwise. */
   function confirmed(id) {
     var c = CONFIRM[id];
+    if (id === 'delete') {
+      /* THE ACCOUNT, NOT JUST THE PHONE. This wiped local storage and then
+         said "Nothing was sent to a server: there is not one here", which
+         was true and is not any more -- so the rows and the account itself
+         survived a screen that had just called itself Delete your account.
+         The device is cleared either way; the server half is attempted
+         first, and a failure is said rather than swallowed. */
+      var Cd = window.LKCloud;
+      if (Cd && Cd.ready() && Cd.signedIn()) {
+        Cd.deleteAccount().then(function (r) {
+          if (!r || !r.ok) {
+            toast('Everything on this phone is gone. The account itself could not be ' +
+                  'deleted just now \u2014 try again when you have signal.');
+          }
+        });
+      }
+    }
     if (id === 'reset' || id === 'delete') {
       var gone = ST ? ST.reset() : 0;
       /* Every row re-reads the store, which is now empty, so the whole app
@@ -40763,13 +40820,27 @@ DEMO.define("settings", function (document, window, location, fetch) {
       closeOverlay();
       toast(gone + (gone === 1 ? ' key' : ' keys') + ' erased. Everything you changed on this phone is gone, ' +
         'and the app is back to the data a fresh install of this build opens with.' +
-        (id === 'delete' ? ' Nothing was sent to a server: there is not one here.' : ''));
+        (id === 'delete'
+          ? (window.LKCloud && LKCloud.ready()
+              ? ' Your account has been deleted too.'
+              : ' Nothing was sent to a server: there is not one here.')
+          : ''));
       return;
     }
     if (id === 'restore') {
       closeOverlay('row-restore');
       restoreInput().click();
       return;
+    }
+    if (id === 'sign-out') {
+      /* SIGNING OUT HAS TO DROP THE TOKEN. This flipped a local flag and
+         nothing else, so the session in the store survived it and the next
+         sync went on syncing -- on a shared phone, signed out on screen and
+         signed in in fact. LKCloud.signOut clears it locally first and
+         never fails: a sign-out that fails on the network and leaves
+         somebody signed in is the wrong way round to fail. */
+      var C0 = window.LKCloud;
+      if (C0 && C0.signOut) C0.signOut();
     }
     if (c.to) {
       S.view = c.to;
@@ -40780,7 +40851,8 @@ DEMO.define("settings", function (document, window, location, fetch) {
   }
 
   /* Four checks, in the order a person meets them. The fifth -- is the
-     current password the right one -- is the server's, and there is not one. */
+     current password the right one -- is the server's, and is asked below
+     when there is one. */
   function savePassword() {
     var cur = (document.getElementById('f-pw-old') || {}).value || '';
     var nw = (document.getElementById('f-pw-new') || {}).value || '';
@@ -40797,8 +40869,33 @@ DEMO.define("settings", function (document, window, location, fetch) {
       if (f) f.focus();
       return;
     }
+    /* THE FIFTH CHECK IS THE SERVER'S. Whether the current password is the
+       right one is a question only the account can answer, and this used to
+       close the sheet and say so. With a server it asks, and the sheet
+       stays open on a wrong password rather than reporting a change that
+       did not happen. */
+    var Cp = window.LKCloud;
+    if (Cp && Cp.ready() && Cp.signedIn()) {
+      S.pwBusy = true; render();
+      Cp.changePassword(cur, nw).then(function (r) {
+        S.pwBusy = false;
+        if (!r || !r.ok) {
+          S.pwError = (r && r.message) || 'The password could not be changed.';
+          render();
+          var fe = document.getElementById('f-pw-old');
+          if (fe) fe.focus();
+          return;
+        }
+        closeOverlay('row-password');
+        toast('Password changed. You stay signed in on this phone.');
+      });
+      return;
+    }
     closeOverlay('row-password');
-    toast('Those eight characters would do. Nothing was changed and nothing was sent: this build has no account server.');
+    toast(Cp && Cp.ready()
+      ? 'Sign in first: a password belongs to an account.'
+      : 'Those eight characters would do. Nothing was changed and nothing was sent: ' +
+        'this build has no account server.');
   }
 
   function rowFor(key) {
