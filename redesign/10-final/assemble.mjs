@@ -47,8 +47,12 @@ const MANIFEST = {
      were linked by the standalone screens and missing from this list, so in
      the demo every `if (window.LKSession)` guard failed silently and the
      session shelf did not exist on any route. */
+  /* store.js before cloud.js: the cloud seam reads the session out of the
+     store on load. coach-actions.js before any screen that renders a coach
+     card, for the same reason. */
   js: ['theme.js', 'app.js', 'chrome.js', 'vendor/body-art.js', 'bodymap.js',
-       'session.js', 'fixtures.js', 'store.js', 'units.js'],
+       'session.js', 'fixtures.js', 'store.js', 'units.js',
+       'cloud.js', 'coach-actions.js'],
 
   /* Files in srcDir that are not app screens. */
   exclude: [/^mockup-/],

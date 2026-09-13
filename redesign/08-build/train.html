@@ -293,18 +293,35 @@
     return SPLITS[0].id + ':' + SPLITS[0].days[0].id;
   }
 
+  /* A DAY'S LIFTS, in either shape it is stored in. A phone that has been
+     running LOCKED holds `exIds: [111, 302, ...]` on each day -- that is what
+     tests/fixtures/seed-data.json carries, because it is a copy of a real
+     phone -- while the split builder writes the resolved `exercises: [{id,
+     name, group, muscle}]`. Reading only the second counted every day of a
+     real user's split as zero exercises, and the card said "0 exercises,
+     about 0 min" over a Push day with five lifts in it. */
+  function dayExercises(d) {
+    if (d && d.exercises && d.exercises.length) return d.exercises;
+    if (d && d.exIds && d.exIds.length) {
+      return d.exIds.map(function (id) { return { id: id }; });
+    }
+    return [];
+  }
+
   function loadSplits(fresh) {
     var raw = rd('lk_splits', [], fresh) || [];
     SPLITS = raw.map(function (sp, i) {
       var days = (sp.days || []).map(function (d, j) {
-        var count = (d.exercises || []).length;
+        var count = dayExercises(d).length;
+        var blocks = (d.blocks || []).length;
         /* How long this day has ACTUALLY taken, the median of the sessions
            logged under its name, rounded to five minutes. A flat ten minutes
            a lift put Train at 50 min for the same Push session Home called
            55, on the same screenful. */
         var mins = medianMinutes(d.name);
         return { id: (d.name || ('day' + j)).toLowerCase().replace(/\W+/g, '-'), name: d.name,
-                 exercises: count, minutes: mins || (count * MIN_PER_EX),
+                 exercises: count, blocks: blocks,
+                 minutes: mins || (count * MIN_PER_EX),
                  measured: !!mins, next: i === 0 && j === 0 };
       });
       return {
@@ -314,6 +331,113 @@
         days: days
       };
     });
+  }
+
+  /* =============================================================
+     CARDIO v1 -> v2 — F-TRAIN-025.
+
+     LOCKED shipped a first cardio schema and then replaced it. A v1 row is
+     { cardioType, duration (minutes), distance + distanceUnit, intensity (a
+     word), calories } under `type: 'cardio'`; a v2 row is the one every
+     screen in this build reads — kind, min, km, cal, modality, durationSec,
+     distanceM, intensity { rpe, estMET }. Nothing anywhere mapped one onto
+     the other, so a phone that had been logging cardio before the upgrade
+     opened Train to an empty cardio history, an empty chart and no bests:
+     the rows were still on the device and no screen could read them.
+
+     It runs once, before anything reads lk_history, and lk_cardioMigrated
+     records that it has. It is safe to run twice: a row that is already v2
+     is returned untouched. Nothing is deleted — a field that cannot be
+     mapped is left on the record rather than dropped.
+     ============================================================= */
+  var V1_MODALITY = {
+    run: 'run', jog: 'run', running: 'run', treadmill: 'treadmill_run',
+    walk: 'walk', walking: 'walk', hike: 'hike', hiking: 'hike',
+    bike: 'cycling', cycling: 'cycling', cycle: 'cycling', spin: 'spin_class',
+    row: 'row', rowing: 'row', swim: 'swim_freestyle', swimming: 'swim_freestyle',
+    elliptical: 'elliptical', stairs: 'stair_climber', stairmaster: 'stair_climber',
+    hiit: 'hiit', circuit: 'circuit', other: 'custom'
+  };
+  var V1_RPE = { light: 3, easy: 3, moderate: 5, steady: 5, vigorous: 7, hard: 7, max: 9, 'all out': 9 };
+
+  function isV1Cardio(w) {
+    if (!w) return false;
+    var isCardio = w.kind === 'cardio' || w.type === 'cardio';
+    if (!isCardio) return false;
+    /* Already v2: it carries the minutes and the modality this build reads. */
+    if (w.min != null && w.modality) return false;
+    return w.cardioType !== undefined || w.duration !== undefined;
+  }
+
+  function cardioV1toV2(w) {
+    var out = {};
+    Object.keys(w).forEach(function (k) { out[k] = w[k]; });
+    var type = String(w.cardioType || w.type || '').toLowerCase();
+    var mod = V1_MODALITY[type] || 'custom';
+    out.kind = 'cardio';
+    out.modality = w.modality || mod;
+    /* The ISO date, because every date on every screen is compared as one.
+       A v1 row carried a display string ("Sep 6") beside it. */
+    out.date = String(w.dateISO || w.date || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(out.date)) out.date = String(w.dateISO || '').slice(0, 10);
+    var min = Number(w.min != null ? w.min : w.duration);
+    if (!(min > 0) && w.durationSec) min = Math.round(Number(w.durationSec) / 60);
+    out.min = min > 0 ? Math.round(min) : 0;
+    out.durationSec = out.durationSec || out.min * 60;
+    /* Distance: v1 stored the number and its unit side by side. Miles are
+       converted to the kilometres the model is in, once, here. */
+    if (out.km == null && w.distance != null && w.distance !== '') {
+      var d = Number(w.distance);
+      if (d > 0) {
+        out.km = String(w.distanceUnit || 'km').toLowerCase().indexOf('mi') === 0
+          ? Math.round(d * 1.609344 * 100) / 100 : Math.round(d * 100) / 100;
+        out.distanceM = Math.round(out.km * 1000);
+      }
+    }
+    /* Intensity was a word. It becomes the RPE the v2 shape carries, and the
+       word is kept so nothing a person recorded is thrown away. */
+    if (typeof w.intensity === 'string') {
+      var rpe = V1_RPE[w.intensity.toLowerCase()];
+      out.intensity = { rpe: rpe || null, estMET: null, talkTest: null, v1: w.intensity };
+    }
+    var cal = w.cal != null ? w.cal : (w.calories && w.calories.value != null ? w.calories.value : w.calories);
+    if (typeof cal === 'number' && cal > 0) out.cal = Math.round(cal);
+    /* No calorie figure in v1 and none can be invented: the estimate is done
+       from this device's own body weight and what the row actually holds,
+       and it is marked as an estimate, exactly like one logged today. */
+    if (out.cal == null && out.min > 0) {
+      var act = byModality(out.modality) || { name: out.name || 'Cardio', met: 6, f: [] };
+      var est = estimate(act, { min: out.min, dist: out.km,
+                                hr: (w.heartRate && w.heartRate.avg) || null });
+      out.cal = est.kcal;
+      out.calDetail = { value: est.kcal, net: est.net, gross: est.kcal,
+                        range: [est.lo, est.hi], method: est.method, tier: est.tier,
+                        confidence: est.conf.toLowerCase(), basis: 'gross', estimated: true };
+    }
+    if (!out.name) {
+      var a2 = byModality(out.modality);
+      out.name = a2 ? a2.name : 'Cardio';
+    }
+    if (!out.environment) out.environment = /treadmill|erg|elliptical|stair|spin|hiit|circuit|row$/.test(out.modality) ? 'indoor' : 'outdoor';
+    out.schemaVersion = 2;
+    return out;
+  }
+
+  function migrateCardio() {
+    if (!window.LKStore) return false;
+    if (LKStore.get('lk_cardioMigrated', false)) return false;
+    var raw = LKStore.get('lk_history', null);
+    if (raw && raw.length) {
+      var changed = false;
+      var next = raw.map(function (w) {
+        if (!isV1Cardio(w)) return w;
+        changed = true;
+        return cardioV1toV2(w);
+      });
+      if (changed) LKStore.set('lk_history', next);
+    }
+    LKStore.set('lk_cardioMigrated', true);
+    return true;
   }
 
   /* lk_history, in this screen's row shape. A lifting row carries sets and
@@ -340,7 +464,10 @@
           if (w.intensity.estMET != null) row.met = Number(w.intensity.estMET);
         }
         if (w.machine && w.machine.category) {
-          row.machine = w.machine.category +
+          /* The machine's NAME, not the id the record stores it under. A
+             treadmill run logged on this screen writes category "treadrun",
+             and the row printed that word back at the reader. */
+          row.machine = machineName(w.machine.category) +
             (w.machine.brand ? ' \u00b7 ' + w.machine.brand : '');
         }
         if (w.distanceM != null && row.km == null) row.km = Math.round(w.distanceM / 100) / 10;
@@ -402,7 +529,8 @@
       var id = d.el ? (d.el.getAttribute('data-id') || '') : '';
       try { localStorage.setItem('lk_openSplit', id); } catch (err) {}
     } else if (d.selector === '[data-action="new-split"]') {
-      try { localStorage.setItem('lk_openSplit', '__new__'); } catch (err) {}
+      var mode = d.el && d.el.getAttribute('data-mode') === 'draft' ? '__draft__' : '__new__';
+      try { localStorage.setItem('lk_openSplit', mode); } catch (err) {}
     }
   });
 
@@ -507,8 +635,46 @@
 
   /* The field schema. One row per field id, so a form is built from the
      activity rather than from a fixed list of questions. */
+  /* =============================================================
+     DISTANCE, in the unit this reader chose — F-CARDIO-020.
+
+     Only pack weight was converted. Distance was hard-wired to kilometres,
+     so a reader in pounds typed kilometres into the form, and the row, the
+     detail, the pace and the bests all came back in kilometres beside every
+     other figure on the screen in pounds.
+
+     There is one stored answer about units and LKUnits owns it
+     (lk_profile.useKg). Kilometres go with kilograms and miles with pounds:
+     one switch, one answer, one conversion — and, exactly as with weight,
+     THE MODEL IS ALWAYS METRIC. A record holds kilometres whatever the
+     screen says, so switching units re-reads the history rather than
+     rewriting it.
+     ============================================================= */
+  var KM_PER_MI = 1.609344;
+  function useKm() { return !window.LKUnits || LKUnits.useKg(); }
+  function distUnit() { return useKm() ? 'km' : 'mi'; }
+  function speedUnit() { return useKm() ? 'km/h' : 'mph'; }
+  /* Kilometres out of the record, as the number this screen shows. */
+  function distV(km, d) {
+    if (km === null || km === undefined || isNaN(km)) return km;
+    var x = useKm() ? Number(km) : Number(km) / KM_PER_MI;
+    var p = Math.pow(10, d === undefined ? 2 : d);
+    return Math.round(x * p) / p;
+  }
+  /* What was typed, on the way into the record, and never again. */
+  function distIn(v) {
+    if (v === '' || v === null || v === undefined || isNaN(v)) return v;
+    return useKm() ? Number(v) : Math.round(Number(v) * KM_PER_MI * 1000) / 1000;
+  }
+  function fmtDist(km) {
+    var x = distV(km);
+    return x === null || x === undefined || isNaN(x) ? '' : x + ' ' + distUnit();
+  }
+
   var FIELD = {
-    dist:       { label: 'Distance', unit: 'km',      type: 'num', step: '0.01', max: 500 },
+    /* type 'dist' rather than 'num': the same on-the-way-in conversion the
+       weight fields get, against the same single stored setting. */
+    dist:       { label: 'Distance', unit: 'km',      type: 'dist', step: '0.01', max: 500 },
     floors:     { label: 'Floors',   unit: 'floors',  type: 'num', step: '1',    max: 5000 },
     reps:       { label: 'Reps',     unit: 'reps',    type: 'num', step: '1',    max: 5000 },
     rounds:     { label: 'Rounds',   unit: 'rounds',  type: 'num', step: '1',    max: 200 },
@@ -523,6 +689,17 @@
     effort:     { label: 'How hard', type: 'choice', opts: ['Easy', 'Steady', 'Hard', 'All out'] }
   };
   var EFFORT_K = { 'Easy': 0.85, 'Steady': 1, 'Hard': 1.15, 'All out': 1.3 };
+
+  /* A machine id, as the name a person would call it. A record stores the
+     catalogue's own id ("treadrun") or the shipped app's category word
+     ("treadmill"); neither is a word to print. */
+  function machineName(id) {
+    if (!id) return '';
+    var a = findCardio(id) || byModality(id);
+    if (a) return a.name;
+    var s2 = String(id).replace(/_/g, ' ');
+    return s2.charAt(0).toUpperCase() + s2.slice(1);
+  }
 
   function catCount() { return CARDIO_CAT.length + CUSTOM_CARDIO.length; }
   function allActivities() { return CARDIO_CAT.concat(CUSTOM_CARDIO); }
@@ -642,6 +819,7 @@
     state: 'populated',   /* populated | empty | loading | error */
     view: 'hub',          /* hub | history */
     filter: 'all',        /* all | lift | cardio */
+    cgroup: 'all',        /* all | machine | outdoor | water | studio | other */
     sheet: null,          /* null | {kind:'split'|'activity'|'favs'|'newcardio'} */
     query: '',
     toast: null,
@@ -675,7 +853,7 @@
     var parts = w.kind === 'lift'
       ? [n(w.min) + ' min', n(w.sets) + ' sets', n(LKUnits.fmtTotal(w.kg))]
       : [n(w.min) + ' min',
-         w.km != null ? n(w.km) + ' km' : null,
+         w.km != null ? n(distV(w.km)) + ' ' + distUnit() : null,
          w.cal != null ? n(w.cal) + ' kcal' : null];
     var meta = parts.filter(Boolean).join(' &middot; ');
     /* The date sits on the title line, not beside the metrics: at 393px
@@ -708,10 +886,13 @@
     var rows = [];
     function add(label, val) { if (val !== undefined && val !== null && val !== '') rows.push([label, val]); }
     add('Duration', w.min + ' min');
-    add('Distance', w.km != null ? w.km + ' km' : null);
+    add('Distance', w.km != null ? fmtDist(w.km) : null);
     if (w.km > 0 && w.min > 0) {
-      add('Pace', paceStr(w.min / w.km) + ' /km');
-      add('Speed', (Math.round(w.km / (w.min / 60) * 10) / 10) + ' km/h');
+      /* Pace is minutes per unit of distance, so it converts with the
+         distance: 5:30 /km is 8:51 /mi, and printing the first under a
+         screen reading miles is a different number entirely. */
+      add('Pace', paceStr(w.min / distV(w.km, 4)) + ' /' + distUnit());
+      add('Speed', (Math.round(distV(w.km, 4) / (w.min / 60) * 10) / 10) + ' ' + speedUnit());
       if (/row/.test(w.modality || '')) add('Split', paceStr(w.min / (w.km * 2)) + ' /500 m');
     }
     add('Average power', w.watts != null ? w.watts + ' W' : null);
@@ -732,7 +913,22 @@
           esc(String(w.calConf || 'unknown')) + ' confidence, between ' +
           group(w.calRange[0]) + ' and ' + group(w.calRange[1]) + ' kcal. Nothing measured it.</p>'
         : '') +
+      /* Favourite THIS session — F-CARDIO-023. A setup could only be kept
+         from the sheet of the session you had just logged, so a session from
+         last month could not be turned into a favourite at all. */
+      favFromHistory(w) +
     '</div>';
+  }
+
+  function favFromHistory(w) {
+    var act = byModality(w.modality) || (w.act && findCardio(w.act)) || byName(w.name);
+    if (!act) return '';
+    var on = !!favForAct(act.id);
+    return '<button class="btn btn--tertiary btn--block mt-3" type="button" ' +
+      'data-action="fav-toggle" data-id="' + act.id + '" data-from="' + esc(w.id) + '" ' +
+      'data-testid="fav-from-' + esc(w.id) + '">' + ICO.star +
+      '<span class="btn__label">' + (on ? 'Remove this setup from favourites' : 'Save this setup as a favourite') +
+      '</span></button>';
   }
 
   function splitRow(sp) {
@@ -918,11 +1114,11 @@
         '<span class="stat__value">' + value + '</span>' +
         '<span class="t-detail">' + esc(sub) + '</span></div>');
     }
-    tile('far', n(b.far ? b.far.v : 0) + '<span class="stat__unit"> km</span>',
+    tile('far', n(b.far ? distV(b.far.v) : 0) + '<span class="stat__unit"> ' + distUnit() + '</span>',
          b.far ? b.far.w.name.replace(/&middot;/g, '·') + ', ' + absDate(b.far.w.date) : '');
-    if (b.pace) tile('pace', n(paceStr(b.pace.v)) + '<span class="stat__unit"> /km</span>',
+    if (b.pace) tile('pace', n(paceStr(useKm() ? b.pace.v : b.pace.v * KM_PER_MI)) + '<span class="stat__unit"> /' + distUnit() + '</span>',
          b.pace.w.name + ', ' + absDate(b.pace.w.date));
-    if (b.speed) tile('speed', n(Math.round(b.speed.v * 10) / 10) + '<span class="stat__unit"> km/h</span>',
+    if (b.speed) tile('speed', n(Math.round(distV(b.speed.v, 4) * 10) / 10) + '<span class="stat__unit"> ' + speedUnit() + '</span>',
          b.speed.w.name + ', ' + absDate(b.speed.w.date));
     tile('long', n(b.long ? b.long.v : 0) + '<span class="stat__unit"> min</span>',
          b.long ? b.long.w.name + ', ' + absDate(b.long.w.date) : '');
@@ -1062,6 +1258,71 @@
     say(esc(fav.label) + ' saved to your favourites.');
   }
 
+  /* =============================================================
+     FAVOURITING, from anywhere — F-CARDIO-023.
+
+     A favourite could be made from exactly one place: the "Save this setup"
+     button on the sheet of the session you had just logged. Miss it and the
+     only way to make one was to log the session again. So the star is on the
+     activity rows in the picker and on every cardio session in the history,
+     and it toggles: the same tap takes one away.
+     ============================================================= */
+  function favForAct(id) {
+    for (var i = 0; i < FAVS.length; i++) {
+      var a = favAct(FAVS[i]);
+      if (a && a.id === id) return FAVS[i];
+      if (FAVS[i].modality === id) return FAVS[i];
+    }
+    return null;
+  }
+  /* A favourite made from a session is that session's own setup, minus its
+     date. Made from a catalogue row with nothing logged, it is the
+     catalogue's default duration — which is what the row already says. */
+  function favFromSession(act, w) {
+    var v = { min: (w && w.min) || act.min };
+    if (w) {
+      if (w.km != null) v.dist = w.km;
+      if (w.hr != null) v.hr = w.hr;
+      if (w.surface) v.surface = capitalise(w.surface);
+      if (w.effort) v.effort = w.effort;
+      if (w.watts != null) v.watts = w.watts;
+    }
+    return {
+      id: 'fav_' + Date.now(), label: act.name, modality: act.mod || act.id,
+      environment: act.g === 'machine' ? 'indoor' : 'outdoor',
+      machine: act.g === 'machine' ? { category: act.id, brand: null, model: null } : null,
+      defaults: { durationSec: (v.min || act.min) * 60, surface: v.surface || null, v: v },
+      order: FAVS.length, useCount: 0, lastUsedAt: todayISO(), pinned: false
+    };
+  }
+  function toggleFav(actId, w) {
+    var act = findCardio(actId);
+    if (!act) return;
+    var have = favForAct(actId);
+    var stored = (rd('lk_cardioFavorites', [], false) || []).slice();
+    if (have) {
+      stored = stored.filter(function (f) { return f.id !== have.id; });
+      stored.forEach(function (f, i) { f.order = i; });
+      if (store()) store().set('lk_cardioFavorites', stored);
+      loadData(false);
+      say(esc(favName(have)) + ' removed from favourites.');
+      return;
+    }
+    var fav = favFromSession(act, w || lastCardioFor(actId));
+    stored.push(fav);
+    if (store()) store().set('lk_cardioFavorites', stored);
+    loadData(false);
+    say(esc(fav.label) + ' saved to your favourites.');
+  }
+  function starBtn(actId, name, extra) {
+    var on = !!favForAct(actId);
+    return '<button class="iconbtn' + (on ? ' iconbtn--on' : '') + '" type="button" ' +
+      'data-action="fav-toggle" data-id="' + actId + '"' + (extra || '') +
+      ' aria-pressed="' + on + '" data-testid="star-' + actId + '" ' +
+      'aria-label="' + (on ? 'Remove ' : 'Save ') + esc(name) + (on ? ' from' : ' to') +
+      ' your favourites">' + ICO.star + '</button>';
+  }
+
   function field(k, v, act) {
     var f = FIELD[k];
     if (!f) return '';
@@ -1075,12 +1336,18 @@
             esc(o) + '</button>';
         }).join('') + '</div></div>';
     }
-    var unit = f.type === 'weight' ? LKUnits.label() : f.unit;
-    var shown = f.type === 'weight' && v !== '' && v !== undefined ? LKUnits.v(Number(v)) : v;
+    var unit = f.type === 'weight' ? LKUnits.label() : f.type === 'dist' ? distUnit() : f.unit;
+    var shown = v;
+    var max = f.max;
+    if (v !== '' && v !== undefined && v !== null) {
+      if (f.type === 'weight') shown = LKUnits.v(Number(v));
+      else if (f.type === 'dist') shown = distV(Number(v));
+    }
+    if (f.type === 'dist') max = distV(f.max, 0);
     return '<label class="field mt-3"><span class="field__label t-label">' + f.label +
       (unit ? ' <span class="quiet">(' + unit + ')</span>' : '') + '</span>' +
       '<input class="input num" id="' + id + '" type="number" inputmode="decimal" ' +
-        'step="' + f.step + '" min="' + (f.min || 0) + '" max="' + f.max + '" ' +
+        'step="' + f.step + '" min="' + (f.min || 0) + '" max="' + max + '" ' +
         'value="' + (shown === undefined || shown === null ? '' : esc(shown)) + '" ' +
         'data-action="cf-num" data-k="' + k + '" data-testid="cf-' + k + '"></label>';
   }
@@ -1163,10 +1430,13 @@
     var rows = [];
     function add(label, val) { if (val !== undefined && val !== null && val !== '') rows.push([label, val]); }
     add('Duration', w.min + ' min');
-    add('Distance', w.km != null ? w.km + ' km' : null);
+    add('Distance', w.km != null ? fmtDist(w.km) : null);
     if (w.km > 0 && w.min > 0) {
-      add('Pace', paceStr(w.min / w.km) + ' /km');
-      add('Speed', (Math.round(w.km / (w.min / 60) * 10) / 10) + ' km/h');
+      /* Pace is minutes per unit of distance, so it converts with the
+         distance: 5:30 /km is 8:51 /mi, and printing the first under a
+         screen reading miles is a different number entirely. */
+      add('Pace', paceStr(w.min / distV(w.km, 4)) + ' /' + distUnit());
+      add('Speed', (Math.round(distV(w.km, 4) / (w.min / 60) * 10) / 10) + ' ' + speedUnit());
       if (act.id === 'row' || act.id === 'waterrow') add('Split', paceStr(w.min / (w.km * 2)) + ' /500 m');
     }
     add('Average power', w.watts != null ? w.watts + ' W' : null);
@@ -1178,7 +1448,15 @@
     add('Heart rate', (w.heartRate && w.heartRate.avg != null) ? w.heartRate.avg + ' bpm'
                     : (w.hr != null ? w.hr + ' bpm' : null));
     add('Effort', w.effort);
-    add('Surface', w.surface || (w.machine && w.machine.category) || null);
+    /* A surface is a surface and a machine is a machine — F-CARDIO-021. This
+       fell back to the machine id when no surface had been asked for, so a
+       treadmill run logged here read "Surface  treadrun": a row labelled with
+       a question the form never asked, answered with an internal id. */
+    add('Surface', w.surface ? capitalise(w.surface) : null);
+    /* Only where it says something the title does not: a treadmill run on a
+       treadmill does not need a row to say so. */
+    var mach = (w.machine && w.machine.category) ? machineName(w.machine.category) : null;
+    add('Machine', mach && mach !== w.name ? mach : null);
     add('Riding position', w.position);
     add('Gross burn', group(w.cal) + ' kcal');
     add('Net burn', group(w.calDetail ? w.calDetail.net : est.net) + ' kcal');
@@ -1211,21 +1489,38 @@
        count and the total never moved. */
     var last4 = WEEKS.slice(-4).reduce(function (a, w) { return a + w.min; }, 0);
     var wk = weekStats();
+    /* TWO CONTROLS ON A SAVED SETUP — F-CARDIO-003. The row opens the form
+       already answered, because "logged 30 minutes" when it was 22 is a wrong
+       number in the record and the shipped app asked. But a FAVOURITE is a
+       duration this person chose and saved on purpose, so it also carries the
+       one-tap re-log the audit asked for, as its own labelled button: the tap
+       that logs says what it is logging. A merely recent activity gets no such
+       button — its duration is last time's, not a decision. */
     var rows = favRows().map(function (c) {
-      return '' +
-        '<button class="row" type="button" data-action="log-cardio" data-id="' + c.id + '" ' +
+      var openBtn =
+        '<button class="trainrow__main stack" type="button" data-action="log-cardio" data-id="' + c.id + '" ' +
                 (c.fav ? 'data-fav="' + c.fav.id + '" ' : '') +
                 'data-testid="log-' + c.key.replace(/[^\w]/g, '-') + '" ' +
-                'aria-label="Log ' + esc(c.name) + ', ' + c.min + ' minutes">' +
-          '<span class="ico-well">' + (c.fav ? ICO.star : ICO.cardio) + '</span>' +
-          '<span class="row__main stack">' +
-            '<span class="row__title">' + esc(c.name) + '</span>' +
-            '<span class="row__sub">' + n(c.min) + ' min' +
-              (c.note ? ' &middot; ' + esc(c.note) : '') +
-              (c.last ? ' &middot; last ' + relDate(c.last) : '') + '</span>' +
-          '</span>' +
-          '<span class="row__chev">' + ICO.plus + '</span>' +
+                'aria-label="Log ' + esc(c.name) + ', ' + c.min + ' minutes, with the form open">' +
+          '<span class="row__title">' + esc(c.name) + '</span>' +
+          /* A stored favourite's own button already says the duration, so the
+             sub-line does not say it twice on a 393px row. */
+          '<span class="row__sub truncate">' + (c.fav ? '' : n(c.min) + ' min') +
+            (c.note ? (c.fav ? '' : ' &middot; ') + esc(c.note) : '') +
+            (c.last ? ' &middot; last ' + relDate(c.last) : '') + '</span>' +
         '</button>';
+      return '' +
+        '<div class="row row--withaside" data-testid="favrow-' + c.key.replace(/[^\w]/g, '-') + '">' +
+          '<span class="ico-well">' + (c.fav ? ICO.star : ICO.cardio) + '</span>' +
+          openBtn +
+          (c.fav
+            ? '<button class="btn btn--secondary btn--sm" type="button" data-action="quick-log" ' +
+                'data-id="' + c.id + '" data-fav="' + c.fav.id + '" ' +
+                'data-testid="quick-' + c.fav.id + '" ' +
+                'aria-label="Log ' + esc(c.name) + ', ' + c.min + ' minutes, now">' +
+                '<span class="btn__label">Log ' + c.min + ' min</span></button>'
+            : starBtn(c.id, c.name)) +
+        '</div>';
     }).join('');
 
     return '' +
@@ -1306,6 +1601,8 @@
         '</button>' +
       '</section>' +
 
+      cycleBanner() +
+
       '<section class="section" data-testid="section-splits">' +
         '<div class="section__head">' +
           '<h2 class="t-label">Your splits</h2>' +
@@ -1342,6 +1639,61 @@
         '</div>' +
       '</section>';
   };
+
+  /* =============================================================
+     THE CYCLE BANNER — F-CYCLE-022.
+
+     Cycle tracking is an opt-in behind lk_cycle, and when it is on the one
+     thing it has to say about training belongs on the training screen. The
+     word "cycle" appeared on Train exactly once before this, on the outdoor
+     cycling cardio activity.
+
+     WHERE THE FACTS COME FROM. lk_mcFuelAdjust, which the cycle screen
+     writes: the phase, the day, the cycle length, whether the reader asked
+     for discreet mode, and the phase's own training line. That key is the
+     bridge the cycle screen exists to publish, so this screen keeps no copy
+     of the arithmetic and no copy of the guidance — two copies is how three
+     screens came to give three answers about one cycle.
+
+     WHAT IT IS NOT. Not a control and not an instruction. There is no
+     declared crossing from Train to the cycle screen, so this states what
+     today is and says nothing it cannot back; it carries no accent, because
+     the accent on this screen is on Start.
+
+     DISCREET MODE travels with the bridge. With it on, the phase is not
+     named and the day number is not printed: the guidance stands alone,
+     which is the whole point of the setting.
+     ============================================================= */
+  function cycleOnFlag() {
+    var v = rd('lk_cycle', false, false);
+    return v === true || v === 'true';
+  }
+  function cycleBridge() {
+    var v = rd('lk_mcFuelAdjust', false, false);
+    if (!v || typeof v !== 'object' || v.on !== true) return null;
+    return v;
+  }
+  function cycleBanner() {
+    if (!cycleOnFlag()) return '';
+    var c = cycleBridge();
+    if (!c || !c.train) return '';
+    var head = c.discreet
+      ? 'Today'
+      : (c.phaseName || 'Cycle') + (c.day ? ' · day ' + c.day +
+          (c.cycleLen ? ' of about ' + c.cycleLen : '') : '');
+    return '<section class="section" data-testid="section-cycle">' +
+      '<div class="card card--sunken">' +
+        '<div class="spread">' +
+          '<span class="t-label" data-testid="cycle-phase">' + esc(head) + '</span>' +
+          '<span class="t-meta">Cycle</span>' +
+        '</div>' +
+        '<p class="t-body-em mt-2" data-testid="cycle-train">' + esc(c.train) + '</p>' +
+        '<p class="t-caption-1 quiet mt-2">From your cycle log on this phone' +
+          (c.updated ? ', as of ' + absDate(String(c.updated).slice(0, 10)) : '') +
+          '. It is guidance, not a rule, and it changes nothing in your split.</p>' +
+      '</div>' +
+    '</section>';
+  }
 
   /* =============================================================
      What has been trained, and what has had time to recover.
@@ -1468,9 +1820,13 @@
     '</section>';
   }
 
-  /* Nothing has been earned yet, so nothing is claimed and nothing
-     competes: one sentence, one action. The audited empty state
-     offered two. */
+  /* One sentence, ONE accent fill, and a second way in under it — the
+     F-TRAIN-302 finding. The builder has two modes and the draft one had no
+     entrance at all from an empty Train: you had to start the manual builder
+     and find the tertiary button inside its own empty state. So the draft is
+     offered here, as a tertiary control under the primary, which is one
+     action competing with nothing rather than two fills competing with each
+     other. Both open the same screen; the key says which mode. */
   VIEWS.empty = function () {
     return '' +
       '<div class="empty mt-5 enter-settle" data-testid="train-empty">' +
@@ -1479,6 +1835,9 @@
         '<p class="empty__body">A split is the week you intend to train. Build one and each day of it starts from this screen.</p>' +
         '<button class="btn btn--primary" type="button" data-action="new-split" data-testid="empty-build-split">' +
           '<span class="btn__label">Build a split</span>' +
+        '</button>' +
+        '<button class="btn btn--tertiary mt-2" type="button" data-action="new-split" data-mode="draft" data-testid="empty-draft-split">' +
+          '<span class="btn__label">Draft one from a description</span>' +
         '</button>' +
       '</div>';
   };
@@ -1523,9 +1882,23 @@
   /* The full record, one level deep. The app's ONE segmented control
      is spent here, on the only filter that removes work: two kinds of
      session in one list. Same row component as the preview above. */
+  /* Which group of activities a cardio session belongs to, through the
+     catalogue rather than through a second table. A session whose activity is
+     not in the catalogue at all is "other", and is never silently dropped. */
+  function groupOfSession(w) {
+    if (w.kind !== 'cardio') return null;
+    var a = byModality(w.modality) || (w.act && findCardio(w.act)) || byName(w.name);
+    return a ? a.g : 'other';
+  }
+
   function historyView() {
     var list = HISTORY.filter(function (w) {
-      return S.filter === 'all' || w.kind === S.filter;
+      if (S.filter !== 'all' && w.kind !== S.filter) return false;
+      /* The per-group chips narrow the cardio list to a kind of session —
+         F-CARDIO-007. They exist only where they mean something: under All
+         and Lifting there is nothing for them to narrow. */
+      if (S.filter === 'cardio' && S.cgroup !== 'all' && groupOfSession(w) !== S.cgroup) return false;
+      return true;
     });
     var out = [], month = null, buf = [];
     function flush() {
@@ -1546,6 +1919,31 @@
     flush();
 
     var FILTERS = [['all', 'All'], ['lift', 'Lifting'], ['cardio', 'Cardio']];
+    /* Only the groups this person's own cardio history actually contains, with
+       the count beside each: a chip for a kind of session nobody has done
+       would filter a list to nothing and teach nothing. */
+    var seen = {};
+    HISTORY.forEach(function (w) {
+      if (w.kind !== 'cardio') return;
+      var g = groupOfSession(w);
+      seen[g] = (seen[g] || 0) + 1;
+    });
+    var GNAMES = { other: 'Other' };
+    CARDIO_GROUPS.forEach(function (g) { GNAMES[g[0]] = g[1]; });
+    var order = CARDIO_GROUPS.map(function (g) { return g[0]; }).concat(['other']);
+    var present = order.filter(function (g) { return seen[g]; });
+    var nCardio = HISTORY.filter(function (w) { return w.kind === 'cardio'; }).length;
+    var chips = (S.filter === 'cardio' && present.length > 1)
+      ? '<div class="chiprow mt-3" data-testid="cardio-groups">' +
+          [['all', 'All ' + nCardio]].concat(present.map(function (g) {
+            return [g, GNAMES[g] + ' ' + seen[g]];
+          })).map(function (c) {
+            return '<button class="chip" type="button" data-action="cgroup" data-g="' + c[0] + '" ' +
+              'aria-pressed="' + (S.cgroup === c[0]) + '" data-testid="cgroup-' + c[0] + '">' +
+              esc(c[1]) + '</button>';
+          }).join('') +
+        '</div>'
+      : '';
     return '' +
       '<div class="section" style="margin-top: var(--sp-3)">' +
         '<div class="seg seg--lg" role="radiogroup" aria-label="Session type" data-testid="history-filter">' +
@@ -1555,12 +1953,19 @@
               f[1] + '</button>';
           }).join('') +
         '</div>' +
+        chips +
       '</div>' +
       (list.length ? out.join('') :
         '<div class="empty mt-5" data-testid="history-empty-filter">' +
           '<span class="empty__ico">' + ICO.plan + '</span>' +
-          '<h2 class="empty__title">No cardio yet</h2>' +
-          '<p class="empty__body">Cardio you log on the Train screen appears here beside your lifting.</p>' +
+          '<h2 class="empty__title">' +
+            (S.filter === 'lift' ? 'No lifting sessions yet'
+             : S.cgroup !== 'all' ? 'Nothing under ' + esc(GNAMES[S.cgroup] || S.cgroup)
+             : 'No cardio yet') + '</h2>' +
+          '<p class="empty__body">' +
+            (S.filter === 'lift'
+              ? 'Sessions you finish in the workout log appear here.'
+              : 'Cardio you log on the Train screen appears here beside your lifting.') + '</p>' +
         '</div>');
   }
 
@@ -1710,20 +2115,23 @@
   var GNAME_CARDIO = {};
   CARDIO_GROUPS.forEach(function (g) { GNAME_CARDIO[g[0]] = g[1]; });
 
+  /* Every activity row carries its own star — F-CARDIO-023. The row is a
+     container rather than a button so the star can be a control of its own:
+     a button inside a button is not markup a browser will render. */
   function activityRow(a) {
     var last = lastCardioFor(a.id);
     return '' +
-      '<button class="row" type="button" data-action="log-cardio" data-id="' + a.id + '" ' +
-              'data-testid="pick-' + a.id + '" aria-label="Log ' + esc(a.name) + '">' +
+      '<div class="row row--withaside" data-testid="actrow-' + a.id + '">' +
         '<span class="ico-well">' + ICO.cardio + '</span>' +
-        '<span class="row__main stack">' +
+        '<button class="trainrow__main stack" type="button" data-action="log-cardio" data-id="' + a.id + '" ' +
+                'data-testid="pick-' + a.id + '" aria-label="Log ' + esc(a.name) + '">' +
           '<span class="row__title">' + esc(a.name) +
             (a.custom ? ' <span class="badge">Yours</span>' : '') + '</span>' +
           '<span class="row__sub">' + n(a.min) + ' min by default &middot; ' + a.met + ' MET' +
             (last ? ' &middot; last ' + relDate(last.date) : '') + '</span>' +
-        '</span>' +
-        '<span class="row__chev">' + ICO.plus + '</span>' +
-      '</button>';
+        '</button>' +
+        starBtn(a.id, a.name) +
+      '</div>';
   }
 
   /* Your own activities — F-CARDIO-025. A name and a MET value is all an
@@ -1966,7 +2374,41 @@
     if (a === 'close-sheet') { closeSheet(); return; }
     if (a === 'open-history') { S.view = 'history'; render(); body.focus(); return; }
     if (a === 'back') { S.view = 'hub'; render(); return; }
-    if (a === 'filter') { S.filter = t.dataset.filter; render(true); return; }
+    if (a === 'filter') { S.filter = t.dataset.filter; S.cgroup = 'all'; render(true); return; }
+    if (a === 'cgroup') { S.cgroup = t.getAttribute('data-g') || 'all'; render(true); return; }
+    /* The star, from an activity row or from a session in the history. */
+    if (a === 'fav-toggle') {
+      var fid2 = t.getAttribute('data-id');
+      var fromId = t.getAttribute('data-from');
+      var fromW = null;
+      if (fromId) {
+        for (var fi = 0; fi < HISTORY.length; fi++) if (HISTORY[fi].id === fromId) fromW = HISTORY[fi];
+      }
+      toggleFav(fid2, fromW);
+      render(true);
+      return;
+    }
+    /* ONE TAP — F-CARDIO-003. The saved setup, logged at the duration it was
+       saved with, with no form in between. What was written is shown
+       immediately, in the same sheet a form-logged session ends on, so the
+       figure can be checked and the session removed if it is wrong. */
+    if (a === 'quick-log') {
+      var qid = t.getAttribute('data-id');
+      var qfav = FAVS.filter(function (f) { return f.id === t.getAttribute('data-fav'); })[0];
+      var qact = findCardio(qid);
+      if (!qact || !qfav) return;
+      var qv = { min: favMin(qfav), note: '' };
+      if (qfav.defaults && qfav.defaults.v) {
+        Object.keys(qfav.defaults.v).forEach(function (k2) { qv[k2] = qfav.defaults.v[k2]; });
+        qv.min = favMin(qfav);
+      }
+      markFavUsed(qfav);
+      S.logging = { id: qid, name: qact.name, v: qv };
+      S.logError = null;
+      if (S.sheet) { S.sheet = null; S.query = ''; }
+      saveCardio();
+      return;
+    }
     /* Opens the duration sheet rather than logging on the tap. The row
        carries the duration this activity is normally done for, and one tap
        from there logs it -- but "logged 30 minutes" when it was 22 is a
@@ -2089,7 +2531,9 @@
       location.href = 'split-builder.html'; return;
     }
     if (a === 'new-split') {
-      try { localStorage.setItem('lk_openSplit', '__new__'); } catch (err) {}
+      try {
+        localStorage.setItem('lk_openSplit', t.getAttribute('data-mode') === 'draft' ? '__draft__' : '__new__');
+      } catch (err) {}
       location.href = 'split-builder.html'; return;
     }
     if (a === 'open-library') { location.href = 'exercise-library.html'; return; }
@@ -2125,6 +2569,11 @@
          converted here, on the way in, and never again. */
       if (k !== 'min' && FIELD[k] && FIELD[k].type === 'weight' && raw !== '') {
         raw = LKUnits.useKg() ? raw : Math.round(raw / LKUnits.lbPerKg * 100) / 100;
+      }
+      /* And the same for a distance typed in miles. The record is kilometres
+         whatever the field is labelled. */
+      if (k !== 'min' && FIELD[k] && FIELD[k].type === 'dist' && raw !== '') {
+        raw = distIn(raw);
       }
       S.logging.v[k] = raw;
       updateEstimate();
@@ -2204,7 +2653,11 @@
     });
   }
 
+  /* The migration runs before the first read, and the estimate it may need
+     is built on this person's own body weight, so the profile is loaded
+     first and the history re-read after. */
   loadData(false);
+  if (migrateCardio()) loadData(false);
   var params = new URLSearchParams(location.search);
   if (params.get('state')) S.state = params.get('state');
   if (params.get('view')) S.view = params.get('view');

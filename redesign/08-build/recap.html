@@ -91,7 +91,10 @@
 (function () {
   'use strict';
 
-  var TODAY = '2026-09-09';
+  /* The wall clock, or the seed's date while a seed is loaded -- the same
+     answer Home and Fuel get. Pinned to the seed's own day, a build with no
+     seed opened this screen on a week in somebody else's September. */
+  var TODAY = window.LKStore ? LKStore.today() : '2026-09-09';
   var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
@@ -152,6 +155,21 @@
   var HISTORY = stored('lk_history', null) || FX.history || [];
   var PRS = stored('lk_prs', null) || FX.prs || [];
   var WEIGHT = stored('lk_weightLog', null) || FX.weightLog || [];
+
+  /* Screens mount once in the demo, and everything above was read on that
+     one mount: a session finished in the workout log, a weigh-in on
+     Progress or a check-in in Coach left this screen showing what was
+     stored when the app opened. Re-read on the way in. */
+  function reread() {
+    HISTORY = stored('lk_history', null) || FX.history || [];
+    PRS = stored('lk_prs', null) || FX.prs || [];
+    WEIGHT = stored('lk_weightLog', null) || FX.weightLog || [];
+    FUELLOG = stored('lk_fuelLog', null) || NUT.days || {};
+    TARGETS = stored('lk_fuelTargets', null) || NUT.targets || {};
+    SUPP_LOG = stored('lk_suppLog', null) || FX.suppLog || {};
+    SUPPS = stored('lk_supplements', null) || FX.supplements || [];
+    FEEL = buildFeel();
+  }
 
   /* The day's food. Fuel writes lk_fuelLog in the fixture's own day shape,
      so the same reader serves both. Days not in here have no food logged,
@@ -356,8 +374,14 @@
        than left blank. */
     out += head('Training');
     if (today.length) out += listCard(today.map(function (h) { return sessionRow(h, false); }));
-    else out += card('<p class="t-body">Rest day.</p><p class="t-detail muted mt-1">' +
+    /* The last session, when there is one. On an account with no history at
+       all this read HISTORY[0].date off an empty array and took the whole
+       screen down with it -- the one state a new account is guaranteed to
+       be in. */
+    else if (HISTORY.length) out += card('<p class="t-body">Rest day.</p><p class="t-detail muted mt-1">' +
       'Last session ' + esc(pretty(HISTORY[0].date)) + ', ' + esc(HISTORY[0].name) + '.</p>', 'card--sunken');
+    else out += card('<p class="t-body">Nothing logged.</p><p class="t-detail muted mt-1">' +
+      'Sessions you finish show up here.</p>', 'card--sunken');
 
     /* Fuel. Only for a day that has any. A day with nothing logged says so
        rather than drawing a ring at zero, which reads as a result. */
@@ -474,6 +498,48 @@
     }
     out += head('Volume by day');
     out += card(bars(series, 'Volume by day, ' + volText(totalVol) + ' across the week'));
+
+    /* F-HOME-011. The two cards the old Weekly Recap had and this one did
+       not: the days with nothing on them, and the streak.
+
+       NOT "MISSED". The old card called them missed days, which is a claim
+       about a plan: the splits in this build carry no weekday, so which day
+       was supposed to be a training day is not in the data and nothing here
+       can know it was missed. It says what is true -- these days have no
+       session on them -- and lets the reader decide what that was. Only
+       elapsed days are counted: a Friday that has not happened yet is not a
+       day without a session. */
+    var blank = [];
+    for (var bi = 0; bi < 7; bi++) {
+      var bd = addDays(a, bi);
+      if (bd > TODAY) break;
+      if (!sessionsOn(bd).length) blank.push(bd);
+    }
+    out += head('Days without a session', n(blank.length) + ' of ' + n(isThis ? daysSoFar : 7));
+    out += card(blank.length
+      ? '<p class="t-body">' + blank.map(function (d) { return esc(DOW[dowOf(d)]); }).join(', ') + '.</p>' +
+        '<p class="t-detail muted mt-1">' + (isThis
+          ? 'Counted up to today. Rest days are training too; this is the count, not a verdict.'
+          : 'Rest days are training too; this is the count, not a verdict.') + '</p>'
+      : '<p class="t-body">A session on every day so far.</p>', 'card--sunken');
+
+    /* The streak, on the same switch as Home's pill and Profile's header --
+       lk_badges -- and counted by the same rule: consecutive days with a
+       session, back from today, or from yesterday when today has not been
+       trained yet. A streak of nothing is not a card. */
+    var badges = stored('lk_badges', false);
+    if ((badges === true || badges === 'true') && isThis) {
+      var trained = {};
+      HISTORY.forEach(function (h) { trained[h.date] = true; });
+      var cur = trained[TODAY] ? TODAY : addDays(TODAY, -1), run = 0;
+      while (trained[cur] && run < 3650) { run++; cur = addDays(cur, -1); }
+      if (run > 0) {
+        out += head('Streak');
+        out += card('<p class="hero num" data-testid="week-streak">' + n(run) + '</p>' +
+          '<p class="t-detail muted">' + (run === 1 ? 'day in a row' : 'days in a row') +
+          ', counted back from ' + (trained[TODAY] ? 'today' : 'yesterday') + '.</p>');
+      }
+    }
 
     if (cardio.length) {
       out += head('Cardio', n(cardio.reduce(function (m, h) { return m + h.min; }, 0)) + ' min');
@@ -648,6 +714,32 @@
       b.setAttribute('aria-pressed', String(b.dataset.state === (S.status === 'ready' ? S.scale : S.status)));
     });
   }
+
+  /* Every screen mounts once in the demo, so the way back in is an event
+     rather than a load. Read the keys again and repaint. */
+  document.addEventListener('lk:enter', function () { reread(); render(); });
+  if (window.LKStore) {
+    LKStore.onChange(function (v, key) {
+      if (!key || String(key).indexOf('lk_') !== 0) return;
+      if (key === 'lk_openWorkout' || key === 'lk_openLift') return;
+      reread(); render();
+    });
+  }
+
+  /* F-SHARED-004. The boundary. A throw anywhere in this screen used to
+     leave whatever had been painted frozen and unexplained; it now lands in
+     the error state this screen already has, which says the sessions are
+     still on the device -- because they are -- and offers the one control
+     that helps. */
+  window.addEventListener('error', function (e) {
+    /* Only when this screen is the one on screen: in the demo every screen
+       shares one window, and another screen's throw is not this screen's
+       error. A hidden screen's root has no client rects. */
+    if (!screen.getClientRects().length) return;
+    if (!e || !e.message || S.status === 'error') return;
+    S.status = 'error';
+    try { render(); } catch (err) {}
+  });
 
   /* ---------------------------------------------------------------
      Actions

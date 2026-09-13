@@ -712,6 +712,13 @@
      failure set are still work, so they keep their number in the count and
      carry a letter instead of replacing it -- a drop set that vanished from
      the volume would make the session read light. */
+  /* FOUR STATES, not the shipped three. Normal, warm-up and drop were the
+     cycle; a set taken to failure was logged as a normal one, and it is the
+     set that most changes how the next session should be read -- the same
+     weight for the same reps with nothing left is not the same entry. The
+     fourth state is kept deliberately: it costs one more tap on a control
+     that is already there, and it is the only way a session can say what
+     actually happened. */
   var SET_KINDS = ['work', 'warm', 'drop', 'fail'];
   var KIND_WORD = { work: 'working set', warm: 'warm-up', drop: 'drop set', fail: 'set to failure' };
   function kindOf(st) { return st.warm ? 'warm' : (st.kind || 'work'); }
@@ -1894,6 +1901,13 @@
              screen. */
           var pr = prBeaten(S.exercises[e], st);
           if (pr) {
+            /* WHAT IT BEAT, read BEFORE the new row is written -- once
+               recordPR has run, the best stored for this lift is this set.
+               Review needs it to name the mark, and without it Review could
+               not claim the record at all: it re-derives records from lk_prs,
+               which by then already contains the set it is looking at. */
+            var beat = bestFor(S.exercises[e].id, st.reps) || bestFor(S.exercises[e].id);
+            if (beat) st.prBeat = { kg: beat.w, reps: beat.r, date: beat.date };
             recordPR(S.exercises[e], st);
             /* On the set, so the banner and the card badge can be drawn from
                the session itself and outlive the toast. */
@@ -1910,7 +1924,7 @@
           /* Reopening a set takes back what ticking it claimed. The record
              row already written stands -- it was lifted -- but this session
              stops announcing it. */
-          st.pr = false; st.prText = '';
+          st.pr = false; st.prText = ''; st.prBeat = null;
           say('Set ' + (i + 1) + ' reopened');
         }
         break;
@@ -2720,7 +2734,8 @@
       ex.sets.forEach(function (st) {
         if (!st.done || st.kg == null || st.reps == null) return;
         rows.push({ kg: st.kg, reps: st.reps, rir: st.rir, warm: !!st.warm,
-                    partials: st.partials || 0, done: true, pr: !!st.pr });
+                    partials: st.partials || 0, done: true, pr: !!st.pr,
+                    prBeat: st.prBeat || null });
         if (st.warm) return;
         sets++; vol += st.kg * st.reps;
         if (!top || st.kg > top[0] || (st.kg === top[0] && st.reps > top[1])) top = [st.kg, st.reps];

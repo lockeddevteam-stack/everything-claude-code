@@ -742,11 +742,22 @@
     return (window.LKStore ? window.LKStore.get('lk_splits', null) : null) ||
            (window.LKFixtures && LKFixtures.splits) || [];
   }
+  /* A day's lifts, in either shape it is stored in. A phone that has been
+     running LOCKED holds `exIds: [111, ...]` on a day; this builder and the
+     split builder write the resolved `exercises: [{id, name, ...}]`. Reading
+     only the second counted every day of a real user's split as empty, so
+     "In your splits" said "Not in a split" about a lift that was in one. */
+  function dayExIds(d) {
+    if (d && d.exercises && d.exercises.length) {
+      return d.exercises.map(function (e) { return e.id; });
+    }
+    return (d && d.exIds) || [];
+  }
   function buildSplits() {
     var inSplit = {}, days = [];
     rdSplits().forEach(function (sp) {
       (sp.days || []).forEach(function (d) {
-        var exs = d.exercises || [];
+        var exs = dayExIds(d).map(function (id) { return { id: id }; });
         days.push({ id: 'd' + days.length, splitId: sp.id, day: d.name,
                     name: d.name, split: sp.name, count: exs.length });
         exs.forEach(function (e) {
@@ -765,12 +776,21 @@
       if (sp.id !== d.splitId) return;
       (sp.days || []).forEach(function (day) {
         if (day.name !== d.day) return;
-        day.exercises = day.exercises || [];
-        for (var i = 0; i < day.exercises.length; i++) {
-          if (day.exercises[i].id === it.id) { dup = true; return; }
+        /* Written into the day in the shape that day is stored in. A day held
+           as bare ids gets an id; a resolved day gets the record. Writing the
+           wrong one made a second, parallel list the rest of the app did not
+           read. */
+        var bare = !(day.exercises && day.exercises.length) && !!(day.exIds && day.exIds.length);
+        var have = dayExIds(day);
+        for (var i = 0; i < have.length; i++) {
+          if (String(have[i]) === String(it.id)) { dup = true; return; }
         }
         if (dup) return;
-        day.exercises.push({ id: it.id, name: it.name, group: it.group, muscle: it.muscle });
+        if (bare) day.exIds.push(it.id);
+        else {
+          day.exercises = day.exercises || [];
+          day.exercises.push({ id: it.id, name: it.name, group: it.group, muscle: it.muscle });
+        }
         done = true;
       });
     });
@@ -1771,7 +1791,14 @@
         all.forEach(function (sp) {
           if (sp.id !== last.day.splitId) return;
           (sp.days || []).forEach(function (dd) {
-            if (dd.name !== last.day.day || !dd.exercises) return;
+            if (dd.name !== last.day.day) return;
+            if (dd.exIds && !(dd.exercises && dd.exercises.length)) {
+              var b0 = dd.exIds.length;
+              dd.exIds = dd.exIds.filter(function (x) { return String(x) !== String(last.id); });
+              if (dd.exIds.length !== b0) removed = true;
+              return;
+            }
+            if (!dd.exercises) return;
             var before = dd.exercises.length;
             dd.exercises = dd.exercises.filter(function (x) { return String(x.id) !== String(last.id); });
             if (dd.exercises.length !== before) removed = true;

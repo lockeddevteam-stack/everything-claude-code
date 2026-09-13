@@ -242,6 +242,17 @@
     var seen = {};
     M.weekSessions.forEach(function (w) { seen[w.date] = true; });
     M.uDays = Object.keys(seen).length;
+    /* F-HOME-005. The rest of the week's aggregates, which were measured
+       here and then shown only on the recap: sets, volume and cardio
+       minutes. Lifting volume and sets come from lifting sessions only --
+       a cardio session carries no kg and no sets, and adding its zero to
+       the total made the figure look like it had counted it. */
+    M.weekSets = 0; M.weekVol = 0; M.weekCardio = 0;
+    M.weekSessions.forEach(function (w) {
+      if (w.kind === 'cardio') { M.weekCardio += w.min || 0; return; }
+      M.weekSets += w.sets || 0;
+      M.weekVol += w.kg || 0;
+    });
     M.consistency = M.uDays >= 5 ? 'Incredible week'
       : M.uDays >= 3 ? 'Solid week'
       : M.uDays === 0 ? 'Rest week' : 'Building momentum';
@@ -400,6 +411,16 @@
     var line = '<p class="t-detail mt-3" data-testid="week-summary">' +
       n(M.uDays) + ' ' + plural(M.uDays, 'day', 'days') + ' this week &middot; ' + M.consistency +
       '</p>';
+    /* The three aggregates under it, each one only when the week has it:
+       a week with no cardio should not print "0 min cardio", and a week
+       with no lifting should not print a volume of nothing. */
+    var bits = [];
+    if (M.weekSets) bits.push(n(M.weekSets) + ' ' + plural(M.weekSets, 'set', 'sets'));
+    if (M.weekVol) bits.push(kg(M.weekVol));
+    if (M.weekCardio) bits.push(n(M.weekCardio) + ' min cardio');
+    var totals = bits.length
+      ? '<p class="t-meta mt-1" data-testid="week-totals">' + bits.join(' &middot; ') + '</p>'
+      : '';
     /* F-GAME-001. The streak, on Home and on the Profile header, and only
        when the gaming layer is switched on -- which it is not by default,
        and a streak of zero is never claimed. */
@@ -419,7 +440,7 @@
         '</div>' +
         '<div class="week grow" role="img" aria-label="' + esc(read) + '" data-testid="week-rhythm">' + days + '</div>' +
       '</div>' +
-      '<div class="hstack hstack--2">' + line + streak + '</div>';
+      '<div class="hstack hstack--2">' + line + streak + '</div>' + totals;
   }
 
   function sessionSub(w) {
@@ -616,8 +637,31 @@
      seed ships with the insight already hidden, which is why the stack
      carries its own way back: a hidden card is a decision, not a deletion.
      ------------------------------------------------------------------ */
-  var CARD_IDS = ['insight', 'supps', 'restock', 'cycle'];
-  var CARD_NAMES = { insight: 'Insight', supps: 'Supplements due', restock: 'Running low', cycle: 'Compounds due' };
+  /* F-TRAIN-320. The five training cards the sign-off found missing, built
+     from what is already stored rather than from a rotation:
+
+       recovery   — what the last few check-ins said about sleep and soreness
+       restday    — a run of consecutive days trained, and nothing between them
+       comeback   — a gap since the last session
+       nextsplit  — what follows the session the answer card names
+
+     THE CHECK-IN CARD IS CUT, and this is the reason. Coach owns the daily
+     check-in: it writes the whole of lk_feedback -- energy, sleep, soreness,
+     stress and mood -- and reads it back the same way, including
+     "log[0].sleep <= 2", which a null satisfies. A one-tap mood card here
+     would write an entry for today with four of the five answers missing,
+     and Coach would then offer "I have slept badly. Should I still train
+     today?" about a night nobody rated. A card that makes another screen
+     say something untrue is worse than a card that is not there.
+
+     Each of these renders only when its own data says so, which means most
+     of them are silent on a well-rested week -- that is the point of them.
+     None is on a timer and none rotates. */
+  var CARD_IDS = ['recovery', 'comeback', 'restday', 'insight', 'nextsplit', 'supps', 'restock', 'cycle'];
+  var CARD_NAMES = {
+    insight: 'Insight', supps: 'Supplements due', restock: 'Running low', cycle: 'Compounds due',
+    recovery: 'Recovery', restday: 'Rest day', comeback: 'Comeback', nextsplit: 'Next session'
+  };
   function hiddenCards() {
     var L = get('lk_homeLayout', {}) || {};
     return (L && typeof L.hidden === 'object' && L.hidden) ? L.hidden : {};
@@ -850,17 +894,102 @@
       '<div class="card card--flush mt-2">' + rows + '</div>', 'card-compounds');
   }
 
+  /* ---- the four training cards ------------------------------------
+     Every figure on them is counted out of lk_feedback, lk_history or
+     lk_splits on this paint. Nothing here is advice the build cannot
+     stand behind: each card says what was logged and stops. */
+
+  /* The check-ins inside a window, newest first. lk_feedback's own shape:
+     an ISO `date`, a US `dateStr`, and 1-5 scales. */
+  function feedbackWithin(days) {
+    var out = [];
+    arr('lk_feedback').forEach(function (c) {
+      if (!c) return;
+      var d = c.date && /^\d{4}-\d{2}-\d{2}/.test(String(c.date)) ? String(c.date).slice(0, 10) : null;
+      if (!d && c.dateStr) {
+        var a = String(c.dateStr).split('/');
+        if (a.length === 3) d = a[2] + '-' + ('0' + a[0]).slice(-2) + '-' + ('0' + a[1]).slice(-2);
+      }
+      if (!d) return;
+      var ago = daysBetween(d, TODAY);
+      if (ago < 0 || ago > days) return;
+      out.push({ iso: d, ago: ago, sleep: Number(c.sleep), soreness: Number(c.soreness) });
+    });
+    out.sort(function (a, b) { return a.ago - b.ago; });
+    return out;
+  }
+  function recoveryCard() {
+    var log = feedbackWithin(7);
+    if (log.length < 2) return '';
+    var sore = log.filter(function (c) { return c.soreness >= 4; }).length;
+    var poor = log.filter(function (c) { return c.sleep <= 2; }).length;
+    if (sore < 2 && poor < 2) return '';
+    var says = [];
+    if (sore >= 2) says.push(n(sore) + ' logged soreness at 4 or more');
+    if (poor >= 2) says.push(n(poor) + ' logged sleep at 2 or less');
+    return cardShell('recovery', 'Recovery', ICO.moon,
+      '<p class="t-body mt-2">Of your last ' + n(log.length) + ' check-' +
+        plural(log.length, 'in', 'ins') + ', ' + says.join(' and ') + '.</p>' +
+      '<p class="t-meta mt-2">Counted from the check-ins you saved in the last seven days. Nothing here changes your session.</p>',
+      'card-recovery');
+  }
+  /* A run of days trained with nothing between them. The streak is already
+     counted for the pill; this is the same figure read the other way round,
+     so the two can never disagree. */
+  function restdayCard(M) {
+    if (M.streak < 5 || !M.trainedToday) return '';
+    return cardShell('restday', 'Rest day', ICO.moon,
+      '<p class="t-body mt-2">' + n(M.streak) + ' days in a row with a session on each. ' +
+        'A day off is the part of the plan that does the repairing.</p>' +
+      '<p class="t-meta mt-2">Counted from your logged sessions. Nothing is skipped for you.</p>',
+      'card-restday');
+  }
+  function comebackCard(M) {
+    if (!M.last || M.trainedToday) return '';
+    var gap = daysBetween(M.last.date, TODAY);
+    if (gap < 4) return '';
+    return cardShell('comeback', 'Since the last one', ICO.lift,
+      '<p class="t-body mt-2">' + n(gap) + ' days since ' + esc(M.last.name) + '. ' +
+        'The session on the card above is the one that comes next, unchanged.</p>' +
+      '<p class="t-meta mt-2">Nothing has been reset or dropped from your plan.</p>',
+      'card-comeback');
+  }
+  /* What follows the session the answer card names, so the week has a shape
+     beyond today. Read off the split's own day order. */
+  function nextSplitCard(M) {
+    var sp = M.splits[0];
+    if (!sp || !sp.days || sp.days.length < 2 || !M.next) return '';
+    var idx = -1;
+    for (var i = 0; i < sp.days.length; i++) {
+      if (String(sp.days[i].name) === String(M.next.name)) { idx = i; break; }
+    }
+    if (idx < 0) return '';
+    var after = sp.days[(idx + 1) % sp.days.length];
+    var then = sp.days.length > 2 ? sp.days[(idx + 2) % sp.days.length] : null;
+    return cardShell('nextsplit', 'After that', ICO.plan,
+      '<p class="t-body mt-2">' + esc(M.next.name) + ', then ' + esc(after.name) +
+        (then ? ', then ' + esc(then.name) : '') + '.</p>' +
+      '<p class="t-meta mt-2">The order in ' + esc(sp.name) + '. Which day you train is yours to pick; the rotation is the split’s.</p>',
+      'card-nextsplit');
+  }
+
+  function builtCard(id, M) {
+    if (id === 'insight') return insightCard(M);
+    if (id === 'supps') return suppCard(M, new Date().getHours());
+    if (id === 'restock') return restockCard();
+    if (id === 'cycle') return compoundCard();
+    if (id === 'recovery') return recoveryCard();
+    if (id === 'restday') return restdayCard(M);
+    if (id === 'comeback') return comebackCard(M);
+    if (id === 'nextsplit') return nextSplitCard(M);
+    return '';
+  }
+
   function stack(M) {
     var hid = hiddenCards();
-    var built = {
-      insight: function () { return insightCard(M); },
-      supps: function () { return suppCard(M, new Date().getHours()); },
-      restock: function () { return restockCard(); },
-      cycle: function () { return compoundCard(); }
-    };
     var html = '', hiddenWithContent = 0;
     CARD_IDS.forEach(function (id) {
-      var card = built[id]();
+      var card = builtCard(id, M);
       if (!card) return;
       if (hid[id]) { hiddenWithContent++; return; }
       html += card;
@@ -874,6 +1003,134 @@
       '</div>';
   }
 
+  /* ---- the layout, and the editor for it -------------------------
+     F-HOME-003 and F-PROF-024.
+
+     lk_homeLayout was already the key each feed card's dismiss writes to,
+     and it already carries `hidden`. This adds the other half the shipped
+     app had: which blocks are on the screen, and in what order. One key,
+     two fields:
+
+       lk_homeLayout = { hidden: { insight: true, "blk:recent": true },
+                         order:  ["stack", "last", "recent", "climbing", "cycle"] }
+
+     A feed card's id is bare -- it is the shipped app's own -- and a block's
+     is prefixed "blk:", so the two cannot collide in one map.
+
+     TWO BLOCKS DO NOT MOVE. The week band and the answer card. The answer
+     card is the screen: a Home whose owner has scrolled the answer under
+     four other blocks is a Home that has stopped answering, and a control
+     that lets somebody do that by accident is not a preference. The band
+     can be hidden; it cannot be moved below the answer, because it is the
+     week the answer is about. Everything under them reorders and hides.
+
+     Settings cut its own layout editor with a reason recorded there
+     ("Ordering Home is the designer's job, not a setting"). That reason
+     holds for a list of abstract block names in a settings screen, three
+     taps from the thing being described. It does not hold here, where the
+     control is on the block itself and the result is the screen you are
+     standing on. */
+  var BLOCKS = [
+    ['stack', 'Your feed'],
+    ['last', 'Last session'],
+    ['recent', 'Recent'],
+    ['climbing', 'Climbing'],
+    ['cycle', 'Cycle']
+  ];
+  var editing = false;
+
+  function layout() {
+    var L = get('lk_homeLayout', {}) || {};
+    return (typeof L === 'object' && L) ? L : {};
+  }
+  function blockHidden(id) { return !!hiddenCards()['blk:' + id]; }
+  function blockOrder() {
+    var L = layout();
+    var want = Array.isArray(L.order) ? L.order : [];
+    var known = BLOCKS.map(function (b) { return b[0]; });
+    var out = want.filter(function (id) { return known.indexOf(id) >= 0; });
+    known.forEach(function (id) { if (out.indexOf(id) < 0) out.push(id); });
+    return out;
+  }
+  function setOrder(list) {
+    var L = layout();
+    L.order = list;
+    return set('lk_homeLayout', L);
+  }
+  function moveBlock(id, dir) {
+    var o = blockOrder(), i = o.indexOf(id), j = i + dir;
+    if (i < 0 || j < 0 || j >= o.length) return false;
+    o.splice(j, 0, o.splice(i, 1)[0]);
+    return setOrder(o);
+  }
+  function blockLabel(id) {
+    for (var i = 0; i < BLOCKS.length; i++) if (BLOCKS[i][0] === id) return BLOCKS[i][1];
+    return id;
+  }
+  function blockHTML(id, M) {
+    if (id === 'stack') return stack(M);
+    if (id === 'last') return lastRow(M);
+    if (id === 'recent') return recentBlock(M);
+    if (id === 'climbing') return liftRow(M.lift);
+    if (id === 'cycle') return cycleRow();
+    return '';
+  }
+
+  /* In edit mode every block wears its own controls. Out of it the markup
+     is exactly what it was: the editor costs the ordinary screen nothing. */
+  function frame(id, label, inner, hidden, first, last) {
+    var tools =
+      '<div class="hstack hstack--2 mt-2">' +
+        '<span class="t-label grow">' + esc(label) + '</span>' +
+        (hidden
+          ? '<button class="btn btn--secondary btn--sm" data-act="blk-show" data-blk="' + id + '" ' +
+              'data-testid="blk-show-' + id + '">Show</button>'
+          : '<button class="btn btn--tertiary btn--sm" data-act="blk-hide" data-blk="' + id + '" ' +
+              'data-testid="blk-hide-' + id + '">Hide</button>') +
+        (first === null ? '' :
+          /* A 35px arrow is not a target. The pair carry their own width
+             rather than the label's, because the label is one glyph. */
+          '<button class="btn btn--tertiary btn--sm" style="min-width: var(--tap)" data-act="blk-up" data-blk="' + id + '" ' +
+            'data-testid="blk-up-' + id + '" aria-label="Move ' + esc(label) + ' up"' +
+            (first ? ' disabled' : '') + '>&uarr;</button>' +
+          '<button class="btn btn--tertiary btn--sm" style="min-width: var(--tap)" data-act="blk-down" data-blk="' + id + '" ' +
+            'data-testid="blk-down-' + id + '" aria-label="Move ' + esc(label) + ' down"' +
+            (last ? ' disabled' : '') + '>&darr;</button>') +
+      '</div>';
+    return '<div class="card card--sunken mt-3" data-testid="blk-' + id + '"' +
+      (hidden ? ' data-hidden="true"' : '') + '>' + tools +
+      (hidden
+        ? '<p class="t-meta mt-2">Hidden. Nothing in it is deleted.</p>'
+        : (inner || '<p class="t-meta mt-2">Nothing to show here today.</p>')) +
+      '</div>';
+  }
+
+  function blocksHTML(M) {
+    var order = blockOrder(), out = '';
+    order.forEach(function (id, i) {
+      var hid = blockHidden(id);
+      var inner = hid && !editing ? '' : blockHTML(id, M);
+      if (editing) out += frame(id, blockLabel(id), inner, hid, i === 0, i === order.length - 1);
+      else if (!hid) out += inner;
+    });
+    return out;
+  }
+  function momentumBlock(M) {
+    var hid = blockHidden('momentum');
+    if (editing) return frame('momentum', 'This week', hid ? '' : momentum(M), hid, null, null);
+    return hid ? '' : momentum(M);
+  }
+  function customiseBar() {
+    return '<div class="hstack hstack--2 mt-5">' +
+      '<button class="btn ' + (editing ? 'btn--primary' : 'btn--tertiary') + ' btn--sm grow" ' +
+        'data-act="layout-edit" aria-pressed="' + editing + '" data-testid="layout-edit">' +
+        '<span class="btn__label">' + (editing ? 'Done' : 'Customise this screen') + '</span></button>' +
+    '</div>' +
+    (editing
+      ? '<p class="t-meta mt-2" data-testid="layout-note">Hiding a block hides it here only. Nothing it shows is deleted, and it comes back from this list.</p>'
+      : '');
+  }
+
   /* ---- states ----------------------------------------------------- */
   var VIEWS = {};
 
@@ -885,7 +1142,7 @@
         (s.measured ? ', from your last ' + esc(s.name) + ' sessions' : '')
       : 'No split chosen yet';
     return '' +
-      momentum(M) +
+      momentumBlock(M) +
       '<div class="card card--raised mt-4 enter-rise" data-testid="card-answer" data-answer="train">' +
         '<h2 class="t-title" data-testid="next-name">' + (s ? esc(s.name) : 'Train') + '</h2>' +
         '<p class="t-detail mt-2" data-testid="next-shape">' + shape + '</p>' +
@@ -896,7 +1153,7 @@
           '<span class="btn__label">Choose another session</span>' +
         '</button>' +
       '</div>' +
-      stack(M) + lastRow(M) + recentBlock(M) + liftRow(M.lift) + cycleRow();
+      blocksHTML(M) + customiseBar();
   };
 
   /* Rest day. Sunken card, sentence first, settles into place. The
@@ -906,7 +1163,7 @@
   VIEWS.rest = function (M) {
     var s = M.next;
     return '' +
-      momentum(M) +
+      momentumBlock(M) +
       '<div class="card card--sunken mt-4 enter-settle" data-testid="card-answer" data-answer="rest">' +
         '<div class="hstack hstack--3">' +
           '<span class="ico-well">' + ICO.moon + '</span>' +
@@ -921,7 +1178,7 @@
           ICO.play + '<span class="btn__label">Start ' + esc(s.name) + ' early</span>' +
         '</button>' : '') +
       '</div>' +
-      stack(M) + lastRow(M) + recentBlock(M) + liftRow(M.lift) + cycleRow();
+      blocksHTML(M) + customiseBar();
   };
 
   /* Empty. Nothing has been earned yet, so nothing is claimed: no
@@ -976,6 +1233,10 @@
          about the shape that is coming; it has to include every line the
          shape has. */
       '<div class="skel mt-3" style="height: var(--lh-13); width: 58%"></div>' +
+      /* And the totals line under it, for the same reason: the week's sets,
+         volume and cardio arrived after the skeleton had promised one line
+         where there are two. */
+      '<div class="skel mt-1" style="height: var(--lh-11); width: 44%"></div>' +
       /* The answer card gained a line when it started naming where the
          session's shape came from ("from your last Push sessions"), and the
          skeleton did not follow: 108px reserved against 139px loaded, so
@@ -1009,7 +1270,11 @@
           ICO.alert +
           '<span><strong>Today did not load</strong>The training history on this device could not be read, so the session for today is unknown.</span>' +
         '</div>' +
-        '<button class="btn btn--primary btn--block mt-4" data-testid="primary-action">' +
+        /* NOT data-testid="primary-action". That id is declared as the route
+           into the workout log, so "Try again" on the screen that says it
+           could not read your history started a session instead of trying
+           again. It reloads, which is what trying again is. */
+        '<button class="btn btn--primary btn--block mt-4" data-act="retry" data-testid="error-retry">' +
           '<span class="btn__label">Try again</span>' +
         '</button>' +
         '<button class="btn btn--secondary btn--block mt-2" data-testid="action-choose-session">' +
@@ -1067,7 +1332,16 @@
   /* The first card that will be on screen after a restore. Restoring puts
      every card back, so the first id in the list is the first card, and its
      dismiss button is a real control that is certain to exist. */
-  function firstVisibleCardDismiss() { return 'dismiss-' + CARD_IDS[0]; }
+  /* The FIRST CARD THAT WILL ACTUALLY BE THERE, not the first id in the
+     list: most of these cards are silent on most days, so naming CARD_IDS[0]
+     sent focus to a control that does not exist and dropped it to the body
+     -- which is the very thing this is here to prevent. */
+  function firstVisibleCardDismiss() {
+    for (var i = 0; i < CARD_IDS.length; i++) {
+      if (MODEL && builtCard(CARD_IDS[i], MODEL)) return 'dismiss-' + CARD_IDS[i];
+    }
+    return 'layout-edit';
+  }
 
   function render(state) {
     if (rendering) return;
@@ -1133,6 +1407,28 @@
          the document, so the screen says where focus goes instead. The first
          restored card is the thing the press just produced. */
       focusAfterRender = firstVisibleCardDismiss();
+      return true;
+    }
+    /* The layout editor. Every one of these writes lk_homeLayout on the tap,
+       so the arrangement is the same tomorrow and on the next screen that
+       reads the key. */
+    if (name === 'retry') { location.reload(); return true; }
+    if (name === 'layout-edit') {
+      editing = !editing;
+      /* The button relabels itself rather than vanishing, so focus has
+         somewhere to be after the render. */
+      focusAfterRender = 'layout-edit';
+      render();
+      return true;
+    }
+    if (name === 'blk-hide' || name === 'blk-show') {
+      hideCard('blk:' + el.getAttribute('data-blk'), name === 'blk-hide');
+      return true;
+    }
+    if (name === 'blk-up' || name === 'blk-down') {
+      var bid = el.getAttribute('data-blk');
+      moveBlock(bid, name === 'blk-up' ? -1 : 1);
+      focusAfterRender = (name === 'blk-up' ? 'blk-up-' : 'blk-down-') + bid;
       return true;
     }
     if (name === 'supp-taken') {
@@ -1282,6 +1578,41 @@
       render();
     });
   }
+
+  /* Screens mount once in the demo, so a route back to Home is not a load.
+     The store's own listener catches anything another screen wrote, but not
+     the passage of time: the supplement card is windowed on the hour, and
+     Home could sit on "Morning" until something else happened to write. */
+  document.addEventListener('lk:enter', function () { if (!rendering) render(); });
+
+  /* F-SHARED-004. A boundary for the screen itself. Every state below is a
+     state this screen knows it is in; this is the one it does not -- a throw
+     out of a render, a patch or a handler, which used to leave whatever was
+     on screen frozen with no way forward. It says what happened and offers
+     the one thing that fixes it, and it never claims the data is lost,
+     because it is on the device and it is not. */
+  function crashed(what) {
+    try {
+      document.getElementById('screen').setAttribute('data-state', 'error');
+      LKPatch(body, VIEWS.error());
+      var slot = document.getElementById('shelf-slot');
+      if (slot) LKPatch(slot, '');
+    } catch (e) {}
+    return what;
+  }
+  /* ONLY WHEN THIS SCREEN IS THE ONE ON SCREEN. In the demo every screen
+     shares one window, so an unguarded listener here would paint Home's
+     error state because the workout log threw. A hidden screen's root has
+     no client rects. */
+  function mine() {
+    var el = document.getElementById('screen');
+    return !!el && el.getClientRects().length > 0;
+  }
+  window.addEventListener('error', function (e) {
+    if (!e || !e.message || !mine()) return;
+    crashed(e.message);
+  });
+  window.addEventListener('unhandledrejection', function () { if (mine()) crashed('promise'); });
 
   /* F-ONB-001. Nothing in this build asked whether anybody had ever set the
      app up: a first run landed on Home, which then showed a plan, a history

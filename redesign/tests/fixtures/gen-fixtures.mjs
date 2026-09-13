@@ -248,6 +248,12 @@ const bfLog = JSON.parse(seed.lk_bfLog);
    the seed's own values crashed both panes. */
 const feedback = JSON.parse(seed.lk_feedback);
 const coachPlan = JSON.parse(seed.lk_coachPlan);
+/* The coach's own two keys. They were in the seed and in no fixture, so
+   coach.html kept private SEED_MEMORY and SEED_INSTRUCTIONS copies -- a
+   second source for a key the store already owns, which is the rule this
+   build keeps breaking. */
+const coachMemory = JSON.parse(seed.lk_coachMemory);
+const coachInstructions = JSON.parse(seed.lk_coachInstructions);
 /* The stored thumbs are 1x1 placeholder JPEGs. The screens draw their own
    tinted tile instead, so only the date and the note travel. */
 const photos = JSON.parse(seed.lk_progressPhotos).map((p) => ({ date: p.date, note: p.note }));
@@ -553,6 +559,8 @@ const body = `/* GENERATED — do not edit.
     suppLog: ${JSON.stringify(suppLog, null, 6).replace(/\n/g, '\n    ')},
     feedback: ${JSON.stringify(feedback, null, 6).replace(/\n/g, '\n    ')},
     coachPlan: ${JSON.stringify(coachPlan, null, 6).replace(/\n/g, '\n    ')},
+    coachMemory: ${JSON.stringify(coachMemory, null, 6).replace(/\n/g, '\n    ')},
+    coachInstructions: ${JSON.stringify(coachInstructions)},
 
     /* Every session on a date, newest first. */
     on: function (iso) {

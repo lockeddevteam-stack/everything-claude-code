@@ -183,6 +183,8 @@
       case 'lk_suppLog':       return F.suppLog;
       case 'lk_feedback':      return F.feedback;
       case 'lk_coachPlan':     return F.coachPlan;
+      case 'lk_coachMemory':   return F.coachMemory;
+      case 'lk_coachInstructions': return F.coachInstructions;
       default:                  return undefined;
     }
   }

@@ -56,6 +56,33 @@
   saved, in which case the accent moves to the card and Send steps back.
 -->
 
+<!--
+  CUT — F-COACH-037 and F-COACH-038: the beta admin console.
+
+  The audit listed a beta admin screen (a codes list with add and toggle
+  against lk_betaCodes, and activity / AI-log / feedback tabs reading
+  lk_betaLog and lk_betaAILog). It is not built here, and it should not be:
+
+  1. IT IS NOT PART OF THE PRODUCT. It is an operator's console that shipped
+     inside the consumer app because there was nowhere else to put it. Every
+     person who installs LOCKED gets a screen for managing other people's
+     access codes, which is at best confusing and at worst an invitation.
+
+  2. IT CANNOT BE HONEST ON ONE DEVICE. A code list, an activity log and an
+     AI-usage log are facts about a fleet of testers. Read out of this
+     phone's localStorage they describe one person -- so a console showing
+     "3 codes, 0 redeemed" would be reporting on nothing, which is exactly
+     the class of claim this build keeps having to delete.
+
+  3. THE REAL VERSION IS A SERVER, NOT A SCREEN. Codes are issued and
+     revoked centrally or they are not a control at all; AI usage is metered
+     where the model is called. When the backend exists, this belongs behind
+     an operator login on the web, not on a tab of a training app.
+
+  Nothing was removed to make this decision: lk_betaCodes, lk_betaLog and
+  lk_betaAILog are written by nothing in this build, so there is no data
+  stranded by cutting it. Rows marked CUT in 14-signoff/work/wp1-coach.json.
+-->
 <div class="stage">
   <div class="phone" id="phone"></div>
 </div>
@@ -301,7 +328,11 @@
     { q: 'If you miss a session, what should the coach do?', opts: ['Reshuffle the week', 'Push everything back', 'Leave it and move on', 'Ask me first'] }
   ];
 
-  var WRITE_STEPS = ['Reading your six answers', 'Reading your last 8 weeks', 'Writing the instructions'];
+  /* WHAT IT ACTUALLY DOES. The middle step said "Reading your last 8 weeks"
+     and nothing here reads a single session: draftInstructions sees the six
+     answers and nothing else. A progress list that names work the code does
+     not do is the same defect as a figure with no source. */
+  var WRITE_STEPS = ['Reading your six answers', 'Turning them into sentences', 'Checking it back against your answers'];
 
   /* THE DRAFT IS BUILT FROM THE ANSWERS. It was one constant, so answering
      "2 days / Add size / Dumbbells only / Left knee / 30 minutes / Reshuffle"
@@ -790,9 +821,17 @@
                were not in the document — which a screen reader reports as a
                broken relationship rather than as a tab with nothing open. */
             var on = S.view === v[0];
+            /* A dot on Check-in while today is unanswered. It is the one pane
+               with something owed on it, and there was nothing anywhere to
+               say so -- the tab looked identical whether you had checked in
+               or not. It is a dot, not a count: a badge on a wellbeing form
+               reads as a debt. */
+            var owed = v[0] === 'checkin' && checkinCountOn(isoToday()) < checkinPerDay();
             return '<button class="seg__item" role="tab" id="tab-' + v[0] + '" aria-selected="' + on + '"' +
               (on ? ' aria-controls="panel-' + v[0] + '"' : '') +
-              ' data-act="view" data-view="' + v[0] + '" data-testid="seg-' + v[0] + '">' + v[1] + '</button>';
+              ' data-act="view" data-view="' + v[0] + '" data-testid="seg-' + v[0] + '">' + v[1] +
+              (owed ? '<span class="dot" data-testid="seg-checkin-dot" aria-label="not answered today"></span>' : '') +
+              '</button>';
           }).join('') +
         '</div>' +
       '</div>' +
@@ -848,6 +887,11 @@
         '<button class="btn btn--secondary btn--sm" data-act="retry" data-testid="msg-retry">' + ico('retry') + '<span class="btn__label">Try again</span></button>' +
         '</div>';
     }
+    /* THE RATE LIMIT. A coach behind a paid endpoint runs out, and a screen
+       with no branch for that shows the generic "coach is down" -- which
+       sends a person to retry, and retry, against a wall. Try again is not
+       offered here, because it cannot work until the window resets. */
+    if (m.limit) { acts = ''; }
     if (m.stopped) {
       acts = '<div class="msg__acts">' +
         '<button class="btn btn--secondary btn--sm" data-act="continue" data-testid="msg-continue">' +
@@ -861,10 +905,33 @@
           '<div class="msg__head"><span class="msg__who">' + (isUser ? 'You' : 'Coach') + '</span>' +
             '<span class="msg__time">' + esc(m.time) + '</span></div>' +
           '<div class="msg__bubble">' + esc(m.text) + (m.offer ? planCard() : '') +
+            (m.limit ? limitCard(m) : '') +
             (m.acts ? actionsBlock(m, i) : '') + '</div>' +
           acts +
         '</div>' +
       '</article>';
+  }
+
+  /* What the reader can actually do about a rate limit, and nothing they
+     cannot. There is no billing, no account and no plans screen anywhere in
+     this build, so there is no "See plans" to press: a button that opened
+     nothing, or toasted as though it had, would be the lie the limit is
+     already bad enough without. */
+  function limitCard(m) {
+    return '<div class="card card--outline msg__attach" data-testid="limit-card">' +
+      '<div class="banner banner--warn">' + ico('alert') +
+        '<span><strong>You have used this hour’s messages</strong>' +
+        (m.resetAt ? 'The next one is available at ' + esc(m.resetAt) + '.'
+                   : 'The window resets on the hour.') + '</span></div>' +
+      '<p class="t-detail mt-3">Nothing you wrote was lost, and nothing in your training was ' +
+        'touched. Check-in, Plan and Setup all work while the coach is capped, ' +
+        'and they are on this phone rather than behind the limit.</p>' +
+      '<p class="t-detail quiet mt-3" data-testid="limit-plans">A higher cap is a paid plan, ' +
+        'and this build has no billing, no account and no plans screen to send you to. ' +
+        'When subscriptions are connected this is where the plan and its cap belong.</p>' +
+      '<button class="btn btn--secondary btn--block mt-3" data-act="view" data-view="checkin" ' +
+        'data-testid="limit-checkin"><span class="btn__label">Do today’s check-in instead</span></button>' +
+    '</div>';
   }
 
   function planCard() {
@@ -983,8 +1050,18 @@
     if (!window.LKCoachActions) return null;
     var raw = Array.isArray(list) ? list.slice(0, 8) : [];
     var verdicts = LKCoachActions.checkAll(raw).map(function (v, i) {
-      return { kind: v.kind, ok: v.ok, problems: v.problems, action: v.action,
-               raw: raw[i], applied: false, token: null };
+      var out = { kind: v.kind, ok: v.ok, problems: v.problems, action: v.action,
+                  raw: raw[i], applied: false, token: null };
+      /* A block the parser could not read at all. Saying "a goal with no
+         name" would send somebody looking for a name that was never the
+         problem; the reply was malformed. */
+      if (raw[i] && raw[i].__unreadable) {
+        out.ok = false;
+        out.problems = ['the ' + (v.kind || 'action') + ' block in the reply was not readable, ' +
+                        'so there was nothing to check'];
+        out.action = null;
+      }
+      return out;
     });
     var sound = verdicts.filter(function (v) { return v.ok; }).length;
     S.chat.status = 'ready';
@@ -1000,6 +1077,107 @@
     return verdicts;
   }
   window.__coachActions = function (list, text) { return pushCoachActions(list, text); };
+
+  /* ---- the reply parser -------------------------------------------
+     F-COACH-009. A model does not return objects; it returns a string
+     with markers in it, and these are the shipped app's own markers.
+     The parser's job is to get the blocks out and hand them to the gate
+     -- it decides nothing about whether any of them is sound, which is
+     what keeps a parse bug from becoming a write.
+
+     Everything a marker does not claim is left alone, and a block that
+     is not readable JSON is reported as a refusal rather than dropped:
+     a reply that said it wrote you a programme and silently produced no
+     card is the failure nobody can see. */
+  var BLOCKS = [
+    ['PROGRAM', 'json', function (j) { return { kind: 'split', title: j.title || j.name, split: {
+        name: j.name, days: (j.days || []).map(function (d) {
+          return { name: d.name, exercises: (d.exercises || d.lifts || []).map(function (e) {
+            return { id: e.id, name: e.name, sets: e.sets };
+          }) };
+        }) } }; }],
+    ['RECIPE', 'json', function (j) { return { kind: 'recipe', title: j.name, recipe: {
+        name: j.name, servings: j.servings,
+        notes: j.steps || j.notes,
+        items: (j.ingredients || j.items || []).map(function (g) {
+          return { key: g.key, name: g.item || g.name, qty: g.qty,
+                   kcal: g.cal !== undefined ? g.cal : g.kcal,
+                   pro: g.pro, carb: g.carb, fat: g.fat };
+        }) } }; }],
+    ['GOAL', 'json', function (j) { return { kind: 'goal', title: j.name, goal: {
+        /* "bf" is the marker's word for it; the gate's is "bodyfat". */
+        type: j.type === 'bf' ? 'bodyfat' : j.type,
+        name: j.name, target: j.target, start: j.start, exId: j.exId,
+        exName: j.exName, targetDate: j.targetDate, notes: j.notes } }; }],
+    ['FOOD', 'json', function (j) { return { kind: 'food', title: j.title, meal: j }; }],
+    ['CARDIO', 'json', function (j) { return { kind: 'cardio', title: j.title, session: j }; }],
+    ['INSTRUCTIONS', 'text', function (t) { return { kind: 'instructions', text: t }; }]
+  ];
+
+  function cut(text, open, close) {
+    var i = text.indexOf(open);
+    if (i < 0) return null;
+    var j = text.indexOf(close, i + open.length);
+    if (j < 0) return null;
+    return { body: text.slice(i + open.length, j), from: i, to: j + close.length };
+  }
+
+  function parseReply(raw) {
+    var text = String(raw == null ? '' : raw);
+    var actions = [];
+
+    BLOCKS.forEach(function (b) {
+      var open = '###' + b[0] + '_START###', close = '###' + b[0] + '_END###';
+      var hit;
+      while ((hit = cut(text, open, close))) {
+        var body = hit.body.trim();
+        if (b[1] === 'text') {
+          if (body) actions.push(b[2](body));
+        } else {
+          var j = null;
+          try { j = JSON.parse(body); } catch (e) {}
+          if (j && typeof j === 'object') actions.push(b[2](j));
+          /* Unreadable is not the same as absent. The gate refuses it and
+             the card says the block could not be read, which is the truth. */
+          else actions.push({ kind: b[0].toLowerCase() === 'program' ? 'split' : b[0].toLowerCase(),
+                              __unreadable: true });
+        }
+        text = text.slice(0, hit.from) + text.slice(hit.to);
+      }
+    });
+
+    /* The two that wrap plain text rather than JSON. */
+    var rem;
+    while ((rem = cut(text, '###REMEMBER###', '###/REMEMBER###'))) {
+      var f = rem.body.trim();
+      if (f) actions.push({ kind: 'fact', text: f });
+      text = text.slice(0, rem.from) + text.slice(rem.to);
+    }
+    var shop;
+    while ((shop = cut(text, '###SHOPPING_ADD###', '###/SHOPPING_ADD###'))) {
+      var items = shop.body.split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+      if (items.length) actions.push({ kind: 'shopping', items: items });
+      text = text.slice(0, shop.from) + text.slice(shop.to);
+    }
+
+    return { text: text.replace(/\n{3,}/g, '\n\n').trim(), actions: actions };
+  }
+
+  /* The whole path from a raw model string. This is what the Worker's
+     response will be handed to; the test hook drives the same function. */
+  function receiveReply(raw) {
+    var parsed = parseReply(raw);
+    if (!parsed.actions.length) {
+      S.chat.status = 'ready';
+      S.chat.msgs.push({ role: 'coach', time: nowClock(), text: parsed.text });
+      persistChat();
+      render();
+      return [];
+    }
+    return pushCoachActions(parsed.actions, parsed.text || undefined);
+  }
+  window.__coachReply = function (raw) { return receiveReply(raw); };
+  window.__coachParse = parseReply;
 
   /* ---- the previews --------------------------------------------- */
   function kcalLine(a) {
@@ -1026,8 +1204,9 @@
             }).join('') +
           '</div>';
         }).join('') +
-        '<p class="t-detail quiet">' + n(a.days.length) + ' days, ' + n(a.exercises) +
-          ' lifts. Every lift above was resolved against the exercise catalogue and is ' +
+        '<p class="t-detail quiet">' + n(a.days.length) + (a.days.length === 1 ? ' day, ' : ' days, ') +
+          n(a.exercises) + (a.exercises === 1 ? ' lift' : ' lifts') +
+          '. Every lift above was resolved against the exercise catalogue and is ' +
           'named as the catalogue names it.</p>' +
       '</div>';
     }
@@ -1122,9 +1301,10 @@
   /* One card per verdict. A refusal is a card too, and it says why in the
      gate's own words -- not a paraphrase, which is where a reason stops
      being checkable. */
-  function actionCard(m, mi, ai) {
+  function actionCard(m, mi, ai, accent) {
     var v = m.acts[ai];
     var id = mi + '-' + ai;
+    var pri = accent ? 'btn--primary' : 'btn--secondary';
 
     if (!v.ok) {
       return '<div class="card card--outline msg__attach" data-testid="act-' + id + '" data-kind="' + esc(v.kind || '') + '" data-ok="false">' +
@@ -1164,7 +1344,7 @@
         '<div class="hstack hstack--2"><span class="ico-well">' + ico('spark') + '</span>' +
           '<span class="grow"><span class="t-label">The coach wants to remember</span>' +
           preview(a, 'act-' + id + '-preview') + '</span></div>' +
-        '<button class="btn btn--primary btn--block mt-3" data-act="act-apply" data-mi="' + mi + '" data-ai="' + ai + '" ' +
+        '<button class="btn ' + pri + ' btn--block mt-3" data-act="act-apply" data-mi="' + mi + '" data-ai="' + ai + '" ' +
           'data-testid="act-' + id + '-apply"><span class="btn__label">Remember it</span></button>' +
         '<button class="btn btn--tertiary btn--block mt-2" data-act="act-drop" data-mi="' + mi + '" data-ai="' + ai + '" ' +
           'data-testid="act-' + id + '-drop"><span class="btn__label">Do not</span></button>' +
@@ -1172,9 +1352,9 @@
     }
 
     var approve = v.kind === 'shopping'
-      ? '<button class="btn btn--primary btn--block mt-3" data-act="act-review" data-mi="' + mi + '" data-ai="' + ai + '" ' +
+      ? '<button class="btn ' + pri + ' btn--block mt-3" data-act="act-review" data-mi="' + mi + '" data-ai="' + ai + '" ' +
           'data-testid="act-' + id + '-apply"><span class="btn__label">Review and add ' + a.items.length + ' items</span></button>'
-      : '<button class="btn btn--primary btn--block mt-3" data-act="act-apply" data-mi="' + mi + '" data-ai="' + ai + '" ' +
+      : '<button class="btn ' + pri + ' btn--block mt-3" data-act="act-apply" data-mi="' + mi + '" data-ai="' + ai + '" ' +
           'data-testid="act-' + id + '-apply"><span class="btn__label">' + esc(KIND_LABEL[v.kind]) + '</span></button>';
 
     return '<div class="card card--raised msg__attach" data-testid="act-' + id + '" data-kind="' + esc(v.kind) + '" data-ok="true">' +
@@ -1185,6 +1365,23 @@
       '<button class="btn btn--tertiary btn--block mt-2" data-act="act-drop" data-mi="' + mi + '" data-ai="' + ai + '" ' +
         'data-testid="act-' + id + '-drop"><span class="btn__label">Not now</span></button>' +
     '</div>';
+  }
+
+  function firstPending(m) {
+    for (var i = 0; i < m.acts.length; i++) {
+      var v = m.acts[i];
+      if (v.ok && !v.applied && !v.dropped) return i;
+    }
+    return -1;
+  }
+  /* The last reply still waiting on something. Earlier ones keep their
+     cards and their buttons; they just do not get the fill. */
+  function accentMsgIndex() {
+    var at = -1;
+    S.chat.msgs.forEach(function (m, i) {
+      if ((m.acts || []).some(function (v) { return v.ok && !v.applied && !v.dropped; })) at = i;
+    });
+    return at;
   }
 
   function actionsBlock(m, mi) {
@@ -1198,11 +1395,19 @@
     var heldBack = m.acts.filter(function (v) {
       return v.ok && !v.applied && !v.dropped && v.kind === 'shopping';
     }).length;
+    /* ONE ACCENT FILL ON THE SCREEN. Every card carrying its own filled
+       Approve gave a reply with three actions three competing primaries and
+       no "do this one first" anywhere. The fill goes to SAVE ALL when there
+       is one, otherwise to the first card still waiting -- and only in the
+       most recent reply that is waiting on anything. */
+    var takesAccent = pending > 1 ? -1 : firstPending(m);
+    if (mi !== accentMsgIndex()) takesAccent = -2;
     var html = m.acts.map(function (v, ai) {
-      return v.dropped ? '' : actionCard(m, mi, ai);
+      return v.dropped ? '' : actionCard(m, mi, ai, ai === takesAccent);
     }).join('');
     if (pending > 1) {
-      html += '<button class="btn btn--primary btn--block mt-3" data-act="act-save-all" data-mi="' + mi + '" ' +
+      html += '<button class="btn ' + (mi === accentMsgIndex() ? 'btn--primary' : 'btn--secondary') +
+        ' btn--block mt-3" data-act="act-save-all" data-mi="' + mi + '" ' +
         'data-testid="act-save-all-' + mi + '"><span class="btn__label">SAVE ALL (' + pending +
         (pending === 1 ? ' ACTION' : ' ACTIONS') + ')</span></button>' +
         (heldBack ? '<p class="t-detail quiet mt-2" data-testid="act-save-all-note-' + mi + '">' +
@@ -1392,6 +1597,102 @@
       '</button>' + body + '</div>';
   }
 
+  /* Forty per cent time, sixty per cent targets. Every target in the plan
+     counts, including the ones in phases that have not started -- an unmet
+     target is unmet whatever week it is, and weighting only the current
+     phase made the number jump backwards at every phase boundary. */
+  function overall(p, week) {
+    var timePct = p.weeks ? Math.min(100, Math.max(0, week) / p.weeks * 100) : 0;
+    var all = [];
+    p.phases.forEach(function (ph) { (ph.targets || []).forEach(function (t) { all.push(t); }); });
+    var scored = 0, withData = 0;
+    all.forEach(function (t) {
+      var pr = progress(t);
+      if (!pr.has) return;
+      withData++;
+      scored += pr.met ? 100 : Math.min(100, Math.max(0, pr.pct));
+    });
+    var tgtPct = all.length ? scored / all.length : 0;
+    var pct = Math.round(timePct * 0.4 + tgtPct * 0.6);
+    var wk = Math.min(p.weeks, Math.max(0, week));
+    var basis = all.length
+      ? '40% of this is time (week ' + wk + ' of ' + p.weeks +
+        (week > p.weeks ? ', all of it elapsed' : '') + '), 60% is targets (' +
+        withData + ' of ' + all.length + ' have a logged best behind them).'
+      : 'This plan sets no targets, so the figure is elapsed time only.';
+    return { pct: pct, basis: basis, timePct: Math.round(timePct), tgtPct: Math.round(tgtPct) };
+  }
+
+  /* Sessions since Monday against the days the bound split asks for. Lifted
+     from lk_history so a session finished ten minutes ago is in it. */
+  function weekDots(p, split) {
+    if (!split) return '';
+    var dow = TODAY.getDay();
+    var back = (dow + 6) % 7;                       /* Monday is day 0 of the week */
+    var monday = new Date(TODAY.getTime() - back * 86400000);
+    var mISO = monday.getFullYear() + '-' + ('0' + (monday.getMonth() + 1)).slice(-2) +
+               '-' + ('0' + monday.getDate()).slice(-2);
+    var hist = (store() ? store().get('lk_history', []) : []) || [];
+    var done = hist.filter(function (h) {
+      return h && h.kind === 'lift' && String(h.date || '').slice(0, 10) >= mISO;
+    }).length;
+    var want = split.days.length;
+    return '<section class="section" data-testid="plan-week-dots">' +
+      '<div class="section__head"><h2 class="t-label">Since Monday</h2>' +
+        '<span class="t-meta num">' + done + ' of ' + want + '</span></div>' +
+      '<div class="card">' +
+        /* The dots are decoration: the count above and the sentence below
+           say the same thing in words, so labelling each one repeats it
+           three times to a screen reader and says it in the wrong order. */
+        '<div class="cdots" aria-hidden="true">' +
+          split.days.map(function (d, i) {
+            return '<span class="cdots__d" data-on="' + (i < done) + '" ' +
+              'data-testid="plan-week-dot-' + i + '"></span>';
+          }).join('') +
+        '</div>' +
+        '<p class="t-detail mt-3">' + (done >= want
+          ? esc(split.name) + ' asks for ' + want + ' sessions a week and you have logged ' + done + '.'
+          : esc(split.name) + ' asks for ' + want + ' sessions a week. ' + done +
+            ' logged since Monday, ' + (want - done) + ' to go.') + '</p>' +
+        '<p class="t-detail quiet mt-2">Counted from your lifting sessions dated this week. ' +
+          'Cardio is not in it.</p>' +
+      '</div></section>';
+  }
+
+  /* F-COACH-031. A phase that ends this week, or a block that is over, is the
+     moment the plan is worth talking about -- and the screen said nothing at
+     all, so a finished block sat there looking current for ever. */
+  function reviewPrompt(p, week, ph) {
+    var over = week > p.weeks;
+    var ending = !over && ph && week === ph.weekEnd;
+    if (!over && !ending) return '';
+    var last = p.phases[p.phases.length - 1];
+    var title = over ? 'This block is done' : esc(ph.name) + ' ends this week';
+    var body = over
+      ? esc(p.name) + ' ran ' + n(p.weeks) + ' weeks and finished ' +
+        (week - p.weeks === 1 ? 'last week' : (week - p.weeks) + ' weeks ago') +
+        '. Nothing has replaced it, so nothing on this screen is telling you what to do next.'
+      : 'It is the last week of ' + esc(ph.name) + '. Next is ' +
+        (ph === last ? 'the end of the block' : esc(p.phases[p.phases.indexOf(ph) + 1].name)) +
+        '. Worth checking what landed before the loads change.';
+    var q = over
+      ? 'My ' + p.name + ' is finished. Review it with me and write the next block.'
+      : 'I am in the last week of ' + ph.name + ' on ' + p.name + '. Review the phase with me before the next one.';
+    return '<section class="section" data-testid="plan-review">' +
+      '<div class="card card--raised">' +
+        '<div class="hstack hstack--3"><span class="ico-well accent">' + ico('coach') + '</span>' +
+          '<div class="grow"><div class="t-body-em">' + title + '</div>' +
+          '<div class="t-detail">' + body + '</div></div></div>' +
+        /* One accent fill per screen: while the block is still running, the
+           action to take now is starting today's session, and this card
+           steps back. Once the block is over there is no session to start
+           and reviewing it is the only thing left to do. */
+        '<button class="btn ' + (over ? 'btn--primary' : 'btn--secondary') + ' btn--block mt-4" ' +
+          'data-act="plan-review" data-q="' + esc(q) + '" ' +
+          'data-testid="plan-review-open"><span class="btn__label">Review with the coach</span></button>' +
+      '</div></section>';
+  }
+
   function planBody() {
     var st = S.plan.status;
     if (st === 'empty') {
@@ -1432,10 +1733,21 @@
 
     var p = S.plan.data;
     var week = weekOf(p);
-    var ph = phaseAt(p, Math.max(1, week));
-    var pct = Math.round((Math.max(0, week) / p.weeks) * 100);
+    /* A BLOCK THAT HAS RUN OUT. phaseAt returns nothing past the last week,
+       and everything below read ph.name off it -- so the Plan tab threw and
+       rendered blank for anyone whose twelve weeks were up, which is every
+       plan eventually. The last phase stands in for display and the screen
+       says plainly that the block is over. */
+    var planOver = week > p.weeks;
+    var ph = phaseAt(p, Math.max(1, week)) || p.phases[p.phases.length - 1];
+    var ov = overall(p, week);
     var split = SPLITS.filter(function (s) { return s.id === p.boundSplit; })[0];
 
+    /* OVERALL IS NOT ELAPSED TIME. It read week/weeks, so a block whose every
+       target had been met at week two still said 17% -- and one where nothing
+       had moved by week ten still said 83%. Time is part of it and not most
+       of it: 40 per cent time, 60 per cent targets, and the card says so
+       underneath rather than leaving a percentage nobody can reproduce. */
     var head = '' +
       '<div class="card mt-3" data-testid="plan-head">' +
         '<div class="t-label">Plan</div>' +
@@ -1444,11 +1756,14 @@
         '<div class="spread mt-4">' +
           '<span class="t-detail">' + (week === 0
             ? 'Starts ' + dayLabel(p.start)
-            : 'Week ' + n(week) + ' of ' + n(p.weeks)) + '</span>' +
-          '<span class="t-meta num">' + (week === 0 ? '0%' : pct + '%') + '</span>' +
+            : week > p.weeks
+              ? 'Finished after ' + n(p.weeks) + ' weeks'
+              : 'Week ' + n(week) + ' of ' + n(p.weeks)) + '</span>' +
+          '<span class="t-meta num" data-testid="plan-overall">' + ov.pct + '%</span>' +
         '</div>' +
-        '<span class="meter meter--quiet mt-2"><span class="meter__fill" style="width: ' + (week === 0 ? 0 : pct) + '%"></span></span>' +
-      '</div>';
+        '<span class="meter meter--quiet mt-2"><span class="meter__fill" style="width: ' + ov.pct + '%"></span></span>' +
+        '<p class="t-detail quiet mt-2" data-testid="plan-overall-basis">' + ov.basis + '</p>' +
+      '</div>' + weekDots(p, split) + reviewPrompt(p, week, ph);
 
     /* The route into the app. An unbound plan asks to be bound; a bound
        plan starts today's session. Either way the primary action leaves
@@ -1461,6 +1776,17 @@
           '<p class="t-detail">This block has phases and targets but no days. Bind it to one of your splits and LOCKED puts its session on Home each training day.</p>' +
           '<button class="btn btn--primary btn--block mt-4" data-act="bind" data-testid="plan-bind-open">' +
             ico('link') + '<span class="btn__label">Run it on a split</span></button>' +
+        '</div></section>';
+    } else if (planOver) {
+      act = '<section class="section" data-testid="plan-finished">' +
+        '<div class="section__head"><h2 class="t-label">This week</h2></div>' +
+        '<div class="card">' +
+          '<p class="t-detail">' + esc(p.name) + ' ran to week ' + n(p.weeks) +
+            ' and you are in week ' + n(week) + '. There is no phase left to be in, so this ' +
+            'screen is not telling you what to do today. The block above is what you did, not ' +
+            'what you are on.</p>' +
+          '<button class="btn btn--secondary btn--block mt-3" data-act="open-split" data-testid="plan-open-split">' +
+            ico('lift') + '<span class="btn__label">Open ' + esc(split.name) + '</span></button>' +
         '</div></section>';
     } else {
       var notStarted = week === 0;
@@ -1482,7 +1808,7 @@
         '</div></section>';
     }
 
-    var targets = ph && ph.targets.length ? '<section class="section" data-testid="plan-targets">' +
+    var targets = !planOver && ph && ph.targets.length ? '<section class="section" data-testid="plan-targets">' +
       '<div class="section__head"><h2 class="t-label">' + esc(ph.name) + ' targets</h2>' +
         '<span class="t-meta">From your logged bests</span></div>' +
       '<div class="card card--flush">' +
@@ -1584,9 +1910,13 @@
        than letting the picker imply an effect it cannot have. */
     var style = '<section class="section" data-testid="setup-style-block">' +
       '<div class="section__head"><h2 class="t-label">Tone</h2></div>' +
-      '<div class="card card--flush">' +
+      '<div class="card card--flush" role="group" aria-label="Coach tone">' +
         STYLES.map(function (t) {
-          return '<button class="opt" role="radio" aria-checked="' + (s.style === t[0]) + '" data-act="style" ' +
+          /* Toggle buttons in a labelled group rather than radios: the one
+             that is on stays pressed, and pressing it again is meant to do
+             nothing -- which is what aria-pressed says and what every
+             coverage check reads. */
+          return '<button class="opt" aria-pressed="' + (s.style === t[0]) + '" data-act="style" ' +
             'data-style="' + t[0] + '" data-testid="setup-style-' + t[0] + '">' +
             '<span class="opt__mark">' + ico('check') + '</span>' +
             '<span class="opt__main"><span class="opt__title">' + esc(t[1]) + '</span>' +
@@ -1763,6 +2093,13 @@
           head('From your answers', 'This replaces your instructions. Nothing else changes.') +
           '<div class="sheet__body">' +
             '<div class="card"><p class="t-body">' + esc(iv.draft || DRAFT_INSTRUCTIONS) + '</p></div>' +
+            /* Said, not implied. Every clause above came from one of the six
+               answers; no model wrote it, because there is none in this build
+               to write it. */
+            '<p class="t-detail quiet mt-3" data-testid="iv-preview-basis">Assembled on this phone ' +
+              'from your six answers \u2014 every sentence above traces to one of them. ' +
+              'No model was asked, and nothing left the device. When the coach endpoint is ' +
+              'connected it will write these instead, and you will still approve them here.</p>' +
             '<button class="btn btn--primary btn--block mt-4" data-act="iv-use" data-testid="iv-use">' +
               '<span class="btn__label">Use these instructions</span></button>' +
             '<button class="btn btn--secondary btn--block mt-2" data-act="iv-edit-first" data-testid="iv-edit-first">' +
@@ -2250,7 +2587,10 @@
     else status = done + ' of ' + FEEL.length + ' answered';
     return '<div class="actionbar" role="contentinfo" aria-label="Check-in actions">' +
       '<span class="actionbar__status" role="status" data-testid="checkin-status">' + status + '</span>' +
-      '<button class="btn btn--primary" type="button" data-act="checkin-save" ' +
+      /* The accent moves to the payoff card's hand-off once today's reading
+         is in: saving it again is not the thing to do next. */
+      '<button class="btn ' + (S.checkin.response && S.checkin.saved ? 'btn--secondary' : 'btn--primary') +
+        '" type="button" data-act="checkin-save" ' +
         (done ? '' : 'disabled ') + 'data-testid="checkin-save">' +
         '<span class="btn__label">' + (full ? 'Replace today' : 'Save today') + '</span></button>' +
     '</div>';
@@ -2501,6 +2841,14 @@
       var prior = S.checkin.log.filter(function (e) { return e !== entry; });
       S.checkin.response = checkinResponse(entry, prior);
       S.checkin.inspect = null;
+      /* With a reading still owed today the form goes back to blank, so the
+         next one is answered rather than the last one re-submitted. When the
+         day is done the answers stay on screen, which is what "Saved for
+         today" is showing you. */
+      if (checkinCountOn(iso) < per) {
+        S.checkin.draft = {};
+        S.checkin.hours = ''; S.checkin.note = ''; S.checkin.tags = [];
+      }
       persistCheckins();
       render();
       var sc = phone.querySelector('.body');
@@ -2730,6 +3078,19 @@
       if (t) t.focus();
     },
     'ask-again': function () { ACTS['ask-for-plan'](); },
+    /* The review hand-off. It puts the question in the composer rather than
+       sending it, because the reader is the one reviewing. */
+    'plan-review': function (el) {
+      var q = el.getAttribute('data-q') || '';
+      S.view = 'chat';
+      S.chat.status = S.chat.msgs.length ? 'ready' : 'empty';
+      S.chat.draft = q;
+      render();
+      var t = phone.querySelector('[data-testid="composer-input"]');
+      if (t) { t.value = q; t.focus(); try { t.setSelectionRange(t.value.length, t.value.length); } catch (e) {} }
+      var send = phone.querySelector('[data-testid="composer-send"]');
+      if (send) send.disabled = false;
+    },
     'adjust': function () {
       S.view = 'chat';
       S.chat.status = 'ready';
@@ -3273,6 +3634,13 @@
       ]);
       S.chat.draft = 'Should I push tomorrow on 7 hours of sleep?';
     }],
+    ['Chat / rate limited', function () {
+      S.chat.msgs = SEED_MSGS.concat([
+        { role: 'user', time: '9:52', text: 'Write me the next 8-week block.' },
+        { role: 'coach', time: '9:52', error: true, limit: true, resetAt: '10:00',
+          text: 'That is this hour\u2019s last message. I am capped, not down.' }
+      ]);
+    }],
     ['Chat / plan offered', function () {
       S.chat.msgs = SEED_MSGS.concat([
         { role: 'user', time: '9:52', text: 'Write me the next 8-week block.' },
@@ -3288,7 +3656,41 @@
       S.chat.offer = true; S.chat.offerSaved = true;
       S.plan.data = clone(NEW_PLAN);
     }],
+    /* The write-back, with a reply that carries actions. There is no model in
+       this build to propose them, so this is the only way to see the cards
+       without the test hook -- and it is the same check, render, approve and
+       undo path a Worker response takes. */
+    ['Chat / actions offered', function () {
+      S.chat.msgs = SEED_MSGS.concat([
+        { role: 'user', time: '9:52', text: 'Give me an upper/lower and log my run.' }
+      ]);
+      S.chat.msgs.push(devActionMsg([
+        { kind: 'split', title: 'Upper / Lower', split: { name: 'Upper / Lower', days: [
+          { name: 'Upper', exercises: [{ name: 'Barbell Bench Press', sets: 4 },
+                                       { name: 'Barbell Row', sets: 4 }] },
+          { name: 'Lower', exercises: [{ name: 'Barbell Squat', sets: 5 }] }] } },
+        { kind: 'cardio', session: { name: 'Zone 2 run', minutes: 40, km: 7 } },
+        { kind: 'fact', text: 'Runs on Sunday mornings' }
+      ]));
+    }],
+    ['Chat / actions refused', function () {
+      S.chat.msgs = SEED_MSGS.concat([
+        { role: 'user', time: '9:52', text: 'Build me a push day and log 2,400 kcal.' }
+      ]);
+      S.chat.msgs.push(devActionMsg([
+        { kind: 'split', split: { name: 'Push', days: [
+          { name: 'Push', exercises: [{ id: 99999, name: 'Barbell Bench Press' }] }] } },
+        { kind: 'recipe', recipe: { name: 'Mystery bowl', servings: 1,
+          items: [{ name: 'Protein fluff', kcal: 300 }] } },
+        { kind: 'delete_everything', what: 'all' }
+      ]));
+    }],
     ['Plan / populated', function () { S.view = 'plan'; }],
+    ['Plan / over', function () {
+      S.view = 'plan';
+      S.plan.data = clone(SEED_PLAN);
+      S.plan.data.start = '2026-05-04';
+    }],
     ['Plan / unbound', function () { S.view = 'plan'; S.plan.data = clone(NEW_PLAN); }],
     ['Plan / empty', function () { S.view = 'plan'; S.plan.status = 'empty'; }],
     ['Plan / loading', function () { S.view = 'plan'; S.plan.status = 'loading'; }],
@@ -3326,6 +3728,19 @@
       S.interview.answers = ['4 days', 'Add size', 'Full gym', 'Left knee', '60 minutes', 'Reshuffle the week'];
     }]
   ];
+
+  function devActionMsg(list) {
+    var verdicts = window.LKCoachActions
+      ? LKCoachActions.checkAll(list).map(function (v, i) {
+          return { kind: v.kind, ok: v.ok, problems: v.problems, action: v.action,
+                   raw: list[i], applied: false, token: null };
+        })
+      : [];
+    var sound = verdicts.filter(function (v) { return v.ok; }).length;
+    return { role: 'coach', time: '9:52', acts: verdicts,
+             text: sound + ' of ' + verdicts.length + ' of these can be saved. ' +
+                   'Nothing is saved until you say so.' };
+  }
 
   var menu = document.getElementById('dev-menu');
   var toggle = document.getElementById('dev-toggle');
@@ -3369,10 +3784,53 @@
   var want = qs.get('preset');
   if (want !== null && PRESETS[Number(want)]) applyPreset(Number(want));
   else {
-    var view = qs.get('view');
-    if (view === 'plan' || view === 'setup') S.view = view;
+    /* All four panes, and the hyphen somebody would actually type. The link
+       accepted plan and setup only, so ?view=check-in -- the pane the daily
+       reminder in Settings is for -- opened on Chat. */
+    var view = String(qs.get('view') || '').replace(/-/g, '');
+    if (view === 'checkin' || view === 'chat' || view === 'plan' || view === 'setup') S.view = view;
     render();
   }
+
+  /* THE DEMO MOUNTS THIS SCREEN ONCE. Everything here is read out of the
+     store at reset(), so without this a check-in saved on another screen, a
+     plan bound in Train, or a memory added in Settings was invisible until a
+     reload -- and in the demo there is no reload. The pane you were on stays
+     the pane you are on. */
+  document.addEventListener('lk:enter', function () {
+    var was = S.view, dev = S.dev;
+    reset();
+    S.view = was; S.dev = dev;
+    render();
+  });
+
+  /* SWIPE BETWEEN THE PANES. Four tabs behind a segmented control, on a
+     phone, with no horizontal gesture: every pane change cost a precise tap
+     on a 60px target. A swipe only counts when it is clearly horizontal, so
+     scrolling the thread does not change the pane under your thumb. */
+  (function swipeViews() {
+    var x0 = null, y0 = null, t0 = 0;
+    phone.addEventListener('touchstart', function (e) {
+      if (S.modal || S.interview.open) { x0 = null; return; }
+      if (e.touches.length !== 1) { x0 = null; return; }
+      /* Not off a control that has its own horizontal meaning. */
+      if (e.target.closest && e.target.closest('.seg, .composer, input, textarea, .cdots')) { x0 = null; return; }
+      x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now();
+    }, { passive: true });
+    phone.addEventListener('touchend', function (e) {
+      if (x0 === null) return;
+      var t = e.changedTouches[0];
+      var dx = t.clientX - x0, dy = t.clientY - y0;
+      x0 = null;
+      if (Date.now() - t0 > 600) return;
+      if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
+      var i = 0;
+      VIEWS.forEach(function (v, k) { if (v[0] === S.view) i = k; });
+      var next = dx < 0 ? i + 1 : i - 1;
+      if (next < 0 || next >= VIEWS.length) return;
+      setView(VIEWS[next][0]);
+    }, { passive: true });
+  })();
 
   /* The running workout, from a screen that is not it. This screen redraws
      itself whole, so the shelf is rendered inline with everything else

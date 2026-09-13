@@ -139,6 +139,53 @@
     return (window.LKFixtures && LKFixtures.splits) || [];
   }
 
+  /* A DAY'S LIFTS, in either shape it is stored in. What a phone that has
+     been running LOCKED holds is `exIds: [111, 302, ...]` -- that is what
+     tests/fixtures/seed-data.json carries, because it is a copy of one --
+     while this builder writes the resolved `exercises: [{id, name, group,
+     muscle}]`. Reading only the second threw on `undefined.map` for a real
+     user's split; reading only the first would lose the names this screen
+     has to print. Both, resolved through the catalogue, and a save writes
+     the resolved shape back, so a split edited here stops being ambiguous. */
+  function libById(id) {
+    for (var i = 0; i < LIBRARY.length; i++) if (LIBRARY[i].id === id) return LIBRARY[i];
+    return null;
+  }
+  function fixtureDay(splitId, dayName) {
+    var fx = (window.LKFixtures && LKFixtures.splits) || [];
+    for (var i = 0; i < fx.length; i++) {
+      if (fx[i].id !== splitId) continue;
+      var days = fx[i].days || [];
+      for (var j = 0; j < days.length; j++) if (days[j].name === dayName) return days[j];
+    }
+    return null;
+  }
+  function dayExercises(d, splitId) {
+    if (d && d.exercises && d.exercises.length) return d.exercises;
+    var ids = (d && d.exIds) || [];
+    if (!ids.length) return [];
+    var fx = fixtureDay(splitId, d.name);
+    var byId = {};
+    ((fx && fx.exercises) || []).forEach(function (e) { byId[e.id] = e; });
+    return ids.map(function (id) {
+      var known = byId[id] || libById(id);
+      return { id: id, name: (known && known.name) || ('Exercise ' + id),
+               group: (known && known.group) || '', muscle: (known && known.muscle) || '' };
+    });
+  }
+
+  /* A BLOCK — F-TRAIN-104. A warm-up, a mobility section, a finisher: a named
+     part of a day that is not a lift with sets. The workout log has held one
+     mid-session for a while, as { title, notes, duration, open }, and the
+     stored split day has always carried a `blocks` array -- empty, because
+     nothing could ever put anything in it. This is the same object, so a
+     block programmed into a day and a block added during a session are one
+     thing rather than two that happen to look alike. */
+  function blockRow(b) {
+    return { id: nid('b'), title: b.title || '', notes: b.notes || '',
+             duration: b.duration || '', open: !!b.open };
+  }
+
   function splitFromFixture(id) {
     var all = allSplits();
     if (!all.length) return null;
@@ -149,9 +196,10 @@
       id: sp.id,
       created: sp.created,
       name: sp.name,
-      days: sp.days.map(function (d) {
+      days: (sp.days || []).map(function (d) {
         return { id: nid('d'), name: d.name,
-                 exercises: d.exercises.map(function (e) {
+                 blocks: (d.blocks || []).map(blockRow),
+                 exercises: dayExercises(d, sp.id).map(function (e) {
                    var row = ex(e.name, e.muscle || '');
                    /* The catalogue id, kept so a saved split still points at
                       the same exercises the rest of the app knows. */
@@ -245,6 +293,9 @@
     screen: 'manual',
     manual: { status: 'ready', name: '', days: [], dirty: false, savedAt: null, error: null, edit: false },
     ai: { status: 'idle', note: '', plan: null, error: null, step: 0 },
+    /* The photo import's own state. `url` is an object URL for the preview
+       and never leaves this page. */
+    photo: { file: null, url: null, size: '', note: '', error: null },
     lifted: null,          /* testid of the lifted item's grip */
     swipe: null,           /* id of the exercise row swiped open */
     dragging: null,
@@ -407,7 +458,10 @@
           '<div class="daycard__name">' +
             '<h3 class="t-section truncate">' + esc(day.name) + '</h3>' +
             '<div class="t-meta" data-num>' + day.exercises.length +
-              (day.exercises.length === 1 ? ' exercise' : ' exercises') + '</div>' +
+              (day.exercises.length === 1 ? ' exercise' : ' exercises') +
+              ((day.blocks || []).length
+                ? ' \u00b7 ' + day.blocks.length + (day.blocks.length === 1 ? ' block' : ' blocks')
+                : '') + '</div>' +
           '</div>' +
         '</div>';
 
@@ -418,12 +472,74 @@
       head +
       (m.edit && lifted ? moveBar('day', day.id, null, i === 0, i === n - 1) : '') +
       volumeNote(day) +
+      blockRows(day) +
       rows +
       '<div class="daycard__foot">' +
         '<button class="btn btn--secondary btn--block" data-testid="add-exercise-' + day.id + '" data-action="add-exercise" data-id="' + day.id + '">' +
           ico('plus') + '<span class="btn__label">Add exercise to ' + esc(day.name) + '</span></button>' +
+        '<button class="btn btn--tertiary btn--block mt-2" data-testid="add-block-' + day.id + '" data-action="add-block" data-id="' + day.id + '">' +
+          ico('plus') + '<span class="btn__label">Add a block</span></button>' +
       '</div>' +
     '</div>';
+  }
+
+  /* BLOCKS, above the lifts. A warm-up comes before the first working set and
+     a finisher after the last, so they are not ordered among the exercises:
+     they are the parts of the day that are not a lift with sets, listed
+     together at the top of it. The row says what it is and how long it is
+     meant to take; the notes open only where there are some. */
+  function blockRows(day) {
+    var list = day.blocks || [];
+    if (!list.length) return '';
+    return '<div>' + list.map(function (b, i) {
+      return '<div class="row row--withaside" data-testid="block-' + b.id + '">' +
+        '<span class="row__main stack">' +
+          '<span class="row__title">' + esc(b.title) +
+            ' <span class="badge">Block</span></span>' +
+          '<span class="row__sub">' +
+            (b.duration ? esc(b.duration) : 'No set length') +
+            (b.notes ? ' &middot; ' + esc(b.notes) : '') + '</span>' +
+        '</span>' +
+        '<button class="iconbtn iconbtn--danger-quiet" data-testid="block-remove-' + b.id + '" ' +
+          'data-action="block-remove" data-id="' + b.id + '" data-day="' + day.id + '" ' +
+          'aria-label="Remove the block ' + esc(b.title) + ' from ' + esc(day.name) + '">' + ico('trash') + '</button>' +
+      '</div>';
+    }).join('') + '</div>';
+  }
+
+  /* The block form. A name, a length that may be blank because not every
+     block is timed, and whatever is worth remembering about it. The same
+     three questions the workout log asks when one is added mid-session. */
+  function blockSheet(m) {
+    var day = findDay(m.id);
+    return '<div class="scrim" data-testid="scrim" data-action="close-modal"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-label="Add a block" data-testid="block-sheet">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+        '<div class="sheet__head">' +
+          '<div><div class="t-section">Add a block to ' + esc(day ? day.name : '') + '</div>' +
+          '<div class="t-meta">A warm-up, some mobility, a finisher</div></div>' +
+          '<button class="iconbtn" data-testid="block-close" data-action="close-modal" aria-label="Close">' + ico('close') + '</button>' +
+        '</div>' +
+        '<div class="sheet__body">' +
+          '<label class="field"><span class="field__label t-label">What it is</span>' +
+            '<input class="input" type="text" value="' + esc(m.title || '') + '" placeholder="Shoulder warm-up" ' +
+              'data-testid="block-title" data-action="block-title" aria-label="What the block is"></label>' +
+          (m.error ? '<p class="field__error" role="alert" data-testid="block-error">' + esc(m.error) + '</p>' : '') +
+          '<label class="field mt-4"><span class="field__label t-label">How long (minutes)</span>' +
+            '<input class="input num" type="number" min="1" max="180" step="1" inputmode="numeric" ' +
+              'value="' + esc(m.mins || '') + '" placeholder="Leave blank if it is not timed" ' +
+              'data-testid="block-mins" data-action="block-mins" aria-label="How long the block takes"></label>' +
+          '<label class="field mt-4"><span class="field__label t-label">Notes</span>' +
+            '<textarea class="input" rows="3" data-testid="block-notes" data-action="block-notes" ' +
+              'placeholder="Band pull-aparts, two sets of twenty. Then the empty bar.">' + esc(m.notes || '') + '</textarea></label>' +
+          '<p class="field__help mt-3">It sits at the top of the day, before the lifts, and comes back ' +
+            'when you start that day in the workout log.</p>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--primary btn--block" data-testid="block-save" data-action="block-save">' +
+            '<span class="btn__label">Add the block</span></button>' +
+        '</div>' +
+      '</div>';
   }
 
   function manualBody() {
@@ -528,17 +644,34 @@
   /* ---------------------------------------------------------------
      AI builder
      --------------------------------------------------------------- */
-  var STEPS = [
-    'Reading your description',
-    'Choosing the training days',
-    'Picking a lift for each slot',
-    'Finding three alternatives per lift'
+  /* WHAT THIS DRAFTER IS — F-TRAIN-309.
+
+     It used to run four progress steps over nine hundred milliseconds each --
+     "Reading your description", "Choosing the training days" -- while nothing
+     read anything and nothing was chosen: the plan was a twelve-slot literal
+     in this file, and the only two words it could act on were "dumbbell" and
+     "machine". Anything else you typed was printed back above the plan as
+     though it had been understood. That is the exact theatre the build brief
+     forbids: a picture of a model thinking.
+
+     So: the draft is a RULE, it runs on this phone, it runs instantly because
+     there is nothing to wait for, and it says so in those words. What it can
+     read is a short, stated list, and after it runs it prints what it read
+     and what it ignored, so the difference between the two is on screen
+     rather than hidden behind a spinner.
+
+     The half that would take a free description and actually understand it is
+     a model, and a model needs a server. Nothing here pretends otherwise. */
+  var READS = [
+    'How many days a week',
+    'Equipment you named \u2014 dumbbells, machines, cables, barbell, bodyweight',
+    'Anything you said to avoid \u2014 \u201cno deadlifts\u201d, \u201cno squats\u201d'
   ];
 
   function aiHeader() {
     var sub = S.ai.status === 'ready' ? S.ai.plan.title : 'One description, one draft';
     return '<header class="hdr" role="banner">' +
-      '<button class="hdr__back" data-testid="ai-back" data-action="ai-back" aria-label="Back to the split builder">' + ico('back') + '</button>' +
+      '<button class="hdr__back" data-testid="ai-back" data-action="ai-back" aria-label="Back to the two ways in">' + ico('back') + '</button>' +
       '<div class="hdr__title" role="heading" aria-level="1">' +
         '<div class="t-section">Draft a split</div>' +
         '<div class="t-meta" data-testid="ai-subtitle" data-num>' + esc(sub) + '</div>' +
@@ -566,39 +699,61 @@
         }).join('') + '</div>' +
       '</div>' +
       '<div class="section">' +
+        '<div class="section__head"><h2 class="t-label">What this can read</h2></div>' +
+        '<div class="card"><ul class="t-detail" data-testid="ai-reads">' +
+          READS.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') +
+        '</ul>' +
+        '<p class="t-caption-1 quiet mt-3">This is a rule running on your phone, not a model. ' +
+        'It fills every slot from a fixed set of movements and swaps them for what you named. ' +
+        'Anything it cannot read it leaves alone and tells you it left alone \u2014 it does not ' +
+        'guess, and nothing you type is sent anywhere.</p></div>' +
+      '</div>' +
+      '<div class="section">' +
         '<div class="banner banner--info">' + ico('spark') +
         '<div><strong>Every lift comes with three alternatives</strong>Accept the draft as it stands, or swap any single lift. Nothing is required.</div></div>' +
       '</div>' +
     '</div>';
   }
 
+  /* Kept, and honest. Building the draft is arithmetic on this device and
+     takes no measurable time, so there is nothing to wait for and no progress
+     to report. If the drafting ever moves to a model on a server there will
+     be a wait, and this is the state that will describe it. */
   function aiLoadingBody() {
     return '<div class="body" role="main" data-testid="ai-loading">' +
       '<div class="section" aria-live="polite">' +
         '<h2 class="t-section">Building your split</h2>' +
         '<p class="t-detail mt-2" data-testid="ai-loading-note">From: “' + esc(S.ai.note) + '”</p>' +
-        '<div class="card mt-4"><div class="gensteps">' + STEPS.map(function (t, i) {
-          var state = i < S.ai.step ? 'done' : (i === S.ai.step ? 'active' : 'todo');
-          return '<div class="genstep" data-state="' + state + '" data-testid="ai-step-' + i + '">' +
-            '<span class="genstep__mark">' + (state === 'done' ? ico('check') : state === 'active' ? '<span class="spinner"></span>' : ico('circle')) + '</span>' +
-            '<span>' + esc(t) + '</span></div>';
-        }).join('') + '</div></div>' +
-        '<p class="t-detail mt-3">Usually 6 to 10 seconds. Nothing is saved until you accept it.</p>' +
+        '<div class="card mt-4"><div class="skel skelline" style="width:55%"></div>' +
+          '<div class="skel skelline mt-3" style="width:80%"></div>' +
+          '<div class="skel skelline mt-3" style="width:70%"></div></div>' +
       '</div>' +
     '</div>';
   }
 
+  /* THE ONE WAY THIS CAN FAIL, and it is a real one: a description with
+     nothing in it the rule can read. It used to say "The coach service did
+     not answer" over a builder that calls no service at all -- an error about
+     a thing that does not exist, which is as untrue as a success about one.
+     Refusing is the right answer: returning a three-day barbell push/pull/legs
+     to somebody who asked for something else is the defect this row is. */
   function aiErrorBody() {
     return '<div class="body" role="main" data-testid="ai-error">' +
       '<div class="section">' +
         '<div class="banner banner--error" role="alert">' + ico('alert') +
-        '<div><strong>The coach service did not answer</strong>' + esc(S.ai.error) + '</div></div>' +
+        '<div><strong>Nothing in that description could be read</strong>' + esc(S.ai.error) + '</div></div>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section__head"><h2 class="t-label">What this can read</h2></div>' +
+        '<div class="card"><ul class="t-detail">' +
+          READS.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') +
+        '</ul></div>' +
       '</div>' +
       '<div class="section">' +
         '<div class="section__head"><h2 class="t-label">Your description is kept</h2></div>' +
         '<div class="card"><p class="t-body">' + esc(S.ai.note || 'Three days a week, barbell and cables, shoulders need volume.') + '</p></div>' +
         '<button class="btn btn--secondary btn--block mt-3" data-testid="ai-edit-note" data-action="ai-edit-note">Edit the description</button>' +
-        '<button class="btn btn--secondary btn--block mt-3" data-testid="ai-fallback-manual" data-action="ai-back">Build it by hand instead</button>' +
+        '<button class="btn btn--secondary btn--block mt-3" data-testid="ai-fallback-manual" data-action="pick-back">Build it by hand instead</button>' +
       '</div>' +
     '</div>';
   }
@@ -623,10 +778,29 @@
 
   function aiReadyBody() {
     var plan = S.ai.plan;
+    var read = plan.read || [], ignored = plan.ignored || [];
     return '<div class="body" role="main" data-testid="ai-populated">' +
       '<div class="section">' +
         '<div class="banner banner--info">' + ico('check') +
-        '<div><strong>Every slot is already filled</strong>Accept it as it is, or open any lift to pick one of three alternatives.</div></div>' +
+        '<div><strong>Built on this phone by a rule</strong>Not a model, and nothing was sent anywhere. ' +
+        'Every slot is filled; open any lift to pick one of three alternatives.</div></div>' +
+      '</div>' +
+      /* What was read, and what was not. The old screen printed the
+         description above the plan as though all of it had been understood. */
+      '<div class="section">' +
+        '<div class="section__head"><h2 class="t-label">From your description</h2></div>' +
+        '<div class="card">' +
+          '<ul class="t-detail" data-testid="ai-read">' + (read.length
+            ? read.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('')
+            : '<li>Nothing it could act on.</li>') + '</ul>' +
+          (ignored.length
+            ? '<p class="t-label mt-3">Not read</p><ul class="t-detail" data-testid="ai-ignored">' +
+              ignored.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') +
+              '</ul><p class="t-caption-1 quiet mt-2">Reading a description the way a person would ' +
+              'needs a model, and a model needs a server this build has no connection to. ' +
+              'Swap any lift below by hand instead.</p>'
+            : '') +
+        '</div>' +
       '</div>' +
       plan.days.map(function (d) {
         return '<div class="section">' +
@@ -635,8 +809,13 @@
           '<div class="card card--flush">' + d.slots.map(function (s) { return slotRow(s, d); }).join('') + '</div>' +
         '</div>';
       }).join('') +
+      /* "Draft a different split" over a DETERMINISTIC rule was a promise it
+         could not keep: the same description gives the same draft every time,
+         so the button would have redrawn what was already on screen. What
+         changes the draft is changing the description, so that is what the
+         button does. */
       '<div class="section"><button class="btn btn--tertiary btn--block" data-testid="ai-regenerate" data-action="ai-regenerate">' +
-        ico('swap') + '<span class="btn__label">Draft a different split</span></button></div>' +
+        ico('swap') + '<span class="btn__label">Change the description</span></button></div>' +
     '</div>';
   }
 
@@ -653,7 +832,7 @@
     if (st === 'loading') {
       return '<div class="actionbar" role="contentinfo" aria-label="Split actions">' +
         '<button class="btn btn--tertiary" data-testid="ai-cancel" data-action="ai-cancel"><span class="btn__label">Cancel</span></button>' +
-        '<div class="actionbar__status" data-testid="ai-status">Step ' + (S.ai.step + 1) + ' of ' + STEPS.length + '</div>' +
+        '<div class="actionbar__status" data-testid="ai-status">Building</div>' +
         '<button class="' + primaryClass + '" data-testid="ai-generate" aria-busy="true" disabled aria-disabled="true">' +
           '<span class="spinner"></span><span class="btn__label">Building</span></button>' +
       '</div>';
@@ -668,6 +847,114 @@
       '<div class="actionbar__status" data-testid="ai-status" data-num>' + slotCount() + ' exercises · ' + swapCount() + ' swapped</div>' +
       '<button class="' + primaryClass + '" data-testid="ai-accept" data-action="ai-accept"><span class="btn__label">Use this split</span></button>' +
     '</div>';
+  }
+
+  /* ---------------------------------------------------------------
+     THE MODE PICKER — F-TRAIN-308. The two ways to draft a split were a
+     two-card choice in the shipped app, and this build had neither the
+     choice nor the second card: the only entrance was one tertiary button
+     inside the manual builder's own empty state.
+     --------------------------------------------------------------- */
+  function pickScreen() {
+    return '<section class="screen" data-testid="screen-pick" data-state="ready">' +
+      '<header class="hdr" role="banner">' +
+        '<button class="hdr__back" data-testid="pick-back" data-action="pick-back" aria-label="Back to the split builder">' + ico('back') + '</button>' +
+        '<div class="hdr__title" role="heading" aria-level="1">' +
+          '<div class="t-section">Draft a split</div>' +
+          '<div class="t-meta">Two ways in. Both end in the builder.</div>' +
+        '</div>' +
+      '</header>' +
+      '<div class="body" role="main">' +
+        '<div class="section"><div class="card card--flush">' +
+          '<button class="opt" data-testid="mode-describe" data-action="mode-describe">' +
+            '<span class="opt__mark">' + ico('spark') + '</span>' +
+            '<span class="opt__main"><span class="opt__title">Describe it</span>' +
+            '<span class="opt__sub">Days a week, your equipment, anything to avoid. ' +
+            'A rule on this phone turns that into a draft you can change.</span></span>' +
+            '<span class="row__chev">' + ico('chev') + '</span>' +
+          '</button>' +
+          '<button class="opt" data-testid="mode-photo" data-action="mode-photo">' +
+            '<span class="opt__mark">' + ico('layers') + '</span>' +
+            '<span class="opt__main"><span class="opt__title">Import from a photo</span>' +
+            '<span class="opt__sub">A programme on paper, or a screenshot. ' +
+            'Reading it needs a model on a server \u2014 not in this build.</span></span>' +
+            '<span class="row__chev">' + ico('chev') + '</span>' +
+          '</button>' +
+        '</div></div>' +
+        '<div class="section">' +
+          '<button class="btn btn--secondary btn--block" data-testid="mode-manual" data-action="pick-back">' +
+            '<span class="btn__label">Build it by hand instead</span></button>' +
+        '</div>' +
+      '</div>' +
+    '</section>';
+  }
+
+  /* ---------------------------------------------------------------
+     IMPORT FROM A PHOTO — F-TRAIN-310.
+
+     There was no photo import at all: no file input, no preview, no note
+     field, nothing. The whole local half is here -- picking the image,
+     seeing it, saying what it is, and keeping it on the device -- and the
+     half that is missing is named at the point of use rather than mimed.
+     Reading a training programme off a photograph is a vision model, and
+     a vision model runs on a server this build has no connection to. So
+     there is no button here that pretends to read it.
+     --------------------------------------------------------------- */
+  function photoScreen() {
+    var ph = S.photo;
+    return '<section class="screen" data-testid="screen-photo" data-state="' + (ph.file ? 'ready' : 'empty') + '">' +
+      '<header class="hdr" role="banner">' +
+        '<button class="hdr__back" data-testid="photo-back" data-action="photo-back" aria-label="Back to the two ways in">' + ico('back') + '</button>' +
+        '<div class="hdr__title" role="heading" aria-level="1">' +
+          '<div class="t-section">Import from a photo</div>' +
+          '<div class="t-meta" data-testid="photo-subtitle">' +
+            esc(ph.file ? ph.file : 'Nothing chosen yet') + '</div>' +
+        '</div>' +
+      '</header>' +
+      '<div class="body" role="main">' +
+        '<div class="section">' +
+          '<label class="field">' +
+            '<span class="field__label t-label">The photo</span>' +
+            '<input class="input" type="file" accept="image/*" data-testid="photo-file" ' +
+              'data-action="photo-file" aria-label="Choose a photo of your programme">' +
+            '<span class="field__help">A photo of a programme on paper, or a screenshot of one.</span>' +
+          '</label>' +
+          (ph.error ? '<p class="field__error" role="alert" data-testid="photo-error">' + esc(ph.error) + '</p>' : '') +
+        '</div>' +
+        (ph.url
+          ? '<div class="section"><div class="section__head"><h2 class="t-label">What you chose</h2>' +
+              '<span class="t-meta" data-num>' + esc(ph.size) + '</span></div>' +
+              '<div class="card"><img src="' + ph.url + '" alt="The photo you chose: ' + esc(ph.file) + '" ' +
+                'style="width:100%;border-radius:var(--r-md);display:block" data-testid="photo-preview">' +
+              '<button class="btn btn--tertiary btn--block mt-3" data-testid="photo-clear" data-action="photo-clear">' +
+                '<span class="btn__label">Choose a different one</span></button></div>' +
+            '</div>'
+          : '') +
+        '<div class="section">' +
+          '<label class="field">' +
+            '<span class="field__label t-label">What is in it</span>' +
+            '<textarea class="input" rows="3" data-testid="photo-note" data-action="photo-note" ' +
+              'placeholder="Upper/lower, four days, the sheet from the gym wall.">' + esc(ph.note) + '</textarea>' +
+            '<span class="field__help">Kept with the photo, and used as the description if you ' +
+              'draft from it by rule below.</span>' +
+          '</label>' +
+        '</div>' +
+        '<div class="section">' +
+          '<div class="banner banner--warn" data-testid="photo-server">' + ico('alert') +
+          '<div><strong>Reading the photo is not in this build</strong>Turning a picture of a ' +
+          'programme into days and lifts is a vision model, and it runs on LOCKED\u2019s server. ' +
+          'This build has no connection to one, so nothing here reads your photo and nothing ' +
+          'is uploaded. The photo and your note stay on this phone.</div></div>' +
+        '</div>' +
+        '<div class="section">' +
+          '<button class="btn btn--secondary btn--block" data-testid="photo-to-describe" data-action="photo-to-describe"' +
+            (ph.note.trim() ? '' : ' disabled aria-disabled="true"') + '>' +
+            '<span class="btn__label">Draft from what you typed instead</span></button>' +
+          '<p class="t-caption-1 quiet mt-2">The rule on this phone can read a day count and the ' +
+            'equipment you named out of that note. It cannot see the photo.</p>' +
+        '</div>' +
+      '</div>' +
+    '</section>';
   }
 
   function aiScreen() {
@@ -734,7 +1021,7 @@
           '<input class="input" type="search" value="' + esc(m.q || '') + '" placeholder="Search exercises" data-testid="pick-search" data-action="pick-search" aria-label="Search exercises"></div>' +
         '<div class="sheet__body mt-3">' +
           (list.length ? '<div class="card card--flush">' + list.map(function (x, i) {
-            return '<button class="row" data-testid="pick-' + i + '" data-action="pick-add" data-name="' + esc(x.name) + '" data-muscle="' + esc(x.muscle) + '" data-id="' + m.id + '">' +
+            return '<button class="row" data-testid="pick-' + i + '" data-action="pick-add" data-name="' + esc(x.name) + '" data-muscle="' + esc(x.muscle) + '" data-exid="' + (x.id || '') + '" data-id="' + m.id + '">' +
               '<div class="row__main"><div class="row__title">' + esc(x.name) + '</div><div class="row__sub">' + esc(x.muscle) + '</div></div>' +
               '<span class="row__chev">' + ico('plus') + '</span></button>';
           }).join('') + '</div>'
@@ -781,6 +1068,7 @@
     if (m.type === 'leave') return html + leaveDialog();
     if (m.type === 'pick') return html + pickSheet(m);
     if (m.type === 'swap') return html + swapSheet(m);
+    if (m.type === 'block') return html + blockSheet(m);
     return html;
   }
 
@@ -795,10 +1083,13 @@
     ['Manual · unsaved', function () { reset(); var s = seedSplit(); S.manual.id = s.id || null; S.manual.created = s.created || null; S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; }],
     ['Manual · leave prompt', function () { reset(); var s = seedSplit(); S.manual.id = s.id || null; S.manual.created = s.created || null; S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; S.modal = { type: 'leave' }; }],
     ['Manual · save error', function () { reset(); var s = seedSplit(); S.manual.id = s.id || null; S.manual.created = s.created || null; S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; S.manual.error = 'No connection to the LOCKED server. The draft is on this phone and will go up when you are back online.'; }],
-    ['AI · description', function () { reset(); S.screen = 'ai'; }],
-    ['AI · generating', function () { reset(); S.screen = 'ai'; S.ai.status = 'loading'; S.ai.note = 'Three days a week, barbell and cables, shoulders need volume.'; S.ai.step = 1; }],
-    ['AI · failed', function () { reset(); S.screen = 'ai'; S.ai.status = 'error'; S.ai.note = 'Three days a week, barbell and cables, shoulders need volume.'; S.ai.error = 'The request timed out after 20 seconds. Nothing was charged and nothing was saved.'; }],
-    ['AI · proposal', function () { reset(); S.screen = 'ai'; S.ai.status = 'ready'; S.ai.note = 'Three days a week, barbell and cables, shoulders need volume.'; S.ai.plan = seedPlan(); }]
+    ['Draft · two ways in', function () { reset(); S.screen = 'pick'; }],
+    ['Draft · describe it', function () { reset(); S.screen = 'ai'; }],
+    ['Draft · building', function () { reset(); S.screen = 'ai'; S.ai.status = 'loading'; S.ai.note = 'Three days a week, barbell and cables, shoulders need volume.'; }],
+    ['Draft · nothing readable', function () { reset(); S.screen = 'ai'; S.ai.status = 'error'; S.ai.note = 'make me strong'; S.ai.error = 'This builder is a rule on your phone, not a model, and nothing in \u201cmake me strong\u201d matched anything it knows how to act on. Say how many days, or name your equipment, or build it by hand.'; }],
+    ['Draft · proposal', function () { reset(); S.screen = 'ai'; S.ai.note = 'Three days a week, barbell and cables, shoulders need volume.'; S.ai.status = 'ready'; S.ai.plan = planFor(S.ai.note); }],
+    ['Photo · nothing chosen', function () { reset(); S.screen = 'photo'; }],
+    ['Manual · a day with blocks', function () { reset(); var s2 = seedSplit(); S.manual.id = s2.id || null; S.manual.created = s2.created || null; S.manual.name = s2.name; S.manual.days = s2.days; S.manual.savedAt = 'on ' + (s2.created || 'this phone'); if (S.manual.days[0]) { S.manual.days[0].blocks = [blockRow({ title: 'Shoulder warm-up', duration: '8 min', notes: 'Band pull-aparts, two sets of twenty. Then the empty bar.' })]; } }]
   ];
 
   function reset() {
@@ -807,6 +1098,8 @@
     S.manual = { status: 'ready', id: null, created: null, name: '', days: [],
                  dirty: false, savedAt: null, error: null, edit: false };
     S.ai = { status: 'idle', note: '', plan: null, error: null, step: 0 };
+    if (S.photo && S.photo.url) { try { URL.revokeObjectURL(S.photo.url); } catch (e) {} }
+    S.photo = { file: null, url: null, size: '', note: '', error: null };
     S.lifted = null; S.dragging = null; S.modal = null; S.toast = null; S.swipe = null;
   }
 
@@ -837,7 +1130,10 @@
        the modal was already open and focus never moved into it. */
     var hadModal = renderedModal;
     renderedModal = !!S.modal;
-    LKPatch(app, (S.screen === 'manual' ? manualScreen() : aiScreen()) + overlays());
+    LKPatch(app, (S.screen === 'manual' ? manualScreen()
+                  : S.screen === 'pick' ? pickScreen()
+                  : S.screen === 'photo' ? photoScreen()
+                  : aiScreen()) + overlays());
     if (key) {
       var next = app.querySelector('[data-testid="' + key + '"]');
       if (next) {
@@ -933,7 +1229,15 @@
       days: S.manual.days.map(function (d) {
         return {
           name: d.name,
-          blocks: [],
+          /* THE DAY'S BLOCKS — F-TRAIN-104. This was `blocks: []` whatever the
+             day held, so a warm-up or a finisher programmed into a day was
+             thrown away on the save that claimed to have kept it. The shape is
+             the workout log's own: title, notes, duration as a printed string
+             ("12 min" or ""), and whether the notes are open. */
+          blocks: (d.blocks || []).map(function (b) {
+            return { title: b.title, notes: b.notes || '',
+                     duration: b.duration || '', open: !!b.open };
+          }),
           exercises: d.exercises.map(function (x) {
             /* The stored shape carries a catalogue id, a group and a muscle.
                The builder's own rows carry a generated id and a muscle, so
@@ -977,20 +1281,20 @@
   }
 
   function runGeneration() {
-    S.ai.status = 'loading';
-    S.ai.step = 0;
     S.ai.error = null;
-    render();
-    var i = 0;
-    function tick() {
-      i += 1;
-      if (S.ai.status !== 'loading') return;
-      if (i < STEPS.length) { S.ai.step = i; render(); later(tick, 900); return; }
-      S.ai.status = 'ready';
-      S.ai.plan = planFor(S.ai.note);
+    var plan = planFor(S.ai.note);
+    if (!plan.read.length) {
+      S.ai.status = 'error';
+      S.ai.plan = null;
+      S.ai.error = 'This builder is a rule on your phone, not a model, and nothing in ' +
+        '\u201c' + String(S.ai.note || '').trim() + '\u201d matched anything it knows how to act on. ' +
+        'Say how many days, or name your equipment, or build it by hand.';
       render();
+      return;
     }
-    later(tick, 900);
+    S.ai.status = 'ready';
+    S.ai.plan = plan;
+    render();
   }
 
   /* The draft answers what was asked. It used to be one fixed three-day
@@ -1005,6 +1309,10 @@
     var plan = seedPlan();
     var q = String(note || '').toLowerCase();
     plan.note = note || '';
+    /* WHAT IT READ and WHAT IT DID NOT, both recorded and both printed. The
+       whole defect was that the second list was invisible. */
+    plan.read = [];
+    plan.ignored = [];
 
     var days = null;
     var m = q.match(/(\d+)\s*(?:days?|x\b|times)/);
@@ -1014,6 +1322,7 @@
     else if (/\btwo\b/.test(q)) days = 2;
     else if (/\bthree\b/.test(q)) days = 3;
 
+    if (days) plan.read.push(days + (days === 1 ? ' day a week' : ' days a week'));
     if (days && days !== plan.days.length) {
       if (days < plan.days.length) plan.days = plan.days.slice(0, days);
       else {
@@ -1030,19 +1339,72 @@
         ' \u2014 ' + plan.days.length + ' days';
     }
 
-    /* A named constraint moves each slot to the alternative that carries it,
-       where the slot has one. */
-    var want = /dumbbell/.test(q) ? 'dumbbell' : (/machine/.test(q) ? 'machine' : null);
+    /* A named piece of equipment moves each slot to the alternative that
+       carries it, where the slot has one. Where no slot has one, that is said
+       rather than silently doing nothing. */
+    var EQUIP = ['dumbbell', 'machine', 'cable', 'barbell', 'bodyweight', 'kettlebell'];
+    var want = null;
+    for (var e = 0; e < EQUIP.length; e++) if (q.indexOf(EQUIP[e]) > -1) { want = EQUIP[e]; break; }
     if (want) {
+      var moved = 0;
       plan.days.forEach(function (d) {
         d.slots = d.slots.map(function (sl) {
           var hit = sl.alts.filter(function (a) { return a.name.toLowerCase().indexOf(want) > -1; })[0];
           if (!hit) return sl;
           var copy = slot(sl.role, sl.pick, sl.pickWhy, sl.alts);
           copy.choice = hit.id;
+          moved += 1;
           return copy;
         });
       });
+      if (moved) plan.read.push(want.charAt(0).toUpperCase() + want.slice(1) +
+        ' \u2014 ' + moved + (moved === 1 ? ' lift swapped' : ' lifts swapped'));
+      else plan.ignored.push('\u201c' + want + '\u201d: no slot in this draft has a ' + want + ' alternative');
+    }
+
+    /* Things to avoid. "No deadlifts", "avoid squats": any slot whose pick
+       carries the word moves to an alternative that does not. A slot with no
+       clean alternative is left, and said. */
+    var avoid = [];
+    String(q).replace(/(?:no|avoid|without)\s+([a-z][a-z \-]{2,20})/g, function (m0, w) {
+      avoid.push(w.trim().replace(/s$/, ''));
+      return m0;
+    });
+    if (avoid.length) {
+      var dropped = 0, stuck = [];
+      avoid.forEach(function (w) {
+        plan.days.forEach(function (d) {
+          d.slots = d.slots.map(function (sl) {
+            if (currentName(sl).toLowerCase().indexOf(w) < 0) return sl;
+            var clean = sl.alts.filter(function (a) { return a.name.toLowerCase().indexOf(w) < 0; })[0];
+            if (!clean) { stuck.push(sl.role.toLowerCase()); return sl; }
+            var copy = slot(sl.role, sl.pick, sl.pickWhy, sl.alts);
+            copy.choice = clean.id;
+            dropped += 1;
+            return copy;
+          });
+        });
+      });
+      if (dropped) plan.read.push('Avoiding ' + avoid.join(' and ') + ' \u2014 ' +
+        dropped + (dropped === 1 ? ' lift replaced' : ' lifts replaced'));
+      if (stuck.length) plan.ignored.push('Could not avoid ' + avoid.join(' and ') +
+        ' in: ' + stuck.join(', '));
+      /* Said rather than silently true. "No deadlifts" against a draft with no
+         deadlift in it read as though the rule had acted on it. */
+      if (!dropped && !stuck.length) plan.ignored.push('\u201cNo ' + avoid.join(' or ') +
+        '\u201d: there is none in this draft anyway');
+    }
+
+    /* Everything else. A description is a sentence and this reads three
+       things out of it; the rest is listed so the reader can see it was not
+       understood rather than assuming it was. */
+    var leftover = String(note || '').trim();
+    if (leftover && !plan.read.length) plan.ignored.push('The whole description');
+    else if (leftover) {
+      var known = /(\d+\s*(days?|x|times)|four|five|two|three|dumbbell|machine|cable|barbell|bodyweight|kettlebell|no |avoid |without )/;
+      var rest = leftover.split(/[.,;]/).map(function (x) { return x.trim(); })
+        .filter(function (x) { return x && !known.test(x.toLowerCase()); });
+      rest.forEach(function (x) { plan.ignored.push('\u201c' + x + '\u201d'); });
     }
     return plan;
   }
@@ -1051,7 +1413,8 @@
     var plan = S.ai.plan;
     S.manual.name = plan.title;
     S.manual.days = plan.days.map(function (d) {
-      return { id: nid('d'), name: d.name, exercises: d.slots.map(function (s) { return ex(currentName(s), s.role); }) };
+      return { id: nid('d'), name: d.name, blocks: [],
+               exercises: d.slots.map(function (s) { return ex(currentName(s), s.role); }) };
     });
     S.manual.dirty = true;
     S.manual.savedAt = null;
@@ -1112,7 +1475,7 @@
         while (taken[('day ' + k)]) k++;
         name = 'Day ' + k;
       }
-      S.manual.days.push({ id: nid('d'), name: name, exercises: [] });
+      S.manual.days.push({ id: nid('d'), name: name, blocks: [], exercises: [] });
       markDirty(); render();
     },
     'day-remove': function (el) {
@@ -1133,9 +1496,67 @@
     },
     'ex-remove': function (el) { removeExercise(el.getAttribute('data-day'), el.getAttribute('data-id')); },
     'add-exercise': function (el) { S.modal = { type: 'pick', id: el.getAttribute('data-id'), q: '' }; render(); },
+    'add-block': function (el) {
+      S.modal = { type: 'block', id: el.getAttribute('data-id'), title: '', mins: '', notes: '', error: null };
+      render();
+    },
+    'block-save': function () {
+      var m = S.modal, day = findDay(m.id);
+      if (!day) { S.modal = null; render(); return; }
+      var title = String(m.title || '').trim();
+      if (!title) {
+        m.error = 'Give the block a name, so the row says what it is.';
+        render();
+        var t1 = document.querySelector('[data-testid="block-title"]');
+        if (t1) t1.focus();
+        return;
+      }
+      /* Blank is fine -- not every block is timed. A number that is not a
+         number of minutes is not. The same rule, and the same words, the
+         workout log uses for the same field. */
+      var raw = String(m.mins === null || m.mins === undefined ? '' : m.mins).trim();
+      var mins = raw === '' ? null : Number(raw);
+      if (raw !== '' && (!isFinite(mins) || mins < 1 || mins > 180)) {
+        m.error = 'A length between 1 and 180 minutes, or leave it blank.';
+        render();
+        var t2 = document.querySelector('[data-testid="block-mins"]');
+        if (t2) t2.focus();
+        return;
+      }
+      day.blocks = day.blocks || [];
+      day.blocks.push(blockRow({
+        title: title,
+        notes: String(m.notes || '').trim(),
+        duration: mins === null ? '' : Math.round(mins) + ' min',
+        open: false
+      }));
+      S.modal = null;
+      markDirty();
+      toast('Block added to ' + day.name + '.');
+      render();
+    },
+    'block-remove': function (el) {
+      var day = findDay(el.getAttribute('data-day'));
+      if (!day) return;
+      var id = el.getAttribute('data-id');
+      var i = (day.blocks || []).map(function (b) { return b.id; }).indexOf(id);
+      if (i < 0) return;
+      var gone = day.blocks.splice(i, 1)[0];
+      markDirty();
+      toast('\u201c' + gone.title + '\u201d removed.', 'Undo', function () {
+        day.blocks.splice(i, 0, gone);
+        markDirty();
+      });
+      render();
+    },
     'pick-add': function (el) {
       var day = findDay(el.getAttribute('data-id'));
-      day.exercises.push(ex(el.getAttribute('data-name'), el.getAttribute('data-muscle')));
+      var row = ex(el.getAttribute('data-name'), el.getAttribute('data-muscle'));
+      /* The catalogue id, where the picker knows it. Without it a lift added
+         here was saved under a generated id no other screen recognises. */
+      var exid = Number(el.getAttribute('data-exid'));
+      if (exid) row.exId = exid;
+      day.exercises.push(row);
       markDirty();
       toast('Added ' + el.getAttribute('data-name') + ' to ' + day.name + '.');
       render();
@@ -1153,8 +1574,25 @@
       render();
     },
     'lift-clear': function () { S.lifted = null; render(); },
-    'go-ai': function () { S.screen = 'ai'; render(); },
-    'ai-back': function () { S.screen = 'manual'; render(); },
+    /* Into the two-card choice, not straight into one of them. */
+    'go-ai': function () { S.screen = 'pick'; render(); },
+    'pick-back': function () { S.screen = 'manual'; render(); },
+    'mode-describe': function () { S.screen = 'ai'; render(); },
+    'mode-photo': function () { S.screen = 'photo'; render(); },
+    'photo-back': function () { S.screen = 'pick'; render(); },
+    'photo-clear': function () {
+      if (S.photo.url) { try { URL.revokeObjectURL(S.photo.url); } catch (e) {} }
+      S.photo.file = null; S.photo.url = null; S.photo.size = ''; S.photo.error = null;
+      render();
+      var f = document.querySelector('[data-testid="photo-file"]');
+      if (f) { f.value = ''; f.focus({ preventScroll: true }); }
+    },
+    'photo-to-describe': function () {
+      S.ai.note = S.photo.note;
+      S.screen = 'ai';
+      render();
+    },
+    'ai-back': function () { S.screen = 'pick'; render(); },
     'ai-example': function (el) {
       var t = el.getAttribute('data-text');
       S.ai.note = (S.ai.note.trim() ? S.ai.note.trim().replace(/\.$/, '') + '. ' : '') + t + '.';
@@ -1167,7 +1605,7 @@
       render();
     },
     'ai-edit-note': function () { S.ai.status = 'idle'; render(); },
-    'ai-regenerate': function () { S.ai.plan = null; runGeneration(); },
+    'ai-regenerate': function () { S.ai.status = 'idle'; S.ai.plan = null; render(); },
     'ai-accept': function () { acceptPlan(); },
     'open-swap': function (el) { S.modal = { type: 'swap', id: el.getAttribute('data-id') }; render(); },
     'choose': function (el) {
@@ -1190,7 +1628,15 @@
     'split-name': function (el) { S.manual.name = el.value; markDirty(); patch(); },
     'day-name': function (el) { var d = findDay(el.getAttribute('data-id')); if (d) { d.name = el.value; markDirty(); patch(); } },
     'ai-note': function (el) { S.ai.note = el.value; patchAi(); },
-    'pick-search': function (el) { S.modal.q = el.value; render(); }
+    'pick-search': function (el) { S.modal.q = el.value; render(); },
+    'photo-note': function (el) {
+      S.photo.note = el.value;
+      var b = document.querySelector('[data-testid="photo-to-describe"]');
+      if (b) { b.disabled = !el.value.trim(); b.setAttribute('aria-disabled', String(!el.value.trim())); }
+    },
+    'block-title': function (el) { S.modal.title = el.value; },
+    'block-mins': function (el) { S.modal.mins = el.value; },
+    'block-notes': function (el) { S.modal.notes = el.value; }
   };
 
   /* Light patches so typing never rebuilds the field under the caret. */
@@ -1241,6 +1687,27 @@
     if (!el) return;
     var fn = INPUTS[el.getAttribute('data-action')];
     if (fn) fn(el);
+  });
+
+  /* The chosen photo. Read as an object URL so the preview is the reader's
+     own file and nothing is copied, encoded or sent. Nothing here uploads. */
+  document.addEventListener('change', function (e) {
+    var el = e.target.closest && e.target.closest('[data-action="photo-file"]');
+    if (!el) return;
+    var f = el.files && el.files[0];
+    if (S.photo.url) { try { URL.revokeObjectURL(S.photo.url); } catch (err) {} }
+    if (!f) { S.photo.file = null; S.photo.url = null; S.photo.size = ''; render(); return; }
+    if (!/^image\//.test(f.type)) {
+      S.photo.file = null; S.photo.url = null; S.photo.size = '';
+      S.photo.error = 'That is not an image. A photo or a screenshot of your programme.';
+      render();
+      return;
+    }
+    S.photo.error = null;
+    S.photo.file = f.name;
+    S.photo.size = Math.max(1, Math.round(f.size / 1024)) + ' KB';
+    try { S.photo.url = URL.createObjectURL(f); } catch (err) { S.photo.url = null; }
+    render();
   });
 
   document.addEventListener('keydown', function (e) {
@@ -1368,6 +1835,8 @@
     var want = null;
     try { want = localStorage.getItem('lk_openSplit'); } catch (e) {}
     reset();
+    /* Train's empty state offers both ways in, and says which it meant. */
+    if (want === '__draft__') { S.screen = 'pick'; render(); return; }
     if (want === '__new__') { render(); return; }
     var sp = seedSplit();
     S.manual.id = sp.id || null;
@@ -1399,10 +1868,12 @@
       .then(function (rows) {
         if (!Array.isArray(rows) || !rows.length) return;
         LIBRARY = rows.map(function (x) {
-          return { name: x.name, muscle: x.muscle || x.group || '' };
+          /* The catalogue id travels with the row, so a split stored as bare
+             exIds can be read back into names without a second lookup table. */
+          return { id: x.id, name: x.name, muscle: x.muscle || x.group || '' };
         });
         ((window.LKFixtures && LKFixtures.customEx) || []).forEach(function (c) {
-          LIBRARY.push({ name: c.name, muscle: c.gid || '' });
+          LIBRARY.push({ id: c.id, name: c.name, muscle: c.gid || '' });
         });
         LIBRARY.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
         if (S.modal && S.modal.type === 'pick') render();

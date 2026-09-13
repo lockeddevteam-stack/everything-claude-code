@@ -5155,6 +5155,14 @@
           "created": "2026-08-04T09:00:00.000Z",
           "updatedAt": "2026-08-04T09:00:00.000Z"
     },
+    coachMemory: [
+          {
+                "text": "Left knee gets tight on high-bar squats",
+                "src": "added by you, 8/25/2026",
+                "date": "2026-08-25T09:00:00.000Z"
+          }
+    ],
+    coachInstructions: "Keep replies under 80 words. Reference my actual numbers.",
 
     /* Every session on a date, newest first. */
     on: function (iso) {

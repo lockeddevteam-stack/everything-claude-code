@@ -45,6 +45,32 @@
   STATES
   populated, first-weeks (the target is a formula until the trend takes over),
   hidden (numbers off, for anyone the numbers hurt), empty, loading, error.
+
+  WHAT IS DELIBERATELY NOT HERE, AND WHY
+
+  THE CYCLE STRIP (F-CYCLE-021). v6 carried a strip on this tab showing the
+  active compound cycle. It was dead code there -- nothing rendered it -- and
+  it is not rebuilt here, on purpose. Fuel answers "what do I eat today"; a
+  cycle is a Stack question, and Stack is a gated feature that is absent
+  entirely until somebody turns it on. Putting a cycle strip on the food tab
+  would announce the gated feature to everybody who has not turned it on,
+  which is the one thing the gate exists to prevent. The Stack chip, which
+  appears only once tracking is on, is the whole of Fuel's relationship with
+  it. CUT, by this package, with nothing lost: the strip never ran.
+
+  THE SECOND MEAL PLANNER (F-SHOP-032b). v6 had a MealPlannerTab component as
+  well as the planner inside Fuel. The second one was unreachable -- no route,
+  no control, no tab -- so there is one meal planner here, in the Plan sheet,
+  and the duplicate is not carried over. Nothing a person could reach is lost.
+
+  WHAT NEEDS A SERVER, SAID WHERE IT IS USED
+
+  The multi-source food search (USDA, FatSecret, Open Food Facts), the plate
+  photo estimate and a coach's own recipes all need a backend this build does
+  not have. Each of those surfaces says so at the point of use rather than
+  pretending: the search sheet names the three sources it would reach, the
+  camera sheet says its items are a worked example and not what is in the
+  picture, and no lookup on this screen is ever faked.
 -->
 
 <div class="stage">
@@ -361,6 +387,44 @@
      all. lk_profile still owns weight, height, age, sex and goal, because
      Settings and Progress write those; lk_fuelProfile carries what only this
      screen knows. */
+  /* The six a person actually keeps. A chip is a fact the screen can act on;
+     a sentence in a text box is a note it can only print back. */
+  var DIETS = [
+    ['veg', 'Vegetarian', ['beef', 'mince', 'chicken', 'pork', 'thigh', 'bacon', 'fish', 'tuna', 'salmon']],
+    ['vegan', 'Vegan', ['beef', 'mince', 'chicken', 'pork', 'thigh', 'bacon', 'fish', 'tuna', 'salmon',
+                        'egg', 'eggs', 'milk', 'cheese', 'skyr', 'yogurt', 'yoghurt', 'whey', 'butter']],
+    ['pesc', 'Pescatarian', ['beef', 'mince', 'chicken', 'pork', 'thigh', 'bacon']],
+    ['df', 'Dairy free', ['milk', 'cheese', 'skyr', 'yogurt', 'yoghurt', 'whey', 'butter', 'cream']],
+    ['gf', 'Gluten free', ['bread', 'toast', 'pasta', 'oats', 'flour', 'wheat', 'couscous']],
+    ['halal', 'Halal', ['pork', 'bacon', 'ham', 'gelatin']]
+  ];
+  function dietWords() {
+    var fp = stored('lk_fuelProfile', {}) || {};
+    var on = fp.diets || [];
+    var words = [];
+    DIETS.forEach(function (d) { if (on.indexOf(d[0]) >= 0) words = words.concat(d[2]); });
+    String(fp.allergy || '').toLowerCase().split(/[^a-z]+/).forEach(function (w) {
+      if (w.length >= 3) words.push(w);
+    });
+    return words;
+  }
+  /* A recipe whose ingredients name something you have said you do not eat.
+     It is a check on the words in the ingredient lines and nothing more, and
+     the list that uses it says so. */
+  function dietBlocks(r) {
+    var words = dietWords();
+    if (!words.length) return null;
+    var hay = ((r.ing || []).join(' ') + ' ' + r.name).toLowerCase();
+    for (var i = 0; i < words.length; i++) {
+      if (hay.indexOf(words[i]) >= 0) return words[i];
+    }
+    return null;
+  }
+  function pantryStaples() {
+    return (stored('lk_pantryItems', []) || []).filter(function (x) { return x && !x.empty; })
+      .map(function (x) { return x.name; });
+  }
+
   function fuelProfile() {
     var fp = stored('lk_fuelProfile', {}) || {};
     return {
@@ -372,6 +436,10 @@
       activity: activityKey(),
       macroMode: fp.macroMode === 'custom' ? 'custom' : 'auto',
       diet: fp.diet || '',
+      diets: (fp.diets || []).slice(),
+      ft: !!fp.ft,
+      kcal: TARGETS.kcal || null,
+      pro: TARGETS.pro || null, carb: TARGETS.carb || null, fat: TARGETS.fat || null,
       allergy: fp.allergy || '',
       flOz: !!fp.flOz
     };
@@ -534,6 +602,40 @@
     { key: 'sodium', name: 'Sodium',        unit: 'mg', aim: 'less' }
   ];
   var MREF = NUT.microRef || { fibre: 30, sugar: 90, satfat: 20, sodium: 2400 };
+
+  /* THE REFERENCE MOVES WITH THE TARGET. Four constants were checked against
+     everybody: 30 g of fibre and 20 g of saturated fat are the figures for a
+     2,000 kcal day, and somebody eating 3,000 was being told they were short
+     of fibre they were not short of, and clear of saturated fat they were not
+     clear of.
+
+     Three of the four are proportions of energy and are computed as such:
+     fibre at 14 g per 1,000 kcal, free sugars and saturated fat each at a
+     tenth of the calories. Sodium is not a proportion of anything -- it is a
+     ceiling for a body, not for a diet -- so it stays where it is and the
+     panel says so. With no target set there is nothing to scale from and the
+     stored references stand. */
+  function microRefs() {
+    var kcal = TARGETS && TARGETS.kcal;
+    if (!kcal) return { fibre: MREF.fibre, sugar: MREF.sugar, satfat: MREF.satfat,
+                        sodium: MREF.sodium, scaled: false };
+    return {
+      fibre: Math.round(kcal / 1000 * 14),
+      sugar: Math.round(kcal * 0.10 / 4),
+      satfat: Math.round(kcal * 0.10 / 9),
+      sodium: MREF.sodium,
+      scaled: true
+    };
+  }
+  /* How much of today the figure is actually built from. A fibre total added
+     up from two meals out of five is not a fibre total, and one line at the
+     bottom of the panel saying "some meals have no breakdown" does not say
+     which row it is talking about. */
+  function microCover(key) {
+    var meals = DAY.meals || [];
+    var had = meals.filter(function (m) { return typeof m[key] === 'number'; }).length;
+    return { had: had, all: meals.length };
+  }
 
   function microTotals(meals) {
     var t = {};
@@ -962,7 +1064,29 @@
       15, ['quick', 'high protein'],
       ['Blitz everything to a batter. It should pour, not drop.',
        'Medium heat, dry pan, three minutes a side.',
-       'They brown faster than flour pancakes because of the whey, so go lower than you think.'])
+       'They brown faster than flour pancakes because of the whey, so go lower than you think.']),
+    /* Three more, because three recipes is a demo and six is a week. Each one
+       is priced off a row of the food table, like the three above, so nothing
+       here carries a figure the rest of the screen cannot reproduce. */
+    recipe('skyr', 'Overnight oats, four jars', 4,
+      ['200 g oats', '600 g skyr', '400 ml milk', '300 g frozen berries', '2 tbsp honey'],
+      10, ['batch', 'no cook', 'high protein'],
+      ['Oats, skyr and milk stirred together until there is no dry oat left.',
+       'Berries and honey on top, lids on, fridge overnight.',
+       'They keep four days. Any longer and the oats go to paste.']),
+    recipe('bowl', 'Burrito bowls, four days', 4,
+      ['600 g chicken thigh', '300 g rice, dry', '2 tins black beans', '1 jar salsa',
+       '2 peppers', '1 lime'],
+      35, ['batch', 'high protein'],
+      ['Thighs in a hot pan, skin down, until they release. Ten minutes, then turn.',
+       'Rice on at the same time. Beans warmed through with the salsa.',
+       'Build the boxes cold: rice, beans, chicken, peppers. Lime on when you eat it.']),
+    recipe('eggs', 'Big breakfast, two', 2,
+      ['6 eggs', '4 slices bread', '20 g butter', '4 rashers bacon', '2 tomatoes'],
+      20, ['quick'],
+      ['Bacon in a dry pan first; everything else cooks in what comes out of it.',
+       'Tomatoes cut side down beside it, five minutes, do not move them.',
+       'Eggs last, off the heat for the final thirty seconds so they stay soft.'])
   ].filter(Boolean);
 
   /* Recipes you built yourself, after the three above. A built recipe carries
@@ -981,18 +1105,57 @@
       };
     });
   }
-  function allRecipes() { return RECIPES.concat(ownRecipes()); }
+  /* FROM A COACH, READ ONLY. lk_coachRecipes is the key the shipped app's
+     coach writes into and nothing in this build read it, so a recipe a coach
+     wrote could not reach Fuel at all. It is read now: whatever is in that
+     key is listed beside your own, marked, and cannot be edited here --
+     editing somebody else's recipe on your device is how two people end up
+     cooking different things off the same name.
+
+     NOTHING WRITES IT IN THIS BUILD. A coach's recipes arrive over the same
+     account sync as their plan, which needs the backend; the recipes sheet
+     says so where the list is, rather than showing an empty section that
+     looks like a coach who has sent nothing. */
+  function coachRecipes() {
+    var list = stored('lk_coachRecipes', []) || [];
+    return list.filter(function (r) { return r && r.name && r.kcal; }).map(function (r) {
+      return { coach: true, icon: r.icon || '\ud83d\udcd8', name: r.name,
+               servings: r.servings || 1, key: null,
+               kcal: r.kcal, pro: r.pro || 0, carb: r.carb || 0, fat: r.fat || 0,
+               mins: r.mins || 0, tags: (r.tags || []).concat(['from your coach']),
+               ing: r.ing || [], steps: r.steps || [] };
+    });
+  }
+  function allRecipes() { return RECIPES.concat(ownRecipes()).concat(coachRecipes()); }
 
   /* Ordered by what is left of the day, not alphabetically. A recipe list is
      read at the point of "what do I cook", and the answer depends on what is
      already eaten. */
+  /* WHAT YOU SAID YOU DO NOT EAT IS TAKEN OUT. Preferences were printed as a
+     note beside a list that ignored them, which is the app writing something
+     down to look like it is listening. Taken out, counted, and the count is
+     shown -- a filter that hides things silently is its own problem. */
+  function dietHidden() {
+    return allRecipes().filter(function (r) { return !!dietBlocks(r); }).length;
+  }
+  function eatable() {
+    return allRecipes().map(function (r, i) { return { r: r, i: i }; })
+      .filter(function (e) { return !dietBlocks(e.r); });
+  }
   function forYou() {
     var proLeft = Math.max(0, DAY.macros[0].want - DAY.macros[0].have);
     var kcalLeft = Math.max(0, DAY.target - DAY.eaten);
-    return allRecipes().map(function (r, i) {
+    return eatable().map(function (e) {
+      var r = e.r, i = e.i;
       var per = r.kcal / r.servings, pro = r.pro / r.servings;
       var fits = kcalLeft === 0 || per <= kcalLeft;
-      var sc = (fits ? 40 : 0) + Math.min(pro, proLeft) * 2 - (r.mins || 0) / 10;
+      /* THE GOAL ORDERS IT. On a cut the lighter serving wins the tie; on a
+         build the bigger one does. The same list in the same order whatever
+         somebody is doing is a list that has not read the profile it prints a
+         note from. */
+      var gk = goalKey();
+      var goalBias = gk === 'cut' ? -per / 60 : gk === 'build' ? per / 90 : 0;
+      var sc = (fits ? 40 : 0) + Math.min(pro, proLeft) * 2 - (r.mins || 0) / 10 + goalBias;
       var note = !fits ? 'More than the ' + n(kcalLeft) + ' kcal left today'
         : proLeft > 0 ? 'Covers ' + n(Math.round(Math.min(pro, proLeft))) + ' g of the protein left'
         : '';
@@ -1004,7 +1167,8 @@
      is the top of the list, which is the only ordering this tab can honestly
      offer: it is about what you have, not about what you want. */
   function fromPantry() {
-    return allRecipes().map(function (r, i) {
+    return eatable().map(function (e) {
+      var r = e.r, i = e.i;
       var ing = r.ing || [];
       var have = ing.filter(function (line) { return pantryMatch(line) >= 0; }).length;
       return {
@@ -1021,11 +1185,18 @@
   function dietNote() {
     var fp = stored('lk_fuelProfile', {}) || {};
     var bits = [];
+    (fp.diets || []).forEach(function (k) {
+      DIETS.forEach(function (d) { if (d[0] === k) bits.push(d[1].toLowerCase()); });
+    });
     if (fp.diet) bits.push(fp.diet);
     if (fp.allergy) bits.push('allergic to ' + fp.allergy);
     if (!bits.length) return '';
-    return 'You have written down: ' + bits.join('; ') + '. Nothing here is filtered by it \u2014 ' +
-      'check the ingredients yourself.';
+    var hid = dietHidden();
+    return 'You have written down: ' + bits.join('; ') + '. ' +
+      (hid ? hid + (hid === 1 ? ' recipe is' : ' recipes are') + ' hidden because an ingredient ' +
+             'line names one of those words. '
+           : 'Nothing here names any of those words. ') +
+      'It is a word match on the ingredient lines, not a safety check \u2014 read them yourself.';
   }
 
   /* ---------------------------------------------------------------
@@ -1396,20 +1567,29 @@
 
      Nothing here is generated by a model. Everything in the week is a row
      from the table, so no meal in it can be invented. */
+  /* What a meal costs, where the shopping screen has a price for it. There
+     is no price on the food table, so the only honest source is what the
+     budget screen has recorded, and where it has nothing the generator says
+     it is not costing anything rather than guessing. */
+  function budgetSpent() {
+    var b = stored('lk_budgetData', null);
+    if (!b) return null;
+    var weekly = b.weeklyBudget || b.weekly || b.budget || null;
+    return weekly ? { weekly: weekly } : null;
+  }
+
   function buildPlan(days, perDay, avoid) {
     var slotsFor = { 2: ['Lunch', 'Dinner'],
                      3: ['Breakfast', 'Lunch', 'Dinner'],
                      4: ['Breakfast', 'Lunch', 'Dinner', 'Snack'],
                      5: ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Evening'] }[perDay] ||
                    ['Breakfast', 'Lunch', 'Dinner'];
-    var pool = Object.keys(FOODS).filter(function (k) {
-      if (!avoid) return true;
-      var nm = FOODS[k].name.toLowerCase();
-      return !avoid.split(/[,;]+/).some(function (w) {
-        w = w.trim().toLowerCase();
-        return w && nm.indexOf(w) >= 0;
-      });
-    });
+    /* WHAT YOU SAID YOU DO NOT EAT COMES OUT OF THE POOL. The generator read
+       a free-text box on its own sheet and nothing else, so somebody who had
+       ticked Vegetarian on their profile was handed a week of beef. One
+       filter, shared with the sheet that reports how much of the table is
+       left. */
+    var pool = buildPool(avoid);
     if (!pool.length) return null;
     var tally = {};
     var out = [];
@@ -1454,6 +1634,21 @@
                  iso: iso, slots: slots });
     }
     return out;
+  }
+
+  /* The same filter the generator uses, so the sheet can say how much of the
+     table is left without running the whole build. */
+  function buildPool(avoid) {
+    var dw = dietWords();
+    return Object.keys(FOODS).filter(function (k) {
+      var nm = FOODS[k].name.toLowerCase();
+      for (var i = 0; i < dw.length; i++) if (nm.indexOf(dw[i]) >= 0) return false;
+      if (!avoid) return true;
+      return !avoid.split(/[,;]+/).some(function (w) {
+        w = w.trim().toLowerCase();
+        return w && nm.indexOf(w) >= 0;
+      });
+    });
   }
 
   function savedPlans() { return stored('lk_fuelPlans', []) || []; }
@@ -1582,33 +1777,131 @@
   /* Your store: a food at the amount you actually buy it in. The food table
      has one serving per row and your tub is 170 g, so every log of it was a
      correction. Saved here it is one tap, at your weight, forever. */
+  /* ---------------------------------------------------------------
+     YOUR FOODS. The local food store.
+
+     Everything this screen could identify -- a barcode that resolved, a
+     product whose label you typed in -- was used once and thrown away. The
+     same scan went through the same lookup tomorrow, and a code that came
+     back not found came back not found forever, however many times you had
+     told the app what was in the packet.
+
+     So lk_myFoods holds two kinds of row and both are findable by name:
+
+       a food from the table at a weight you buy it in
+         { id, key, g, name }
+       a product, with its own figures and its own barcode
+         { id, name, code, g, per100: { kcal, pro, carb, fat, ... }, src }
+
+     The second kind is frozen: it keeps the figures it was saved with, so a
+     product saved in March still logs what the packet said in March.
+     --------------------------------------------------------------- */
   function myStore() { return stored('lk_myFoods', []) || []; }
+  function writeStore(list) { if (ST && persisting()) ST.set('lk_myFoods', list); }
   function saveToStore(key, grams, name) {
     var f = FOODS[key];
     if (!f) return false;
     var list = myStore().slice();
-    if (list.some(function (x) { return x.key === key && x.g === grams; })) return false;
-    list.push({ id: 'mf_' + Date.now(), key: key, g: grams,
-                name: name || (f.name + ', ' + n(grams) + ' g') });
-    if (ST && persisting()) ST.set('lk_myFoods', list);
+    var nm = name || (f.name + ', ' + n(grams) + ' g');
+    /* BY NAME. Keeping the same food at 150 g and at 151 g put two rows in
+       the store that read the same to anybody looking at it; the amount is
+       what a kept food IS, so a second keep of the same name replaces the
+       first rather than sitting under it. */
+    for (var i = 0; i < list.length; i++) {
+      if (sameItem(list[i].name, nm)) {
+        if (list[i].g === grams) return false;
+        list[i] = { id: list[i].id, key: key, g: grams, name: nm };
+        writeStore(list);
+        return true;
+      }
+    }
+    list.push({ id: 'mf_' + Date.now(), key: key, g: grams, name: nm });
+    writeStore(list);
     return true;
   }
-  function dropFromStore(id) {
-    var list = myStore().filter(function (x) { return x.id !== id; });
-    if (ST && persisting()) ST.set('lk_myFoods', list);
+
+  /* A product, kept. Saved by barcode where there is one and by name where
+     there is not, so scanning the same tub twice does not fill the store with
+     copies of it, and so the numbers can be corrected rather than duplicated. */
+  function saveProduct(prod) {
+    if (!prod || !prod.name || !prod.per100 || !(prod.per100.kcal > 0)) return null;
+    var list = myStore().slice();
+    var at = -1;
+    for (var i = 0; i < list.length; i++) {
+      var x = list[i];
+      if (x.per100 && ((prod.code && x.code === prod.code) ||
+          (!prod.code && sameItem(x.name, prod.name)))) { at = i; break; }
+    }
+    var rec = { id: at >= 0 ? list[at].id : 'mf_' + Date.now(),
+                name: String(prod.name).slice(0, 60), code: prod.code || null,
+                g: prod.g || 100, serving: prod.serving || null,
+                per100: prod.per100, src: prod.src || 'estimate',
+                icon: prod.icon || '\ud83d\udce6', savedAt: DAY.iso };
+    if (at >= 0) list[at] = rec; else list.push(rec);
+    writeStore(list);
+    return rec;
   }
-  function storeMeal(entry) {
+  /* A row of figures for a portion, expressed per 100 g, which is the only
+     shape a store can scale from. */
+  function per100Of(f, grams) {
+    var g = grams || 100;
+    var k = 100 / g;
+    var out = { kcal: Math.round(f.kcal * k), pro: Math.round(f.pro * k * 10) / 10,
+                carb: Math.round(f.carb * k * 10) / 10, fat: Math.round(f.fat * k * 10) / 10 };
+    MICROS.forEach(function (mi) {
+      if (typeof f[mi.key] === 'number') out[mi.key] = Math.round(f[mi.key] * k * 10) / 10;
+    });
+    return out;
+  }
+  function storeAmount(x) {
+    return x.serving ? x.serving : n(x.g) + ' g';
+  }
+  function productByCode(code) {
+    var d = String(code || '').replace(/\D/g, '');
+    var hit = null;
+    myStore().forEach(function (x) { if (x.per100 && x.code === d) hit = x; });
+    return hit;
+  }
+  function dropFromStore(id) {
+    writeStore(myStore().filter(function (x) { return x.id !== id; }));
+  }
+
+  /* A store row's figures at the weight it is kept in. Both kinds go through
+     here, so a kept food and a kept product are logged by one writer. */
+  function storeAt(entry, grams) {
+    var g = grams === undefined ? entry.g : grams;
+    if (entry.per100) {
+      var k = g / 100;
+      var out = { icon: entry.icon || '\ud83d\udce6', name: entry.name,
+                  kcal: Math.round(entry.per100.kcal * k),
+                  pro: Math.round(entry.per100.pro * k * 10) / 10,
+                  carb: Math.round(entry.per100.carb * k * 10) / 10,
+                  fat: Math.round(entry.per100.fat * k * 10) / 10,
+                  src: entry.src === 'verified' ? 'verified' : 'estimate' };
+      MICROS.forEach(function (mi) {
+        if (typeof entry.per100[mi.key] === 'number') {
+          out[mi.key] = Math.round(entry.per100[mi.key] * k * 10) / 10;
+        }
+      });
+      return out;
+    }
     var f = FOODS[entry.key];
     if (!f) return null;
-    var k = entry.g / f.g;
+    var kk = g / f.g;
     var meal = { key: entry.key, icon: f.icon, name: entry.name,
-                 kcal: Math.round(f.kcal * k), pro: Math.round(f.pro * k * 10) / 10,
-                 carb: Math.round(f.carb * k * 10) / 10, fat: Math.round(f.fat * k * 10) / 10,
-                 src: 'table', slot: S.logSlot || slotForNow() };
+                 kcal: Math.round(f.kcal * kk), pro: Math.round(f.pro * kk * 10) / 10,
+                 carb: Math.round(f.carb * kk * 10) / 10, fat: Math.round(f.fat * kk * 10) / 10,
+                 src: 'table' };
     MICROS.forEach(function (mi) {
-      if (typeof f[mi.key] === 'number') meal[mi.key] = Math.round(f[mi.key] * k * 10) / 10;
+      if (typeof f[mi.key] === 'number') meal[mi.key] = Math.round(f[mi.key] * kk * 10) / 10;
     });
     return meal;
+  }
+  function storeMeal(entry) {
+    var m = storeAt(entry);
+    if (!m) return null;
+    m.slot = S.logSlot || slotForNow();
+    return m;
   }
 
   function savePlan() {
@@ -1650,7 +1943,25 @@
      succeeds is a demonstration rather than a tool. */
   var BARCODES = NUT.barcodes || {};
   function lookupCode(code) {
-    var k = BARCODES[String(code).replace(/\D/g, '')];
+    var d = String(code).replace(/\D/g, '');
+    /* YOUR OWN FIRST. A code you have already told this app about resolves
+       from your own store, which is the whole point of keeping it: the second
+       scan of the same tub is a hit, not the same dead end. */
+    var mine = productByCode(d);
+    if (mine) {
+      var pm = mine.per100, k100 = (mine.g || 100) / 100;
+      return { key: null, storeId: mine.id, icon: mine.icon || '\ud83d\udce6', name: mine.name,
+               code: d, mine: true, src: mine.src,
+               serving: n(mine.g || 100) + ' g',
+               kcal: Math.round(pm.kcal * k100), pro: Math.round(pm.pro * k100 * 10) / 10,
+               carb: Math.round(pm.carb * k100 * 10) / 10,
+               fat: Math.round(pm.fat * k100 * 10) / 10,
+               fibre: pm.fibre === undefined ? undefined : Math.round(pm.fibre * k100 * 10) / 10,
+               sugar: pm.sugar === undefined ? undefined : Math.round(pm.sugar * k100 * 10) / 10,
+               satfat: pm.satfat === undefined ? undefined : Math.round(pm.satfat * k100 * 10) / 10,
+               sodium: pm.sodium === undefined ? undefined : Math.round(pm.sodium * k100 * 10) / 10 };
+    }
+    var k = BARCODES[d];
     if (!k || !FOODS[k]) return null;
     var f = FOODS[k];
     return { key: k, icon: f.icon, name: f.name, code: code,
@@ -1675,6 +1986,9 @@
   }
 
   var S = { state: 'populated', sheet: null, listening: false, scanServings: 1,
+            /* Log or Meals, remembered between visits rather than reset to
+               Log every time the tab is opened. */
+            view: null,
             /* The camera sheet's one question. null until it is answered. */
             camOil: null, toast: null, undo: null, targetError: null, searchQ: '',
             /* Which recipe is open inside the recipes sheet. The list and the
@@ -1837,6 +2151,27 @@
                  kcal: Math.round(r.kcal / r.servings), pro: Math.round(r.pro / r.servings),
                  carb: Math.round(r.carb / r.servings), fat: Math.round(r.fat / r.servings),
                  from: 'Your recipes', src: 'recipe' });
+    });
+    /* AND YOUR OWN FOODS. A product that was scanned or whose label was typed
+       in is in the same list as everything else, by name, so the second time
+       you eat it you do not have to find the packet again. */
+    myStore().forEach(function (x) {
+      var m = storeAt(x);
+      if (!m) return;
+      /* A kept product whose name is already a row of the table is not a
+         second food. Scanning the skyr keeps it so the CODE resolves next
+         time; listing it again under the identical name would put two rows
+         reading "Skyr, plain" in front of somebody searching for skyr. */
+      var dupe = false;
+      Object.keys(FOODS).forEach(function (k) { if (sameItem(FOODS[k].name, x.name)) dupe = true; });
+      if (dupe) return;
+      out.push({ storeId: x.id, icon: m.icon, name: x.name, g: x.g,
+                 kcal: m.kcal, pro: m.pro, carb: m.carb, fat: m.fat,
+                 fibre: m.fibre, sugar: m.sugar, satfat: m.satfat, sodium: m.sodium,
+                 key: x.key || null,
+                 from: x.per100 ? (x.src === 'verified' ? 'Your foods, scanned' : 'Your foods')
+                                : 'Your foods',
+                 src: m.src });
     });
     return out;
   }
@@ -2244,6 +2579,7 @@
   function microPanel() {
     if (S.state === 'empty') return '';
     var t = microTotals(DAY.meals);
+    var REF = microRefs();
     var missing = DAY.meals.filter(function (m) {
       return typeof m.fibre !== 'number';
     }).length;
@@ -2257,7 +2593,8 @@
         '<span class="btn__label">Hide fibre, sugar, saturated fat, sodium</span></button>' +
       '<div class="card mt-2" data-testid="micros">' +
         MICROS.map(function (mi, i) {
-          var have = t[mi.key], ref = MREF[mi.key] || 1;
+          var have = t[mi.key], ref = REF[mi.key] || 1;
+          var cov = microCover(mi.key);
           var pct = Math.min(100, Math.round(have / ref * 100));
           var overDone = mi.aim === 'less' ? have > ref : have >= ref;
           return '<div class="fuel-macro' + (i ? ' mt-3' : '') + '">' +
@@ -2266,13 +2603,23 @@
             '<div class="meter meter--quiet mt-2" role="img" aria-label="' + esc(mi.name) + ', ' +
                 n(have) + ' of ' + n(ref) + ' ' + mi.unit + '">' +
               '<span class="meter__fill" style="width:' + pct + '%"></span></div>' +
-            '<p class="t-caption-2 quiet mt-1">' +
+            '<p class="t-caption-2 quiet mt-1" data-testid="micro-note-' + mi.key + '">' +
               (mi.aim === 'less'
                 ? (overDone ? 'Over the daily reference.' : n(Math.round((ref - have) * 10) / 10) + ' ' + mi.unit + ' before it is.')
                 : (overDone ? 'There for the day.' : n(Math.round((ref - have) * 10) / 10) + ' ' + mi.unit + ' short.')) +
+              (cov.all && cov.had < cov.all
+                ? ' From ' + cov.had + ' of ' + cov.all + ' meals \u2014 the rest carry no figure ' +
+                  'for it, so this is a floor.'
+                : '') +
             '</p>' +
           '</div>';
         }).join('') +
+        '<p class="t-caption-1 quiet mt-3" data-testid="micros-ref">' + (REF.scaled
+          ? 'Fibre at 14 g per 1,000 kcal, sugar and saturated fat at a tenth of the calories ' +
+            'each \u2014 so all three move with your ' + n(TARGETS.kcal) + ' kcal target. Sodium is ' +
+            'a ceiling for a body rather than a share of a diet, so it does not.'
+          : 'These are the stored references. With no calorie target set there is nothing to ' +
+            'scale them from.') + '</p>' +
         (missing
           ? '<p class="t-caption-1 quiet mt-3" data-testid="micros-gap">' + missing +
             (missing === 1 ? ' meal on today\u2019s list has' : ' meals on today\u2019s list have') +
@@ -2378,7 +2725,13 @@
     var f = FOODS[best];
     var after = left - f.kcal;
     return '<div class="card mt-4" data-testid="suggest-card">' +
-      '<div class="hstack hstack--3">' +
+      /* Which kind of day it is, on the card that suggests what to eat. It is
+         context, not an instruction: nothing here moves the target because a
+         session was logged. */
+      '<p class="t-caption-1 quiet" data-testid="suggest-day">' + (isTrainingDay()
+        ? 'You trained today, so the carbohydrate in this is doing something.'
+        : 'No session logged today.') + '</p>' +
+      '<div class="hstack hstack--3 mt-2">' +
         '<span class="fuel-thumb" aria-hidden="true">' + f.icon + '</span>' +
         '<span class="row__main stack grow">' +
           '<span class="row__title">' + esc(f.name) + '</span>' +
@@ -2537,6 +2890,8 @@
     '</div>';
   }
 
+  function diaryHidden() { return !!stored('lk_fuelDiaryHidden', false); }
+
   function today() {
     var groups = slotGroups();
     var rows = groups.map(function (g) {
@@ -2589,12 +2944,38 @@
       '<span class="fuel-src"><span class="row__value quiet">&mdash;</span></span>' +
       '<span class="row__chev" aria-hidden="true"></span></div>';
 
+    /* WHETHER TODAY IS A TRAINING DAY, which nothing in Fuel knew. It does
+       not move the target -- a target is a week's arithmetic, not a day's --
+       but it is the difference between "the calories are spent" reading as a
+       problem and reading as the point. Read off lk_history, which is what
+       Train writes when a session ends. */
+    var trained = trainedOn(DAY.iso);
+    var dayKind = trained
+      ? 'Training day \u00b7 ' + esc(trained.name || 'a session logged')
+      : 'No session logged today';
+
+    /* SHOWN OR HIDDEN, and the answer is kept. Somebody who does not want to
+       read back everything they ate -- which is a great many of the people
+       this screen is for -- had no way to put it away. */
+    var open = !diaryHidden();
     return '<div class="section">' +
       '<div class="section__head">' +
         '<h2 class="t-label">Today</h2>' +
-        '<button class="hdr__action" type="button" data-action="meals" data-testid="open-meals">Meals</button>' +
+        '<button class="hdr__action" type="button" data-action="diary-toggle" ' +
+          'aria-expanded="' + open + '" data-testid="diary-toggle">' +
+          (open ? 'Hide' : 'Show') + '</button>' +
       '</div>' +
-      '<div class="card card--flush">' + rows + closing + '</div>' +
+      '<p class="t-caption-1 quiet gutter" data-testid="day-kind">' + dayKind + '</p>' +
+      (open
+        ? '<div class="card card--flush">' + rows + closing + '</div>'
+        : '<div class="card" data-testid="diary-hidden">' +
+            '<p class="t-body">' + (DAY.meals.length
+              ? DAY.meals.length + (DAY.meals.length === 1 ? ' thing' : ' things') + ' logged, ' +
+                n(DAY.eaten) + ' kcal.'
+              : 'Nothing logged yet today.') + '</p>' +
+            '<p class="t-detail quiet mt-1">The diary is hidden. The totals above are still ' +
+              'everything on it.</p>' +
+          '</div>') +
     '</div>';
   }
 
@@ -2608,7 +2989,13 @@
        has never turned it on is the feature announcing itself, which is the
        one thing a gate like this exists to prevent. */
     if (perfTracking()) items.push(['stack', 'Stack']);
-    items.push(['more', 'More']);
+    /* IT SAYS SHOP. It said "More", which is the label a screen uses when
+       nobody decided what is behind it -- and what was behind it was the
+       shopping list and the budget, the one thing on this row somebody
+       arrives looking for by name. The data-testid stays chip-more because
+       the crossing to Shopping is declared against it in the assembled demo's
+       manifest, which this package does not own. */
+    items.push(['more', 'Shop']);
     return '<div class="chiprow mt-4" data-testid="fuel-chips">' +
       items.map(function (c) {
         return '<button class="chip" type="button" data-action="' + c[0] +
@@ -2617,12 +3004,257 @@
   }
 
   /* ---------------------------------------------------------------
+     Log and Meals
+
+     One screen, two things a person comes to it for: recording what they just
+     ate, and deciding what to eat next. The build had the first as the screen
+     and the second scattered through a row of chips that opened sheets, so
+     "what am I cooking tonight" was three taps into a modal and the answer
+     closed when you looked at the diary.
+
+     The choice is remembered. A person who lives in Meals was put back on Log
+     every time they came to the tab, which is the app forgetting something it
+     was told every single day.
+     --------------------------------------------------------------- */
+  var FUEL_VIEWS = [['log', 'Log'], ['meals', 'Meals']];
+  function fuelView() {
+    var v = stored('lk_fuelView', null);
+    for (var i = 0; i < FUEL_VIEWS.length; i++) if (FUEL_VIEWS[i][0] === v) return v;
+    return 'log';
+  }
+  function setFuelView(v) {
+    if (ST && persisting()) ST.set('lk_fuelView', v);
+    S.view = v;
+  }
+  function viewSeg() {
+    var v = S.view || fuelView();
+    return '<div class="seg seg--lg mt-3" role="radiogroup" aria-label="Log or meals" ' +
+        'data-testid="fuel-view">' +
+      FUEL_VIEWS.map(function (x) {
+        return '<button class="seg__item" type="button" role="radio" ' +
+          'aria-checked="' + (v === x[0]) + '" data-action="fuel-view" data-v="' + x[0] + '" ' +
+          'data-testid="fuel-view-' + x[0] + '">' + x[1] + '</button>';
+      }).join('') + '</div>';
+  }
+
+  /* Today's plan, on the screen rather than inside the Plan sheet, with what
+     each meal is made of under it -- a plan you cannot see the ingredients of
+     is a menu, and the shopping list is built from exactly these lines. */
+  function planTodayCard() {
+    var pd = null, pi = -1;
+    PLAN.forEach(function (d, i) { if (d.iso === DAY.iso) { pd = d; pi = i; } });
+    if (!pd) {
+      return '<div class="section"><div class="section__head">' +
+          '<h2 class="t-label">Today\u2019s plan</h2>' +
+          '<button class="hdr__action" type="button" data-action="plan" data-testid="open-plan">Plan</button>' +
+        '</div>' +
+        '<div class="card" data-testid="plan-today-none">' +
+          '<p class="t-body">Nothing planned for today.</p>' +
+          '<p class="t-detail quiet mt-1">The week that is saved does not cover ' +
+            esc(DAY.date) + '. Build one and today gets its own row.</p>' +
+          '<button class="btn btn--secondary btn--block mt-3" type="button" data-action="build-plan" ' +
+            'data-testid="plan-today-build"><span class="btn__label">Build a week</span></button>' +
+        '</div></div>';
+    }
+    var left = pd.slots.filter(function (sl) { return !slotDone(pd, sl); }).length;
+    return '<div class="section"><div class="section__head">' +
+        '<h2 class="t-label">Today\u2019s plan</h2>' +
+        '<button class="hdr__action" type="button" data-action="plan" data-testid="open-plan">Plan</button>' +
+      '</div>' +
+      '<div class="card card--flush" data-testid="plan-today">' +
+        pd.slots.map(function (sl, si) {
+          var done = slotDone(pd, sl);
+          var r = null;
+          allRecipes().forEach(function (x) { if (x.key === sl.key) r = x; });
+          var made = r && r.ing && r.ing.length
+            ? r.ing.slice(0, 3).join(', ') + (r.ing.length > 3 ? '\u2026' : '')
+            : 'No ingredient list on this one';
+          return '<div class="row row--withaside" data-testid="plan-today-' + si + '">' +
+            '<span class="fuel-thumb" aria-hidden="true">' + ((FOODS[sl.key] || {}).icon || '') + '</span>' +
+            '<span class="row__main stack">' +
+              '<span class="row__title">' + esc(sl.at) + ' \u00b7 ' + esc(sl.name) + '</span>' +
+              '<span class="row__sub num">' + n(sl.kcal) + ' kcal \u00b7 ' + n(sl.pro) + ' P \u00b7 ' +
+                n(sl.carb) + ' C \u00b7 ' + n(sl.fat) + ' F</span>' +
+              '<span class="row__sub quiet">' + esc(made) + '</span>' +
+            '</span>' +
+            (done
+              ? '<span class="row__value quiet">logged</span>'
+              : '<button class="btn btn--sm btn--secondary" type="button" data-action="plan-log" ' +
+                  'data-d="' + pi + '" data-s="' + si + '" data-testid="plan-today-log-' + si + '">' +
+                  '<span class="btn__label">Log</span></button>') +
+          '</div>';
+        }).join('') +
+      '</div>' +
+      (left
+        ? '<div class="gutter"><button class="btn btn--secondary btn--block mt-2" type="button" ' +
+            'data-action="plan-log-day" data-d="' + pi + '" data-testid="plan-today-all">' +
+            '<span class="btn__label">Log the ' + left + ' left of today</span></button></div>'
+        : '') +
+    '</div>';
+  }
+
+  function oftenSection() {
+    if (!OFTEN.length) return '';
+    return '<div class="section"><div class="section__head">' +
+        '<h2 class="t-label">You log these often</h2></div>' +
+      '<div class="card card--flush" data-testid="often-list">' +
+        OFTEN.map(function (r, i) {
+          return '<div class="row row--withaside">' +
+            '<button class="row__main row__main--btn" type="button" data-action="log-often" data-i="' + i +
+              '" data-testid="meals-often-' + i + '">' +
+              '<span class="fuel-thumb" aria-hidden="true">' + r.icon + '</span>' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + esc(r.name) + '</span>' +
+                '<span class="row__sub num">logged ' + r.n + ' times</span>' +
+              '</span>' +
+              '<span class="row__value num">' + n(r.kcal) +
+                '<small class="t-caption-2 quiet"> kcal</small></span>' +
+              '<span class="row__chev">' + ICO.plus + '</span>' +
+            '</button>' +
+            '<button class="iconbtn" type="button" data-action="fav" data-k="' + r.key + '" ' +
+              'aria-pressed="' + isFav(r.key) + '" aria-label="' +
+              (isFav(r.key) ? 'Stop keeping ' : 'Keep ') + esc(r.name) + '" ' +
+              'data-testid="meals-fav-' + i + '">' + (isFav(r.key) ? ICO.starOn : ICO.star) + '</button>' +
+          '</div>';
+        }).join('') +
+      '</div></div>';
+  }
+
+  /* YOUR FOODS, with a surface of its own. It lived three taps inside the
+     meals sheet, which is where a thing goes when nobody expects it to be
+     looked for. */
+  function yourFoodsSection() {
+    var mine = myStore();
+    return '<div class="section"><div class="section__head">' +
+        '<h2 class="t-label">Your foods</h2>' +
+        '<button class="hdr__action" type="button" data-action="search" data-testid="foods-search">Search</button>' +
+      '</div>' +
+      (mine.length
+        ? '<div class="card card--flush" data-testid="my-foods">' + mine.map(function (x, i) {
+            var m = storeAt(x);
+            return '<div class="row row--withaside">' +
+              '<button class="row__main row__main--btn" type="button" data-action="store-log" ' +
+                'data-id="' + x.id + '" data-testid="foods-log-' + i + '">' +
+                '<span class="fuel-thumb" aria-hidden="true">' +
+                  ((FOODS[x.key] || {}).icon || x.icon || '\ud83d\udce6') + '</span>' +
+                '<span class="row__main stack">' +
+                  '<span class="row__title">' + esc(x.name) +
+                    (x.code ? ' <span class="pill">scanned</span>' : '') + '</span>' +
+                  '<span class="row__sub num">' + esc(storeAmount(x)) +
+                    (m ? ' \u00b7 ' + n(m.pro) + ' P \u00b7 ' + n(m.carb) + ' C \u00b7 ' + n(m.fat) + ' F' : '') +
+                    '</span>' +
+                '</span>' +
+                '<span class="row__value num">' + (m ? n(m.kcal) : '\u2014') +
+                  '<small class="t-caption-2 quiet"> kcal</small></span>' +
+                '<span class="row__chev">' + ICO.plus + '</span>' +
+              '</button>' +
+              '<button class="iconbtn" type="button" data-action="store-drop" data-id="' + x.id + '" ' +
+                'aria-label="Remove ' + esc(x.name) + ' from your foods" ' +
+                'data-testid="foods-drop-' + i + '">' +
+                '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
+            '</div>';
+          }).join('') + '</div>'
+        : '<div class="card" data-testid="my-foods-empty">' +
+            '<p class="t-body">Nothing kept yet.</p>' +
+            '<p class="t-detail quiet mt-1">Scan a barcode, or type a packet in, and it is kept ' +
+              'here and findable by name. Foods from the table can be kept at the weight you ' +
+              'buy them in.</p>' +
+          '</div>') +
+    '</div>';
+  }
+
+  function recipesSection() {
+    var list = forYou().slice(0, 4);
+    return '<div class="section"><div class="section__head">' +
+        '<h2 class="t-label">Recipes</h2>' +
+        '<button class="hdr__action" type="button" data-action="recipes" data-testid="open-recipes">All</button>' +
+      '</div>' +
+      (list.length
+        ? '<div class="card card--flush" data-testid="meals-recipes">' + list.map(function (e) {
+            var r = e.r;
+            return '<button class="row" type="button" data-action="open-recipe-sheet" data-i="' + e.i +
+              '" data-testid="meals-recipe-' + e.i + '">' +
+              '<span class="fuel-thumb" aria-hidden="true">' + r.icon + '</span>' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + esc(r.name) + '</span>' +
+                '<span class="row__sub num">' + n(Math.round(r.kcal / r.servings)) + ' kcal a serving' +
+                  (r.mins ? ' \u00b7 ' + r.mins + ' min' : '') + '</span>' +
+                (e.note ? '<span class="row__sub">' + esc(e.note) + '</span>' : '') +
+              '</span>' +
+              '<span class="row__chev">' + ICO.chev + '</span></button>';
+          }).join('') + '</div>'
+        : '<div class="card"><p class="t-body">No recipes yet.</p></div>') +
+      '<div class="gutter"><button class="btn btn--secondary btn--block mt-2" type="button" ' +
+        'data-action="new-recipe" data-testid="meals-new-recipe">' +
+        '<span class="btn__label">Build a recipe</span></button></div>' +
+    '</div>';
+  }
+
+  /* USE IT SOON. Nothing in the cupboard carries an expiry date -- the app
+     never asked for one and inventing one would be a food-safety claim with
+     nothing behind it -- so what this can honestly say is how long something
+     has been in, against the interval you said you replace it on. A staple
+     past its interval is a restock, and a fresh thing that has been in three
+     weeks is worth a look. Both are said in those words. */
+  var FRESH_DAYS = 14;
+  function useSoon() {
+    var today = DAY.iso;
+    return (stored('lk_pantryItems', []) || []).filter(function (x) {
+      return x && x.name && !x.empty && x.dateAdded;
+    }).map(function (x) {
+      var added = String(x.dateAdded).slice(0, 10);
+      var age = daysBetween(added, today);
+      if (isNaN(age) || age < 0) return null;
+      if (x.staple && x.intervalDays) {
+        if (age < x.intervalDays) return null;
+        return { name: x.name, age: age,
+                 why: 'a restock: you replace it about every ' + x.intervalDays + ' days and it ' +
+                      'went in ' + age + ' days ago' };
+      }
+      if (x.category === 'other' && age >= FRESH_DAYS) {
+        return { name: x.name, age: age,
+                 why: 'in the fridge ' + age + ' days, and fresh things do not keep that long' };
+      }
+      return null;
+    }).filter(Boolean).sort(function (a, b) { return b.age - a.age; });
+  }
+  function useSoonCard() {
+    var list = useSoon();
+    if (!list.length) return '';
+    return '<div class="section"><div class="section__head">' +
+        '<h2 class="t-label">Worth using</h2>' +
+        '<button class="hdr__action" type="button" data-action="more" data-testid="usesoon-shop">Shop</button>' +
+      '</div>' +
+      '<div class="card card--flush" data-testid="use-soon">' +
+        list.slice(0, 4).map(function (x, i) {
+          return '<div class="row row--static" data-testid="use-soon-' + i + '">' +
+            '<span class="row__main stack">' +
+              '<span class="row__title">' + esc(x.name) + '</span>' +
+              '<span class="row__sub">' + esc(x.why) + '</span>' +
+            '</span></div>';
+        }).join('') +
+      '</div>' +
+      '<p class="t-caption-1 quiet gutter mt-2">Worked out from when it went into the cupboard, ' +
+        'not from a date on the packet \u2014 nothing here records one, and a use-by this app made ' +
+        'up is not a thing to eat off.</p>' +
+    '</div>';
+  }
+
+  function mealsView() {
+    return planTodayCard() + oftenSection() + useSoonCard() + yourFoodsSection() +
+      recipesSection() + '<div>' + chips() + '</div>';
+  }
+
+  /* ---------------------------------------------------------------
      Views
      --------------------------------------------------------------- */
   var VIEWS = {};
 
   VIEWS.populated = function () {
-    return '<div>' + hero() + logAction() + macros() + microPanel() + '</div>' +
+    if ((S.view || fuelView()) === 'meals') {
+      return '<div>' + hero() + viewSeg() + '</div>' + mealsView();
+    }
+    return '<div>' + hero() + viewSeg() + logAction() + macros() + microPanel() + '</div>' +
       today() +
       '<div>' + refeedCard() + tdeeCard() + suggestCard() +
         waterCard() + weightCard() + chips() + '</div>';
@@ -3107,6 +3739,20 @@
           '</div>' +
         '</div>';
     }
+    /* THE REMOTE HALF, AND WHY THERE IS NO KEY FIELD HERE.
+
+       A real food search reaches USDA FoodData Central, FatSecret and Open
+       Food Facts. USDA wants an API key; the other two want an OAuth client
+       and a server to hold it, because a key shipped inside a page is a key
+       given away. So the honest local half of this row is the search over
+       everything on this device -- the table, your recipes, your kept foods --
+       which is what is below, and a sentence naming the three sources.
+
+       What is NOT here is a field to type an API key into. There is nothing
+       on this device that could send a request with it, so it would be a
+       credential collected for no purpose and stored under a key name this
+       package would have to invent. The key belongs with the proxy that will
+       hold it, at cutover. */
     if (S.sheet === 'search') {
       var q = (S.searchQ || '').trim().toLowerCase();
       /* A barcode is not a word. Typed into a food search it matches nothing
@@ -3148,9 +3794,11 @@
               'placeholder="Chicken, oats, skyr\u2026" aria-label="Search foods" ' +
               'data-testid="search-input" value="' + esc(S.searchQ || '') + '">' +
             slotPicker(S.logSlot || slotForNow(), 'pick-slot', 'search-slot') +
-            '<p class="t-detail quiet mt-2">' + hits.length +
-              (hits.length === 1 ? ' food' : ' foods') + ' in this build\u2019s table and your own recipes. ' +
-              'A real search reaches a food database; this one does not pretend to.</p>' +
+            '<p class="t-detail quiet mt-2" data-testid="search-scope">' + hits.length +
+              (hits.length === 1 ? ' food' : ' foods') + ' across this build\u2019s table, your own ' +
+              'recipes and the foods you have kept. A real search also reaches USDA, FatSecret ' +
+              'and Open Food Facts, which needs a server this build does not have: nothing here ' +
+              'is coming off the network.</p>' +
             (hits.length
               ? '<div class="card card--flush mt-3">' + hits.map(function (f, i) {
                   /* The row logs the standard serving, which is the common
@@ -3172,7 +3820,7 @@
                         '<small class="t-caption-2 quiet"> kcal</small></span>' +
                       '<span class="row__chev">' + ICO.plus + '</span>' +
                     '</button>' +
-                    (f.key
+                    (f.key && !f.storeId
                       ? '<button class="iconbtn" type="button" data-action="food-detail" data-k="' + f.key + '" ' +
                         'aria-label="Set the amount of ' + esc(f.name) + '" data-testid="food-detail-' + i + '">' +
                         ICO.scale + '</button>'
@@ -3225,18 +3873,22 @@
               '</div>';
             }).join('') + '</div>' +
             (myStore().length
-              ? '<h3 class="t-label mt-5">Your store</h3>' +
-                '<p class="t-detail quiet mt-1">Foods at the amount you actually buy them in.</p>' +
+              ? '<h3 class="t-label mt-5">Your foods</h3>' +
+                '<p class="t-detail quiet mt-1">What you have kept: foods at the amount you buy ' +
+                  'them in, and anything you have scanned or typed off a packet. Every one of ' +
+                  'them is findable by name in the food search.</p>' +
                 '<div class="card card--flush mt-2" data-testid="my-store">' +
                   myStore().map(function (x, i) {
                     var m = storeMeal(x);
                     return '<div class="row row--withaside">' +
                       '<button class="row__main row__main--btn" type="button" data-action="store-log" ' +
                         'data-id="' + x.id + '" data-testid="store-log-' + i + '">' +
-                        '<span class="fuel-thumb" aria-hidden="true">' + (FOODS[x.key] || {}).icon + '</span>' +
+                        '<span class="fuel-thumb" aria-hidden="true">' +
+                          ((FOODS[x.key] || {}).icon || x.icon || '\ud83d\udce6') + '</span>' +
                         '<span class="row__main stack">' +
-                          '<span class="row__title">' + esc(x.name) + '</span>' +
-                          '<span class="row__sub num">' + n(x.g) + ' g \u00b7 ' +
+                          '<span class="row__title">' + esc(x.name) +
+                            (x.code ? ' <span class="pill">scanned</span>' : '') + '</span>' +
+                          '<span class="row__sub num">' + esc(storeAmount(x)) + ' \u00b7 ' +
                             (m ? n(m.pro) + ' P \u00b7 ' + n(m.carb) + ' C \u00b7 ' + n(m.fat) + ' F' : '') +
                           '</span>' +
                         '</span>' +
@@ -3378,6 +4030,12 @@
               : '<p class="t-body mt-4" data-testid="recipe-none">Nothing here yet.</p>') +
             '<button class="btn btn--secondary btn--block mt-3" type="button" data-action="new-recipe" ' +
               'data-testid="new-recipe"><span class="btn__label">Build a recipe</span></button>' +
+            '<p class="t-caption-1 quiet mt-3" data-testid="recipe-coach">' + (coachRecipes().length
+              ? coachRecipes().length + ' of these came from your coach and are marked. They are ' +
+                'read-only here: a coach\u2019s recipe is theirs to change.'
+              : 'A coach can send you recipes, and they would be listed here, marked and ' +
+                'read-only. None have arrived \u2014 they travel over the same account sync as ' +
+                'their plan, which needs the server this build does not have.') + '</p>' +
           '</div>' +
         '</div>';
     }
@@ -3483,20 +4141,56 @@
               '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
             '</button></div>' +
           '<div class="sheet__body">' +
+            /* THE UNIT IS ON THE FORM. It was in Settings, two screens away,
+               so somebody typing their weight in pounds into a field labelled
+               kg had to leave, change it and come back -- and the app is one
+               switch app-wide, so the toggle here IS that switch and says so.
+               Height is the same problem in a worse place: a single
+               centimetres box with a feet-and-inches readout under it is a
+               conversion somebody has to do in their head before they can
+               type. */
             '<div class="hstack hstack--3">' +
               '<div class="grow"><label class="t-label field__label" for="fp-w">Weight</label>' +
                 '<input class="input num" id="fp-w" type="number" ' +
                   'min="' + (LKUnits.useKg() ? 20 : 45) + '" max="' + (LKUnits.useKg() ? 400 : 880) + '" step="0.1" ' +
                   'inputmode="decimal" value="' + wtNum(fp.weightKg) + '" data-testid="fp-weight">' +
-                '<p class="t-caption-1 quiet mt-1">' + LKUnits.label() + '</p></div>' +
-              '<div class="grow"><label class="t-label field__label" for="fp-h">Height</label>' +
-                '<input class="input num" id="fp-h" type="number" min="100" max="250" step="1" ' +
-                  'inputmode="numeric" value="' + fp.heightCm + '" data-testid="fp-height">' +
-                '<p class="t-caption-1 quiet mt-1">cm \u00b7 ' + ftIn(fp.heightCm) + '</p></div>' +
+                '<div class="seg mt-1" role="radiogroup" aria-label="Weight unit" data-testid="fp-wunit">' +
+                  [['kg', 'kg'], ['lb', 'lb']].map(function (u) {
+                    return '<button class="seg__item" type="button" role="radio" ' +
+                      'aria-checked="' + ((u[0] === 'kg') === LKUnits.useKg()) + '" ' +
+                      'data-action="fp-wunit" data-v="' + u[0] + '" ' +
+                      'data-testid="fp-wunit-' + u[0] + '">' + u[1] + '</button>';
+                  }).join('') + '</div></div>' +
               '<div class="grow"><label class="t-label field__label" for="fp-a">Age</label>' +
                 '<input class="input num" id="fp-a" type="number" min="13" max="100" step="1" ' +
                   'inputmode="numeric" value="' + fp.age + '" data-testid="fp-age">' +
                 '<p class="t-caption-1 quiet mt-1">years</p></div>' +
+            '</div>' +
+            '<label class="t-label field__label mt-3" for="fp-h">Height</label>' +
+            (fp.ft
+              ? '<div class="hstack hstack--2">' +
+                  '<input class="input num grow" id="fp-ft" type="number" min="3" max="8" step="1" ' +
+                    'inputmode="numeric" value="' + Math.floor(Math.round(fp.heightCm / 2.54) / 12) + '" ' +
+                    'aria-label="Height, feet" data-testid="fp-ft">' +
+                  '<span class="t-caption-1 quiet">ft</span>' +
+                  '<input class="input num grow" id="fp-in" type="number" min="0" max="11" step="1" ' +
+                    'inputmode="numeric" value="' + (Math.round(fp.heightCm / 2.54) % 12) + '" ' +
+                    'aria-label="Height, inches" data-testid="fp-in">' +
+                  '<span class="t-caption-1 quiet">in</span>' +
+                '</div>'
+              : '<input class="input num" id="fp-h" type="number" min="100" max="250" step="1" ' +
+                  'inputmode="numeric" value="' + fp.heightCm + '" data-testid="fp-height">') +
+            '<div class="hstack hstack--3 mt-1">' +
+              '<span class="t-caption-1 quiet grow">' + (fp.ft
+                ? Math.round(fp.heightCm) + ' cm'
+                : ftIn(fp.heightCm)) + '</span>' +
+              '<div class="seg" role="radiogroup" aria-label="Height unit" data-testid="fp-hunit">' +
+                [['cm', 'cm'], ['ft', 'ft / in']].map(function (u) {
+                  return '<button class="seg__item" type="button" role="radio" ' +
+                    'aria-checked="' + ((u[0] === 'ft') === !!fp.ft) + '" ' +
+                    'data-action="fp-hunit" data-v="' + u[0] + '" ' +
+                    'data-testid="fp-hunit-' + u[0] + '">' + u[1] + '</button>';
+                }).join('') + '</div>' +
             '</div>' +
             '<h3 class="t-label mt-5">Sex</h3>' +
             '<p class="t-caption-1 quiet mt-1">The formula uses it, and it is the only thing it ' +
@@ -3547,20 +4241,79 @@
                     '<span class="t-body-em num">' + n(auto.fat) + ' g</span></div>' +
                   '<p class="t-caption-1 quiet mt-2">' + esc(auto.why) + '</p>' +
                 '</div>'
-              : '<p class="t-detail quiet mt-3">Your own figures stand. Change them in Daily ' +
-                'targets; nothing here will move them.</p>') +
+              /* MINE MEANS MINE, HERE. Choosing "Mine" sent you to another
+                 sheet to type the figures, which is the choice and the thing
+                 chosen living on two screens. */
+              : '<div class="card mt-3" data-testid="fp-custom">' +
+                  '<p class="t-detail">Your figures. Saving writes these as the day\u2019s targets ' +
+                    'and nothing on this screen recomputes them.</p>' +
+                  '<label class="t-label field__label mt-3" for="fp-kcal">Calories</label>' +
+                  '<input class="input num" id="fp-kcal" type="number" min="800" max="8000" step="10" ' +
+                    'inputmode="numeric" value="' + (fp.kcal || TARGETS.kcal || auto.kcal) + '" ' +
+                    'data-testid="fp-kcal">' +
+                  [['pro', 'Protein'], ['carb', 'Carbs'], ['fat', 'Fat']].map(function (mk, mi) {
+                    return '<label class="t-label field__label mt-3" for="fp-' + mk[0] + '">' +
+                        mk[1] + ', g</label>' +
+                      '<input class="input num" id="fp-' + mk[0] + '" type="number" min="0" max="1000" ' +
+                        'step="5" inputmode="numeric" value="' +
+                        (fp[mk[0]] || (TARGETS[mk[0]] || auto[mk[0]])) + '" ' +
+                        'data-testid="fp-' + mk[0] + '">';
+                  }).join('') +
+                  '<p class="t-caption-1 quiet mt-2">' + (function () {
+                    var kc = +(fp.kcal || TARGETS.kcal || auto.kcal);
+                    var fromMacros = (+(fp.pro || TARGETS.pro || auto.pro)) * 4 +
+                      (+(fp.carb || TARGETS.carb || auto.carb)) * 4 +
+                      (+(fp.fat || TARGETS.fat || auto.fat)) * 9;
+                    var diff = Math.round(fromMacros - kc);
+                    return Math.abs(diff) < 50
+                      ? 'The three macros come to ' + n(Math.round(fromMacros)) + ' kcal, which is ' +
+                        'what the calorie figure says.'
+                      : 'The three macros come to ' + n(Math.round(fromMacros)) + ' kcal, ' +
+                        n(Math.abs(diff)) + ' ' + (diff > 0 ? 'more' : 'less') + ' than the calorie ' +
+                        'figure. Both are saved as typed \u2014 neither one is corrected to the ' +
+                        'other, because which of them you meant is not something this can know.';
+                  })() + '</p>' +
+                '</div>') +
             '<h3 class="t-label mt-5">Anything you do not eat</h3>' +
-            '<label class="t-label field__label mt-2" for="fp-diet">Dietary preferences</label>' +
+            /* Six chips, because these six are the ones people actually keep,
+               and a chip is a fact the app can act on where a sentence is
+               not. The free-text line stays under them for everything else. */
+            '<div class="chiprow mt-2" data-testid="fp-diet-chips">' + DIETS.map(function (d) {
+              var on = (fp.diets || []).indexOf(d[0]) >= 0;
+              return '<button class="chip' + (on ? ' chip--on' : '') + '" type="button" ' +
+                'aria-pressed="' + on + '" data-action="fp-diet-chip" data-v="' + d[0] + '" ' +
+                'data-testid="fp-diet-' + d[0] + '">' + esc(d[1]) + '</button>';
+            }).join('') + '</div>' +
+            '<label class="t-label field__label mt-3" for="fp-diet">Anything else</label>' +
             '<input class="input" id="fp-diet" type="text" autocomplete="off" ' +
-              'placeholder="Vegetarian, no pork" value="' + esc(fp.diet || '') + '" ' +
+              'placeholder="No pork" value="' + esc(fp.diet || '') + '" ' +
               'data-testid="fp-diet">' +
             '<label class="t-label field__label mt-3" for="fp-allergy">Allergies</label>' +
             '<input class="input" id="fp-allergy" type="text" autocomplete="off" ' +
               'placeholder="Peanuts, shellfish" value="' + esc(fp.allergy || '') + '" ' +
               'data-testid="fp-allergy">' +
             '<p class="t-caption-1 quiet mt-2">Written down and shown beside anything this app ' +
-              'suggests. It is a note to you, not a filter that can be trusted with a real ' +
-              'allergy \u2014 the food table is eight rows and it does not carry ingredients.</p>' +
+              'suggests, and the chips hide a recipe whose ingredients name them. It is not a ' +
+              'filter that can be trusted with a real allergy: the food table is eight rows and ' +
+              'it does not carry full ingredient lists, so check the ingredients yourself.</p>' +
+            /* THE STAPLES BOX, back, and reaching the thing that replaced it.
+               It was dropped, and nothing on this sheet knew the cupboard
+               existed -- so the one place a person says what they always have
+               in could not put it where the shopping list would see it. */
+            '<h3 class="t-label mt-5">What you always have in</h3>' +
+            '<p class="t-caption-1 quiet mt-1">These go into the cupboard, which is what the ' +
+              'shopping list checks before it adds anything. ' +
+              (pantryStaples().length
+                ? pantryStaples().length + ' already there: ' +
+                  esc(pantryStaples().slice(0, 6).join(', ')) + '.'
+                : 'Nothing there yet.') + '</p>' +
+            '<div class="hstack hstack--2 mt-2">' +
+              '<input class="input grow" id="fp-staple" type="text" autocomplete="off" ' +
+                'placeholder="Oats, eggs, olive oil" aria-label="Staples to add to the cupboard" ' +
+                'data-testid="fp-staple">' +
+              '<button class="btn btn--secondary" type="button" data-action="fp-staple-add" ' +
+                'data-testid="fp-staple-add"><span class="btn__label">Add</span></button>' +
+            '</div>' +
           '</div>' +
           '<div class="sheet__foot">' +
             '<button class="btn btn--primary btn--block" type="button" data-action="fp-save" ' +
@@ -3576,7 +4329,8 @@
        an entry with neither is a row in the diary that means nothing and can
        never be reconciled with anything. */
     if (S.sheet === 'manual') {
-      var mn = S.man || { name: '', kcal: '', pro: '', carb: '', fat: '', error: null };
+      var mn = S.man || { name: '', kcal: '', pro: '', carb: '', fat: '', g: '',
+                          code: null, keep: false, error: null };
       var mOk = mn.name.trim().length > 0 && +mn.kcal > 0;
       var mSlot = S.logSlot || slotForNow();
       var fld = function (k, label, unit, max) {
@@ -3597,6 +4351,15 @@
           '<div class="sheet__body">' +
             '<p class="t-detail">For the things the table has never heard of. Read them off the ' +
               'packet, or off the menu. It goes in as an estimate, because that is what it is.</p>' +
+            (mn.code
+              ? '<div class="card card--sunken mt-3" data-testid="mn-code">' +
+                  '<div class="hstack hstack--3"><span class="t-body grow">Barcode</span>' +
+                    '<span class="t-body-em num">' + esc(prettyCode(mn.code)) + '</span></div>' +
+                  '<p class="t-caption-1 quiet mt-2">The code came with you from the scan. What you ' +
+                    'type below is kept against it, so the next scan of this packet resolves on ' +
+                    'this device instead of coming back not found.</p>' +
+                '</div>'
+              : '') +
             '<label class="t-label field__label mt-4" for="mn-name">What it was</label>' +
             '<input class="input" id="mn-name" type="text" autocomplete="off" ' +
               'placeholder="Chicken katsu, the one from work" value="' + esc(mn.name) + '" ' +
@@ -3605,7 +4368,25 @@
             fld('pro', 'Protein', 'grams. Leave it at nothing if the packet does not say.', 500) +
             fld('carb', 'Carbs', 'grams', 800) +
             fld('fat', 'Fat', 'grams', 400) +
+            /* KEEPING IT NEEDS A WEIGHT. Figures for a portion cannot be
+               scaled to a different portion without knowing what the portion
+               weighed, so the store asks rather than assuming 100 g and
+               quietly halving somebody's protein next time. */
+            (mn.keep || mn.code
+              ? fld('g', 'What that weighs', 'grams. It is what lets a different amount be ' +
+                    'logged from it later. Leave it blank and it is kept as one serving.', 20000)
+              : '') +
             slotPicker(mSlot, 'pick-slot', 'mn-slot') +
+            '<div class="hstack hstack--3 mt-4">' +
+              '<span class="t-body grow" id="mn-keep-lbl">Keep it in your foods</span>' +
+              '<button class="switch" type="button" role="switch" aria-checked="' + !!mn.keep + '" ' +
+                'aria-labelledby="mn-keep-lbl" data-action="mn-keep" data-testid="mn-keep">' +
+                '<span class="switch__track"></span><span class="switch__knob"></span></button>' +
+            '</div>' +
+            '<p class="t-caption-1 quiet mt-1">' + (mn.keep
+              ? 'It will be searchable by name next time' +
+                (mn.code ? ', and this barcode will resolve to it.' : '.')
+              : 'Logged once and not kept. The next time you eat it, you type it again.') + '</p>' +
             (mn.error ? '<p class="field__error mt-2" role="alert" data-testid="mn-error">' +
               esc(mn.error) + '</p>' : '') +
           '</div>' +
@@ -3717,6 +4498,27 @@
               'placeholder="Chilli, pasta" value="' + esc(g.avoid) + '" data-testid="gp-avoid">' +
             '<p class="t-caption-1 quiet mt-1">Matched against the names in the table, ' +
               'comma separated.</p>' +
+            /* The two preferences it actually has, said where the week is
+               built rather than left for somebody to discover in the result. */
+            '<h3 class="t-label mt-4">What it is already working to</h3>' +
+            '<div class="card card--sunken mt-2" data-testid="gp-prefs">' +
+              '<div class="hstack hstack--3"><span class="t-body grow">Your targets</span>' +
+                '<span class="t-body-em num">' + n(DAY.target) + ' kcal \u00b7 ' +
+                  n(DAY.macros[0].want) + ' g P</span></div>' +
+              '<div class="hstack hstack--3 mt-2"><span class="t-body grow">What you do not eat</span>' +
+                '<span class="t-body-em">' + (dietWords().length
+                  ? n(Object.keys(FOODS).length - buildPool(g.avoid).length) + ' of ' +
+                    Object.keys(FOODS).length + ' taken out'
+                  : 'nothing set') + '</span></div>' +
+              '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Budget</span>' +
+                '<span class="t-body-em">' + (budgetSpent()
+                  ? '\u00a3' + budgetSpent().weekly + ' a week, on Shop'
+                  : 'not set') + '</span></div>' +
+              '<p class="t-caption-1 quiet mt-2">Preferences come off your profile, so they are ' +
+                'the same ones the recipe list uses. The budget is NOT costed into this week: ' +
+                'the food table carries no prices, so a plan priced against it would be a number ' +
+                'this app made up. Shop is where a week is costed.</p>' +
+            '</div>' +
             (pv
               ? '<h3 class="t-label mt-5">What that comes to</h3>' +
                 '<div class="card card--flush mt-2" data-testid="gp-preview">' +
@@ -3874,8 +4676,7 @@
                       '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
                   '</div>';
                 }).join('') + '</div>' +
-                '<button class="btn btn--tertiary btn--block mt-2" type="button" data-action="br-weigh" ' +
-                  'data-testid="br-weigh"><span class="btn__label">Save the weights above</span></button>'
+                ''
               : '<p class="t-detail quiet mt-2">Nothing in it yet. Add what the whole batch is made ' +
                 'of, not one plateful \u2014 the servings figure above does the dividing, and every ' +
                 'ingredient is in grams because that is what a scale reads.</p>') +
@@ -4080,9 +4881,12 @@
         return shell(
           '<p class="t-body-17" data-testid="scan-notfound">Nothing matches ' +
             esc(prettyCode(S.scanCode)) + '.</p>' +
-          '<p class="t-detail mt-2">That is not a broken scan. This build resolves three barcodes, ' +
-            'and a real one reaches a database of millions. What is on the packet is on the ' +
-            'label, so type that in instead and it goes in as your own entry.</p>',
+          '<p class="t-detail mt-2">That is not a broken scan. This build resolves three barcodes ' +
+            'and whatever you have told it about; a real one reaches a database of millions. ' +
+            'What is on the packet is on the label: type that in and it is kept against this ' +
+            'code, so the next scan of it comes back with your figures instead of this.</p>' +
+          '<p class="t-caption-1 quiet mt-2" data-testid="scan-carry">' +
+            esc(prettyCode(S.scanCode)) + ' goes to the form with you.</p>',
           '<button class="btn btn--primary btn--block" type="button" data-action="scan-manual" ' +
             'data-testid="scan-manual"><span class="btn__label">Type the label instead</span></button>' +
           '<button class="btn btn--tertiary btn--block mt-2" type="button" data-action="scan-again" ' +
@@ -4111,10 +4915,22 @@
             '<span class="t-body-em">' + esc(f.name) + '</span>' +
             '<span class="t-caption-1 quiet num">' + esc(prettyCode(f.code)) + '</span>' +
           '</span>' +
-          badge('verified') +
+          /* WHAT THE FIGURES ACTUALLY ARE. A product you typed off a packet
+             and kept against its code is your estimate, however it was
+             reached the second time. Stamping Verified on it because it came
+             back from a barcode would be the badge lying about its own
+             claim. */
+          badge(f.src === 'estimate' ? 'estimate' : 'verified') +
         '</div>' +
-        '<p class="t-detail mt-4">A barcode matched a database row, so these are the ' +
-          'manufacturer&rsquo;s own figures. They are only wrong if the portion is.</p>' +
+        '<p class="t-detail mt-4">' + (f.mine
+          ? 'You have scanned this before, so it came back off this device without a lookup. ' +
+            'The figures are the ones kept against the code.'
+          : 'A barcode matched a database row, so these are the manufacturer&rsquo;s own ' +
+            'figures. They are only wrong if the portion is.') + '</p>' +
+        '<p class="t-caption-1 quiet mt-2" data-testid="scan-kept">' + (f.mine
+          ? 'It is already in your foods, and searchable by name.'
+          : 'Kept in your foods as \u201c' + esc(f.name) + '\u201d \u2014 the next scan of this ' +
+            'code resolves on this device, and it is searchable by name from now on.') + '</p>' +
         '<label class="t-label field__label mt-4" for="scan-servings">Servings</label>' +
         '<input class="input num" id="scan-servings" type="number" min="0.25" max="10" step="0.25" ' +
           'inputmode="decimal" value="' + S.scanServings + '" data-testid="scan-servings">' +
@@ -4366,8 +5182,12 @@
       S.scanState = 'idle'; S.scanCode = ''; S.scanError = null; S.scanHit = null;
       render(); return;
     }
+    /* THE BARCODE TRAVELS. It was dropped on the way to the form, so a label
+       somebody typed out in full was stored against nothing and the same code
+       failed identically the next day. */
     if (a === 'scan-manual') {
-      S.man = { name: '', kcal: '', pro: '', carb: '', fat: '', error: null };
+      S.man = { name: '', kcal: '', pro: '', carb: '', fat: '', g: '',
+                code: String(S.scanCode || '').replace(/\D/g, ''), keep: true, error: null };
       S.sheet = 'manual'; render(); return;
     }
     if (a === 'targets') { S.sheet = 'targets'; S.targetError = null; render(); return; }
@@ -4375,6 +5195,16 @@
     if (a === 'scan-log') { scanLog(); return; }
     if (a === 'meal') { S.sheet = 'meal:' + act.getAttribute('data-i'); render(); return; }
     if (a === 'meals' || a === 'trends' || a === 'water' || a === 'supps') { S.sheet = a; render(); return; }
+    if (a === 'fuel-view') {
+      setFuelView(act.getAttribute('data-v'));
+      render();
+      body.scrollTop = 0;
+      return;
+    }
+    if (a === 'open-recipe-sheet') {
+      S.sheet = 'recipes'; S.recipeOpen = +act.getAttribute('data-i'); S.recipeServ = 1;
+      render(); return;
+    }
     if (a === 'water-add') { DAY.waterMl = Math.min(4000, DAY.waterMl + 250); saveDay(); render(); return; }
     if (a === 'water-sub') { DAY.waterMl = Math.max(0, DAY.waterMl - 250); saveDay(); render(); return; }
     /* The tick writes to lk_suppLog, which is the thing streaks are counted
@@ -4452,7 +5282,8 @@
       var q2 = (S.searchQ || '').trim().toLowerCase();
       var hit = searchHits(q2)[+act.getAttribute('data-i')];
       if (!hit) return;
-      addMeal(withMicros({ key: hit.key || null, icon: hit.icon, name: hit.name, kcal: hit.kcal,
+      addMeal(withMicros({ key: hit.storeId ? null : (hit.key || null), icon: hit.icon,
+                name: hit.name, kcal: hit.kcal,
                 pro: hit.pro, carb: hit.carb, fat: hit.fat, src: hit.src,
                 slot: S.logSlot || slotForNow() }, hit));
       S.sheet = null;
@@ -4583,6 +5414,48 @@
       render(); return;
     }
     if (a === 'fp-save') { saveFuelProfile(); return; }
+    /* One switch, app-wide: this is LKUnits, not a second copy of it. */
+    if (a === 'fp-wunit') {
+      readFP();
+      LKUnits.set(act.getAttribute('data-v') === 'kg');
+      render(); return;
+    }
+    if (a === 'fp-hunit') {
+      readFP();
+      S.fp.ft = act.getAttribute('data-v') === 'ft';
+      render(); return;
+    }
+    if (a === 'fp-diet-chip') {
+      readFP();
+      var dv = act.getAttribute('data-v');
+      S.fp.diets = S.fp.diets || [];
+      var dAt = S.fp.diets.indexOf(dv);
+      if (dAt >= 0) S.fp.diets.splice(dAt, 1); else S.fp.diets.push(dv);
+      render(); return;
+    }
+    /* Straight into the cupboard, which is the key the shopping list reads. */
+    if (a === 'fp-staple-add') {
+      readFP();
+      var stEl = document.getElementById('fp-staple');
+      var txt = stEl ? stEl.value.trim() : '';
+      if (!txt) { say('Type what you always have in first.'); return; }
+      var names = txt.split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+      var pan = (stored('lk_pantryItems', []) || []).slice();
+      var put = 0;
+      names.forEach(function (nm, i) {
+        if (pan.some(function (x) { return sameItem(x.name, nm) && !x.empty; })) return;
+        pan.push({ id: 'p_' + (Date.now() + i), name: nm.slice(0, 40), quantity: 1, unit: '',
+                   store: '', category: 'pantry', dateAdded: new Date().toISOString(),
+                   empty: false, staple: true });
+        put++;
+      });
+      if (ST && persisting()) ST.set('lk_pantryItems', pan);
+      if (stEl) stEl.value = '';
+      render();
+      say(put ? put + (put === 1 ? ' thing' : ' things') + ' now in the cupboard.'
+              : 'All of that is in the cupboard already.');
+      return;
+    }
     if (a === 'water-add5') { DAY.waterMl = Math.min(4000, DAY.waterMl + 500); saveDay(); render(); return; }
     if (a === 'water-unit') {
       var fp = stored('lk_fuelProfile', {}) || {};
@@ -4644,10 +5517,12 @@
       return;
     }
     if (a === 'manual') {
-      S.man = { name: '', kcal: '', pro: '', carb: '', fat: '', error: null };
+      S.man = { name: '', kcal: '', pro: '', carb: '', fat: '', g: '',
+                code: null, keep: true, error: null };
       S.sheet = 'manual'; render(); return;
     }
     if (a === 'mn-add') { manualAdd(); return; }
+    if (a === 'mn-keep') { readManual(); S.man.keep = !S.man.keep; render(); return; }
     if (a === 'mic-eg') {
       S.micText = act.getAttribute('data-t');
       S.micItems = parseMeal(S.micText);
@@ -4685,6 +5560,10 @@
       return;
     }
     if (a === 'micros') { S.microOpen = !S.microOpen; render(); return; }
+    if (a === 'diary-toggle') {
+      if (ST && persisting()) ST.set('lk_fuelDiaryHidden', !diaryHidden());
+      render(); return;
+    }
     if (a === 'pick-slot') { S.logSlot = act.getAttribute('data-slot'); render(); return; }
     if (a === 'move-slot') {
       /* The open sheet is 'meal:<index>', so the meal being moved is the one
@@ -4830,7 +5709,6 @@
     if (a === 'br-drop') {
       readDraft(); S.draft.items.splice(+act.getAttribute('data-i'), 1); render(); return;
     }
-    if (a === 'br-weigh') { readDraft(); render(); say('Weights saved into the recipe.'); return; }
     /* An ingredient the table has never heard of, at the figures on its
        packet. It is per 100 g because that is what a packet prints. */
     if (a === 'br-add-manual') {
@@ -5042,8 +5920,22 @@
        lk_profile holds. */
     var shown = num('fp-w', LKUnits.useKg() ? 20 : 45, LKUnits.useKg() ? 400 : 880, wtNum(S.fp.weightKg));
     S.fp.weightKg = Math.round(wtToKg(Number(shown)) * 10) / 10;
-    S.fp.heightCm = Math.round(num('fp-h', 100, 250, S.fp.heightCm));
+    /* Feet and inches are two fields and one height. Stored in centimetres,
+       which is the only unit lk_profile holds. */
+    if (S.fp.ft && document.getElementById('fp-ft')) {
+      var ft = num('fp-ft', 3, 8, Math.floor(Math.round(S.fp.heightCm / 2.54) / 12));
+      var inch = num('fp-in', 0, 11, Math.round(S.fp.heightCm / 2.54) % 12);
+      S.fp.heightCm = Math.round((ft * 12 + inch) * 2.54);
+    } else {
+      S.fp.heightCm = Math.round(num('fp-h', 100, 250, S.fp.heightCm));
+    }
     S.fp.age = Math.round(num('fp-a', 13, 100, S.fp.age));
+    if (S.fp.macroMode === 'custom') {
+      S.fp.kcal = Math.round(num('fp-kcal', 800, 8000, S.fp.kcal || TARGETS.kcal || 2000));
+      S.fp.pro = Math.round(num('fp-pro', 0, 1000, S.fp.pro || TARGETS.pro || 0));
+      S.fp.carb = Math.round(num('fp-carb', 0, 1000, S.fp.carb || TARGETS.carb || 0));
+      S.fp.fat = Math.round(num('fp-fat', 0, 1000, S.fp.fat || TARGETS.fat || 0));
+    }
     var d = document.getElementById('fp-diet');
     var al = document.getElementById('fp-allergy');
     if (d) S.fp.diet = d.value.slice(0, 120);
@@ -5060,7 +5952,8 @@
       ST.patch('lk_profile', { weightKg: fp.weightKg, heightCm: fp.heightCm,
                                age: fp.age, sex: fp.sex, goal: fp.goal });
       ST.patch('lk_fuelProfile', { activity: fp.activity, macroMode: fp.macroMode,
-                                   diet: fp.diet, allergy: fp.allergy });
+                                   diet: fp.diet, diets: (fp.diets || []).slice(),
+                                   ft: !!fp.ft, allergy: fp.allergy });
     }
     PROFILE.weightKg = fp.weightKg; PROFILE.heightCm = fp.heightCm;
     PROFILE.age = fp.age; PROFILE.sex = fp.sex; PROFILE.goal = fp.goal;
@@ -5081,6 +5974,14 @@
       saveTargetsTo({ kcal: m.kcal, pro: m.pro, carb: m.carb, fat: m.fat,
                       waterMl: TARGETS.waterMl });
       msg = 'Saved. Targets are now ' + n(m.kcal) + ' kcal, ' + n(m.pro) + ' g protein.';
+    } else if (fp.kcal) {
+      /* Typed here, saved here. Choosing "Mine" used to send somebody to
+         another sheet to type the figures the sheet had just asked for. */
+      DAY.target = fp.kcal;
+      DAY.macros[0].want = fp.pro; DAY.macros[1].want = fp.carb; DAY.macros[2].want = fp.fat;
+      saveTargetsTo({ kcal: fp.kcal, pro: fp.pro, carb: fp.carb, fat: fp.fat,
+                      waterMl: TARGETS.waterMl });
+      msg = 'Saved. Your targets: ' + n(fp.kcal) + ' kcal, ' + n(fp.pro) + ' g protein.';
     }
     DAY.goal = GOAL_WORD[fp.goal]; DAY.goalKey = fp.goal;
     DAY.weightKg = fp.weightKg;
@@ -5186,8 +6087,9 @@
   }
 
   function readManual() {
-    if (!S.man) S.man = { name: '', kcal: '', pro: '', carb: '', fat: '', error: null };
-    ['name', 'kcal', 'pro', 'carb', 'fat'].forEach(function (k) {
+    if (!S.man) S.man = { name: '', kcal: '', pro: '', carb: '', fat: '', g: '',
+                          code: null, keep: false, error: null };
+    ['name', 'kcal', 'pro', 'carb', 'fat', 'g'].forEach(function (k) {
       var el = document.getElementById('mn-' + k);
       if (el) S.man[k] = el.value;
     });
@@ -5213,9 +6115,25 @@
          it off a packet or remembered it. */
       src: 'estimate', slot: S.logSlot || slotForNow()
     });
+    /* KEPT, WITH ITS CODE. The typed label used to be logged and thrown away,
+       so a barcode that came back not found came back not found forever. */
+    var kept = null;
+    if (m.keep) {
+      var wg = parseFloat(m.g);
+      var grams = isNaN(wg) || wg < 1 || wg > 20000 ? null : Math.round(wg);
+      kept = saveProduct({
+        name: m.name.trim().slice(0, 60), code: m.code || null,
+        g: grams || 100, serving: grams ? null : 'one serving',
+        icon: '\ud83c\udf7d\ufe0f', src: 'estimate',
+        per100: per100Of({ kcal: kcal, pro: num(m.pro, 500), carb: num(m.carb, 800),
+                           fat: num(m.fat, 400) }, grams || 100)
+      });
+    }
+    var code = m.code;
     S.man = null; S.sheet = null;
     render();
-    say(esc(m.name.trim()) + ' logged, ' + n(kcal) + ' kcal.');
+    say(esc(m.name.trim()) + ' logged, ' + n(kcal) + ' kcal.' +
+        (kept ? (code ? ' Kept against ' + prettyCode(code) + '.' : ' Kept in your foods.') : ''));
   }
 
   function saveRecipe() {
@@ -5296,6 +6214,17 @@
       var hit = lookupCode(digits);
       S.scanHit = hit;
       S.scanState = hit ? 'found' : 'notfound';
+      /* IDENTIFIED IS KEPT. A code that resolved is written into your own
+         foods the moment it resolves, not when something is logged from it:
+         looking a product up and deciding not to eat it is still the app
+         learning what the code is. Nothing is kept twice -- a product already
+         yours came back from the store in the first place. */
+      S.scanKept = false;
+      if (hit && !hit.mine) {
+        var base = FOODS[hit.key] ? FOODS[hit.key].g : 100;
+        if (saveProduct({ name: hit.name, code: digits, g: base, icon: hit.icon,
+                          src: 'verified', per100: per100Of(hit, base) })) S.scanKept = true;
+      }
       render();
     }, 600);
   }
@@ -5307,7 +6236,8 @@
        and the day's fat bar quietly lost it on every scan. */
     var meal = { key: f.key, icon: f.icon, name: f.name, kcal: Math.round(f.kcal * k),
                  pro: Math.round(f.pro * k), carb: Math.round(f.carb * k),
-                 fat: Math.round(f.fat * k * 10) / 10, src: 'verified',
+                 fat: Math.round(f.fat * k * 10) / 10,
+                 src: f.src === 'estimate' ? 'estimate' : 'verified',
                  slot: S.logSlot || slotForNow() };
     MICROS.forEach(function (mi) {
       if (typeof f[mi.key] === 'number') meal[mi.key] = Math.round(f[mi.key] * k * 10) / 10;
@@ -5319,7 +6249,8 @@
     S.scanLast = f.name;
     S.scanState = 'logged';
     render();
-    say(esc(f.name) + ' logged, ' + n(Math.round(f.kcal * k)) + ' kcal. Verified.');
+    say(esc(f.name) + ' logged, ' + n(Math.round(f.kcal * k)) + ' kcal.' +
+        (f.src === 'estimate' ? ' Your own figures.' : ' Verified.'));
   }
 
   function camLog() {
@@ -5473,6 +6404,29 @@
          the typist left it or every keystroke jumps to the start. */
       var f = document.getElementById('fs-q');
       if (f) { f.focus(); try { f.setSelectionRange(f.value.length, f.value.length); } catch (err) {} }
+      return;
+    }
+    /* The ingredient search repaints its hits as it is typed, and the caret
+       goes back where the typist left it. */
+    if (e.target.id === 'br-q') {
+      readDraft();
+      S.draftQ = e.target.value;
+      render();
+      var bq = document.getElementById('br-q');
+      if (bq) { bq.focus(); try { bq.setSelectionRange(bq.value.length, bq.value.length); } catch (err) {} }
+      return;
+    }
+    /* A gram figure and a yield both change the row that carries them as well
+       as the totals under it -- the row says what the ingredient is being
+       priced as -- so the sheet repaints and the caret goes back. Patching
+       only the totals left the row saying 800 g raw under totals worked out
+       at 1,067. */
+    if (e.target.id.indexOf('br-g-') === 0 || e.target.id.indexOf('br-y-') === 0) {
+      var bid = e.target.id;
+      readDraft();
+      render();
+      var bel = document.getElementById(bid);
+      if (bel) { bel.focus(); try { bel.setSelectionRange(bel.value.length, bel.value.length); } catch (err) {} }
       return;
     }
     /* The servings field drives the preview under it, so it repaints as it

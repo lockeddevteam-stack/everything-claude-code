@@ -291,11 +291,14 @@
          lift, found in the shared history. A lift with no prior session gets
          no delta rather than an invented one. */
       var last = FX && FX.lastTime ? FX.lastTime(l.id, r.dateISO) : null;
-      if (!last) return { name: l.name, top: l.top, vol: l.vol, priorTop: null, priorVol: 0,
+      /* THE ID TRAVELS WITH THE LIFT. It was dropped here, so everything
+         downstream had only a name to go on and anything that wanted to look
+         the lift up in history -- the throwback below, for one -- could not. */
+      if (!last) return { id: l.id, name: l.name, top: l.top, vol: l.vol, priorTop: null, priorVol: 0,
                           priorDate: null, delta: null };
       var st = FX.liftStats(last.exercise);
       var raw2 = l.vol - st.vol;
-      return { name: l.name, top: l.top, vol: l.vol, priorTop: st.top, priorVol: st.vol,
+      return { id: l.id, name: l.name, top: l.top, vol: l.vol, priorTop: st.top, priorVol: st.vol,
                priorDate: last.date,
                delta: (raw2 < 0 ? -1 : 1) * Math.round(Math.abs(raw2)) };
     });
@@ -304,7 +307,22 @@
        lift. Checked row by row, a 72.5 kg x 8 "beat" the stored 72.5 x 5 and
        the screen awarded a record for equalling its own standing best.
        Beaten means no stored row matches or exceeds it on both counts. */
+    /* THE RECORD THE LOG ALREADY KNOWS ABOUT. The workout log marks the set
+       that beat a best and writes the new row to lk_prs the moment it is
+       ticked -- so by the time this screen re-derives records from lk_prs,
+       the standing best for that lift IS the set it is looking at, and the
+       scan below can never find a record in a session that actually set one.
+       The session's own mark wins, and it carries the mark it beat. */
     var rec = null;
+    (r.exercises || []).forEach(function (ex) {
+      (ex.sets || []).forEach(function (st) {
+        if (rec || !st.pr || !st.prBeat) return;
+        rec = { exId: ex.id, lift: ex.name, w: st.kg, r: st.reps,
+                prevW: st.prBeat.kg, prevR: st.prBeat.reps,
+                prevDate: /^\d{4}-\d{2}-\d{2}$/.test(String(st.prBeat.date || ''))
+                  ? shortDate(String(st.prBeat.date).slice(0, 10)) : st.prBeat.date };
+      });
+    });
     var rows = (window.LKStore ? window.LKStore.get('lk_prs', null) : null) ||
                (FX && FX.prs) || [];
     if (!Array.isArray(rows)) rows = [];
@@ -318,7 +336,13 @@
         if (!held || mine[i].kg > held.kg || (mine[i].kg === held.kg && mine[i].reps > held.reps)) held = mine[i];
       }
       rec = { exId: l.id, lift: l.name, w: l.top[0], r: l.top[1],
-              prevW: held.kg, prevDate: held.date };
+              /* THE MARK IT BEAT, as it was actually set. The card printed the
+                 old weight against TODAY's reps -- so a 25 kg x 9 that beat a
+                 standing 25 kg x 8 read "Beat 25 kg x 9", which is the same
+                 set twice and not a record at all. */
+              prevW: held.kg, prevR: held.reps,
+              prevDate: /^\d{4}-\d{2}-\d{2}$/.test(String(held.date || ''))
+                ? shortDate(String(held.date).slice(0, 10)) : held.date };
     });
 
     return {
@@ -462,7 +486,8 @@
             ai: 'idle', toast: null,
             /* split: 'pending' | 'updated' | 'kept'. picks: indices chosen
                in the per-change sheet, empty until the lifter picks. */
-            split: 'pending', applied: [], picks: [], sheet: false };
+            split: 'pending', applied: [], picks: [], sheet: false,
+            throwbackGone: false };
 
   /* ---- blocks ----------------------------------------------------- */
 
@@ -488,8 +513,112 @@
           '</div>' +
         '</div>' +
         '<p class="t-body-em mt-3 num">' + set(r.w, r.r) + '</p>' +
-        '<p class="t-detail">Beat ' + set(r.prevW, r.r) + ', set ' + r.prevDate + '.</p>' +
+        '<p class="t-detail">Beat ' + set(r.prevW, r.prevR === undefined ? r.r : r.prevR) +
+          ', set ' + r.prevDate + '.</p>' +
       '</div>';
+  }
+
+  /* ---- THE THROWBACK -------------------------------------------------
+     One session in five, after the save decision is already on screen, this
+     says what the same lift looked like a long time ago. The shipped app had
+     it, the rebuild dropped it with no note anywhere saying so, and the note
+     Progress left about cutting its own copy was that a 25% Math.random()
+     card is unreproducible -- a screenshot of it can never be taken twice
+     and a test can never assert it.
+
+     So the roll is 1-in-5 and DETERMINISTIC: it is a hash of the session
+     being reviewed, which means the same session always makes the same
+     decision, on every device and in every test run, and it is still a
+     surprise because nobody knows the hash of their Tuesday.
+
+     It only draws when there is something real behind it: a lift in this
+     session that was also trained at least thirty days ago, and that has
+     gone up since. Dismissing writes lk_throwbackDismissed -- the shipped
+     app's own key -- and nothing asks again for three days.
+     -------------------------------------------------------------------- */
+  var THROWBACK_MIN_DAYS = 30;
+  var THROWBACK_QUIET_DAYS = 3;
+  /* The same list workout-detail reads: the store, with the seed behind it.
+     FX.lastTime above answers a different question -- the MOST RECENT
+     session before a date -- and cannot reach back to the oldest one. */
+  function historyList() {
+    var seed = (window.LKFixtures && LKFixtures.history) || [];
+    var list = window.LKStore ? LKStore.get('lk_history', seed) : seed;
+    return Array.isArray(list) ? list : seed;
+  }
+  function isoMs(iso) {
+    var a = String(iso || '').slice(0, 10).split('-');
+    return a.length === 3 ? Date.UTC(+a[0], +a[1] - 1, +a[2]) : NaN;
+  }
+  function today() {
+    return window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10);
+  }
+  function throwbackQuiet() {
+    var raw = window.LKStore ? LKStore.get('lk_throwbackDismissed', null) : null;
+    if (!raw) return false;
+    var then = Date.parse(raw);
+    if (isNaN(then)) return false;
+    return (isoMs(today()) - then) < THROWBACK_QUIET_DAYS * 86400000;
+  }
+  /* 32-bit FNV-ish, which is all a 1-in-5 needs. */
+  function rollOf(str) {
+    var h = 2166136261;
+    for (var i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+    }
+    return h % 5;
+  }
+  function throwback(d) {
+    if (S.throwbackGone || throwbackQuiet()) return null;
+    if (!d || !d.lifts || !d.lifts.length) return null;
+    var key = String(d.dateISO || d.date || '') + '|' + String(d.title || '');
+    if (rollOf(key) !== 0) return null;
+    var cut = isoMs(d.dateISO || today()) - THROWBACK_MIN_DAYS * 86400000;
+    if (isNaN(cut)) return null;
+    var best = null;
+    var list = historyList();
+    d.lifts.forEach(function (l) {
+      if (!l.top) return;
+      /* The OLDEST session with this lift in it, that far back. */
+      var found = null;
+      list.forEach(function (w) {
+        if (w.kind === 'cardio' || !w.exercises) return;
+        var when = isoMs(w.date);
+        if (isNaN(when) || when > cut) return;
+        w.exercises.forEach(function (ex) {
+          if (Number(ex.id) !== Number(l.id)) return;
+          if (!found || when < found.when) {
+            var st = window.LKFixtures && LKFixtures.liftStats ? LKFixtures.liftStats(ex) : null;
+            if (st && st.top) found = { when: when, date: w.date, top: st.top };
+          }
+        });
+      });
+      if (!found) return;
+      var gain = l.top[0] - found.top[0];
+      if (gain <= 0) return;                 /* no progression is not a throwback */
+      if (!best || gain > best.gain) {
+        best = { name: l.name, now: l.top, then: found.top, thenDate: found.date, gain: gain,
+                 days: Math.round((isoMs(d.dateISO || today()) - found.when) / 86400000) };
+      }
+    });
+    return best;
+  }
+
+  function throwbackCard(d) {
+    var t = throwback(d);
+    if (!t) return '';
+    return '<div class="section" data-testid="section-throwback">' +
+      '<div class="card" data-testid="card-throwback">' +
+        '<div class="spread"><span class="t-label">' + t.days + ' days ago</span>' +
+          '<button class="btn btn--tertiary btn--sm" data-testid="action-throwback-dismiss">' +
+            '<span class="btn__label">Hide</span></button></div>' +
+        '<h2 class="t-section mt-2">' + esc(t.name) + '</h2>' +
+        '<p class="t-body-em mt-2">' + set(t.then[0], t.then[1]) + ' \u2192 ' + set(t.now[0], t.now[1]) + '</p>' +
+        '<p class="t-detail mt-1">' + shortDate(t.thenDate) + ' to today, ' +
+          n((t.gain > 0 ? '+' : '\u2212') + LKUnits.v(Math.abs(t.gain))) + ' ' + LKUnits.label() +
+          ' on the top set.</p>' +
+      '</div></div>';
   }
 
   /* The comparison. The reason this screen exists: it is computed on
@@ -892,6 +1021,7 @@
   function full(d) {
     return {
       body: receipt(d) + (d.record ? recordCard(d.record) : '') + compare(d) +
+            throwbackCard(d) +
             setsSection(d) + splitCard(d) + aiCard(d) + feelSection() + discardSection(d.sets),
       bar: saveBar({ status: d.record ? 'Record included' : '' }),
       overlay: (S.sheet && d.diffs) ? splitSheet(d) : ''
@@ -1067,6 +1197,45 @@
      -------------------------------------------------------------------- */
   var SAVED = null;                 /* the record written, once per session */
 
+  /* ---- WHO A WORKOUT IS ------------------------------------------------
+     Every row in lk_history is addressed by its id: workout-detail opens one
+     by id, edits it by id and deletes it by id. The id came from whoever
+     happened to write the row -- this screen stamps one, the log's own
+     history writer stamps another -- and a row that arrived without one
+     (an older build's, an import, a seed row) was invisible to all three: it
+     could be read in a list and never opened.
+
+     withWorkoutIds stamps every unstamped row it is given, from the row's own
+     date and position so the same list always produces the same ids.
+     sameWorkout answers the other half: two records are the same session when
+     they carry the same id, or -- with no id to go on -- when they are the
+     same day, the same name and the same work. Saving uses it so pressing
+     Save twice, or reopening a review that was already banked, cannot put two
+     copies of one workout in the history.
+
+     They live here because this is the screen that writes history. The right
+     home for them is store.js, which every screen already loads, but this
+     package does not own that file; the note is in the report. */
+  function withWorkoutIds(list) {
+    var out = Array.isArray(list) ? list : [];
+    var stamped = 0;
+    out.forEach(function (w, i) {
+      if (!w || w.id) return;
+      var t = isoMs(w.date);
+      w.id = 'w_' + (isNaN(t) ? 'x' : t) + '_' + i;
+      stamped++;
+    });
+    return { list: out, stamped: stamped };
+  }
+  function sameWorkout(a, b) {
+    if (!a || !b) return false;
+    if (a.id && b.id) return String(a.id) === String(b.id);
+    return String(a.date).slice(0, 10) === String(b.date).slice(0, 10) &&
+           String(a.name || '') === String(b.name || '') &&
+           Number(a.sets || 0) === Number(b.sets || 0) &&
+           Number(a.kg || 0) === Number(b.kg || 0);
+  }
+
   function reflectionOrNull() {
     var out = null;
     REFLECT.forEach(function (f) {
@@ -1096,7 +1265,17 @@
       note: (S.note || '').trim(),
       reflection: reflectionOrNull()
     };
-    LKStore.push('lk_history', rec);
+    /* Stamped on the way past, and never doubled. */
+    var hist = withWorkoutIds(LKStore.get('lk_history', [])).list;
+    var dup = null;
+    for (var h = 0; h < hist.length; h++) { if (sameWorkout(hist[h], rec)) { dup = hist[h]; break; } }
+    if (dup) {
+      SAVED = dup;
+      LKStore.remove('lk_lastSession');
+      return dup;
+    }
+    hist.unshift(rec);
+    LKStore.set('lk_history', hist);
 
     /* A mark set today becomes the record. Left alone, this screen announced
        a personal record and the PR vault went on showing the one it beat. */
@@ -1124,7 +1303,9 @@
   function show(view) {
     var v = VIEWS[view] ? view : 'record';
     S = { view: v, saved: false, reflection: {}, note: '', discardArmed: false, ai: 'idle',
-          toast: null, split: 'pending', applied: [], picks: [], sheet: false };
+          toast: null, split: 'pending', applied: [], picks: [], sheet: false,
+          /* The dismissal is stored, so it does not need to survive here. */
+          throwbackGone: false };
     /* Two of the dev states are a mid-decision snapshot rather than an
        entry state: the sheet already open, and the split already
        updated by the swap. */
@@ -1226,6 +1407,14 @@
           S.ai = S.view === 'populated' ? 'error' : 'done';
           paint(true);
         }, 900);
+        return;
+      /* Hidden for three days, on the shipped app's own key, so it is the
+         same suppression every other surface honours. */
+      case 'action-throwback-dismiss':
+        S.throwbackGone = true;
+        if (window.LKStore) LKStore.set('lk_throwbackDismissed', new Date().toISOString());
+        paint(true);
+        toast('Hidden. Nothing like it for a few days.');
         return;
       case 'action-retry-compare':
         show('loading');

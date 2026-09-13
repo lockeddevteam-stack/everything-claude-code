@@ -136,9 +136,19 @@
       if (!session()) return Promise.resolve({ ok: false, error: 'signed_out', message: 'Sign in to sync.' });
       var S = ST(), since = API.lastSync();
       var changed = S.changedSince(since), keys = S.syncKeys();
+      /* THE CYCLE LOG ONLY LEAVES WITH CONSENT. lk_mcProfile, lk_mcDays and
+         lk_mcFuelAdjust are in the sync set like everything else, and the
+         Cycle screen has its own switch for whether they may be backed up.
+         Without this the first sync would upload a cycle log somebody had
+         explicitly declined to put anywhere -- the one key set in this app
+         where that is not a bug but a breach. */
+      var mc = S.get('lk_mcProfile', null);
+      var cycleOk = !!(mc && mc.cloudBackup);
+      var CYCLE_KEYS = { lk_mcProfile: 1, lk_mcDays: 1, lk_mcFuelAdjust: 1 };
       var rows = [];
       keys.forEach(function (k) {
         if (!changed[k]) return;
+        if (CYCLE_KEYS[k] && !cycleOk) return;
         rows.push({ key: k, value: S.get(k, null), changed_at: changed[k], deleted: !S.touched(k) });
       });
       if (!rows.length) return Promise.resolve({ ok: true, data: { pushed: 0 } });
@@ -159,7 +169,13 @@
         .then(function (rows) {
           if (!Array.isArray(rows)) return { ok: false, error: 'server', message: 'The server sent something unreadable.' };
           var applied = 0;
+          var mc2 = S.get('lk_mcProfile', null);
+          var cycleOk2 = !!(mc2 && mc2.cloudBackup);
+          var CYCLE_KEYS2 = { lk_mcProfile: 1, lk_mcDays: 1, lk_mcFuelAdjust: 1 };
           rows.forEach(function (row) {
+            /* Consent governs both directions: a cycle log that reached the
+               server before the switch was turned off does not come back. */
+            if (CYCLE_KEYS2[row.key] && !cycleOk2) return;
             /* The device's own copy wins when it is newer. This is the
                whole of the conflict rule and it is deliberately dumb:
                anything cleverer needs a merge per key, and a wrong merge
