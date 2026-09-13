@@ -852,7 +852,8 @@
         '<div class="msg__col">' +
           '<div class="msg__head"><span class="msg__who">' + (isUser ? 'You' : 'Coach') + '</span>' +
             '<span class="msg__time">' + esc(m.time) + '</span></div>' +
-          '<div class="msg__bubble">' + esc(m.text) + (m.offer ? planCard() : '') + '</div>' +
+          '<div class="msg__bubble">' + esc(m.text) + (m.offer ? planCard() : '') +
+            (m.acts ? actionsBlock(m, i) : '') + '</div>' +
           acts +
         '</div>' +
       '</article>';
@@ -886,6 +887,341 @@
       '</div>';
   }
 
+  /* ===============================================================
+     THE COACH'S WRITE-BACK.
+
+     A reply can carry actions: save this split, log this meal, add
+     these nine things to the shopping list. Nothing a reply carries is
+     applied on arrival. Every action goes through LKCoachActions, which
+     resolves every exercise id against the real catalogue, recomputes
+     every total from its parts, and refuses anything outside what the
+     screens accept. What comes back is a verdict, and the verdict is
+     what gets drawn.
+
+     TWO RULES THIS SCREEN ADDS ON TOP OF THE GATE:
+
+     1. A CARD SHOWS EVERYTHING IT WOULD WRITE. Every day and every lift
+        of a split, every ingredient and the recomputed totals of a
+        recipe, every line of a shopping list. A summary asks the reader
+        to trust a model, which is the one thing this screen must never
+        do.
+
+     2. A REFUSED ACTION STILL RENDERS. It is the most useful card on
+        the screen: it says what the coach proposed and, in the gate's
+        own words, why it will not be saved. Hiding it would leave the
+        reader believing the coach only ever suggests sound things.
+
+     WHAT IS NOT HERE: the coach cannot propose any of this yet, because
+     there is no model in this build. replyFor() answers from this page.
+     The path is real and complete from a verdict onwards, and
+     window.__coachActions(actions) is how it is driven -- the same
+     check, render, approve and undo a Worker response will take.
+     =============================================================== */
+
+  /* The catalogue, the way exercise-library and split-builder fetch it.
+     From file:// no fetch can run, so the gate has no catalogue and
+     refuses anything naming a lift -- which is the honest answer, and
+     the card says so rather than pretending the split was unsound. */
+  var CATALOGUE = { state: 'none', count: 0 };
+  function loadCatalogue() {
+    if (!window.LKCoachActions) return;
+    if (location.protocol === 'file:') {
+      CATALOGUE.state = 'file';
+      return;
+    }
+    CATALOGUE.state = 'loading';
+    fetch('../tests/fixtures/exercise-db.json', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
+      .then(function (rows) {
+        if (!Array.isArray(rows) || !rows.length) throw new Error('empty');
+        LKCoachActions.setCatalogue(rows);
+        CATALOGUE.state = 'ready';
+        CATALOGUE.count = rows.length;
+        /* Anything already on screen was checked without it. Check it
+           again, so a split refused for "the catalogue has not loaded"
+           does not sit there being wrong once the catalogue is there. */
+        recheckAll();
+        render();
+      })
+      .catch(function () { CATALOGUE.state = 'failed'; render(); });
+  }
+  function catalogueNote() {
+    if (CATALOGUE.state === 'ready') return '';
+    if (CATALOGUE.state === 'loading') return 'The exercise catalogue is still loading.';
+    if (CATALOGUE.state === 'file')
+      return 'This page was opened from a file rather than over http, so the 867-exercise ' +
+        'catalogue could not be fetched. Nothing naming a lift can be verified here, and ' +
+        'nothing that cannot be verified is saved. Serve the build over http and ask again.';
+    return 'The exercise catalogue could not be fetched, so no lift can be checked against it.';
+  }
+
+  /* Every verdict currently on screen, re-checked. Verdicts are plain
+     objects, so they survive the store and a reload with them. */
+  function recheckAll() {
+    if (!window.LKCoachActions) return;
+    S.chat.msgs.forEach(function (m) {
+      if (!m.acts) return;
+      m.acts.forEach(function (v) {
+        if (v.applied) return;
+        var again = LKCoachActions.check(v.raw);
+        v.ok = again.ok; v.problems = again.problems; v.action = again.action;
+      });
+    });
+  }
+
+  /* THE ENTRY POINT. A Worker reply's actions arrive here; so does the
+     test hook. One path, so what is tested is what will run. */
+  function pushCoachActions(list, text) {
+    if (!window.LKCoachActions) return null;
+    var raw = Array.isArray(list) ? list.slice(0, 8) : [];
+    var verdicts = LKCoachActions.checkAll(raw).map(function (v, i) {
+      return { kind: v.kind, ok: v.ok, problems: v.problems, action: v.action,
+               raw: raw[i], applied: false, token: null };
+    });
+    var sound = verdicts.filter(function (v) { return v.ok; }).length;
+    S.chat.status = 'ready';
+    S.chat.msgs.push({
+      role: 'coach', time: nowClock(), acts: verdicts,
+      text: text || (verdicts.length === 1
+        ? 'Here it is. Nothing is saved until you say so.'
+        : sound + ' of ' + verdicts.length + ' of these can be saved. Nothing is saved until you say so.')
+    });
+    S.chat.pinned = true;
+    persistChat();
+    render();
+    return verdicts;
+  }
+  window.__coachActions = function (list, text) { return pushCoachActions(list, text); };
+
+  /* ---- the previews --------------------------------------------- */
+  function kcalLine(a) {
+    return n(a.kcal) + ' kcal &middot; ' + n(a.pro) + ' P &middot; ' +
+           n(a.carb) + ' C &middot; ' + n(a.fat) + ' F';
+  }
+  function lineRow(title, sub) {
+    return '<div class="row row--static"><span class="row__main">' +
+      '<span class="row__title">' + title + '</span>' +
+      (sub ? '<span class="row__sub">' + sub + '</span>' : '') + '</span></div>';
+  }
+
+  /* EVERYTHING it would write, never a count of it. */
+  function preview(a, testid) {
+    if (a.kind === 'split') {
+      return '<div class="stack stack--3" data-testid="' + testid + '">' +
+        a.days.map(function (d) {
+          return '<div class="card card--flush card--raised">' +
+            '<div class="row row--head"><span class="row__main"><span class="row__title">' + esc(d.name) + '</span>' +
+              '<span class="row__sub">' + n(d.exercises.length) +
+              (d.exercises.length === 1 ? ' lift' : ' lifts') + '</span></span></div>' +
+            d.exercises.map(function (e) {
+              return lineRow(esc(e.name), n(e.sets) + ' sets &middot; ' + esc(e.muscle || e.group || ''));
+            }).join('') +
+          '</div>';
+        }).join('') +
+        '<p class="t-detail quiet">' + n(a.days.length) + ' days, ' + n(a.exercises) +
+          ' lifts. Every lift above was resolved against the exercise catalogue and is ' +
+          'named as the catalogue names it.</p>' +
+      '</div>';
+    }
+    if (a.kind === 'recipe') {
+      return '<div data-testid="' + testid + '">' +
+        '<div class="card card--flush card--raised">' +
+          a.items.map(function (it) {
+            return lineRow((it.qty === 1 ? '' : n(fmt(it.qty)) + ' &times; ') + esc(it.name),
+              Math.round(it.kcal) + ' kcal &middot; ' + Math.round(it.pro) + ' P &middot; ' +
+              Math.round(it.carb) + ' C &middot; ' + Math.round(it.fat) + ' F');
+          }).join('') +
+          '<div class="row row--foot"><span class="row__main">' +
+            '<span class="row__title">Whole recipe &middot; ' + n(a.servings) +
+              (a.servings === 1 ? ' serving' : ' servings') + '</span>' +
+            '<span class="row__sub">' + kcalLine(a) + '</span></span></div>' +
+        '</div>' +
+        (a.notes.length
+          ? '<div class="stack stack--2 mt-3">' + a.notes.map(function (x) {
+              return '<p class="t-detail">' + esc(x) + '</p>'; }).join('') + '</div>'
+          : '') +
+        '<p class="t-detail quiet mt-2">Totals added up from the ingredients above, not taken ' +
+          'from the reply. If the coach stated a different figure, this one is the one that saves.</p>' +
+      '</div>';
+    }
+    if (a.kind === 'goal') {
+      var unit = a.unit === 'kg' ? LKUnits.label() : a.unit;
+      var tgt = a.target === null ? '—'
+              : a.unit === 'kg' ? n(fmt(LKUnits.v(a.target))) + ' ' + unit
+              : n(fmt(a.target)) + (unit ? ' ' + unit : '');
+      return '<div class="card card--flush card--raised" data-testid="' + testid + '">' +
+        lineRow(esc(a.name), 'Goal name') +
+        lineRow(esc(a.type), 'Kind of goal') +
+        lineRow(tgt, 'Target') +
+        (a.start !== null ? lineRow(a.unit === 'kg' ? n(fmt(LKUnits.v(a.start))) + ' ' + unit : n(fmt(a.start)), 'Starting from') : '') +
+        (a.targetDate ? lineRow(dayLabel(a.targetDate), 'By') : lineRow('No date', 'By')) +
+        (a.notes ? lineRow(esc(a.notes), 'Notes') : '') +
+      '</div>';
+    }
+    if (a.kind === 'food') {
+      return '<div class="card card--flush card--raised" data-testid="' + testid + '">' +
+        lineRow(esc(a.icon) + ' ' + esc(a.name) + (a.qty === 1 ? '' : ' &times; ' + n(fmt(a.qty))),
+                a.slot.charAt(0).toUpperCase() + a.slot.slice(1) + ' &middot; today') +
+        lineRow(kcalLine(a), a.key ? 'From the food table' : 'Macros carried by the reply, not from the table') +
+      '</div>';
+    }
+    if (a.kind === 'cardio') {
+      return '<div class="card card--flush card--raised" data-testid="' + testid + '">' +
+        lineRow(esc(a.name), 'Today') +
+        lineRow(n(a.minutes) + ' min' + (a.km ? ' &middot; ' + n(fmt(a.km)) + ' km' : ''), 'Goes into your training history') +
+      '</div>';
+    }
+    if (a.kind === 'shopping') {
+      return '<div data-testid="' + testid + '">' +
+        '<div class="card card--flush card--raised">' +
+          a.items.map(function (it) {
+            return lineRow(n(fmt(it.quantity)) + (it.unit ? ' ' + esc(it.unit) : '') + ' ' + esc(it.itemName),
+                           esc(it.category));
+          }).join('') +
+        '</div>' +
+        '<p class="t-detail quiet mt-2">' + n(a.items.length) +
+          (a.items.length === 1 ? ' item' : ' items') + ', every one of them listed above.</p>' +
+      '</div>';
+    }
+    if (a.kind === 'instructions') {
+      var was = S.setup.instructions;
+      return '<div data-testid="' + testid + '">' +
+        '<div class="card card--raised"><p class="t-body">' + esc(a.text) + '</p></div>' +
+        '<p class="t-detail quiet mt-2">This replaces your coaching instructions in full. ' +
+          (was ? 'What is there now: “' + esc(was) + '”' : 'Nothing is written there now.') + '</p>' +
+      '</div>';
+    }
+    if (a.kind === 'fact') {
+      return '<div data-testid="' + testid + '"><p class="t-body-em">' + esc(a.text) + '</p>' +
+        '<p class="t-detail quiet mt-2">Saved facts go into every reply while ' +
+          '&ldquo;Use saved memories&rdquo; is on in Setup.</p></div>';
+    }
+    return '';
+  }
+
+  var KIND_LABEL = {
+    split: 'Save this split', goal: 'Create this goal', recipe: 'Save this recipe',
+    shopping: 'Add these to your shopping list', food: 'Log this food',
+    cardio: 'Log this session', instructions: 'Save these instructions',
+    fact: 'Remember this'
+  };
+  var KIND_WHERE = {
+    split: 'Splits', goal: 'Goals in Progress', recipe: 'Recipes in Fuel',
+    shopping: 'your shopping list', food: 'today in Fuel', cardio: 'your training history',
+    instructions: 'Setup', fact: 'what the coach remembers'
+  };
+
+  /* One card per verdict. A refusal is a card too, and it says why in the
+     gate's own words -- not a paraphrase, which is where a reason stops
+     being checkable. */
+  function actionCard(m, mi, ai) {
+    var v = m.acts[ai];
+    var id = mi + '-' + ai;
+
+    if (!v.ok) {
+      return '<div class="card card--outline msg__attach" data-testid="act-' + id + '" data-kind="' + esc(v.kind || '') + '" data-ok="false">' +
+        '<div class="banner banner--warn">' + ico('alert') +
+          '<span><strong>Not saved</strong>The coach proposed ' +
+          (KIND_LABEL[v.kind] ? '&ldquo;' + esc(KIND_LABEL[v.kind].toLowerCase()) + '&rdquo;' : 'something this app cannot do') +
+          ', and LOCKED will not write it.</span></div>' +
+        '<div class="t-label mt-3">Why</div>' +
+        '<ul class="stack stack--2 mt-2" data-testid="act-' + id + '-problems">' +
+          v.problems.map(function (p) {
+            return '<li class="t-detail">' + esc(p) + '</li>';
+          }).join('') +
+        '</ul>' +
+        (v.kind === 'split' && CATALOGUE.state !== 'ready'
+          ? '<p class="t-detail quiet mt-3" data-testid="act-' + id + '-catalogue">' + catalogueNote() + '</p>'
+          : '') +
+        '<p class="t-detail quiet mt-3">Nothing was written. Ask again and the coach can send a ' +
+          'corrected one; what it sent is above, unchanged.</p>' +
+      '</div>';
+    }
+
+    var a = v.action;
+    if (v.applied) {
+      return '<div class="card card--raised msg__attach" data-testid="act-' + id + '" data-kind="' + esc(v.kind) + '" data-ok="true" data-applied="true">' +
+        '<div class="banner banner--success">' + ico('check') +
+          '<span><strong>Saved</strong>' + esc(a.title) + ' is in ' + KIND_WHERE[v.kind] + '.</span></div>' +
+        preview(a, 'act-' + id + '-preview') +
+        '<button class="btn btn--secondary btn--block mt-3" data-act="act-undo" data-mi="' + mi + '" data-ai="' + ai + '" ' +
+          'data-testid="act-' + id + '-undo"><span class="btn__label">Undo</span></button>' +
+      '</div>';
+    }
+
+    /* The fact chip is a chip, not a card: it is one sentence, and a card
+       around one sentence reads as a bigger claim than it is. */
+    if (v.kind === 'fact') {
+      return '<div class="card card--outline msg__attach" data-testid="act-' + id + '" data-kind="fact" data-ok="true">' +
+        '<div class="hstack hstack--2"><span class="ico-well">' + ico('spark') + '</span>' +
+          '<span class="grow"><span class="t-label">The coach wants to remember</span>' +
+          preview(a, 'act-' + id + '-preview') + '</span></div>' +
+        '<button class="btn btn--primary btn--block mt-3" data-act="act-apply" data-mi="' + mi + '" data-ai="' + ai + '" ' +
+          'data-testid="act-' + id + '-apply"><span class="btn__label">Remember it</span></button>' +
+        '<button class="btn btn--tertiary btn--block mt-2" data-act="act-drop" data-mi="' + mi + '" data-ai="' + ai + '" ' +
+          'data-testid="act-' + id + '-drop"><span class="btn__label">Do not</span></button>' +
+      '</div>';
+    }
+
+    var approve = v.kind === 'shopping'
+      ? '<button class="btn btn--primary btn--block mt-3" data-act="act-review" data-mi="' + mi + '" data-ai="' + ai + '" ' +
+          'data-testid="act-' + id + '-apply"><span class="btn__label">Review and add ' + a.items.length + ' items</span></button>'
+      : '<button class="btn btn--primary btn--block mt-3" data-act="act-apply" data-mi="' + mi + '" data-ai="' + ai + '" ' +
+          'data-testid="act-' + id + '-apply"><span class="btn__label">' + esc(KIND_LABEL[v.kind]) + '</span></button>';
+
+    return '<div class="card card--raised msg__attach" data-testid="act-' + id + '" data-kind="' + esc(v.kind) + '" data-ok="true">' +
+      '<div class="t-label">' + esc(KIND_LABEL[v.kind]) + '</div>' +
+      '<div class="t-body-em mt-2">' + esc(a.title) + '</div>' +
+      '<div class="mt-3">' + preview(a, 'act-' + id + '-preview') + '</div>' +
+      approve +
+      '<button class="btn btn--tertiary btn--block mt-2" data-act="act-drop" data-mi="' + mi + '" data-ai="' + ai + '" ' +
+        'data-testid="act-' + id + '-drop"><span class="btn__label">Not now</span></button>' +
+    '</div>';
+  }
+
+  function actionsBlock(m, mi) {
+    if (!m.acts || !m.acts.length) return '';
+    /* Shopping is not in the count: SAVE ALL does not add to a shopping list,
+       because the approval modal is the whole point of that action. A button
+       that counted it would promise four and do three. */
+    var pending = m.acts.filter(function (v) {
+      return v.ok && !v.applied && !v.dropped && v.kind !== 'shopping';
+    }).length;
+    var heldBack = m.acts.filter(function (v) {
+      return v.ok && !v.applied && !v.dropped && v.kind === 'shopping';
+    }).length;
+    var html = m.acts.map(function (v, ai) {
+      return v.dropped ? '' : actionCard(m, mi, ai);
+    }).join('');
+    if (pending > 1) {
+      html += '<button class="btn btn--primary btn--block mt-3" data-act="act-save-all" data-mi="' + mi + '" ' +
+        'data-testid="act-save-all-' + mi + '"><span class="btn__label">SAVE ALL (' + pending +
+        (pending === 1 ? ' ACTION' : ' ACTIONS') + ')</span></button>' +
+        (heldBack ? '<p class="t-detail quiet mt-2" data-testid="act-save-all-note-' + mi + '">' +
+          'The shopping list is not in that. It has its own step, so every item is on screen ' +
+          'before any of it is added.</p>' : '');
+    }
+    var appliedN = m.acts.filter(function (v) { return v.applied; }).length;
+    if (appliedN > 1) {
+      html += '<button class="btn btn--secondary btn--block mt-3" data-act="act-undo-all" data-mi="' + mi + '" ' +
+        'data-testid="act-undo-all-' + mi + '"><span class="btn__label">Undo all ' + appliedN + '</span></button>';
+    }
+    return html;
+  }
+
+  /* SAID, NOT IMPLIED. The write-back below is whole -- check, preview,
+     approve, undo -- and the one thing missing is the model that would
+     propose an action in the first place. A screen that showed the cards
+     without saying that would read as a coach choosing not to use them. */
+  function modelNote() {
+    return '<p class="t-detail quiet mt-3" data-testid="chat-model-note">' +
+      'The coach cannot propose anything of its own in this build: there is no model ' +
+      'behind it, so the replies here are written on this phone. When it is connected, ' +
+      'a reply can carry a split, a recipe, a goal, a meal, a session or a shopping list, ' +
+      'and each one arrives as a card showing everything it would write, saved only if ' +
+      'you approve it.</p>';
+  }
+
   function chatBody() {
     var c = S.chat;
     if (c.status === 'empty') {
@@ -916,6 +1252,7 @@
            v6 carried it and the rebuild dropped it. */
         '<p class="t-detail quiet mt-4" data-testid="chat-disclaimer">A coach that reads your numbers can ' +
           'still be wrong. Sanity-check anything that affects your health.</p>' +
+        modelNote() +
         '<section class="section">' +
           '<div class="card card--outline card--flush">' +
             /* It expands where it stands. One tap used to leave the screen
@@ -977,6 +1314,7 @@
         '</div>';
     }
     html += '</div>';
+    html += modelNote();
     return html;
   }
 
@@ -1515,6 +1853,7 @@
   function overlays() {
     var html = toastEl();
     if (S.interview.open) return html + interviewSheet();
+    if (S.modal && S.modal.type === 'shopping') return html + shoppingSheet();
     if (S.modal === 'bind') return html + bindSheet();
     if (S.modal === 'delete') return html + deleteDialog();
     return html;
@@ -1636,7 +1975,12 @@
 
     /* One accent fill: normally the primary action; in chat it moves to
        the plan card while the card is waiting to be saved. */
-    var accent = (S.view === 'chat' && S.chat.offer && !S.chat.offerSaved) ? 'card' : 'action';
+    /* The accent moves to a card while a card is waiting to be saved --
+       the plan offer, or any sound action the coach has proposed. */
+    var waiting = S.chat.msgs.some(function (m) {
+      return (m.acts || []).some(function (v) { return v.ok && !v.applied && !v.dropped; });
+    });
+    var accent = (S.view === 'chat' && ((S.chat.offer && !S.chat.offerSaved) || waiting)) ? 'card' : 'action';
 
     LKPatch(phone, '' +
       '<div class="screen" data-state="' + currentState() + '" data-view="' + S.view + '" data-accent="' + accent + '" data-testid="view-' + S.view + '">' +
@@ -2118,6 +2462,71 @@
       render();
     },
 
+    /* --- the coach's write-back ----------------------------------- */
+    /* One approval, one apply, one undo token kept with the card so the
+       Undo is still there after a reload. */
+    'act-apply': function (el) {
+      applyVerdict(Number(el.dataset.mi), Number(el.dataset.ai), true);
+    },
+    'act-drop': function (el) {
+      var m = S.chat.msgs[Number(el.dataset.mi)];
+      var v = m && m.acts && m.acts[Number(el.dataset.ai)];
+      if (!v) return;
+      v.dropped = true;
+      persistChat();
+      render();
+      toast('Not saved. Nothing changed.', 'Undo', function () {
+        v.dropped = false;
+        persistChat();
+      });
+    },
+    'act-undo': function (el) {
+      var m = S.chat.msgs[Number(el.dataset.mi)];
+      var v = m && m.acts && m.acts[Number(el.dataset.ai)];
+      if (!v || !v.applied || !window.LKCoachActions) return;
+      var back = LKCoachActions.revert(v.token);
+      if (!back) { toast('It could not be put back. Nothing was changed.'); return; }
+      v.applied = false; v.token = null;
+      persistChat();
+      render();
+      toast('Undone. ' + v.action.title + ' is not saved.');
+    },
+    /* Every sound action in the reply, in one approval, with one Undo for
+       the lot. Shopping still goes through its own list first -- adding
+       nine things to somebody's shopping list without showing them is the
+       exact thing the approval modal exists to prevent. */
+    'act-save-all': function (el) {
+      var mi = Number(el.dataset.mi);
+      var m = S.chat.msgs[mi];
+      if (!m || !m.acts) return;
+      var done = 0, skipped = 0;
+      m.acts.forEach(function (v, ai) {
+        if (!v.ok || v.applied || v.dropped) return;
+        if (v.kind === 'shopping') { skipped++; return; }
+        if (applyVerdict(mi, ai, false)) done++;
+      });
+      persistChat();
+      render();
+      if (!done) { toast(skipped ? 'The shopping list needs its own approval.' : 'Nothing was saved.'); return; }
+      toast(done + (done === 1 ? ' action saved.' : ' actions saved.') +
+        (skipped ? ' The shopping list still needs approving.' : ''), 'Undo all', function () {
+          undoAll(mi);
+        });
+    },
+    'act-undo-all': function (el) { undoAll(Number(el.dataset.mi)); },
+    /* The shopping approval modal. Nothing reaches the list until every
+       line of it has been on screen. */
+    'act-review': function (el) {
+      S.modal = { type: 'shopping', mi: Number(el.dataset.mi), ai: Number(el.dataset.ai) };
+      render();
+    },
+    'shop-confirm': function () {
+      var mo = S.modal;
+      if (!mo || mo.type !== 'shopping') return;
+      S.modal = null;
+      applyVerdict(mo.mi, mo.ai, true);
+    },
+
     /* --- setup ---------------------------------------------------- */
     'quick': function (el) {
       var t = QUICK[Number(el.dataset.i)];
@@ -2318,6 +2727,118 @@
     }
   };
 
+  /* Applies one verdict through the gate and keeps its undo token. The
+     token is a plain object, so it goes into lk_coachLastMsgs with the
+     thread and the Undo still works tomorrow. */
+  function applyVerdict(mi, ai, chatty) {
+    var m = S.chat.msgs[mi];
+    var v = m && m.acts && m.acts[ai];
+    if (!v || !v.ok || v.applied || !window.LKCoachActions) return false;
+    primeStore(v.kind);
+    var res = LKCoachActions.apply(v.action);
+    if (!res.ok) {
+      v.ok = false;
+      v.problems = res.problems;
+      persistChat();
+      render();
+      if (chatty) toast('It could not be saved. The card says why.');
+      return false;
+    }
+    v.applied = true;
+    v.token = res.token;
+    if (chatty) {
+      persistChat();
+      /* The Setup pane reads lk_coachMemory and lk_coachInstructions from
+         this page's own state, so a write from chat has to land there too
+         or the two halves of the screen disagree until a reload. */
+      syncFromStore(v.kind);
+      render();
+      toast(v.action.title + ' saved to ' + KIND_WHERE[v.kind] + '.', 'Undo', function () {
+        if (LKCoachActions.revert(v.token)) {
+          v.applied = false; v.token = null;
+          persistChat();
+          syncFromStore(v.kind);
+        }
+      });
+    } else {
+      syncFromStore(v.kind);
+    }
+    return true;
+  }
+  /* store.js has no seed mapping for lk_coachMemory or lk_coachInstructions,
+     so this page's SEED_MEMORY and SEED_INSTRUCTIONS are what the panes show
+     until somebody writes. A write from chat goes through LKStore, which
+     would start from the empty key and drop the seeded fact off the Setup
+     pane the moment the coach added one. The pane's current value is written
+     down first, so both halves agree. (The right fix is a seed mapping in
+     store.js, which this package does not own.) */
+  function primeStore(kind) {
+    if (!store()) return;
+    if (kind === 'fact') {
+      var mem = store().get('lk_coachMemory', null);
+      if (!Array.isArray(mem) || (!mem.length && S.setup.memory.length)) {
+        store().set('lk_coachMemory', S.setup.memory);
+      }
+    }
+    if (kind === 'instructions') {
+      var ins = store().get('lk_coachInstructions', null);
+      if (typeof ins !== 'string' || (!ins && S.setup.instructions)) {
+        store().set('lk_coachInstructions', S.setup.instructions);
+      }
+    }
+  }
+  function syncFromStore(kind) {
+    if (!store()) return;
+    if (kind === 'fact') S.setup.memory = store().get('lk_coachMemory', S.setup.memory) || S.setup.memory;
+    if (kind === 'instructions') S.setup.instructions = store().get('lk_coachInstructions', S.setup.instructions);
+  }
+  function undoAll(mi) {
+    var m = S.chat.msgs[mi];
+    if (!m || !m.acts || !window.LKCoachActions) return;
+    var back = 0;
+    m.acts.forEach(function (v) {
+      if (!v.applied) return;
+      if (LKCoachActions.revert(v.token)) { v.applied = false; v.token = null; back++; syncFromStore(v.kind); }
+    });
+    persistChat();
+    S.toast = null;
+    render();
+    toast(back ? back + (back === 1 ? ' action undone.' : ' actions undone.') : 'Nothing to undo.');
+  }
+
+  /* Every item, before any of it is added. F-COACH-018: a shopping list is
+     the action with the most lines and the least interesting preview, which
+     is exactly why it gets its own approval step rather than a count. */
+  function shoppingSheet() {
+    var mo = S.modal;
+    var m = S.chat.msgs[mo.mi];
+    var v = m && m.acts && m.acts[mo.ai];
+    if (!v || !v.ok) return '';
+    var a = v.action;
+    return '<div class="scrim" data-act="close-modal" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-label="Add these to your shopping list" data-testid="shop-sheet">' +
+        '<span class="sheet__grab"></span>' +
+        '<div class="sheet__head"><div class="stack stack--1">' +
+          '<h2 class="t-section">Add ' + a.items.length + ' items?</h2>' +
+          '<span class="t-detail">Everything the coach wants to add is listed. Nothing else goes on.</span></div>' +
+          '<button class="iconbtn" data-act="close-modal" aria-label="Close" data-testid="shop-close">' + ico('close') + '</button></div>' +
+        '<div class="sheet__body">' +
+          '<div class="card card--flush" data-testid="shop-items">' +
+            a.items.map(function (it, i) {
+              return '<div class="row row--static" data-testid="shop-item-' + i + '">' +
+                '<span class="row__main"><span class="row__title">' + esc(it.itemName) + '</span>' +
+                '<span class="row__sub">' + n(fmt(it.quantity)) + (it.unit ? ' ' + esc(it.unit) : '') +
+                ' &middot; ' + esc(it.category) + '</span></span></div>';
+            }).join('') +
+          '</div>' +
+          '<button class="btn btn--primary btn--block mt-4" data-act="shop-confirm" data-testid="shop-confirm">' +
+            '<span class="btn__label">Add all ' + a.items.length + ' to the list</span></button>' +
+          '<button class="btn btn--tertiary btn--block mt-2" data-act="close-modal" data-testid="shop-cancel">' +
+            '<span class="btn__label">Cancel</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
   function closeInterview() {
     var a = answered();
     S.interview.open = false;
@@ -2498,6 +3019,7 @@
      Boot
      --------------------------------------------------------------- */
   reset();
+  loadCatalogue();
   var qs = new URLSearchParams(location.search);
   var want = qs.get('preset');
   if (want !== null && PRESETS[Number(want)]) applyPreset(Number(want));

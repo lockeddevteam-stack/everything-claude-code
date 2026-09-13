@@ -349,6 +349,12 @@
     var r = stored('lk_fuelRefeed', null);
     return r && r.date === DAY.iso ? r : null;
   }
+  /* An offer turned down, with a cool-off, in the store rather than in a
+     variable that a repaint clears. */
+  function refeedDeclined() {
+    var d = stored('lk_fuelRefeedNo', null);
+    return !!(d && d.until && d.until > DAY.iso);
+  }
 
   /* One place the figures a target is computed from actually live. They were
      spread across lk_profile, a constant inside a formula, and nothing at
@@ -418,6 +424,96 @@
       clamped: capped !== move,
       days: 14
     };
+  }
+
+  /* ---------------------------------------------------------------
+     The weekly rhythm
+
+     The blend above was right and did nothing with itself: the card offered a
+     number, the tap moved the target, and nothing was written down about
+     either. So the target only ever moved on the days somebody happened to
+     scroll past a card, "Keep mine" lasted until the next paint, and there
+     was no answer at all to "why is my target 2,830 now".
+
+     A week is the cadence because the measurement behind it is a fortnight of
+     intake against a fortnight of weigh-ins, and that does not say anything
+     new on a Tuesday that it did not say on the Monday.
+     --------------------------------------------------------------- */
+  var ADAPT_DEFAULT = { auto: true, lastAt: null, dismissedUntil: null };
+  function adaptState() {
+    var v = stored('lk_fuelAdaptive', null) || {};
+    return { auto: v.auto === undefined ? ADAPT_DEFAULT.auto : !!v.auto,
+             lastAt: v.lastAt || null,
+             dismissedUntil: v.dismissedUntil || null };
+  }
+  function writeAdapt(patch) {
+    var v = adaptState();
+    Object.keys(patch).forEach(function (k) { v[k] = patch[k]; });
+    if (ST && persisting()) ST.set('lk_fuelAdaptive', v);
+    return v;
+  }
+  /* Every move this screen has made to a target, with what it was and what it
+     became. It is the answer to "why is my target what it is", and without it
+     an adapting target is an oracle. */
+  function tdeeHistory() { return stored('lk_tdeeHistory', []) || []; }
+  function writeTdeeEntry(e) {
+    if (!ST || !persisting()) return;
+    var list = tdeeHistory().slice();
+    list.unshift(e);
+    ST.set('lk_tdeeHistory', list.slice(0, 40));
+  }
+  function adaptDue() {
+    var st = adaptState();
+    if (!st.lastAt) return true;
+    return daysBetween(st.lastAt, DAY.iso) >= 7;
+  }
+  function adaptDismissed() {
+    var st = adaptState();
+    return !!(st.dismissedUntil && st.dismissedUntil > DAY.iso);
+  }
+
+  /* Move the target, write it down, and say so. One writer, so the card's
+     button, the weekly pass and anything added later cannot record the move
+     differently. */
+  function applyAdaptive(a, how) {
+    var from = DAY.target;
+    var to = a.want;
+    saveTargetsTo({ kcal: to, pro: DAY.macros[0].want, carb: DAY.macros[1].want,
+                    fat: DAY.macros[2].want, waterMl: TARGETS.waterMl });
+    writeTdeeEntry({ date: DAY.iso, from: from, to: to, move: to - from,
+                     tdee: a.tdee, meas: a.meas, est: a.est, how: how });
+    writeAdapt({ lastAt: DAY.iso, dismissedUntil: null });
+    DAY = day();
+    OFTEN = frequent();
+    return { from: from, to: to };
+  }
+
+  /* The weekly pass, run on mount and on coming back to the tab. It only ever
+     moves the target by the clamped amount the card shows, and it only runs
+     when a week has gone by, so the number cannot drift under somebody's
+     hands day after day. */
+  function adaptiveTick() {
+    if (!hasTargets()) return;
+    if (!persisting()) return;
+    var st = adaptState();
+    if (!st.auto || !adaptDue()) return;
+    /* NOT ON A SCREEN NOBODY HAS TOUCHED. Moving the target of somebody who
+       has never logged a meal or set a figure would be the app changing its
+       own mind about a person it has never met -- and the demo's seed would
+       read one target here and another on Settings before anybody had done
+       anything. Until the log or the targets have been written to, the card
+       asks rather than acts. */
+    if (!ST || !(ST.touched('lk_fuelLog') || ST.touched('lk_fuelTargets'))) return;
+    var a = adaptive();
+    if (!a || a.meas === null) return;
+    if (Math.abs(a.move) < 20) {
+      /* Nothing worth moving is still a check: the week is spent and the
+         card should not open tomorrow asking the same question. */
+      writeAdapt({ lastAt: DAY.iso });
+      return;
+    }
+    var done = applyAdaptive(a, 'weekly');
+    S.tdeeMoved = done;
   }
 
   /* Meals belong to a part of the day, and every path on this screen used to
@@ -2181,7 +2277,7 @@
           ' g of carbs, back to normal tomorrow.</p>' +
       '</div>';
     }
-    if (S.refeedDismissed) return '';
+    if (refeedDeclined()) return '';
     var r = refeedDue();
     if (!r) return '';
     return '<div class="card mt-4" data-testid="refeed-card">' +
@@ -2202,10 +2298,60 @@
   /* What the target should be, from what the body actually did. Behind a
      disclosure, because a number that moves a target has to be able to show
      its working or it is just an oracle. */
+  /* What it has already done, so a target that moves on its own is still
+     something a person can audit. */
+  function tdeeHistoryHTML() {
+    var h = tdeeHistory();
+    if (!h.length) return '';
+    var word = { weekly: 'the weekly check', manual: 'you', kept: 'you, left alone' };
+    return '<h3 class="t-label mt-5">What it has moved</h3>' +
+      '<div class="card card--flush mt-2" data-testid="tdee-history">' +
+        h.slice(0, 5).map(function (e, i) {
+          return '<div class="row row--static" data-testid="tdee-hist-' + i + '">' +
+            '<span class="row__main stack">' +
+              '<span class="row__title">' + (e.how === 'kept'
+                ? 'Left at ' + n(e.from) + ' kcal'
+                : n(e.from) + ' \u2192 ' + n(e.to) + ' kcal') + '</span>' +
+              '<span class="row__sub">' + esc(dayLabel(e.date)) + ' \u00b7 ' +
+                esc(word[e.how] || e.how) + '</span>' +
+            '</span>' +
+            (e.how === 'kept' ? '' : '<span class="row__value num">' +
+              (e.move > 0 ? '+' : '\u2212') + n(Math.abs(e.move)) + '</span>') +
+          '</div>';
+        }).join('') +
+      '</div>';
+  }
+
   function tdeeCard() {
+    var st = adaptState();
+    /* IT ALREADY MOVED. The weekly pass ran on the way in, so the card's job
+       is to report a change rather than to ask for one, and to make putting
+       it back one tap. */
+    if (S.tdeeMoved) {
+      var mv = S.tdeeMoved;
+      return '<div class="card mt-4" data-testid="tdee-moved">' +
+        '<span class="t-subheadline">Your target moved to ' + n(mv.to) + '</span>' +
+        '<p class="t-detail mt-1">It was ' + n(mv.from) + '. This is the weekly check: your ' +
+          'average intake over the last 14 days against what your weight actually did, blended ' +
+          'with the formula and capped at 150 kcal a move.</p>' +
+        '<div class="hstack hstack--3 mt-3">' +
+          '<button class="btn btn--secondary grow" type="button" data-action="tdee-revert" ' +
+            'data-v="' + mv.from + '" data-testid="tdee-revert">' +
+            '<span class="btn__label">Put it back to ' + n(mv.from) + '</span></button>' +
+          '<button class="btn btn--tertiary" type="button" data-action="tdee-seen" ' +
+            'data-testid="tdee-seen"><span class="btn__label">Fine</span></button>' +
+        '</div>' +
+        tdeeHistoryHTML() +
+      '</div>';
+    }
     var a = adaptive();
     if (!a || a.meas === null) return '';
     if (Math.abs(a.move) < 20) return '';
+    /* A dismissal that lasts. "Keep mine" used to live in a variable, so the
+       card it closed was back on the next paint and the answer counted for
+       nothing. It now holds for a week, which is the cadence the whole thing
+       runs on. */
+    if (adaptDismissed()) return '';
     return '<div class="card mt-4" data-testid="tdee-card">' +
       '<div class="hstack hstack--3">' +
         '<span class="t-subheadline grow">Your target looks ' +
@@ -2243,6 +2389,19 @@
         '<button class="btn btn--tertiary" type="button" data-action="tdee-keep" ' +
           'data-testid="tdee-keep"><span class="btn__label">Keep mine</span></button>' +
       '</div>' +
+      '<div class="hstack hstack--3 mt-3">' +
+        '<span class="t-body grow" id="tdee-auto-lbl">Adjust it for me every week</span>' +
+        '<button class="switch" type="button" role="switch" aria-checked="' + st.auto + '" ' +
+          'aria-labelledby="tdee-auto-lbl" data-action="tdee-auto" data-testid="tdee-auto">' +
+          '<span class="switch__track"></span><span class="switch__knob"></span></button>' +
+      '</div>' +
+      '<p class="t-caption-1 quiet mt-1">' + (st.auto
+        ? 'On: once a week, from the first thing you log, the target moves itself by at most ' +
+          '150 kcal and this card says it did. Turning it off leaves every move to you.'
+        : 'Off: the target only moves when you tap Use. The card still appears once a week.') +
+        (adaptState().lastAt ? ' Last checked ' + esc(dayLabel(adaptState().lastAt)) + '.' : '') +
+      '</p>' +
+      tdeeHistoryHTML() +
     '</div>';
   }
 
@@ -2333,7 +2492,7 @@
   VIEWS.populated = function () {
     return '<div>' + hero() + logAction() + macros() + microPanel() + '</div>' +
       today() +
-      '<div>' + refeedCard() + (S.tdeeDismissed ? '' : tdeeCard()) + suggestCard() +
+      '<div>' + refeedCard() + tdeeCard() + suggestCard() +
         waterCard() + weightCard() + chips() + '</div>';
   };
   VIEWS['first-weeks'] = VIEWS.populated;
@@ -4191,7 +4350,17 @@
       say('Refeed on. ' + n(rk) + ' kcal today.');
       return;
     }
-    if (a === 'refeed-no') { S.refeedDismissed = true; render(); return; }
+    /* Declined, and it stays declined. "Not today" lived in a variable, so the
+       same offer was back on the next paint and saying no meant nothing. Three
+       days is the cool-off: the three-low run that triggered it will still be
+       a run of lows tomorrow, so asking again tomorrow is asking the same
+       question with no new evidence. */
+    if (a === 'refeed-no') {
+      if (ST && persisting()) ST.set('lk_fuelRefeedNo', { until: isoPlus(DAY.iso, 3) });
+      render();
+      say('Not today. It will not ask again before ' + esc(dayLabel(isoPlus(DAY.iso, 3))) + '.');
+      return;
+    }
     if (a === 'refeed-off') {
       if (ST && persisting()) ST.remove('lk_fuelRefeed');
       DAY.target = TARGETS.kcal; DAY.macros[1].want = TARGETS.carb;
@@ -4225,13 +4394,44 @@
       return;
     }
     if (a === 'tdee-why') { S.tdeeWhy = !S.tdeeWhy; render(); return; }
-    if (a === 'tdee-keep') { S.tdeeDismissed = true; render(); say('Target left at ' + n(DAY.target) + '.'); return; }
+    /* Kept for a week, in the store, with the decision recorded. A dismissal
+       nobody can see the next morning is not a decision, it is a repaint. */
+    if (a === 'tdee-keep') {
+      writeAdapt({ dismissedUntil: isoPlus(DAY.iso, 7), lastAt: DAY.iso });
+      writeTdeeEntry({ date: DAY.iso, from: DAY.target, to: DAY.target, move: 0, how: 'kept' });
+      render();
+      say('Target left at ' + n(DAY.target) + '. Asked again in a week.');
+      return;
+    }
+    if (a === 'tdee-auto') {
+      var nowAuto = !adaptState().auto;
+      writeAdapt({ auto: nowAuto });
+      render();
+      say(nowAuto ? 'It will adjust itself once a week.' : 'It will not move on its own.');
+      return;
+    }
+    if (a === 'tdee-seen') { S.tdeeMoved = null; render(); return; }
+    if (a === 'tdee-revert') {
+      var back = +act.getAttribute('data-v');
+      var wasT = DAY.target;
+      saveTargetsTo({ kcal: back, pro: DAY.macros[0].want, carb: DAY.macros[1].want,
+                      fat: DAY.macros[2].want, waterMl: TARGETS.waterMl });
+      writeTdeeEntry({ date: DAY.iso, from: wasT, to: back, move: back - wasT, how: 'manual' });
+      /* Put back means put back: the weekly pass must not undo it tomorrow,
+         so the week is spent and it is left alone until the next one. */
+      writeAdapt({ lastAt: DAY.iso, dismissedUntil: isoPlus(DAY.iso, 7) });
+      DAY = day();
+      S.tdeeMoved = null;
+      render();
+      say('Target back to ' + n(back) + ' kcal.');
+      return;
+    }
     if (a === 'tdee-take') {
       var tv = +act.getAttribute('data-v');
-      DAY.target = tv;
-      saveTargetsTo({ kcal: tv, pro: DAY.macros[0].want, carb: DAY.macros[1].want,
-                      fat: DAY.macros[2].want, waterMl: TARGETS.waterMl });
-      S.tdeeDismissed = true;
+      var aNow = adaptive();
+      if (!aNow) return;
+      applyAdaptive({ want: tv, tdee: aNow.tdee, meas: aNow.meas, est: aNow.est }, 'manual');
+      S.tdeeMoved = null;
       render();
       say('Target moved to ' + n(tv) + ' kcal.');
       return;
@@ -5131,6 +5331,30 @@
 
   var p = new URLSearchParams(location.search);
   if (p.get('state') && VIEWS[p.get('state')]) S.state = p.get('state');
+
+  /* THE SCREEN MOUNTS ONCE IN THE DEMO. Everything here reads stored data --
+     the log, the targets, the weigh-ins, the pantry, the supplement ticks --
+     and all of it can be changed on another tab while this one stays in the
+     DOM. Coming back re-reads rather than showing the day as it was when the
+     router first painted it. */
+  function reread() {
+    PROFILE = stored('lk_profile', FX.profile || {});
+    FUELLOG = stored('lk_fuelLog', null) || cloneDays(NUT.days || {});
+    WEIGHTLOG = stored('lk_weightLog', FX.weightLog || []);
+    var own = stored('lk_fuelTargets', null);
+    if (own && own.kcal) TARGETS = own;
+    TREND_CACHE = null;
+    DAY = day();
+    OFTEN = frequent();
+  }
+  document.addEventListener('lk:enter', function () {
+    reread();
+    adaptiveTick();
+    render();
+  });
+
+  /* The weekly pass, on the way in. */
+  adaptiveTick();
   render();
   requestAnimationFrame(function () { window.__ready = true; });
 })();

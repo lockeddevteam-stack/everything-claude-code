@@ -155,21 +155,40 @@
   function round(v, step) { return Math.round(v / step) * step; }
   function trim(v) { return String(Math.round(v * 100) / 100); }
 
-  function toDisplay(kgValue) {          /* stored kg -> profile unit */
+  /* ONE LIFT CAN READ IN THE OTHER UNIT. Both unit controls used to call
+     setUnit(), which flips the whole app, so a rack of dumbbells stamped in
+     pounds inside a kilogram session could only be logged by converting it in
+     your head or by flipping every other screen with it. The tools menu still
+     owns the app-wide setting; the exercise sheet now sets an override for
+     that lift alone. The MODEL IS STILL KILOGRAMS everywhere -- the override
+     changes the reading of a row and never what is stored -- and it is kept
+     in lk_exEquip beside the bar weight, because it is the same kind of fact
+     about the lift and it has to be true the next time it comes round. */
+  function unitOf(ex) { return (ex && ex.unit === 'lb') || (ex && ex.unit === 'kg') ? ex.unit : S.unit; }
+  function unitAt(e) { return unitOf(S.exercises[e]); }
+  function toDisplay(kgValue, u) {       /* stored kg -> the unit being read */
     if (kgValue === null || kgValue === undefined || kgValue === '') return null;
-    return S.unit === 'kg' ? Number(kgValue) : Math.round(Number(kgValue) * LB_PER_KG * 10) / 10;
+    return (u || S.unit) === 'kg' ? Number(kgValue) : Math.round(Number(kgValue) * LB_PER_KG * 10) / 10;
   }
-  function toKg(displayValue) {          /* profile unit -> stored kg */
+  function toKg(displayValue, u) {       /* the unit being read -> stored kg */
     if (displayValue === null || displayValue === '' || isNaN(displayValue)) return null;
-    return S.unit === 'kg' ? Number(displayValue) : Math.round((Number(displayValue) / LB_PER_KG) * 100) / 100;
+    return (u || S.unit) === 'kg' ? Number(displayValue) : Math.round((Number(displayValue) / LB_PER_KG) * 100) / 100;
   }
-  function unitLabel() { return S.unit === 'kg' ? 'kg' : 'lb'; }
+  function unitLabel(u) { return (u || S.unit) === 'kg' ? 'kg' : 'lb'; }
   /* "everywhere" means everywhere. */
   function setUnit(u) {
     S.unit = u;
     if (window.LKUnits) LKUnits.set(u === 'kg');
   }
-  function unitWord() { return S.unit === 'kg' ? 'kilograms' : 'pounds'; }
+  function unitWord(u) { return (u || S.unit) === 'kg' ? 'kilograms' : 'pounds'; }
+  /* THE PHONE'S OWN CONFIRMATION. A set logged is a thing done with the eyes
+     on the bar, not on the screen, and navigator.vibrate appeared nowhere in
+     the build. Guarded: desktop Safari has no vibrate and iOS ignores it, so
+     the tick still pops and still announces itself. */
+  function buzz(pattern) {
+    try { if (navigator && typeof navigator.vibrate === 'function') navigator.vibrate(pattern); } catch (e) {}
+  }
+
   function clock(s) {
     var m = Math.floor(s / 60), r = s % 60;
     return m + ':' + (r < 10 ? '0' : '') + r;
@@ -249,7 +268,9 @@
       var all = LKStore.get('lk_exNotes', {}) || {};
       if (all[id]) kept = all[id];
     }
-    return { id: id, name: name, muscle: muscle, note: kept || note || '', sets: sets };
+    var eq = equipFor(id) || {};
+    return { id: id, name: name, muscle: muscle, note: kept || note || '', sets: sets,
+             unit: eq.unit === 'lb' || eq.unit === 'kg' ? eq.unit : null };
   }
 
   /* The seeded mid-session, for the dev states and for a demo. A build with
@@ -628,8 +649,9 @@
     /* Weight carries over from last session and is shown, as shipped —
        but in the ghost tone, because it is not yet the lifter's entry.
        Reps start blank, also as shipped. */
+    var u = unitAt(e);
     var raw = own !== null ? own : (field === 'weight' ? prev : null);
-    var shown = field === 'weight' ? toDisplay(raw) : raw;
+    var shown = field === 'weight' ? toDisplay(raw, u) : raw;
     var blank = shown === null || shown === undefined;
     var ghost = blank || own === null;
     var text = blank ? '--' : (field === 'weight' ? trim(shown) : String(shown));
@@ -639,7 +661,7 @@
        against left them out. */
     var partial = (field === 'reps' && !blank && st.partials) ? st.partials : 0;
     var label = 'Set ' + (i + 1) + ' ' + field + (blank ? ', empty'
-      : (ghost ? ', last session ' : ', ') + text + (field === 'weight' ? ' ' + unitWord() : ' reps')) +
+      : (ghost ? ', last session ' : ', ') + text + (field === 'weight' ? ' ' + unitWord(u) : ' reps')) +
       (partial ? ' plus ' + partial + (partial === 1 ? ' partial' : ' partials') : '');
     return '<button class="cell' + (ghost ? ' cell--empty' : '') + (editing ? ' cell--editing' : '') + '" type="button" ' +
       'data-act="edit" data-ex="' + e + '" data-set="' + i + '" data-field="' + field + '" ' +
@@ -721,7 +743,8 @@
 
   function gridHead(e) {
     return '<div class="setgrid__head setgrid__head--n">#</div>' +
-      '<div class="setgrid__head setgrid__head--unit" data-testid="unit-head-' + e + '">' + unitLabel().toUpperCase() + '</div>' +
+      '<div class="setgrid__head setgrid__head--unit" data-testid="unit-head-' + e + '">' +
+        unitLabel(unitAt(e)).toUpperCase() + '</div>' +
       '<div class="setgrid__head">Reps</div>' +
       '<div class="setgrid__head">RIR</div>' +
       '<div class="setgrid__head" aria-hidden="true"></div>';
@@ -732,13 +755,14 @@
         'aria-pressed="' + (S.liftedEx === e ? 'true' : 'false') + '" aria-label="Reorder ' + esc(ex.name) +
         ', position ' + (e + 1) + ' of ' + S.exercises.length + '">' + ICO.grip + '</button>' +
       '<button class="exc__main" type="button" data-act="exsheet" data-ex="' + e + '" data-testid="exercise-menu-' + e + '" ' +
-        'aria-haspopup="dialog" aria-label="Options for ' + esc(ex.name) + '">' +
+        'aria-haspopup="dialog" aria-label="Options for ' + esc(ex.name) +
+        '. Press and hold, or press Enter." aria-description="Press and hold to open">' +
         '<span class="exc__name">' + esc(ex.name) + '</span>' +
         '<span class="exc__muscle">' + esc(ex.muscle) +
           (ex.unilateral ? ' &middot; left and right' : '') +
           /* The bar or carriage, where there is one. A set logged as 60 on a
              20 kg bar was 60, and nothing on the card said which. */
-          (baseOf(ex) ? ' &middot; +' + trim(toDisplay(baseOf(ex))) + ' ' + unitLabel() + ' base' : '') +
+          (baseOf(ex) ? ' &middot; +' + trim(toDisplay(baseOf(ex), unitOf(ex))) + ' ' + unitLabel(unitOf(ex)) + ' base' : '') +
           /* How long since this lift was last trained, once that is long
              enough to be the reason the numbers have not moved. Under a
              month it is just a rest day and saying so would be noise. */
@@ -797,10 +821,45 @@
     '</div>';
   }
 
+  /* THE RECORDS SET IN THIS SESSION, read off the sets themselves so they
+     survive a reload with the rows. A record was a four-second toast: beaten
+     in the first exercise, it left no mark anywhere by the time the session
+     ended, and the one place it appeared again was another screen days
+     later. It is marked on the set, badged on the card, and banded across
+     the top of the log for as long as the workout is open. */
+  function sessionPRs() {
+    var out = [];
+    S.exercises.forEach(function (ex) {
+      ex.sets.forEach(function (st, i) {
+        if (st.pr) out.push({ name: ex.name, text: st.prText || '', set: i + 1 });
+      });
+    });
+    return out;
+  }
+  function exHasPR(ex) {
+    for (var i = 0; i < ex.sets.length; i++) if (ex.sets[i].pr) return true;
+    return false;
+  }
+  function prBannerHTML() {
+    var prs = sessionPRs();
+    if (!prs.length) return '';
+    return '<div class="prband" role="status" data-testid="pr-banner" data-count="' + prs.length + '">' +
+      '<span class="badge badge--success">All-time ' + (prs.length === 1 ? 'PR' : 'PRs') + '</span>' +
+      '<div class="prband__main">' +
+        prs.map(function (r) {
+          return '<p class="t-body-em">' + esc(r.name) + '</p>' +
+            '<p class="t-detail muted">' + esc(r.text) + ' Set ' + r.set + ', saved to your records.</p>';
+        }).join('') +
+      '</div>' +
+    '</div>';
+  }
+
   function exerciseHTML(ex, e) {
     return '<article class="exc' + (S.liftedEx === e ? ' exc--lifted' : '') +
         (S.dragEx === e ? ' exc--dragging' : '') + '" data-testid="exercise-card-' + e + '">' +
-      '<div class="exc__head">' + headBtns(ex, e) + '</div>' +
+      '<div class="exc__head">' + headBtns(ex, e) +
+        (exHasPR(ex) ? '<span class="badge badge--success" data-testid="pr-badge-' + e + '">PR</span>' : '') +
+      '</div>' +
       '<div class="sets"><div class="setgrid">' + gridHead(e) + setRows(ex, e) + '</div></div>' +
       '<div class="exc__foot">' +
         '<button class="btn btn--sm btn--secondary" type="button" data-act="addset" data-ex="' + e + '" data-testid="btn-add-set-' + e + '">' + ICO.plus + '<span class="btn__label">Add Set</span></button>' +
@@ -831,7 +890,8 @@
       '<div class="exc__head exc__head--b">' +
         '<span class="exc__grip" aria-hidden="true"></span>' +
         '<button class="exc__main" type="button" data-act="exsheet" data-ex="' + (e + 1) + '" data-testid="exercise-menu-' + (e + 1) + '" ' +
-          'aria-haspopup="dialog" aria-label="Options for ' + esc(b.name) + '">' +
+          'aria-haspopup="dialog" aria-label="Options for ' + esc(b.name) +
+          '. Press and hold, or press Enter." aria-description="Press and hold to open">' +
           '<span class="exc__name">' + esc(b.name) + '</span>' +
           '<span class="exc__muscle">' + esc(b.muscle) + '</span>' +
         '</button>' +
@@ -891,8 +951,21 @@
     '</article>';
   }
 
+  /* The gesture has to be taught once. lk_holdTipSeen is the shipped app's
+     own key for exactly this, and it is set the first time a hold lands. */
+  function holdTipSeen() {
+    return !!(window.LKStore && LKStore.get('lk_holdTipSeen', false));
+  }
+  function markHoldTipSeen() {
+    if (window.LKStore && !holdTipSeen()) LKStore.set('lk_holdTipSeen', true);
+  }
+
   function bodyHTML() {
-    var out = '';
+    var out = prBannerHTML();
+    if (S.exercises.length && !holdTipSeen()) {
+      out += '<p class="t-detail muted holdtip" data-testid="hold-tip">' +
+        'Hold an exercise name for its options \u2014 swap, warm-ups, equipment, remove.</p>';
+    }
     if (!S.exercises.length && !S.blocks.length) {
       /* The only empty state in the build that pointed at a button instead
          of being one. Every other one carries the way out; this one said
@@ -937,10 +1010,11 @@
   function openPadFor(e, i, field) {
     var st = S.exercises[e].sets[i];
     var own = field === 'weight' ? st.kg : st.reps;
+    var u = unitAt(e);
     var raw = own !== null ? own : (field === 'weight' ? st.prevKg : null);
-    var shown = field === 'weight' ? toDisplay(raw) : raw;
+    var shown = field === 'weight' ? toDisplay(raw, u) : raw;
     return {
-      ex: e, set: i, field: field,
+      ex: e, set: i, field: field, unit: u,
       buffer: (shown === null || shown === undefined) ? '' : trim(shown),
       /* THE FIX. The pad opens showing the pending value, as shipped,
          but the first digit replaces it whole instead of appending to
@@ -954,7 +1028,8 @@
   function padHTML() {
     var p = S.pad;
     var isWeight = p.field === 'weight';
-    var steps = isWeight ? STEPS[S.unit] : [-2, -1, 1, 2];
+    var pu = p.unit || S.unit;
+    var steps = isWeight ? STEPS[pu] : [-2, -1, 1, 2];
     var shown = p.buffer === '' ? '0' : p.buffer;
     var pending = p.fromPrev && !p.replaced;
     var keys = '';
@@ -971,7 +1046,7 @@
           '<span class="padsheet__what">' + (isWeight ? 'Weight' : 'Reps') + ' · set ' + (p.set + 1) + '</span>' +
           '<span class="padsheet__figure">' +
             '<span class="padsheet__value' + (pending ? ' padsheet__value--pending' : '') + '" data-testid="pad-value">' + esc(shown) + '</span>' +
-            (isWeight ? '<span class="padsheet__unit" data-testid="pad-unit">' + unitLabel() + '</span>' : '') +
+            (isWeight ? '<span class="padsheet__unit" data-testid="pad-unit">' + unitLabel(pu) + '</span>' : '') +
           '</span>' +
         '</div>' +
         (pending ? '<p class="padsheet__hint" data-testid="pad-hint">Last session. Type to replace it.</p>' : '') +
@@ -1003,7 +1078,7 @@
   function padCommit() {
     var p = S.pad, st = S.exercises[p.ex].sets[p.set];
     var v = p.buffer === '' ? null : parseFloat(p.buffer);
-    if (p.field === 'weight') st.kg = v === null || isNaN(v) ? null : toKg(v);
+    if (p.field === 'weight') st.kg = v === null || isNaN(v) ? null : toKg(v, p.unit);
     else st.reps = v === null || isNaN(v) ? null : Math.round(v);
     S.pad = null;
   }
@@ -1040,7 +1115,11 @@
     var items = [
       ['info', ICO.note, 'Info & notes', ''],
       ['swap', ICO.swap, 'Swap exercise', ''],
-      ['unit', ICO.scale, 'Switch to ' + (S.unit === 'kg' ? 'lb' : 'kg'), ''],
+      /* THIS LIFT, not the app. The tools menu keeps the app-wide switch;
+         here the question being asked is about the dumbbells in front of you. */
+      ['unit', ICO.scale, (unitOf(ex) === S.unit
+        ? 'Log this lift in ' + (unitOf(ex) === 'kg' ? 'lb' : 'kg')
+        : 'Back to ' + unitLabel(S.unit) + ', like the rest of the session'), ''],
       ['warmup', ICO.drop, 'Add warm-up sets', ''],
       ['superset', ICO.link, 'Make it a superset', ''],
       /* The key the handler tests. It was emitted as 'sides' and handled as
@@ -1051,7 +1130,7 @@
       ['delset', ICO.trash, 'Remove the last set', ''],
       ['delrow', ICO.trash, 'Remove a set by number', ''],
       ['equip', ICO.note, eq.eq ? 'Equipment \u00b7 ' + eq.eq +
-        (eq.base ? ' \u00b7 ' + trim(toDisplay(eq.base)) + ' ' + unitLabel() + ' base' : '')
+        (eq.base ? ' \u00b7 ' + trim(toDisplay(eq.base, unitOf(ex))) + ' ' + unitLabel(unitOf(ex)) + ' base' : '')
         : 'Set the equipment', ''],
       ['remove', ICO.trash, 'Remove exercise', ' sheetact--danger']
     ];
@@ -1096,7 +1175,7 @@
               var prev = lastSetsFor(ex.id);
               if (!prev || !prev.length) return 'No earlier session with this lift.';
               return prev.map(function (st) {
-                return trim(toDisplay(st.kg)) + unitLabel() + ' x ' + (st.reps || '--') +
+                return trim(toDisplay(st.kg, unitOf(ex))) + unitLabel(unitOf(ex)) + ' x ' + (st.reps || '--') +
                   (st.warm ? ' (warm-up)' : '');
               }).join(' \u00b7 ');
             })() + '</p></div>' +
@@ -1206,15 +1285,25 @@
           }).join('') + '</div>' +
           /* Six presets are six opinions about how long a set takes to
              recover from, and a heavy triple is not on the list. */
+          /* MINUTES AND SECONDS, the way a rest is said. One seconds box
+             meant "two and a half minutes" had to be typed as 150, and it
+             opened empty so the length already set had to be remembered
+             before it could be nudged. Both boxes are seeded from the
+             current target. */
           '<p class="t-label mt-4">Or a length of your own</p>' +
-          '<div class="addrow mt-2">' +
-            '<input class="input num" id="rest-custom" type="number" min="5" max="900" step="5" ' +
-              'inputmode="numeric" placeholder="' + S.restSeconds + '" ' +
-              'aria-label="Rest in seconds" data-testid="rest-custom">' +
+          '<div class="restcustom mt-2">' +
+            '<label class="field"><span class="field__label t-label">Minutes</span>' +
+              '<input class="input num" id="rest-min" type="number" min="0" max="15" step="1" ' +
+                'inputmode="numeric" value="' + Math.floor(S.restSeconds / 60) + '" ' +
+                'aria-label="Rest minutes" data-testid="rest-min"></label>' +
+            '<label class="field"><span class="field__label t-label">Seconds</span>' +
+              '<input class="input num" id="rest-sec" type="number" min="0" max="59" step="5" ' +
+                'inputmode="numeric" value="' + (S.restSeconds % 60) + '" ' +
+                'aria-label="Rest seconds" data-testid="rest-sec"></label>' +
             '<button class="btn btn--secondary" type="button" data-act="rest-custom" ' +
               'data-testid="rest-custom-set">Use it</button>' +
           '</div>' +
-          '<p class="t-meta mt-1">Seconds, 5 to 900. Now: ' + n(clock(S.restSeconds)) + '.</p>' +
+          '<p class="t-meta mt-1">Between 5 seconds and 15 minutes. Now: ' + n(clock(S.restSeconds)) + '.</p>' +
           (S.restError ? '<p class="field__error mt-2" role="alert" data-testid="rest-error">' +
             esc(S.restError) + '</p>' : '') +
         '</div>' +
@@ -1281,7 +1370,7 @@
           '<button class="iconbtn" type="button" data-act="close" data-testid="pickset-close" aria-label="Close">' + ICO.close + '</button></div>' +
         '<div class="sheet__body"><div class="sheetlist">' +
           ex.sets.map(function (st, i) {
-            var w = st.kg !== null ? trim(toDisplay(st.kg)) + ' ' + unitLabel() : 'no weight';
+            var w = st.kg !== null ? trim(toDisplay(st.kg, unitOf(ex))) + ' ' + unitLabel(unitOf(ex)) : 'no weight';
             var r = st.reps !== null ? st.reps + ' reps' : 'no reps';
             return '<button class="sheetact" type="button" data-act="delrow-go" data-i="' + i + '" ' +
               'data-testid="pickset-' + i + '">' +
@@ -1660,6 +1749,17 @@
     put(overlay, overlayHTML());
     put(toastSlot, toastHTML());
 
+    if (S.pop) {
+      var popped = document.querySelector('[data-testid="' + S.pop + '"]');
+      S.pop = null;
+      if (popped) {
+        popped.classList.remove('done--pop');
+        /* Next frame, or the class is added inside the same style pass the
+           element was patched in and the animation never restarts. */
+        requestAnimationFrame(function () { popped.classList.add('done--pop'); });
+      }
+    }
+
     var nowOverlay = !!(S.overlay || S.pad);
     renderedOverlay = nowOverlay;
 
@@ -1784,6 +1884,10 @@
           if (st.kg === null) st.kg = st.prevKg;
           if (st.reps === null) st.reps = st.prevReps;
           startRest();
+          /* Felt as well as seen. One short pulse for a set, two for a
+             record, and the tick pops under the thumb. */
+          buzz(12);
+          S.pop = 'done-' + e + '-' + i;
           /* The moment a best is beaten is the moment to say so. A 100 kg
              set against a 72.5 kg best produced "Set 4 logged" and nothing
              else, and the record only appeared days later on another
@@ -1791,13 +1895,22 @@
           var pr = prBeaten(S.exercises[e], st);
           if (pr) {
             recordPR(S.exercises[e], st);
-            toast('Personal best. ' + pr, 'info');
+            /* On the set, so the banner and the card badge can be drawn from
+               the session itself and outlive the toast. */
+            st.pr = true;
+            st.prText = pr;
+            buzz([12, 60, 24]);
+            toast('All-time PR. ' + pr, 'info');
             say(S.exercises[e].name + ', personal best. ' + pr);
           } else {
             say('Set ' + (i + 1) + ' logged. ' + doneSets() + ' sets this session.');
           }
         } else {
           S.restRunning = false;
+          /* Reopening a set takes back what ticking it claimed. The record
+             row already written stands -- it was lifted -- but this session
+             stops announcing it. */
+          st.pr = false; st.prText = '';
           say('Set ' + (i + 1) + ' reopened');
         }
         break;
@@ -1851,7 +1964,7 @@
           }, 0)) || 20;
           s2.suggestKg = Math.round((base + 2.5) * 2) / 2;
           s2.suggestReps = s2.prevReps || 8;
-          toast('Suggested ' + trim(toDisplay(s2.suggestKg)) + ' ' + unitLabel() + ' x ' +
+          toast('Suggested ' + trim(toDisplay(s2.suggestKg, unitAt(e))) + ' ' + unitLabel(unitAt(e)) + ' x ' +
                 s2.suggestReps + ' for set ' + (target + 1) + '. Tap the cell to take it.',
                 'info', 'Take it', function () {
                   s2.kg = s2.suggestKg; s2.reps = s2.suggestReps;
@@ -1885,12 +1998,37 @@
         break;
       }
       case 'move-done': S.liftedEx = -1; say('Order kept'); refocus('grip-' + e); break;
-      case 'exsheet': S.overlayEx = e; S.overlay = 'sheet'; break;
+      /* THE SHEET IS HELD OPEN, NOT TAPPED OPEN. It opened on a plain tap of
+         the exercise name -- a 44-tall target sitting directly above the set
+         grid, in the middle of a screen people jab at with one hand between
+         sets -- so it fired by accident, and the gesture the shipped app
+         taught was gone. A short press now says how to open it instead of
+         opening it, which is the one thing a tap can do that is neither a
+         surprise nor a dead control. Enter and Space still open it outright,
+         because a keyboard cannot hold. */
+      case 'exsheet':
+        if (heldOpenAt && Date.now() - heldOpenAt < 600) break;   /* the hold already opened it */
+        say('Hold ' + S.exercises[e].name + ' to open its options.');
+        toast('Hold the name to open options for ' + S.exercises[e].name + '.');
+        break;
       case 'exact': {
         var key = t.getAttribute('data-key');
         var cur = S.exercises[S.overlayEx];
         if (key === 'info') { S.overlay = 'detail'; break; }
-        if (key === 'unit') { setUnit(S.unit === 'kg' ? 'lb' : 'kg'); S.overlay = null; toast('Showing ' + unitLabel() + ' everywhere.'); break; }
+        if (key === 'unit') {
+          /* An override, stored against the lift. Nothing already logged
+             changes: the rows are kilograms and stay kilograms, and only the
+             reading of them moves. */
+          var wasU = unitOf(cur);
+          var nextU = wasU === S.unit ? (S.unit === 'kg' ? 'lb' : 'kg') : null;
+          cur.unit = nextU;
+          if (cur.id) setEquip(cur.id, { unit: nextU });
+          S.overlay = null;
+          toast(nextU
+            ? cur.name + ' reads in ' + unitLabel(nextU) + '. Every other lift stays in ' + unitLabel(S.unit) + '.'
+            : cur.name + ' is back in ' + unitLabel(S.unit) + ', like the rest of the session.');
+          break;
+        }
         if (key === 'warmup') {
           /* A ramp, not the same set twice. Pressing this twice put two
              identical 50% warm-ups on the exercise, which is not how anybody
@@ -1919,8 +2057,8 @@
           cur.sets.splice(at, 0, set(Math.round(work * rung[0] * 2) / 2, rung[1],
                                      { warm: true, rir: 4 }));
           S.overlay = null;
-          toast('Warm-up at ' + trim(toDisplay(Math.round(work * rung[0] * 2) / 2)) + ' ' +
-                unitLabel() + ' added.');
+          toast('Warm-up at ' + trim(toDisplay(Math.round(work * rung[0] * 2) / 2, unitOf(cur))) + ' ' +
+                unitLabel(unitOf(cur)) + ' added.');
           break;
         }
         /* Any set, not only the last. delset pops, so shedding the second of
@@ -2061,7 +2199,8 @@
           var total = S.plate.bar + S.plate.added.reduce(function (a, b) { return a + b; }, 0) * 2;
           S.exercises[target2.ex].sets[target2.set].kg = total;
           S.overlay = null;
-          toast(trim(toDisplay(total)) + unitLabel() + ' applied to set ' + (target2.set + 1) + '.');
+          var au = unitAt(target2.ex);
+          toast(trim(toDisplay(total, au)) + unitLabel(au) + ' applied to set ' + (target2.set + 1) + '.');
         }
         break;
       }
@@ -2105,24 +2244,59 @@
          is a sheet to open, read and dismiss for something that takes a
          tap. */
       case 'rest-custom': {
-        var rf = document.getElementById('rest-custom');
-        var secs = rf ? parseInt(rf.value, 10) : NaN;
-        if (isNaN(secs) || secs < 5 || secs > 900) {
-          S.restError = 'Between 5 and 900 seconds.';
+        var mf = document.getElementById('rest-min');
+        var sf = document.getElementById('rest-sec');
+        var mins = mf ? parseInt(mf.value, 10) : NaN;
+        var secs0 = sf ? parseInt(sf.value, 10) : NaN;
+        if (isNaN(mins)) mins = 0;
+        if (isNaN(secs0)) secs0 = 0;
+        if (mins < 0 || secs0 < 0 || secs0 > 59) {
+          S.restError = 'Minutes, then seconds under 60.';
+          break;
+        }
+        var secs = mins * 60 + secs0;
+        if (secs < 5 || secs > 900) {
+          S.restError = 'Between 5 seconds and 15 minutes.';
           break;
         }
         S.restSeconds = secs;
         S.restError = null;
+        /* A rest already running takes the new length too, or the setting
+           would only apply from the next set and the sheet would look as
+           though it had done nothing. */
+        if (S.restRunning) S.restLeft = secs;
         toast('Rest set to ' + clock(secs) + '.');
         break;
       }
       case 'set-kind': {
         var ke = Number(t.getAttribute('data-ex')), ki = Number(t.getAttribute('data-set'));
-        var ks = S.exercises[ke].sets[ki];
+        var kex = S.exercises[ke], ks = kex.sets[ki];
         var at = SET_KINDS.indexOf(kindOf(ks));
         var next = SET_KINDS[(at + 1) % SET_KINDS.length];
         ks.warm = next === 'warm';
         ks.kind = next === 'warm' ? null : next;
+        /* A DROP SET IS THE SET ABOVE IT, LIGHTER. That is the whole reason
+           the state exists, and the weight was left to be typed by hand in
+           the one moment nobody has a free hand: straight off a set, with the
+           bar still loaded. Three quarters of the preceding set's load,
+           rounded to the half, and only into a row nobody has typed into --
+           a figure already entered is the lifter's and is never overwritten.
+           An undone row can be re-filled; a logged one cannot. */
+        if (next === 'drop' && !ks.done) {
+          var above = null;
+          for (var kk = ki - 1; kk >= 0; kk--) {
+            var cand = kex.sets[kk];
+            var load = cand.kg !== null && cand.kg !== undefined ? cand.kg : cand.prevKg;
+            if (load !== null && load !== undefined) { above = { kg: load, reps: cand.reps }; break; }
+          }
+          if (above) {
+            ks.kg = Math.round(above.kg * 0.75 * 2) / 2;
+            if (ks.reps === null || ks.reps === undefined) ks.reps = above.reps;
+            var du = unitOf(kex);
+            toast('Drop set at ' + trim(toDisplay(ks.kg, du)) + ' ' + unitLabel(du) +
+                  ', three quarters of set ' + (ki) + '. Type over it if it was not.');
+          }
+        }
         say('Set ' + (ki + 1) + ' is a ' + KIND_WORD[next] + '.');
         break;
       }
@@ -2278,6 +2452,72 @@
 
   var dragEndedAt = 0;
 
+  /* ---- press and hold, on the exercise name ---------------------------
+     450ms, the shipped app's own dwell. The card squeezes while the finger
+     is down so the gesture is visible before it fires, the phone taps back
+     the moment it does, and a finger that slides more than a few pixels is
+     a scroll rather than a hold. Nothing inside the card can start one: the
+     grip, the cells, the ticks and the foot buttons are all their own
+     controls, and this only ever begins on .exc__main itself. */
+  var HOLD_MS = 450;
+  var holdTimer = null;
+  var heldOpenAt = 0;
+  function cancelHold(el) {
+    if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+    if (el && el.classList) el.classList.remove('exc__main--holding');
+    Array.prototype.forEach.call(document.querySelectorAll('.exc__main--holding'), function (nd) {
+      nd.classList.remove('exc__main--holding');
+    });
+  }
+  document.addEventListener('pointerdown', function (ev) {
+    var main = ev.target.closest ? ev.target.closest('.exc__main[data-act="exsheet"]') : null;
+    if (!main) return;
+    /* A control inside the card that happens to sit over the name -- there
+       are none today, and there must not be one tomorrow either. */
+    if (ev.target.closest('[data-act]') !== main) return;
+    var ie = Number(main.getAttribute('data-ex'));
+    var x0 = ev.clientX, y0 = ev.clientY;
+    main.classList.add('exc__main--holding');
+    cancelHoldOnMove = function (e2) {
+      if (Math.abs(e2.clientX - x0) > 8 || Math.abs(e2.clientY - y0) > 8) done();
+    };
+    function done() {
+      cancelHold(main);
+      document.removeEventListener('pointermove', cancelHoldOnMove);
+      document.removeEventListener('pointerup', done);
+      document.removeEventListener('pointercancel', done);
+    }
+    document.addEventListener('pointermove', cancelHoldOnMove);
+    document.addEventListener('pointerup', done);
+    document.addEventListener('pointercancel', done);
+    holdTimer = setTimeout(function () {
+      holdTimer = null;
+      cancelHold(main);
+      buzz(18);
+      markHoldTipSeen();
+      heldOpenAt = Date.now();
+      lastOpener = 'exercise-menu-' + ie;
+      S.overlayEx = ie;
+      S.overlay = 'sheet';
+      paint();
+    }, HOLD_MS);
+  });
+  var cancelHoldOnMove = function () {};
+
+  /* A keyboard has no hold. Enter and Space open it outright. */
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+    var main = ev.target.closest ? ev.target.closest('.exc__main[data-act="exsheet"]') : null;
+    if (!main) return;
+    ev.preventDefault();
+    heldOpenAt = Date.now();
+    markHoldTipSeen();
+    lastOpener = main.dataset.testid;
+    S.overlayEx = Number(main.getAttribute('data-ex'));
+    S.overlay = 'sheet';
+    paint();
+  });
+
   document.addEventListener('pointerdown', function (ev) {
     var grip = ev.target.closest ? ev.target.closest('[data-act="grip"]') : null;
     if (!grip) return;
@@ -2356,18 +2596,23 @@
 
   /* Beaten means more weight at the same reps or better, or the same weight
      for more reps. The same rule Progress uses to refuse a junk record. */
+  /* In the unit the row is being read in. It printed "kg" whatever the
+     screen said, so a lifter working in pounds was told they had just put
+     165 kg over their head. */
   function prBeaten(ex, st) {
     if (!ex || !ex.id || st.warm) return null;
     if (st.kg === null || st.reps === null) return null;
+    var u = unitOf(ex);
+    var w = function (v) { return trim(toDisplay(v, u)) + ' ' + unitLabel(u); };
     var b = bestFor(ex.id, st.reps);
     if (!b) {
       var any = bestFor(ex.id);
       if (!any) return null;              /* nothing to beat: not a claim */
-      if (st.kg > any.w) return st.kg + ' kg for ' + st.reps + ', past ' + any.w + ' kg for ' + any.r + '.';
+      if (st.kg > any.w) return w(st.kg) + ' for ' + st.reps + ', past ' + w(any.w) + ' for ' + any.r + '.';
       return null;
     }
-    if (st.kg > b.w) return st.kg + ' kg for ' + st.reps + ', past ' + b.w + ' kg.';
-    if (st.kg === b.w && st.reps > b.r) return st.kg + ' kg for ' + st.reps + ', past ' + b.r + ' reps.';
+    if (st.kg > b.w) return w(st.kg) + ' for ' + st.reps + ', past ' + w(b.w) + '.';
+    if (st.kg === b.w && st.reps > b.r) return w(st.kg) + ' for ' + st.reps + ', past ' + b.r + ' reps.';
     return null;
   }
 
@@ -2475,7 +2720,7 @@
       ex.sets.forEach(function (st) {
         if (!st.done || st.kg == null || st.reps == null) return;
         rows.push({ kg: st.kg, reps: st.reps, rir: st.rir, warm: !!st.warm,
-                    partials: st.partials || 0, done: true });
+                    partials: st.partials || 0, done: true, pr: !!st.pr });
         if (st.warm) return;
         sets++; vol += st.kg * st.reps;
         if (!top || st.kg > top[0] || (st.kg === top[0] && st.reps > top[1])) top = [st.kg, st.reps];

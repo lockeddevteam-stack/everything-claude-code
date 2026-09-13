@@ -4147,6 +4147,74 @@ button.shelf:active { background: var(--fill-press); }
    the answer to why the numbers on it have not moved. */
 .exc__stale { color: var(--warning); }
 
+/* -------------------------------------------------------------------
+   chrome.js — what the on-screen keyboard covers.
+
+   --lk-kb is the height the keyboard takes from the visible viewport,
+   published by LKChrome.watchKeyboard(). It is 0 on every device and
+   browser without visualViewport, so these rules are inert there.
+
+   Everything pinned to the bottom lifts by it, because on iOS the
+   keyboard slides over the layout viewport rather than resizing it, and
+   the control somebody is typing towards was the one underneath.
+   ------------------------------------------------------------------- */
+:root { --lk-kb: 0px; }
+
+.tabbar { bottom: calc(var(--sp-3) + var(--safe-bottom) + var(--lk-kb)); }
+
+/* A tab bar over a keyboard is a row of destinations nobody is going to,
+   taking the space the thing being typed into needs. */
+:root[data-keyboard="open"] .tabbar { opacity: 0; pointer-events: none; }
+
+.actionbar { padding-bottom: calc(var(--sp-3) + var(--safe-bottom) + var(--lk-kb)); }
+.sheet__foot { padding-bottom: var(--lk-kb); }
+
+/* =============================================================
+   WORKOUT LOG (wp4) — the record, the gesture, the pop.
+   ============================================================= */
+
+/* A set logged pops under the thumb. 220ms, once, on the control that was
+   pressed: the tick is performed every ninety seconds and it is the one
+   action on the screen that has to feel like it landed. */
+@keyframes lk-done-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+.done--pop { animation: lk-done-pop 220ms cubic-bezier(.22,1,.36,1); }
+
+/* The exercise name, squeezing while it is held. The gesture has to be
+   visible BEFORE it fires, or a sheet that opens after half a second reads
+   as the screen doing something on its own. */
+.exc__main--holding { transform: scale(.975); transition: transform 420ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .done--pop { animation: none; }
+  .exc__main--holding { transform: none; transition: none; }
+}
+
+/* Taught once. Removed for good the first time a hold lands. */
+.holdtip { padding: 0 var(--sp-1) var(--sp-2); }
+
+/* AN ALL-TIME RECORD, for as long as the session is open. A four-second
+   toast is gone by the next set; this is the mark the workout carries. */
+.prband {
+  display: flex; gap: var(--sp-3); align-items: flex-start;
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-3);
+  border-radius: var(--r-lg);
+  corner-shape: var(--corner-smooth);
+  background: var(--success-quiet);
+}
+.prband__main { min-width: 0; flex: 1 1 auto; }
+.prband__main p + p { margin-top: 2px; }
+
+/* Minutes, then seconds, then the control that takes them. Wraps to one
+   column before either field is squeezed narrower than its own digits. */
+.restcustom { display: flex; gap: var(--sp-2); align-items: flex-end; flex-wrap: wrap; }
+.restcustom .field { flex: 1 1 96px; min-width: 96px; }
+.restcustom .btn { flex: 0 0 auto; min-height: var(--tap); }
+
 </style>
 <style id="demo-chrome-css">
 /* Demo chrome. Namespaced so it cannot touch a screen, and outside every
@@ -5590,10 +5658,70 @@ button.shelf:active { background: var(--fill-press); }
     root.__lk_sheetwatch = true;
   }
 
-  global.LKChrome = { init: init };
+  /* ------------------------------------------------------------------
+     THE KEYBOARD, AND WHAT IT COVERS.
+
+     An on-screen keyboard does not resize the layout viewport on iOS: it
+     slides over it. Everything fixed to the bottom -- the tab bar, a
+     sheet's footer, the action bar a workout log keeps its Finish button
+     in -- ends up underneath it, and the control somebody is typing
+     towards is the one they cannot see.
+
+     visualViewport reports what is actually visible. The height it loses
+     is published as --lk-kb, and the chrome that sits at the bottom reads
+     it. Where the browser has no visualViewport nothing changes, which is
+     the behaviour on every desktop and the right fallback.
+     ------------------------------------------------------------------ */
+  function watchKeyboard() {
+    var vv = global.visualViewport;
+    if (!vv || !doc.documentElement) return;
+    var last = -1;
+    function measure() {
+      /* What the keyboard covers: the window's height less the visible
+         viewport, less however far the page has been scrolled within it.
+         Small values are rounding and address-bar movement, not a keyboard. */
+      var covered = Math.max(0, Math.round(
+        (global.innerHeight || 0) - vv.height - vv.offsetTop));
+      var px = covered > 80 ? covered : 0;
+      if (px === last) return;
+      last = px;
+      doc.documentElement.style.setProperty('--lk-kb', px + 'px');
+      doc.documentElement.setAttribute('data-keyboard', px ? 'open' : 'shut');
+    }
+    vv.addEventListener('resize', measure);
+    vv.addEventListener('scroll', measure);
+    measure();
+  }
+
+  /* A DOUBLE TAP ON A NUMBER IS NOT A ZOOM REQUEST. Logging a set means
+     tapping small numeric controls quickly, and Safari reads two taps
+     inside 300ms as zoom-to-fit -- which leaves the reader zoomed into a
+     rep counter with no obvious way back. Pinch is untouched: that is a
+     deliberate gesture and taking it away hurts anybody who needs it. */
+  function lockDoubleTapZoom() {
+    var lastTouch = 0;
+    doc.addEventListener('touchend', function (e) {
+      var now = Date.now();
+      if (now - lastTouch <= 300) {
+        var t = e.target;
+        /* Only over the app's own controls. Text somebody is reading can
+           still be double-tapped to zoom, which is what that gesture is
+           for. */
+        if (t && t.closest && t.closest('button, .row, .chip, .seg__item, [data-act], [data-action]')) {
+          e.preventDefault();
+        }
+      }
+      lastTouch = now;
+    }, { passive: false });
+  }
+
+  global.LKChrome = { init: init, watchKeyboard: watchKeyboard };
 
   if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', function () { init(doc); });
   else init(doc);
+
+  /* Once per document, not per screen: the keyboard belongs to the window. */
+  if (!global.__lk_kbwatch) { global.__lk_kbwatch = true; watchKeyboard(); lockDoubleTapZoom(); }
 })(typeof window !== 'undefined' ? window : this);
 
 </script>
@@ -11634,13 +11762,20 @@ button.shelf:active { background: var(--fill-press); }
     try { return g.localStorage.getItem(key); } catch (e) { return null; }
   }
 
+  /* A write that could not reach the disk. Kept for this session so nothing
+     is lost mid-edit, and announced -- silently degrading to memory means a
+     person logs a week of training and loses it on reload with no warning
+     they were ever at risk. */
+  var overflowed = false;
   function rawSet(key, str) {
     if (!canWrite()) { mem[key] = str; return true; }
     try { g.localStorage.setItem(key, str); return true; }
     catch (e) {
-      /* Out of quota, or a private window that only throws on write. Keep the
-         value for this session rather than losing it mid-edit. */
       mem[key] = str;
+      if (!overflowed) {
+        overflowed = true;
+        fire('lk:storage-full', { key: key });
+      }
       return false;
     }
   }
@@ -11920,6 +12055,53 @@ button.shelf:active { background: var(--fill-press); }
 
     /* The other half of export. Replaces what is stored with what is given,
        key by key, and reports how many landed. */
+    /* HOW MUCH ROOM IS LEFT. A phone that cannot write is the one failure
+       that loses work silently, so the number is readable rather than
+       guessed at. localStorage has no quota API; the practical ceiling is
+       about 5 MB per origin and what matters is the share used, not the
+       exact cap. */
+    usage: function () {
+      var bytes = 0, keys = 0;
+      if (canWrite()) {
+        try {
+          for (var i = 0; i < g.localStorage.length; i++) {
+            var k = g.localStorage.key(i);
+            if (!k || k.indexOf(PREFIX) !== 0) continue;
+            keys++;
+            bytes += k.length + (g.localStorage.getItem(k) || '').length;
+          }
+        } catch (e) {}
+      }
+      Object.keys(mem).forEach(function (k) { keys++; bytes += k.length + mem[k].length; });
+      var cap = 5 * 1024 * 1024;
+      return { bytes: bytes * 2, keys: keys, cap: cap,
+               pct: Math.min(100, Math.round((bytes * 2) / cap * 100)),
+               full: overflowed, writable: canWrite() };
+    },
+
+    /* THE KEYS A SYNC CARRIES. Everything a person made, and nothing about
+       this device: a theme, a dev state or a live session belong to the phone
+       they were set on and must not follow somebody to another one. */
+    syncKeys: function () { return SYNC_KEYS.slice(); },
+
+    /* SCHEMA MIGRATIONS. A product gets upgraded under people who already
+       have data, and a shape that changes without a migration reads as an
+       empty screen to exactly the users who have the most to lose. Each
+       migration runs once, in order, and the version it reached is stored.
+
+       Add to MIGRATIONS; never renumber or rewrite one that has shipped. */
+    migrate: function () {
+      var at = Number(API.get(SCHEMA_KEY, 0)) || 0;
+      var ran = [];
+      for (var i = at; i < MIGRATIONS.length; i++) {
+        try { if (MIGRATIONS[i](API)) ran.push(i + 1); }
+        catch (e) { /* A migration that throws must not brick the boot. */ }
+      }
+      if (MIGRATIONS.length !== at) API.set(SCHEMA_KEY, MIGRATIONS.length);
+      return { from: at, to: MIGRATIONS.length, ran: ran };
+    },
+    schemaVersion: function () { return Number(API.get(SCHEMA_KEY, 0)) || 0; },
+
     load: function (obj) {
       var n = 0;
       Object.keys(obj || {}).forEach(function (k) {
@@ -11931,6 +12113,54 @@ button.shelf:active { background: var(--fill-press); }
       return n;
     }
   };
+
+  /* ------------------------------------------------------------------
+     The sync set, and the migrations.
+     ------------------------------------------------------------------ */
+  var SCHEMA_KEY = 'lk_schema';
+  var SYNC_KEYS = [
+    'lk_profile', 'lk_history', 'lk_prs', 'lk_splits', 'lk_customEx', 'lk_exNotes',
+    'lk_exEquip', 'lk_featuredLifts', 'lk_weightLog', 'lk_bfLog', 'lk_goals',
+    'lk_progressPhotos', 'lk_fuelLog', 'lk_fuelTargets', 'lk_fuelProfile',
+    'lk_recipes', 'lk_supplements', 'lk_suppLog', 'lk_shoppingList',
+    'lk_pantryItems', 'lk_myStores', 'lk_budgetData', 'lk_cycles', 'lk_feedback',
+    'lk_coachPlan', 'lk_coachInstructions', 'lk_coachMemory', 'lk_coachLastMsgs',
+    'lk_mcProfile', 'lk_mcDays', 'lk_mcFuelAdjust', 'lk_cardioPrefs',
+    'lk_cardioFavorites', 'lk_cardioCustom', 'lk_onboarded', 'lk_removedKeys'
+  ];
+
+  /* Each entry returns true when it changed something. Order is the version.
+     A migration must be safe to run against data it has already migrated,
+     because a half-finished boot will run it twice. */
+  var MIGRATIONS = [
+    /* 1 — lk_prs held two shapes: a map of exercise id to rows, and the flat
+       array everything reads now. A phone that stored the map form reads as
+       fewer records than it set. */
+    function (ST) {
+      if (!ST.touched('lk_prs')) return false;
+      var raw = ST.get('lk_prs', null);
+      if (!raw || Array.isArray(raw) || typeof raw !== 'object') return false;
+      var rows = [];
+      Object.keys(raw).forEach(function (id) {
+        (raw[id] || []).forEach(function (r) {
+          rows.push({ exId: Number(id), name: r.name || '', group: r.group || '',
+                      muscle: r.muscle || '', kg: r.w, reps: r.r, date: r.date });
+        });
+      });
+      rows.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+      ST.set('lk_prs', rows);
+      return true;
+    },
+    /* 2 — weights were stored in whatever unit was on screen before the
+       single LKUnits switch. lk_weightsKgMigrated marks a phone that has
+       already been through it; without the marker a pounds figure would be
+       read as kilograms. */
+    function (ST) {
+      if (ST.get('lk_weightsKgMigrated', false)) return false;
+      ST.set('lk_weightsKgMigrated', true);
+      return true;
+    }
+  ];
 
   function clone(v) {
     if (v === null || typeof v !== 'object') return v;
@@ -11948,6 +12178,11 @@ button.shelf:active { background: var(--fill-press); }
   }
 
   g.LKStore = API;
+
+  /* Run on load, before any screen reads a key. A migration that waits for a
+     screen to remember to call it is a migration that does not run on the
+     screen that forgot. */
+  try { API.migrate(); } catch (e) {}
 })(typeof window !== 'undefined' ? window : this);
 
 </script>
@@ -12678,6 +12913,11 @@ button.shelf:active { background: var(--fill-press); }
                     aria-selected="false" data-action="body-view" data-view="back">Back</button>
           </div>
           <p class="t-detail quiet mt-2">Tap a muscle. Search finds a lift by name, muscle, region or equipment.</p>
+          <!-- Said only when it is true: how much of the catalogue this device
+               can actually read. Over file:// the fetch cannot run and the
+               inline list is all there is, and the screen used to go on
+               offering "867" in every count regardless. -->
+          <p class="t-detail quiet mt-2" id="libmap-note" hidden></p>
         </div>
       </div>
 
@@ -12691,7 +12931,7 @@ button.shelf:active { background: var(--fill-press); }
           </span>
           <label class="vis-hidden" for="q">Search exercises by name, muscle or equipment</label>
           <input class="input" id="q" type="text" autocomplete="off" autocorrect="off" spellcheck="false"
-                 enterkeyhint="search" placeholder="Search 227 exercises" data-testid="search-input">
+                 enterkeyhint="search" placeholder="Search exercises" data-testid="search-input">
           <button class="search__clear" id="clear" type="button" hidden data-testid="search-clear" aria-label="Clear search">
             <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>
           </button>
@@ -18250,6 +18490,12 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     var r = stored('lk_fuelRefeed', null);
     return r && r.date === DAY.iso ? r : null;
   }
+  /* An offer turned down, with a cool-off, in the store rather than in a
+     variable that a repaint clears. */
+  function refeedDeclined() {
+    var d = stored('lk_fuelRefeedNo', null);
+    return !!(d && d.until && d.until > DAY.iso);
+  }
 
   /* One place the figures a target is computed from actually live. They were
      spread across lk_profile, a constant inside a formula, and nothing at
@@ -18319,6 +18565,96 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       clamped: capped !== move,
       days: 14
     };
+  }
+
+  /* ---------------------------------------------------------------
+     The weekly rhythm
+
+     The blend above was right and did nothing with itself: the card offered a
+     number, the tap moved the target, and nothing was written down about
+     either. So the target only ever moved on the days somebody happened to
+     scroll past a card, "Keep mine" lasted until the next paint, and there
+     was no answer at all to "why is my target 2,830 now".
+
+     A week is the cadence because the measurement behind it is a fortnight of
+     intake against a fortnight of weigh-ins, and that does not say anything
+     new on a Tuesday that it did not say on the Monday.
+     --------------------------------------------------------------- */
+  var ADAPT_DEFAULT = { auto: true, lastAt: null, dismissedUntil: null };
+  function adaptState() {
+    var v = stored('lk_fuelAdaptive', null) || {};
+    return { auto: v.auto === undefined ? ADAPT_DEFAULT.auto : !!v.auto,
+             lastAt: v.lastAt || null,
+             dismissedUntil: v.dismissedUntil || null };
+  }
+  function writeAdapt(patch) {
+    var v = adaptState();
+    Object.keys(patch).forEach(function (k) { v[k] = patch[k]; });
+    if (ST && persisting()) ST.set('lk_fuelAdaptive', v);
+    return v;
+  }
+  /* Every move this screen has made to a target, with what it was and what it
+     became. It is the answer to "why is my target what it is", and without it
+     an adapting target is an oracle. */
+  function tdeeHistory() { return stored('lk_tdeeHistory', []) || []; }
+  function writeTdeeEntry(e) {
+    if (!ST || !persisting()) return;
+    var list = tdeeHistory().slice();
+    list.unshift(e);
+    ST.set('lk_tdeeHistory', list.slice(0, 40));
+  }
+  function adaptDue() {
+    var st = adaptState();
+    if (!st.lastAt) return true;
+    return daysBetween(st.lastAt, DAY.iso) >= 7;
+  }
+  function adaptDismissed() {
+    var st = adaptState();
+    return !!(st.dismissedUntil && st.dismissedUntil > DAY.iso);
+  }
+
+  /* Move the target, write it down, and say so. One writer, so the card's
+     button, the weekly pass and anything added later cannot record the move
+     differently. */
+  function applyAdaptive(a, how) {
+    var from = DAY.target;
+    var to = a.want;
+    saveTargetsTo({ kcal: to, pro: DAY.macros[0].want, carb: DAY.macros[1].want,
+                    fat: DAY.macros[2].want, waterMl: TARGETS.waterMl });
+    writeTdeeEntry({ date: DAY.iso, from: from, to: to, move: to - from,
+                     tdee: a.tdee, meas: a.meas, est: a.est, how: how });
+    writeAdapt({ lastAt: DAY.iso, dismissedUntil: null });
+    DAY = day();
+    OFTEN = frequent();
+    return { from: from, to: to };
+  }
+
+  /* The weekly pass, run on mount and on coming back to the tab. It only ever
+     moves the target by the clamped amount the card shows, and it only runs
+     when a week has gone by, so the number cannot drift under somebody's
+     hands day after day. */
+  function adaptiveTick() {
+    if (!hasTargets()) return;
+    if (!persisting()) return;
+    var st = adaptState();
+    if (!st.auto || !adaptDue()) return;
+    /* NOT ON A SCREEN NOBODY HAS TOUCHED. Moving the target of somebody who
+       has never logged a meal or set a figure would be the app changing its
+       own mind about a person it has never met -- and the demo's seed would
+       read one target here and another on Settings before anybody had done
+       anything. Until the log or the targets have been written to, the card
+       asks rather than acts. */
+    if (!ST || !(ST.touched('lk_fuelLog') || ST.touched('lk_fuelTargets'))) return;
+    var a = adaptive();
+    if (!a || a.meas === null) return;
+    if (Math.abs(a.move) < 20) {
+      /* Nothing worth moving is still a check: the week is spent and the
+         card should not open tomorrow asking the same question. */
+      writeAdapt({ lastAt: DAY.iso });
+      return;
+    }
+    var done = applyAdaptive(a, 'weekly');
+    S.tdeeMoved = done;
   }
 
   /* Meals belong to a part of the day, and every path on this screen used to
@@ -18587,6 +18923,105 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     if (!log.length) return null;
     return log[log.length - 1].kg;
   }
+
+  /* THE TREND, not the weigh-ins. A scale reads food, water and salt as well
+     as body mass, so the line drawn through raw weigh-ins zig-zags by half a
+     kilo and a person reads a bad Tuesday off it. Every weight figure that is
+     compared against another one on this screen goes through here.
+
+     It is the Hacker's Diet smoothing: carry the last reading forward over
+     the days with no weigh-in, then an exponential moving average at a tenth
+     a day, seeded on the first reading rather than on zero -- seeding at zero
+     spends a fortnight climbing and prints a trend nobody weighs. */
+  var TREND_ALPHA = 0.1;
+  function weightTrend(fromIso, toIso) {
+    var log = (WEIGHTLOG || []).filter(function (e) { return e && e.date && e.kg; })
+      .slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+    if (!log.length) return [];
+    var out = [], ema = null, li = 0;
+    var cur = log[0].kg;
+    var start = fromIso && fromIso < log[0].date ? log[0].date : (fromIso || log[0].date);
+    var end = toIso || log[log.length - 1].date;
+    if (end < start) return [];
+    var d = start;
+    for (var guard = 0; guard < 800 && d <= end; guard++) {
+      while (li < log.length && log[li].date <= d) { cur = log[li].kg; li++; }
+      ema = ema === null ? cur : ema + TREND_ALPHA * (cur - ema);
+      out.push({ date: d, kg: cur, trend: Math.round(ema * 100) / 100 });
+      d = isoPlus(d, 1);
+    }
+    return out;
+  }
+  function isoPlus(iso, k) {
+    var p = iso.split('-');
+    var t = Date.UTC(+p[0], +p[1] - 1, +p[2]) + k * 86400000;
+    var d = new Date(t);
+    return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) +
+      '-' + ('0' + d.getUTCDate()).slice(-2);
+  }
+  /* The trend on or before a date, which is the lookup every chart and every
+     comparison actually wants. Before the first weigh-in there is no trend,
+     and that is returned as null rather than as the first reading. */
+  var TREND_CACHE = null;
+  function trendAt(iso) {
+    if (!TREND_CACHE || TREND_CACHE.to !== DAY.iso) {
+      TREND_CACHE = { to: DAY.iso, rows: weightTrend(null, DAY.iso) };
+    }
+    var rows = TREND_CACHE.rows, out = null;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].date <= iso) out = rows[i].trend; else break;
+    }
+    return out;
+  }
+
+  /* One day added up, out of the log rather than out of the series: the
+     series carries energy only, so an average protein figure can only be
+     honest over the days that have meals on them. `full` says whether every
+     meal on the day carried the four micros, because a day with a photo
+     estimate in it under-counts fibre rather than being wrong about it. */
+  function dayTotals(iso) {
+    var rec = FUELLOG[iso];
+    var meals = (rec && rec.meals) || [];
+    if (iso === DAY.iso) meals = DAY.meals;
+    if (!meals.length) return null;
+    var t = { kcal: 0, pro: 0, carb: 0, fat: 0, fibre: 0, sodium: 0, full: true };
+    meals.forEach(function (m) {
+      t.kcal += m.kcal || 0; t.pro += m.pro || 0; t.carb += m.carb || 0; t.fat += m.fat || 0;
+      if (typeof m.fibre === 'number') t.fibre += m.fibre; else t.full = false;
+      if (typeof m.sodium === 'number') t.sodium += m.sodium;
+    });
+    return t;
+  }
+
+  /* Averages over the days that were actually logged, which is the only
+     window an average means anything over: a day nobody logged is not a day
+     somebody ate nothing, and counting it as a zero drags every figure down. */
+  function loggedAverages(dates) {
+    var days = [], full = 0;
+    dates.forEach(function (iso) {
+      var t = dayTotals(iso);
+      if (t) { days.push(t); if (t.full) full++; }
+    });
+    if (!days.length) return null;
+    var mean = function (k) {
+      return Math.round(days.reduce(function (a, d) { return a + d[k]; }, 0) / days.length);
+    };
+    return { n: days.length, full: full, kcal: mean('kcal'), pro: mean('pro'),
+             carb: mean('carb'), fat: mean('fat'), fibre: mean('fibre'), sodium: mean('sodium') };
+  }
+
+  /* Whether today is a training day, read off the same history Train writes.
+     Nothing in Fuel knew, so a rest day and a leg day were offered the same
+     carbohydrate and the same closing line. It is a fact, not advice: the
+     screen says which kind of day it is and leaves the target alone. */
+  function trainedOn(iso) {
+    var h = stored('lk_history', []) || [];
+    for (var i = 0; i < h.length; i++) {
+      if (h[i] && h[i].date === iso) return h[i];
+    }
+    return null;
+  }
+  function isTrainingDay() { return !!trainedOn(DAY.iso); }
 
   /* Module scope and with macros on it, because these rows log. The list was
      a literal inside the sheet's own render function and every row closed the
@@ -19983,7 +20418,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
           ' g of carbs, back to normal tomorrow.</p>' +
       '</div>';
     }
-    if (S.refeedDismissed) return '';
+    if (refeedDeclined()) return '';
     var r = refeedDue();
     if (!r) return '';
     return '<div class="card mt-4" data-testid="refeed-card">' +
@@ -20004,10 +20439,60 @@ DEMO.define("fuel", function (document, window, location, fetch) {
   /* What the target should be, from what the body actually did. Behind a
      disclosure, because a number that moves a target has to be able to show
      its working or it is just an oracle. */
+  /* What it has already done, so a target that moves on its own is still
+     something a person can audit. */
+  function tdeeHistoryHTML() {
+    var h = tdeeHistory();
+    if (!h.length) return '';
+    var word = { weekly: 'the weekly check', manual: 'you', kept: 'you, left alone' };
+    return '<h3 class="t-label mt-5">What it has moved</h3>' +
+      '<div class="card card--flush mt-2" data-testid="tdee-history">' +
+        h.slice(0, 5).map(function (e, i) {
+          return '<div class="row row--static" data-testid="tdee-hist-' + i + '">' +
+            '<span class="row__main stack">' +
+              '<span class="row__title">' + (e.how === 'kept'
+                ? 'Left at ' + n(e.from) + ' kcal'
+                : n(e.from) + ' \u2192 ' + n(e.to) + ' kcal') + '</span>' +
+              '<span class="row__sub">' + esc(dayLabel(e.date)) + ' \u00b7 ' +
+                esc(word[e.how] || e.how) + '</span>' +
+            '</span>' +
+            (e.how === 'kept' ? '' : '<span class="row__value num">' +
+              (e.move > 0 ? '+' : '\u2212') + n(Math.abs(e.move)) + '</span>') +
+          '</div>';
+        }).join('') +
+      '</div>';
+  }
+
   function tdeeCard() {
+    var st = adaptState();
+    /* IT ALREADY MOVED. The weekly pass ran on the way in, so the card's job
+       is to report a change rather than to ask for one, and to make putting
+       it back one tap. */
+    if (S.tdeeMoved) {
+      var mv = S.tdeeMoved;
+      return '<div class="card mt-4" data-testid="tdee-moved">' +
+        '<span class="t-subheadline">Your target moved to ' + n(mv.to) + '</span>' +
+        '<p class="t-detail mt-1">It was ' + n(mv.from) + '. This is the weekly check: your ' +
+          'average intake over the last 14 days against what your weight actually did, blended ' +
+          'with the formula and capped at 150 kcal a move.</p>' +
+        '<div class="hstack hstack--3 mt-3">' +
+          '<button class="btn btn--secondary grow" type="button" data-action="tdee-revert" ' +
+            'data-v="' + mv.from + '" data-testid="tdee-revert">' +
+            '<span class="btn__label">Put it back to ' + n(mv.from) + '</span></button>' +
+          '<button class="btn btn--tertiary" type="button" data-action="tdee-seen" ' +
+            'data-testid="tdee-seen"><span class="btn__label">Fine</span></button>' +
+        '</div>' +
+        tdeeHistoryHTML() +
+      '</div>';
+    }
     var a = adaptive();
     if (!a || a.meas === null) return '';
     if (Math.abs(a.move) < 20) return '';
+    /* A dismissal that lasts. "Keep mine" used to live in a variable, so the
+       card it closed was back on the next paint and the answer counted for
+       nothing. It now holds for a week, which is the cadence the whole thing
+       runs on. */
+    if (adaptDismissed()) return '';
     return '<div class="card mt-4" data-testid="tdee-card">' +
       '<div class="hstack hstack--3">' +
         '<span class="t-subheadline grow">Your target looks ' +
@@ -20045,6 +20530,19 @@ DEMO.define("fuel", function (document, window, location, fetch) {
         '<button class="btn btn--tertiary" type="button" data-action="tdee-keep" ' +
           'data-testid="tdee-keep"><span class="btn__label">Keep mine</span></button>' +
       '</div>' +
+      '<div class="hstack hstack--3 mt-3">' +
+        '<span class="t-body grow" id="tdee-auto-lbl">Adjust it for me every week</span>' +
+        '<button class="switch" type="button" role="switch" aria-checked="' + st.auto + '" ' +
+          'aria-labelledby="tdee-auto-lbl" data-action="tdee-auto" data-testid="tdee-auto">' +
+          '<span class="switch__track"></span><span class="switch__knob"></span></button>' +
+      '</div>' +
+      '<p class="t-caption-1 quiet mt-1">' + (st.auto
+        ? 'On: once a week, from the first thing you log, the target moves itself by at most ' +
+          '150 kcal and this card says it did. Turning it off leaves every move to you.'
+        : 'Off: the target only moves when you tap Use. The card still appears once a week.') +
+        (adaptState().lastAt ? ' Last checked ' + esc(dayLabel(adaptState().lastAt)) + '.' : '') +
+      '</p>' +
+      tdeeHistoryHTML() +
     '</div>';
   }
 
@@ -20135,7 +20633,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
   VIEWS.populated = function () {
     return '<div>' + hero() + logAction() + macros() + microPanel() + '</div>' +
       today() +
-      '<div>' + refeedCard() + (S.tdeeDismissed ? '' : tdeeCard()) + suggestCard() +
+      '<div>' + refeedCard() + tdeeCard() + suggestCard() +
         waterCard() + weightCard() + chips() + '</div>';
   };
   VIEWS['first-weeks'] = VIEWS.populated;
@@ -20507,7 +21005,10 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       /* The weight line shares the x axis and gets its own scale, because a
          kilo and a kilocalorie are not comparable quantities and drawing them
          on one scale would flatten the weight to a straight line. */
-      var wk = se.map(function (e) { return weightAt(e.date); });
+      /* THE TREND LINE, not the weigh-ins. Raw readings drew a saw edge that
+         says more about salt and water than about fat, and two people read
+         two different stories off the same seven points. */
+      var wk = se.map(function (e) { return trendAt(e.date); });
       var wHas = wk.filter(function (v) { return v; });
       var wPts = '';
       if (wHas.length > 1) {
@@ -20551,8 +21052,11 @@ DEMO.define("fuel", function (document, window, location, fetch) {
             '</svg>' +
             '<div class="hstack hstack--3 mt-2">' +
               '<span class="t-meta grow">Energy</span>' +
-              (wPts ? '<span class="t-meta">Body weight</span>' : '') +
+              (wPts ? '<span class="t-meta">Weight trend</span>' : '') +
             '</div>' +
+            (wPts ? '<p class="t-caption-2 quiet mt-1" data-testid="trend-weight-note">The weight ' +
+              'line is a smoothed trend, not the weigh-ins: the last reading carried forward and ' +
+              'averaged a tenth a day, so a heavy meal on Sunday does not read as fat gained.</p>' : '') +
             '<h3 class="t-label mt-5">Over these ' + range + ' days</h3>' +
             '<div class="card card--sunken mt-2" data-testid="trend-stats">' +
               '<div class="hstack hstack--3"><span class="t-body grow">Average against target</span>' +
@@ -20567,6 +21071,48 @@ DEMO.define("fuel", function (document, window, location, fetch) {
                   '<span class="t-body-em num">' + signed(DAY.rate.pct) + '%</span></div>'
                 : '') +
             '</div>' +
+            /* THE DAILY AVERAGES. A trend view exists to show what an average
+               day looks like, and this sheet showed one figure -- calories --
+               and three sentences about it. Protein, carbs, fat, fibre and
+               sodium are the five figures a person changes anything on the
+               strength of.
+
+               Over the LOGGED days only, and it says how many. Averaging over
+               the window would divide by thirty and report 340 kcal a day for
+               somebody who logged four of them. */
+            (function () {
+              var av = loggedAverages(se.map(function (e) { return e.date; }));
+              if (!av) {
+                return '<h3 class="t-label mt-5">An average day</h3>' +
+                  '<p class="t-detail quiet mt-2" data-testid="trend-avg-none">No day in this ' +
+                  'window has a meal on it, so there is no average to take. The line above is ' +
+                  'energy only, which is all the days before you started logging carry.</p>';
+              }
+              var tiles = [
+                ['Calories', n(av.kcal), 'kcal'], ['Protein', n(av.pro), 'g'],
+                ['Carbs', n(av.carb), 'g'], ['Fat', n(av.fat), 'g'],
+                ['Fibre', n(av.fibre), 'g'], ['Sodium', n(av.sodium), 'mg']
+              ];
+              return '<h3 class="t-label mt-5">An average day</h3>' +
+                '<div class="card mt-2" data-testid="trend-averages">' +
+                  '<div class="statgrid">' + tiles.map(function (t, ti) {
+                    return '<div class="statgrid__i" data-testid="trend-avg-' + ti + '">' +
+                      '<span class="statrow__n num">' + t[1] + '<small class="t-caption-2 quiet"> ' +
+                        t[2] + '</small></span>' +
+                      '<span class="statrow__l">' + t[0] + '</span></div>';
+                  }).join('') + '</div>' +
+                  '<p class="t-caption-1 quiet mt-3" data-testid="trend-avg-note">Over the ' +
+                    (av.n === 1 ? 'one day' : av.n + ' days') + ' in these ' + range +
+                    ' with a meal logged on ' + (av.n === 1 ? 'it' : 'them') + ', not over all ' +
+                    range + '. ' +
+                    (av.full === av.n
+                      ? 'Every meal on those days carried fibre and sodium.'
+                      : (av.n - av.full) + ' of them ' + (av.n - av.full === 1 ? 'has' : 'have') +
+                        ' a meal with no breakdown \u2014 fibre and sodium are under-counted on ' +
+                        (av.n - av.full === 1 ? 'that day' : 'those days') + ' rather than wrong.') +
+                  '</p>' +
+                '</div>';
+            })() +
           '</div>' +
         '</div>';
     }
@@ -21945,7 +22491,17 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       say('Refeed on. ' + n(rk) + ' kcal today.');
       return;
     }
-    if (a === 'refeed-no') { S.refeedDismissed = true; render(); return; }
+    /* Declined, and it stays declined. "Not today" lived in a variable, so the
+       same offer was back on the next paint and saying no meant nothing. Three
+       days is the cool-off: the three-low run that triggered it will still be
+       a run of lows tomorrow, so asking again tomorrow is asking the same
+       question with no new evidence. */
+    if (a === 'refeed-no') {
+      if (ST && persisting()) ST.set('lk_fuelRefeedNo', { until: isoPlus(DAY.iso, 3) });
+      render();
+      say('Not today. It will not ask again before ' + esc(dayLabel(isoPlus(DAY.iso, 3))) + '.');
+      return;
+    }
     if (a === 'refeed-off') {
       if (ST && persisting()) ST.remove('lk_fuelRefeed');
       DAY.target = TARGETS.kcal; DAY.macros[1].want = TARGETS.carb;
@@ -21979,13 +22535,44 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       return;
     }
     if (a === 'tdee-why') { S.tdeeWhy = !S.tdeeWhy; render(); return; }
-    if (a === 'tdee-keep') { S.tdeeDismissed = true; render(); say('Target left at ' + n(DAY.target) + '.'); return; }
+    /* Kept for a week, in the store, with the decision recorded. A dismissal
+       nobody can see the next morning is not a decision, it is a repaint. */
+    if (a === 'tdee-keep') {
+      writeAdapt({ dismissedUntil: isoPlus(DAY.iso, 7), lastAt: DAY.iso });
+      writeTdeeEntry({ date: DAY.iso, from: DAY.target, to: DAY.target, move: 0, how: 'kept' });
+      render();
+      say('Target left at ' + n(DAY.target) + '. Asked again in a week.');
+      return;
+    }
+    if (a === 'tdee-auto') {
+      var nowAuto = !adaptState().auto;
+      writeAdapt({ auto: nowAuto });
+      render();
+      say(nowAuto ? 'It will adjust itself once a week.' : 'It will not move on its own.');
+      return;
+    }
+    if (a === 'tdee-seen') { S.tdeeMoved = null; render(); return; }
+    if (a === 'tdee-revert') {
+      var back = +act.getAttribute('data-v');
+      var wasT = DAY.target;
+      saveTargetsTo({ kcal: back, pro: DAY.macros[0].want, carb: DAY.macros[1].want,
+                      fat: DAY.macros[2].want, waterMl: TARGETS.waterMl });
+      writeTdeeEntry({ date: DAY.iso, from: wasT, to: back, move: back - wasT, how: 'manual' });
+      /* Put back means put back: the weekly pass must not undo it tomorrow,
+         so the week is spent and it is left alone until the next one. */
+      writeAdapt({ lastAt: DAY.iso, dismissedUntil: isoPlus(DAY.iso, 7) });
+      DAY = day();
+      S.tdeeMoved = null;
+      render();
+      say('Target back to ' + n(back) + ' kcal.');
+      return;
+    }
     if (a === 'tdee-take') {
       var tv = +act.getAttribute('data-v');
-      DAY.target = tv;
-      saveTargetsTo({ kcal: tv, pro: DAY.macros[0].want, carb: DAY.macros[1].want,
-                      fat: DAY.macros[2].want, waterMl: TARGETS.waterMl });
-      S.tdeeDismissed = true;
+      var aNow = adaptive();
+      if (!aNow) return;
+      applyAdaptive({ want: tv, tdee: aNow.tdee, meas: aNow.meas, est: aNow.est }, 'manual');
+      S.tdeeMoved = null;
       render();
       say('Target moved to ' + n(tv) + ' kcal.');
       return;
@@ -22885,6 +23472,30 @@ DEMO.define("fuel", function (document, window, location, fetch) {
 
   var p = new URLSearchParams(location.search);
   if (p.get('state') && VIEWS[p.get('state')]) S.state = p.get('state');
+
+  /* THE SCREEN MOUNTS ONCE IN THE DEMO. Everything here reads stored data --
+     the log, the targets, the weigh-ins, the pantry, the supplement ticks --
+     and all of it can be changed on another tab while this one stays in the
+     DOM. Coming back re-reads rather than showing the day as it was when the
+     router first painted it. */
+  function reread() {
+    PROFILE = stored('lk_profile', FX.profile || {});
+    FUELLOG = stored('lk_fuelLog', null) || cloneDays(NUT.days || {});
+    WEIGHTLOG = stored('lk_weightLog', FX.weightLog || []);
+    var own = stored('lk_fuelTargets', null);
+    if (own && own.kcal) TARGETS = own;
+    TREND_CACHE = null;
+    DAY = day();
+    OFTEN = frequent();
+  }
+  document.addEventListener('lk:enter', function () {
+    reread();
+    adaptiveTick();
+    render();
+  });
+
+  /* The weekly pass, on the way in. */
+  adaptiveTick();
   render();
   requestAnimationFrame(function () { window.__ready = true; });
 })();
@@ -23087,7 +23698,46 @@ DEMO.define("coach", function (document, window, location, fetch) {
     try { localStorage.setItem('lk_coachDataPrefs', JSON.stringify(S.setup.perms)); } catch (e) {}
   }
 
-  var STYLES = [['direct', 'Direct'], ['encouraging', 'Encouraging'], ['technical', 'Technical'], ['brief', 'Brief']];
+  /* THE SEVEN PERSONAS, with their ids and their descriptions, taken from the
+     shipped app's COACH_STYLES. The rebuild carried four -- and two of them
+     ("encouraging", "brief") are ids the stored key has never held, so a
+     phone with `warm` or `athlete` in lk_coachStyle showed nothing selected.
+
+     Each persona's `tone` is the sentence that goes into the system prompt.
+     It is shown here rather than hidden, because in this build there is no
+     model to send it to and a picker that silently changes nothing is worse
+     than one that says what it would do. */
+  var STYLES = [
+    ['direct', 'Direct', 'Short. No cheerleading. Tells you when something is not working.',
+     'Direct and brief. No cheerleading, no filler. Says plainly when something is not working.'],
+    ['warm', 'Warm', 'Encouraging. Notices effort as well as results.',
+     'Warm and conversational, like a knowledgeable friend who trains. Notices effort as well as results.'],
+    ['technical', 'Technical', 'Explains the mechanism. Cites the reasoning.',
+     'Precise and mechanistic. Names the mechanism or the principle behind every recommendation.'],
+    ['teacher', 'Teacher', 'Assumes nothing. Defines terms as it goes.',
+     'Patient teacher. Assumes no prior knowledge and defines any term of art the first time it appears.'],
+    ['hype', 'Hype', 'High energy. Celebrates loudly, calls out slacking with love.',
+     'High energy, gym slang welcome. Celebrates wins loudly and calls out slacking directly but with love.'],
+    ['athlete', 'Performance', 'Thinks in blocks and readiness. Every answer serves an outcome.',
+     'Performance coach for a competitive athlete. Thinks in blocks, periodisation and readiness.'],
+    ['physio', 'Physiology-Aware', 'Factors hormones, energy availability, and recovery differences.',
+     'Deep knowledge of female physiology. Factors hormonal fluctuation, energy availability and recovery differences in where relevant.']
+  ];
+  /* The two ids this rebuild invented, mapped onto the ones the key holds, so
+     nobody's stored answer reads as "none picked". */
+  var STYLE_ALIAS = { encouraging: 'warm', brief: 'direct' };
+  function normStyle(id) {
+    id = STYLE_ALIAS[id] || id;
+    for (var i = 0; i < STYLES.length; i++) { if (STYLES[i][0] === id) return id; }
+    return 'direct';
+  }
+  function styleRow(id) {
+    for (var i = 0; i < STYLES.length; i++) { if (STYLES[i][0] === id) return STYLES[i]; }
+    return STYLES[0];
+  }
+
+  /* The check-in's tags, the shipped app's own five. */
+  var CHECKIN_TAGS = ['Travel', 'Illness', 'Poor food', 'Big day at work', 'Period'];
 
   var QUICK = ['Reference my numbers.', 'Keep replies under 80 words.', 'No pep talk.',
                'Explain the why, briefly.', 'Do not suggest supplements.'];
@@ -23237,7 +23887,7 @@ DEMO.define("coach", function (document, window, location, fetch) {
       setup: {
         status: 'ready',
         instructions: rd('lk_coachInstructions', SEED_INSTRUCTIONS),
-        style: rd('lk_coachStyle', 'direct'),
+        style: normStyle(rd('lk_coachStyle', 'direct')),
         memory: mem,
         memoryOn: rd('lk_coachMemoryOn', true) !== false,
         perms: fresh ? defaultPerms() : storedPerms(),
@@ -23656,7 +24306,8 @@ DEMO.define("coach", function (document, window, location, fetch) {
         '<div class="msg__col">' +
           '<div class="msg__head"><span class="msg__who">' + (isUser ? 'You' : 'Coach') + '</span>' +
             '<span class="msg__time">' + esc(m.time) + '</span></div>' +
-          '<div class="msg__bubble">' + esc(m.text) + (m.offer ? planCard() : '') + '</div>' +
+          '<div class="msg__bubble">' + esc(m.text) + (m.offer ? planCard() : '') +
+            (m.acts ? actionsBlock(m, i) : '') + '</div>' +
           acts +
         '</div>' +
       '</article>';
@@ -23690,6 +24341,341 @@ DEMO.define("coach", function (document, window, location, fetch) {
       '</div>';
   }
 
+  /* ===============================================================
+     THE COACH'S WRITE-BACK.
+
+     A reply can carry actions: save this split, log this meal, add
+     these nine things to the shopping list. Nothing a reply carries is
+     applied on arrival. Every action goes through LKCoachActions, which
+     resolves every exercise id against the real catalogue, recomputes
+     every total from its parts, and refuses anything outside what the
+     screens accept. What comes back is a verdict, and the verdict is
+     what gets drawn.
+
+     TWO RULES THIS SCREEN ADDS ON TOP OF THE GATE:
+
+     1. A CARD SHOWS EVERYTHING IT WOULD WRITE. Every day and every lift
+        of a split, every ingredient and the recomputed totals of a
+        recipe, every line of a shopping list. A summary asks the reader
+        to trust a model, which is the one thing this screen must never
+        do.
+
+     2. A REFUSED ACTION STILL RENDERS. It is the most useful card on
+        the screen: it says what the coach proposed and, in the gate's
+        own words, why it will not be saved. Hiding it would leave the
+        reader believing the coach only ever suggests sound things.
+
+     WHAT IS NOT HERE: the coach cannot propose any of this yet, because
+     there is no model in this build. replyFor() answers from this page.
+     The path is real and complete from a verdict onwards, and
+     window.__coachActions(actions) is how it is driven -- the same
+     check, render, approve and undo a Worker response will take.
+     =============================================================== */
+
+  /* The catalogue, the way exercise-library and split-builder fetch it.
+     From file:// no fetch can run, so the gate has no catalogue and
+     refuses anything naming a lift -- which is the honest answer, and
+     the card says so rather than pretending the split was unsound. */
+  var CATALOGUE = { state: 'none', count: 0 };
+  function loadCatalogue() {
+    if (!window.LKCoachActions) return;
+    if (location.protocol === 'file:') {
+      CATALOGUE.state = 'file';
+      return;
+    }
+    CATALOGUE.state = 'loading';
+    fetch('../tests/fixtures/exercise-db.json', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
+      .then(function (rows) {
+        if (!Array.isArray(rows) || !rows.length) throw new Error('empty');
+        LKCoachActions.setCatalogue(rows);
+        CATALOGUE.state = 'ready';
+        CATALOGUE.count = rows.length;
+        /* Anything already on screen was checked without it. Check it
+           again, so a split refused for "the catalogue has not loaded"
+           does not sit there being wrong once the catalogue is there. */
+        recheckAll();
+        render();
+      })
+      .catch(function () { CATALOGUE.state = 'failed'; render(); });
+  }
+  function catalogueNote() {
+    if (CATALOGUE.state === 'ready') return '';
+    if (CATALOGUE.state === 'loading') return 'The exercise catalogue is still loading.';
+    if (CATALOGUE.state === 'file')
+      return 'This page was opened from a file rather than over http, so the 867-exercise ' +
+        'catalogue could not be fetched. Nothing naming a lift can be verified here, and ' +
+        'nothing that cannot be verified is saved. Serve the build over http and ask again.';
+    return 'The exercise catalogue could not be fetched, so no lift can be checked against it.';
+  }
+
+  /* Every verdict currently on screen, re-checked. Verdicts are plain
+     objects, so they survive the store and a reload with them. */
+  function recheckAll() {
+    if (!window.LKCoachActions) return;
+    S.chat.msgs.forEach(function (m) {
+      if (!m.acts) return;
+      m.acts.forEach(function (v) {
+        if (v.applied) return;
+        var again = LKCoachActions.check(v.raw);
+        v.ok = again.ok; v.problems = again.problems; v.action = again.action;
+      });
+    });
+  }
+
+  /* THE ENTRY POINT. A Worker reply's actions arrive here; so does the
+     test hook. One path, so what is tested is what will run. */
+  function pushCoachActions(list, text) {
+    if (!window.LKCoachActions) return null;
+    var raw = Array.isArray(list) ? list.slice(0, 8) : [];
+    var verdicts = LKCoachActions.checkAll(raw).map(function (v, i) {
+      return { kind: v.kind, ok: v.ok, problems: v.problems, action: v.action,
+               raw: raw[i], applied: false, token: null };
+    });
+    var sound = verdicts.filter(function (v) { return v.ok; }).length;
+    S.chat.status = 'ready';
+    S.chat.msgs.push({
+      role: 'coach', time: nowClock(), acts: verdicts,
+      text: text || (verdicts.length === 1
+        ? 'Here it is. Nothing is saved until you say so.'
+        : sound + ' of ' + verdicts.length + ' of these can be saved. Nothing is saved until you say so.')
+    });
+    S.chat.pinned = true;
+    persistChat();
+    render();
+    return verdicts;
+  }
+  window.__coachActions = function (list, text) { return pushCoachActions(list, text); };
+
+  /* ---- the previews --------------------------------------------- */
+  function kcalLine(a) {
+    return n(a.kcal) + ' kcal &middot; ' + n(a.pro) + ' P &middot; ' +
+           n(a.carb) + ' C &middot; ' + n(a.fat) + ' F';
+  }
+  function lineRow(title, sub) {
+    return '<div class="row row--static"><span class="row__main">' +
+      '<span class="row__title">' + title + '</span>' +
+      (sub ? '<span class="row__sub">' + sub + '</span>' : '') + '</span></div>';
+  }
+
+  /* EVERYTHING it would write, never a count of it. */
+  function preview(a, testid) {
+    if (a.kind === 'split') {
+      return '<div class="stack stack--3" data-testid="' + testid + '">' +
+        a.days.map(function (d) {
+          return '<div class="card card--flush card--raised">' +
+            '<div class="row row--head"><span class="row__main"><span class="row__title">' + esc(d.name) + '</span>' +
+              '<span class="row__sub">' + n(d.exercises.length) +
+              (d.exercises.length === 1 ? ' lift' : ' lifts') + '</span></span></div>' +
+            d.exercises.map(function (e) {
+              return lineRow(esc(e.name), n(e.sets) + ' sets &middot; ' + esc(e.muscle || e.group || ''));
+            }).join('') +
+          '</div>';
+        }).join('') +
+        '<p class="t-detail quiet">' + n(a.days.length) + ' days, ' + n(a.exercises) +
+          ' lifts. Every lift above was resolved against the exercise catalogue and is ' +
+          'named as the catalogue names it.</p>' +
+      '</div>';
+    }
+    if (a.kind === 'recipe') {
+      return '<div data-testid="' + testid + '">' +
+        '<div class="card card--flush card--raised">' +
+          a.items.map(function (it) {
+            return lineRow((it.qty === 1 ? '' : n(fmt(it.qty)) + ' &times; ') + esc(it.name),
+              Math.round(it.kcal) + ' kcal &middot; ' + Math.round(it.pro) + ' P &middot; ' +
+              Math.round(it.carb) + ' C &middot; ' + Math.round(it.fat) + ' F');
+          }).join('') +
+          '<div class="row row--foot"><span class="row__main">' +
+            '<span class="row__title">Whole recipe &middot; ' + n(a.servings) +
+              (a.servings === 1 ? ' serving' : ' servings') + '</span>' +
+            '<span class="row__sub">' + kcalLine(a) + '</span></span></div>' +
+        '</div>' +
+        (a.notes.length
+          ? '<div class="stack stack--2 mt-3">' + a.notes.map(function (x) {
+              return '<p class="t-detail">' + esc(x) + '</p>'; }).join('') + '</div>'
+          : '') +
+        '<p class="t-detail quiet mt-2">Totals added up from the ingredients above, not taken ' +
+          'from the reply. If the coach stated a different figure, this one is the one that saves.</p>' +
+      '</div>';
+    }
+    if (a.kind === 'goal') {
+      var unit = a.unit === 'kg' ? LKUnits.label() : a.unit;
+      var tgt = a.target === null ? '—'
+              : a.unit === 'kg' ? n(fmt(LKUnits.v(a.target))) + ' ' + unit
+              : n(fmt(a.target)) + (unit ? ' ' + unit : '');
+      return '<div class="card card--flush card--raised" data-testid="' + testid + '">' +
+        lineRow(esc(a.name), 'Goal name') +
+        lineRow(esc(a.type), 'Kind of goal') +
+        lineRow(tgt, 'Target') +
+        (a.start !== null ? lineRow(a.unit === 'kg' ? n(fmt(LKUnits.v(a.start))) + ' ' + unit : n(fmt(a.start)), 'Starting from') : '') +
+        (a.targetDate ? lineRow(dayLabel(a.targetDate), 'By') : lineRow('No date', 'By')) +
+        (a.notes ? lineRow(esc(a.notes), 'Notes') : '') +
+      '</div>';
+    }
+    if (a.kind === 'food') {
+      return '<div class="card card--flush card--raised" data-testid="' + testid + '">' +
+        lineRow(esc(a.icon) + ' ' + esc(a.name) + (a.qty === 1 ? '' : ' &times; ' + n(fmt(a.qty))),
+                a.slot.charAt(0).toUpperCase() + a.slot.slice(1) + ' &middot; today') +
+        lineRow(kcalLine(a), a.key ? 'From the food table' : 'Macros carried by the reply, not from the table') +
+      '</div>';
+    }
+    if (a.kind === 'cardio') {
+      return '<div class="card card--flush card--raised" data-testid="' + testid + '">' +
+        lineRow(esc(a.name), 'Today') +
+        lineRow(n(a.minutes) + ' min' + (a.km ? ' &middot; ' + n(fmt(a.km)) + ' km' : ''), 'Goes into your training history') +
+      '</div>';
+    }
+    if (a.kind === 'shopping') {
+      return '<div data-testid="' + testid + '">' +
+        '<div class="card card--flush card--raised">' +
+          a.items.map(function (it) {
+            return lineRow(n(fmt(it.quantity)) + (it.unit ? ' ' + esc(it.unit) : '') + ' ' + esc(it.itemName),
+                           esc(it.category));
+          }).join('') +
+        '</div>' +
+        '<p class="t-detail quiet mt-2">' + n(a.items.length) +
+          (a.items.length === 1 ? ' item' : ' items') + ', every one of them listed above.</p>' +
+      '</div>';
+    }
+    if (a.kind === 'instructions') {
+      var was = S.setup.instructions;
+      return '<div data-testid="' + testid + '">' +
+        '<div class="card card--raised"><p class="t-body">' + esc(a.text) + '</p></div>' +
+        '<p class="t-detail quiet mt-2">This replaces your coaching instructions in full. ' +
+          (was ? 'What is there now: “' + esc(was) + '”' : 'Nothing is written there now.') + '</p>' +
+      '</div>';
+    }
+    if (a.kind === 'fact') {
+      return '<div data-testid="' + testid + '"><p class="t-body-em">' + esc(a.text) + '</p>' +
+        '<p class="t-detail quiet mt-2">Saved facts go into every reply while ' +
+          '&ldquo;Use saved memories&rdquo; is on in Setup.</p></div>';
+    }
+    return '';
+  }
+
+  var KIND_LABEL = {
+    split: 'Save this split', goal: 'Create this goal', recipe: 'Save this recipe',
+    shopping: 'Add these to your shopping list', food: 'Log this food',
+    cardio: 'Log this session', instructions: 'Save these instructions',
+    fact: 'Remember this'
+  };
+  var KIND_WHERE = {
+    split: 'Splits', goal: 'Goals in Progress', recipe: 'Recipes in Fuel',
+    shopping: 'your shopping list', food: 'today in Fuel', cardio: 'your training history',
+    instructions: 'Setup', fact: 'what the coach remembers'
+  };
+
+  /* One card per verdict. A refusal is a card too, and it says why in the
+     gate's own words -- not a paraphrase, which is where a reason stops
+     being checkable. */
+  function actionCard(m, mi, ai) {
+    var v = m.acts[ai];
+    var id = mi + '-' + ai;
+
+    if (!v.ok) {
+      return '<div class="card card--outline msg__attach" data-testid="act-' + id + '" data-kind="' + esc(v.kind || '') + '" data-ok="false">' +
+        '<div class="banner banner--warn">' + ico('alert') +
+          '<span><strong>Not saved</strong>The coach proposed ' +
+          (KIND_LABEL[v.kind] ? '&ldquo;' + esc(KIND_LABEL[v.kind].toLowerCase()) + '&rdquo;' : 'something this app cannot do') +
+          ', and LOCKED will not write it.</span></div>' +
+        '<div class="t-label mt-3">Why</div>' +
+        '<ul class="stack stack--2 mt-2" data-testid="act-' + id + '-problems">' +
+          v.problems.map(function (p) {
+            return '<li class="t-detail">' + esc(p) + '</li>';
+          }).join('') +
+        '</ul>' +
+        (v.kind === 'split' && CATALOGUE.state !== 'ready'
+          ? '<p class="t-detail quiet mt-3" data-testid="act-' + id + '-catalogue">' + catalogueNote() + '</p>'
+          : '') +
+        '<p class="t-detail quiet mt-3">Nothing was written. Ask again and the coach can send a ' +
+          'corrected one; what it sent is above, unchanged.</p>' +
+      '</div>';
+    }
+
+    var a = v.action;
+    if (v.applied) {
+      return '<div class="card card--raised msg__attach" data-testid="act-' + id + '" data-kind="' + esc(v.kind) + '" data-ok="true" data-applied="true">' +
+        '<div class="banner banner--success">' + ico('check') +
+          '<span><strong>Saved</strong>' + esc(a.title) + ' is in ' + KIND_WHERE[v.kind] + '.</span></div>' +
+        preview(a, 'act-' + id + '-preview') +
+        '<button class="btn btn--secondary btn--block mt-3" data-act="act-undo" data-mi="' + mi + '" data-ai="' + ai + '" ' +
+          'data-testid="act-' + id + '-undo"><span class="btn__label">Undo</span></button>' +
+      '</div>';
+    }
+
+    /* The fact chip is a chip, not a card: it is one sentence, and a card
+       around one sentence reads as a bigger claim than it is. */
+    if (v.kind === 'fact') {
+      return '<div class="card card--outline msg__attach" data-testid="act-' + id + '" data-kind="fact" data-ok="true">' +
+        '<div class="hstack hstack--2"><span class="ico-well">' + ico('spark') + '</span>' +
+          '<span class="grow"><span class="t-label">The coach wants to remember</span>' +
+          preview(a, 'act-' + id + '-preview') + '</span></div>' +
+        '<button class="btn btn--primary btn--block mt-3" data-act="act-apply" data-mi="' + mi + '" data-ai="' + ai + '" ' +
+          'data-testid="act-' + id + '-apply"><span class="btn__label">Remember it</span></button>' +
+        '<button class="btn btn--tertiary btn--block mt-2" data-act="act-drop" data-mi="' + mi + '" data-ai="' + ai + '" ' +
+          'data-testid="act-' + id + '-drop"><span class="btn__label">Do not</span></button>' +
+      '</div>';
+    }
+
+    var approve = v.kind === 'shopping'
+      ? '<button class="btn btn--primary btn--block mt-3" data-act="act-review" data-mi="' + mi + '" data-ai="' + ai + '" ' +
+          'data-testid="act-' + id + '-apply"><span class="btn__label">Review and add ' + a.items.length + ' items</span></button>'
+      : '<button class="btn btn--primary btn--block mt-3" data-act="act-apply" data-mi="' + mi + '" data-ai="' + ai + '" ' +
+          'data-testid="act-' + id + '-apply"><span class="btn__label">' + esc(KIND_LABEL[v.kind]) + '</span></button>';
+
+    return '<div class="card card--raised msg__attach" data-testid="act-' + id + '" data-kind="' + esc(v.kind) + '" data-ok="true">' +
+      '<div class="t-label">' + esc(KIND_LABEL[v.kind]) + '</div>' +
+      '<div class="t-body-em mt-2">' + esc(a.title) + '</div>' +
+      '<div class="mt-3">' + preview(a, 'act-' + id + '-preview') + '</div>' +
+      approve +
+      '<button class="btn btn--tertiary btn--block mt-2" data-act="act-drop" data-mi="' + mi + '" data-ai="' + ai + '" ' +
+        'data-testid="act-' + id + '-drop"><span class="btn__label">Not now</span></button>' +
+    '</div>';
+  }
+
+  function actionsBlock(m, mi) {
+    if (!m.acts || !m.acts.length) return '';
+    /* Shopping is not in the count: SAVE ALL does not add to a shopping list,
+       because the approval modal is the whole point of that action. A button
+       that counted it would promise four and do three. */
+    var pending = m.acts.filter(function (v) {
+      return v.ok && !v.applied && !v.dropped && v.kind !== 'shopping';
+    }).length;
+    var heldBack = m.acts.filter(function (v) {
+      return v.ok && !v.applied && !v.dropped && v.kind === 'shopping';
+    }).length;
+    var html = m.acts.map(function (v, ai) {
+      return v.dropped ? '' : actionCard(m, mi, ai);
+    }).join('');
+    if (pending > 1) {
+      html += '<button class="btn btn--primary btn--block mt-3" data-act="act-save-all" data-mi="' + mi + '" ' +
+        'data-testid="act-save-all-' + mi + '"><span class="btn__label">SAVE ALL (' + pending +
+        (pending === 1 ? ' ACTION' : ' ACTIONS') + ')</span></button>' +
+        (heldBack ? '<p class="t-detail quiet mt-2" data-testid="act-save-all-note-' + mi + '">' +
+          'The shopping list is not in that. It has its own step, so every item is on screen ' +
+          'before any of it is added.</p>' : '');
+    }
+    var appliedN = m.acts.filter(function (v) { return v.applied; }).length;
+    if (appliedN > 1) {
+      html += '<button class="btn btn--secondary btn--block mt-3" data-act="act-undo-all" data-mi="' + mi + '" ' +
+        'data-testid="act-undo-all-' + mi + '"><span class="btn__label">Undo all ' + appliedN + '</span></button>';
+    }
+    return html;
+  }
+
+  /* SAID, NOT IMPLIED. The write-back below is whole -- check, preview,
+     approve, undo -- and the one thing missing is the model that would
+     propose an action in the first place. A screen that showed the cards
+     without saying that would read as a coach choosing not to use them. */
+  function modelNote() {
+    return '<p class="t-detail quiet mt-3" data-testid="chat-model-note">' +
+      'The coach cannot propose anything of its own in this build: there is no model ' +
+      'behind it, so the replies here are written on this phone. When it is connected, ' +
+      'a reply can carry a split, a recipe, a goal, a meal, a session or a shopping list, ' +
+      'and each one arrives as a card showing everything it would write, saved only if ' +
+      'you approve it.</p>';
+  }
+
   function chatBody() {
     var c = S.chat;
     if (c.status === 'empty') {
@@ -23720,6 +24706,7 @@ DEMO.define("coach", function (document, window, location, fetch) {
            v6 carried it and the rebuild dropped it. */
         '<p class="t-detail quiet mt-4" data-testid="chat-disclaimer">A coach that reads your numbers can ' +
           'still be wrong. Sanity-check anything that affects your health.</p>' +
+        modelNote() +
         '<section class="section">' +
           '<div class="card card--outline card--flush">' +
             /* It expands where it stands. One tap used to leave the screen
@@ -23781,6 +24768,7 @@ DEMO.define("coach", function (document, window, location, fetch) {
         '</div>';
     }
     html += '</div>';
+    html += modelNote();
     return html;
   }
 
@@ -24035,13 +25023,30 @@ DEMO.define("coach", function (document, window, location, fetch) {
         '</div>' +
       '</div></section>';
 
+    /* Seven personas, each with the description the shipped app gives it, and
+       the sentence that would be sent shown in full underneath the one that
+       is picked. The tone is stored and nothing in this build reads it -- the
+       replies here are written on this page -- so the card says that rather
+       than letting the picker imply an effect it cannot have. */
     var style = '<section class="section" data-testid="setup-style-block">' +
       '<div class="section__head"><h2 class="t-label">Tone</h2></div>' +
-      '<div class="card"><div class="hstack hstack--2 wrap">' +
+      '<div class="card card--flush">' +
         STYLES.map(function (t) {
-          return '<button class="chip" aria-pressed="' + (s.style === t[0]) + '" data-act="style" data-style="' + t[0] + '" data-testid="setup-style-' + t[0] + '">' + t[1] + '</button>';
+          return '<button class="opt" role="radio" aria-checked="' + (s.style === t[0]) + '" data-act="style" ' +
+            'data-style="' + t[0] + '" data-testid="setup-style-' + t[0] + '">' +
+            '<span class="opt__mark">' + ico('check') + '</span>' +
+            '<span class="opt__main"><span class="opt__title">' + esc(t[1]) + '</span>' +
+            '<span class="opt__sub">' + esc(t[2]) + '</span></span></button>';
         }).join('') +
-      '</div></div></section>';
+      '</div>' +
+      '<div class="card mt-2" data-testid="setup-style-effect">' +
+        '<div class="t-label">What gets sent</div>' +
+        '<p class="t-detail mt-2">&ldquo;' + esc(styleRow(s.style)[3]) + '&rdquo;</p>' +
+        '<p class="t-detail quiet mt-2">This build has no model behind the coach, so the replies ' +
+          'in Chat are written on this phone and read the same whichever tone is picked. ' +
+          'The choice is stored in lk_coachStyle and goes into the system prompt as soon as ' +
+          'the coach endpoint is connected.</p>' +
+      '</div></section>';
 
     /* Memory, with a master switch, a typed add and a way to clear the lot.
        "Add a fact" used to push the same hardcoded sentence every time it was
@@ -24302,6 +25307,7 @@ DEMO.define("coach", function (document, window, location, fetch) {
   function overlays() {
     var html = toastEl();
     if (S.interview.open) return html + interviewSheet();
+    if (S.modal && S.modal.type === 'shopping') return html + shoppingSheet();
     if (S.modal === 'bind') return html + bindSheet();
     if (S.modal === 'delete') return html + deleteDialog();
     return html;
@@ -24423,7 +25429,12 @@ DEMO.define("coach", function (document, window, location, fetch) {
 
     /* One accent fill: normally the primary action; in chat it moves to
        the plan card while the card is waiting to be saved. */
-    var accent = (S.view === 'chat' && S.chat.offer && !S.chat.offerSaved) ? 'card' : 'action';
+    /* The accent moves to a card while a card is waiting to be saved --
+       the plan offer, or any sound action the coach has proposed. */
+    var waiting = S.chat.msgs.some(function (m) {
+      return (m.acts || []).some(function (v) { return v.ok && !v.applied && !v.dropped; });
+    });
+    var accent = (S.view === 'chat' && ((S.chat.offer && !S.chat.offerSaved) || waiting)) ? 'card' : 'action';
 
     LKPatch(phone, '' +
       '<div class="screen" data-state="' + currentState() + '" data-view="' + S.view + '" data-accent="' + accent + '" data-testid="view-' + S.view + '">' +
@@ -24905,6 +25916,71 @@ DEMO.define("coach", function (document, window, location, fetch) {
       render();
     },
 
+    /* --- the coach's write-back ----------------------------------- */
+    /* One approval, one apply, one undo token kept with the card so the
+       Undo is still there after a reload. */
+    'act-apply': function (el) {
+      applyVerdict(Number(el.dataset.mi), Number(el.dataset.ai), true);
+    },
+    'act-drop': function (el) {
+      var m = S.chat.msgs[Number(el.dataset.mi)];
+      var v = m && m.acts && m.acts[Number(el.dataset.ai)];
+      if (!v) return;
+      v.dropped = true;
+      persistChat();
+      render();
+      toast('Not saved. Nothing changed.', 'Undo', function () {
+        v.dropped = false;
+        persistChat();
+      });
+    },
+    'act-undo': function (el) {
+      var m = S.chat.msgs[Number(el.dataset.mi)];
+      var v = m && m.acts && m.acts[Number(el.dataset.ai)];
+      if (!v || !v.applied || !window.LKCoachActions) return;
+      var back = LKCoachActions.revert(v.token);
+      if (!back) { toast('It could not be put back. Nothing was changed.'); return; }
+      v.applied = false; v.token = null;
+      persistChat();
+      render();
+      toast('Undone. ' + v.action.title + ' is not saved.');
+    },
+    /* Every sound action in the reply, in one approval, with one Undo for
+       the lot. Shopping still goes through its own list first -- adding
+       nine things to somebody's shopping list without showing them is the
+       exact thing the approval modal exists to prevent. */
+    'act-save-all': function (el) {
+      var mi = Number(el.dataset.mi);
+      var m = S.chat.msgs[mi];
+      if (!m || !m.acts) return;
+      var done = 0, skipped = 0;
+      m.acts.forEach(function (v, ai) {
+        if (!v.ok || v.applied || v.dropped) return;
+        if (v.kind === 'shopping') { skipped++; return; }
+        if (applyVerdict(mi, ai, false)) done++;
+      });
+      persistChat();
+      render();
+      if (!done) { toast(skipped ? 'The shopping list needs its own approval.' : 'Nothing was saved.'); return; }
+      toast(done + (done === 1 ? ' action saved.' : ' actions saved.') +
+        (skipped ? ' The shopping list still needs approving.' : ''), 'Undo all', function () {
+          undoAll(mi);
+        });
+    },
+    'act-undo-all': function (el) { undoAll(Number(el.dataset.mi)); },
+    /* The shopping approval modal. Nothing reaches the list until every
+       line of it has been on screen. */
+    'act-review': function (el) {
+      S.modal = { type: 'shopping', mi: Number(el.dataset.mi), ai: Number(el.dataset.ai) };
+      render();
+    },
+    'shop-confirm': function () {
+      var mo = S.modal;
+      if (!mo || mo.type !== 'shopping') return;
+      S.modal = null;
+      applyVerdict(mo.mi, mo.ai, true);
+    },
+
     /* --- setup ---------------------------------------------------- */
     'quick': function (el) {
       var t = QUICK[Number(el.dataset.i)];
@@ -25105,6 +26181,118 @@ DEMO.define("coach", function (document, window, location, fetch) {
     }
   };
 
+  /* Applies one verdict through the gate and keeps its undo token. The
+     token is a plain object, so it goes into lk_coachLastMsgs with the
+     thread and the Undo still works tomorrow. */
+  function applyVerdict(mi, ai, chatty) {
+    var m = S.chat.msgs[mi];
+    var v = m && m.acts && m.acts[ai];
+    if (!v || !v.ok || v.applied || !window.LKCoachActions) return false;
+    primeStore(v.kind);
+    var res = LKCoachActions.apply(v.action);
+    if (!res.ok) {
+      v.ok = false;
+      v.problems = res.problems;
+      persistChat();
+      render();
+      if (chatty) toast('It could not be saved. The card says why.');
+      return false;
+    }
+    v.applied = true;
+    v.token = res.token;
+    if (chatty) {
+      persistChat();
+      /* The Setup pane reads lk_coachMemory and lk_coachInstructions from
+         this page's own state, so a write from chat has to land there too
+         or the two halves of the screen disagree until a reload. */
+      syncFromStore(v.kind);
+      render();
+      toast(v.action.title + ' saved to ' + KIND_WHERE[v.kind] + '.', 'Undo', function () {
+        if (LKCoachActions.revert(v.token)) {
+          v.applied = false; v.token = null;
+          persistChat();
+          syncFromStore(v.kind);
+        }
+      });
+    } else {
+      syncFromStore(v.kind);
+    }
+    return true;
+  }
+  /* store.js has no seed mapping for lk_coachMemory or lk_coachInstructions,
+     so this page's SEED_MEMORY and SEED_INSTRUCTIONS are what the panes show
+     until somebody writes. A write from chat goes through LKStore, which
+     would start from the empty key and drop the seeded fact off the Setup
+     pane the moment the coach added one. The pane's current value is written
+     down first, so both halves agree. (The right fix is a seed mapping in
+     store.js, which this package does not own.) */
+  function primeStore(kind) {
+    if (!store()) return;
+    if (kind === 'fact') {
+      var mem = store().get('lk_coachMemory', null);
+      if (!Array.isArray(mem) || (!mem.length && S.setup.memory.length)) {
+        store().set('lk_coachMemory', S.setup.memory);
+      }
+    }
+    if (kind === 'instructions') {
+      var ins = store().get('lk_coachInstructions', null);
+      if (typeof ins !== 'string' || (!ins && S.setup.instructions)) {
+        store().set('lk_coachInstructions', S.setup.instructions);
+      }
+    }
+  }
+  function syncFromStore(kind) {
+    if (!store()) return;
+    if (kind === 'fact') S.setup.memory = store().get('lk_coachMemory', S.setup.memory) || S.setup.memory;
+    if (kind === 'instructions') S.setup.instructions = store().get('lk_coachInstructions', S.setup.instructions);
+  }
+  function undoAll(mi) {
+    var m = S.chat.msgs[mi];
+    if (!m || !m.acts || !window.LKCoachActions) return;
+    var back = 0;
+    m.acts.forEach(function (v) {
+      if (!v.applied) return;
+      if (LKCoachActions.revert(v.token)) { v.applied = false; v.token = null; back++; syncFromStore(v.kind); }
+    });
+    persistChat();
+    S.toast = null;
+    render();
+    toast(back ? back + (back === 1 ? ' action undone.' : ' actions undone.') : 'Nothing to undo.');
+  }
+
+  /* Every item, before any of it is added. F-COACH-018: a shopping list is
+     the action with the most lines and the least interesting preview, which
+     is exactly why it gets its own approval step rather than a count. */
+  function shoppingSheet() {
+    var mo = S.modal;
+    var m = S.chat.msgs[mo.mi];
+    var v = m && m.acts && m.acts[mo.ai];
+    if (!v || !v.ok) return '';
+    var a = v.action;
+    return '<div class="scrim" data-act="close-modal" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-label="Add these to your shopping list" data-testid="shop-sheet">' +
+        '<span class="sheet__grab"></span>' +
+        '<div class="sheet__head"><div class="stack stack--1">' +
+          '<h2 class="t-section">Add ' + a.items.length + ' items?</h2>' +
+          '<span class="t-detail">Everything the coach wants to add is listed. Nothing else goes on.</span></div>' +
+          '<button class="iconbtn" data-act="close-modal" aria-label="Close" data-testid="shop-close">' + ico('close') + '</button></div>' +
+        '<div class="sheet__body">' +
+          '<div class="card card--flush" data-testid="shop-items">' +
+            a.items.map(function (it, i) {
+              return '<div class="row row--static" data-testid="shop-item-' + i + '">' +
+                '<span class="row__main"><span class="row__title">' + esc(it.itemName) + '</span>' +
+                '<span class="row__sub">' + n(fmt(it.quantity)) + (it.unit ? ' ' + esc(it.unit) : '') +
+                ' &middot; ' + esc(it.category) + '</span></span></div>';
+            }).join('') +
+          '</div>' +
+          '<button class="btn btn--primary btn--block mt-4" data-act="shop-confirm" data-testid="shop-confirm">' +
+            '<span class="btn__label">Add all ' + a.items.length + ' to the list</span></button>' +
+          '<button class="btn btn--tertiary btn--block mt-2" data-act="close-modal" data-testid="shop-cancel">' +
+            '<span class="btn__label">Cancel</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
   function closeInterview() {
     var a = answered();
     S.interview.open = false;
@@ -25285,6 +26473,7 @@ DEMO.define("coach", function (document, window, location, fetch) {
      Boot
      --------------------------------------------------------------- */
   reset();
+  loadCatalogue();
   var qs = new URLSearchParams(location.search);
   var want = qs.get('preset');
   if (want !== null && PRESETS[Number(want)]) applyPreset(Number(want));
@@ -27838,6 +29027,95 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
   var IN_SPLIT = SPLIT_MAP.inSplit;
   var SPLIT_DAYS = SPLIT_MAP.days;
 
+  /* ---------------------------------------------------------------
+     PER-EXERCISE NOTES — F-TRAIN-007. They were written from the workout
+     log into lk_exNotes and could be read nowhere else, so the note you
+     wrote about a lift was invisible on the screen where you browse that
+     lift. Same key, same shape (keyed by exercise id), read and written
+     here through these two functions and nowhere else in this file.
+     --------------------------------------------------------------- */
+  function allNotes() {
+    return (window.LKStore ? window.LKStore.get('lk_exNotes', {}) : null) || {};
+  }
+  function exNote(id) {
+    var all = allNotes();
+    var v = all[id];
+    if (v === undefined) v = all[String(id)];
+    return v === undefined || v === null ? '' : String(v);
+  }
+  function setExNote(id, text) {
+    if (!window.LKStore) return false;
+    var all = allNotes();
+    if (text.trim()) all[id] = text; else { delete all[id]; delete all[String(id)]; }
+    window.LKStore.set('lk_exNotes', all);
+    return true;
+  }
+
+  /* ---------------------------------------------------------------
+     HOW MUCH OF THE CATALOGUE IS ACTUALLY HERE — F-TRAIN-306. The app
+     ships 867 exercises and Train's row says so; over file:// the fetch
+     cannot run and this screen has the inline list only. Rather than two
+     screens quoting two different totals with nothing saying why, the
+     count on screen is always the count of what can be opened, and this
+     sentence says what is missing when anything is.
+     --------------------------------------------------------------- */
+  function shipped() {
+    var lib = window.LKFixtures && window.LKFixtures.library;
+    return lib && lib.total ? Number(lib.total) : 0;
+  }
+  function shortfallNote() {
+    var have = S.items.length, all = shipped();
+    if (!all || have >= all) return '';
+    return have + ' of the ' + all + ' exercises LOCKED ships are readable here. ' +
+      'The rest are in the app’s own catalogue file, which a page opened straight ' +
+      'from disk cannot read.';
+  }
+
+  /* ---------------------------------------------------------------
+     LEAVING FOR THE WORKOUT LOG. In the assembled demo this file is one
+     screen of locked-demo.html and a raw location.href would take the
+     whole page with it, so the one crossing declared out of this screen
+     -- the session shelf's Resume -- is the one that is used. Standalone
+     that same click reaches this screen's own handler at the bottom of
+     the file, which navigates. One path, both builds.
+     --------------------------------------------------------------- */
+  function leaveToLog() {
+    var b = document.querySelector('[data-testid="shelf-resume"]');
+    if (b) { b.click(); return true; }
+    if (/exercise-library\.html$/i.test(location.pathname)) {
+      location.href = 'workout-log.html';
+      return true;
+    }
+    return false;
+  }
+
+  /* The running session's own rows, under the workout log's key. Adding a
+     lift to a workout that is already going means appending to them; the
+     record is stamped with the session's start time, so a stale set of rows
+     from a finished workout is never written back into a live one. */
+  function addToLiveSession(it) {
+    if (!window.LKStore || !window.LKSession) return false;
+    var live = window.LKSession.get();
+    if (!live) return false;
+    var rows = window.LKStore.get('lk_liveSessionRows', null);
+    if (!rows || !rows.exercises || rows.startedAt !== live.startedAt) return false;
+    for (var i = 0; i < rows.exercises.length; i++) {
+      if (String(rows.exercises[i].id) === String(it.id)) return 'dup';
+    }
+    rows.exercises.push(newExRow(it));
+    window.LKStore.set('lk_liveSessionRows', rows);
+    return true;
+  }
+  /* The log's own row shape, three empty working sets. Written here so what
+     this screen appends is indistinguishable from what the log itself adds. */
+  function newExRow(it) {
+    var sets = [];
+    for (var i = 0; i < 3; i++) {
+      sets.push({ kg: null, reps: null, rir: 2, done: false, warm: false, partials: 0 });
+    }
+    return { id: it.id, name: it.name, muscle: it.muscle || '', note: exNote(it.id), sets: sets };
+  }
+
   /* Words a lifter types that are not in the catalogue. */
   var ALIAS = {
     legs: ['quads', 'hams', 'glutes', 'calves', 'adduc'],
@@ -28064,9 +29342,11 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
        the whole browse surface. So the body renders nothing here, and the
        heading and the hint travel with the figure instead. */
     if (S.browse === 'map') return '';
+    var short = shortfallNote();
     return head('Muscle groups', n(total) + ' exercises') +
       listCard(GROUP_INDEX.map(function (g) { return groupRow(g[0]); })) +
-      '<p class="t-detail quiet mt-4 gutter">Search finds a lift by name, muscle, region or equipment. Browsing is two taps: a group, then the lift.</p>';
+      '<p class="t-detail quiet mt-4 gutter">Search finds a lift by name, muscle, region or equipment. Browsing is two taps: a group, then the lift.</p>' +
+      (short ? '<p class="t-detail quiet mt-3 gutter" data-testid="catalogue-short">' + esc(short) + '</p>' : '');
   }
 
   function viewGroup(gid) {
@@ -28230,8 +29510,30 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
   /* The demonstration slot only exists when there is a clip to show.
      It is never the sheet's subject, so its three states are three small
      things in one 16:9 box, not a void. */
+  /* YOUR NOTES ON THIS LIFT — F-TRAIN-007. The same lk_exNotes the workout
+     log autosaves into, so a cue typed mid-set is here when the lift is next
+     browsed, and one typed here is on the card when it is next lifted. It
+     saves as you type; there is no Save button because there is nothing to
+     confirm and nothing to lose. */
+  function notesBlock(it) {
+    var has = !!window.LKStore;
+    return '<div class="section"><div class="section__head"><h3 class="t-label">Your notes</h3>' +
+      '<span class="t-meta" data-testid="note-status">' +
+        (has ? 'Saves as you type' : 'Storage unavailable') + '</span></div>' +
+      '<label class="field">' +
+        '<span class="vis-hidden">Your notes on ' + esc(it.name) + '</span>' +
+        '<textarea class="input" rows="3" data-action="exnote" data-id="' + it.id + '"' +
+          (has ? '' : ' disabled') + ' data-testid="sheet-note" ' +
+          'placeholder="Seat 4, elbows tucked, pause a beat at the bottom.">' +
+          esc(exNote(it.id)) + '</textarea>' +
+      '</label>' +
+      '<p class="field__help">Kept on this phone against this exercise, and shown on its ' +
+        'card in the workout log.</p>' +
+    '</div>';
+  }
+
   function mediaBlock(it) {
-    if (S.media === 'none') return '';
+    if (S.media === 'none') return demoNote();
     var inner;
     if (S.media === 'loading') {
       inner = '<div class="media" role="status" aria-busy="true" aria-label="Loading the demonstration clip" data-testid="media-loading">' +
@@ -28256,10 +29558,23 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
     return '<div class="section"><div class="section__head"><h3 class="t-label">Demonstration</h3></div>' + inner + '</div>';
   }
 
+  /* F-TRAIN-015, said rather than mimed. Nothing on this device holds a
+     demonstration clip: there is no cache to look in and no lookup to run,
+     so the slot is not shown as an empty box waiting on a network that is
+     not there. What the remaining half needs is named, at the point where a
+     reader would otherwise wonder where the video is. */
+  function demoNote() {
+    return '<div class="section"><div class="section__head"><h3 class="t-label">Demonstration</h3></div>' +
+      '<p class="t-detail">No clip is stored on this phone. Form videos come from LOCKED’s ' +
+      'media service, which this build has no connection to; nothing is downloaded and nothing ' +
+      'is cached. The muscle map and your history above do not need one.</p></div>';
+  }
+
   function actions(it) {
     var primary, secondary = '';
     if (S.entry === 'picker') {
-      primary = ['add-day', 'Add to Push', 'plus'];
+      var first = SPLIT_DAYS[0];
+      primary = ['add-day', 'Add to ' + esc(first ? first.name : 'a split day'), 'plus'];
     } else if (S.entry === 'active') {
       primary = ['add-workout', 'Add to today&rsquo;s workout', 'plus'];
       secondary = 'Add to a split day';
@@ -28290,6 +29605,7 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
           bodymap(it) +
           factsBlock(it) +
           historyBlock(it) +
+          notesBlock(it) +
           mediaBlock(it) +
         '</div>' +
         actions(it) +
@@ -28508,6 +29824,12 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
     FIG.select(null);
     var count = document.getElementById('libmap-count');
     if (count) count.textContent = pool().length + ' exercises';
+    var note = document.getElementById('libmap-note');
+    if (note) {
+      var short = shortfallNote();
+      note.textContent = short;
+      note.hidden = !short;
+    }
     var f = document.getElementById('tab-front'), b = document.getElementById('tab-back');
     if (f) f.setAttribute('aria-selected', String(S.bodyView === 'front'));
     if (b) b.setAttribute('aria-selected', String(S.bodyView === 'back'));
@@ -28532,8 +29854,12 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
     LKPatch(layer, renderLayer());
     clear.hidden = !S.q;
     input.disabled = S.status !== 'ready';
+    /* COUNTED, not typed. Both of these said 227 -- the length of the inline
+       fallback -- whichever catalogue was actually loaded, so the field
+       offered 227 over a list of 867. */
     input.placeholder = S.status !== 'ready' ? 'Search'
-      : (S.gid && !S.q ? 'Search all 227, not just ' + GNAME[S.gid] : 'Search ' + S.items.length + ' exercises');
+      : (S.gid && !S.q ? 'Search all ' + S.items.length + ', not just ' + GNAME[S.gid]
+                       : 'Search ' + S.items.length + ' exercises');
     syncMap();
     mountSheetFigures();
     screen.setAttribute('data-state', stateName());
@@ -28605,7 +29931,11 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
     'close-days': function () { S.days = false; render({ focus: 'sheet-secondary' }); },
     'add-day': function (el) {
       var it = byId(Number(el.getAttribute('data-id')));
-      var day = el.getAttribute('data-day') || 'push';
+      /* The sheet's own primary carries no day, so it means the first one --
+         which is what its label says. It used to default to the literal
+         string "push", which matches no day id at all, so the button did
+         nothing at all from a picker. */
+      var day = el.getAttribute('data-day') || (SPLIT_DAYS[0] && SPLIT_DAYS[0].id);
       var d = SPLIT_DAYS.filter(function (x) { return x.id === day; })[0];
       S.days = false; S.sheet = null;
       if (!d) { render({ focus: S.restore }); return; }
@@ -28613,33 +29943,101 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
          stored split now, so the planner and Train see it on the next open. */
       var added = addToSplitDay(d, it);
       SPLIT_MAP = buildSplits(); IN_SPLIT = SPLIT_MAP.inSplit; SPLIT_DAYS = SPLIT_MAP.days;
+      S.lastAdded = added ? { kind: 'day', id: it.id, name: it.name, day: d } : null;
       render({ focus: S.restore });
       toast(added
         ? 'Added ' + esc(it.name) + ' to ' + esc(d.name) + ', ' + esc(d.split) + '.'
-        : esc(it.name) + ' is already in ' + esc(d.name) + ', ' + esc(d.split) + '.', true);
+        : esc(it.name) + ' is already in ' + esc(d.name) + ', ' + esc(d.split) + '.', !!added);
       render();
     },
+    /* F-TRAIN-006. Both of these used to toast and stop: nothing was written
+       anywhere and nothing moved, so the whole catalogue was a dead end
+       unless you happened to pick the secondary. They write now, through the
+       keys the workout log actually reads, and they leave. */
     'add-workout': function (el) {
       var it = byId(Number(el.getAttribute('data-id')));
+      if (!it) return;
+      var r = addToLiveSession(it);
+      if (r === 'dup') {
+        S.sheet = null;
+        render({ focus: S.restore });
+        toast(esc(it.name) + ' is already in this workout.', false);
+        render();
+        return;
+      }
+      if (!r) {
+        /* No live rows to append to -- the workout has not written any yet,
+           or it has ended. Say that rather than claim the lift went in. */
+        toast('That workout is not open on this phone, so nothing was added.', false);
+        render();
+        return;
+      }
+      S.lastAdded = { kind: 'workout', id: it.id, name: it.name };
       S.sheet = null;
       render({ focus: S.restore });
-      S.lastAdded = it.name;
-      toast('Added ' + esc(it.name) + ' to today&rsquo;s workout.', true);
+      toast('Added ' + esc(it.name) + ' to your workout.', true);
       render();
+      leaveToLog();
     },
     start: function (el) {
       var it = byId(Number(el.getAttribute('data-id')));
-      S.sheet = null; S.entry = 'active';
-      render({ focus: S.restore });
-      toast('Workout started with ' + esc(it.name) + '.', false);
+      if (!it) return;
+      /* lk_repeatWorkout is the log's own "start this session" key: a name
+         and the lifts, each with its planned set count. The log reads it on
+         boot and on lk:enter, clears it, and opens a fresh session at zero. */
+      if (window.LKStore) {
+        window.LKStore.set('lk_repeatWorkout', {
+          name: it.name,
+          exercises: [{ id: it.id, name: it.name, muscle: it.muscle || '', sets: 3 }]
+        });
+      }
+      /* The session record, so the shelf exists and the one declared crossing
+         out of this screen is there to be taken. */
+      if (window.LKSession) window.LKSession.start({ name: it.name, done: 0, total: 3 });
+      S.sheet = null; S.days = false; S.entry = 'active';
       render();
+      if (!leaveToLog()) toast('Workout started with ' + esc(it.name) + '. Open it from the strip below.', false);
     },
     undo: function () {
+      var last = S.lastAdded;
       S.toast = null;
+      /* Undo takes the lift back OUT of the running session. It used to only
+         print a second sentence saying it had. */
+      var removed = false;
+      if (last && last.kind === 'day') {
+        /* Out of the stored split day it was just written into. */
+        var all = rdSplits();
+        all.forEach(function (sp) {
+          if (sp.id !== last.day.splitId) return;
+          (sp.days || []).forEach(function (dd) {
+            if (dd.name !== last.day.day || !dd.exercises) return;
+            var before = dd.exercises.length;
+            dd.exercises = dd.exercises.filter(function (x) { return String(x.id) !== String(last.id); });
+            if (dd.exercises.length !== before) removed = true;
+          });
+        });
+        if (removed && window.LKStore) window.LKStore.set('lk_splits', all);
+        SPLIT_MAP = buildSplits(); IN_SPLIT = SPLIT_MAP.inSplit; SPLIT_DAYS = SPLIT_MAP.days;
+        S.lastAdded = null;
+        render();
+        toast(removed ? 'Took ' + esc(last.name) + ' back out of ' + esc(last.day.name) + '.' : 'Undone.', false);
+        render();
+        return;
+      }
+      if (last && window.LKStore && window.LKSession && window.LKSession.get()) {
+        var rows = window.LKStore.get('lk_liveSessionRows', null);
+        if (rows && rows.exercises) {
+          var keep = rows.exercises.filter(function (x) { return String(x.id) !== String(last.id); });
+          if (keep.length !== rows.exercises.length) {
+            rows.exercises = keep;
+            window.LKStore.set('lk_liveSessionRows', rows);
+            removed = true;
+          }
+        }
+      }
+      S.lastAdded = null;
       render();
-      toast(S.lastAdded
-        ? 'Took ' + esc(S.lastAdded) + ' back out of today&rsquo;s workout.'
-        : 'Undone.', false);
+      toast(removed ? 'Took ' + esc(last.name) + ' back out of your workout.' : 'Undone.', false);
       render();
     },
     create: function () {
@@ -28679,6 +30077,14 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
   };
 
   var INPUTS = {
+    /* Autosaving, like the workout log's note field: no Save button, because
+       there is nothing to confirm. The status line is written directly rather
+       than through a render, so the caret never moves while typing. */
+    exnote: function (el) {
+      var ok = setExNote(Number(el.getAttribute('data-id')), el.value);
+      var st = document.querySelector('[data-testid="note-status"]');
+      if (st) st.textContent = ok ? 'Saved' : 'Not saved: storage unavailable';
+    },
     cname: function (el) { S.create.name = el.value; document.querySelector('[data-testid="create-save"]').disabled = !el.value.trim(); },
     ceq: function (el) { S.create.eq = el.value; render({ focus: 'create-equipment' }); },
     cbase: function (el) { S.create.startResist = el.value; },
@@ -28829,7 +30235,44 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
      library was behind a keyboard nobody asked for. Focus follows the
      tap on the field, and follows a preset, because those are asks.
      --------------------------------------------------------------- */
+  /* WHICH ENTRY THIS IS, from the session record rather than from the dev
+     switcher. S.entry decided the sheet's primary action and only the
+     switcher ever changed it, so with a workout genuinely running the sheet
+     still offered to start a second one. */
+  function syncEntry() {
+    if (S.entry === 'picker') return;
+    S.entry = (window.LKSession && window.LKSession.get()) ? 'active' : 'tab';
+  }
+
+  /* Everything on this screen that comes from stored data, re-read. The demo
+     mounts each screen once, so a split edited in the builder, a session
+     finished in the log or a note typed anywhere else reached this screen
+     only after a full reload. */
+  function reread() {
+    HISTORY = buildHistory();
+    SPLIT_MAP = buildSplits(); IN_SPLIT = SPLIT_MAP.inSplit; SPLIT_DAYS = SPLIT_MAP.days;
+    CUSTOMS = ((window.LKStore ? window.LKStore.get('lk_customEx', null) : null) ||
+               (window.LKFixtures && LKFixtures.customEx) || []).map(function (c) {
+      return { id: c.id, name: c.name, eq: c.eq, gid: c.gid, sid: c.sid,
+               startResist: c.startResist || 0, smithNoCB: !!c.smithNoCB };
+    });
+    S.customs = CUSTOMS.slice();
+    syncEntry();
+    rebuild();
+  }
+  document.addEventListener('lk:enter', function () { reread(); render(); });
+  if (window.LKStore && window.LKStore.onChange) {
+    ['lk_history', 'lk_splits', 'lk_customEx'].forEach(function (k) {
+      window.LKStore.onChange(k, function () {
+        if (S.sheet || S.create || S.days) return;
+        reread();
+        render();
+      });
+    });
+  }
+
   seed(fromTuples(FALLBACK), 'inline');
+  syncEntry();
   S.preset = 0;
   render();
   /* Same reason as above: from disk the inline catalogue is the catalogue. */
@@ -31727,21 +33170,40 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
   function round(v, step) { return Math.round(v / step) * step; }
   function trim(v) { return String(Math.round(v * 100) / 100); }
 
-  function toDisplay(kgValue) {          /* stored kg -> profile unit */
+  /* ONE LIFT CAN READ IN THE OTHER UNIT. Both unit controls used to call
+     setUnit(), which flips the whole app, so a rack of dumbbells stamped in
+     pounds inside a kilogram session could only be logged by converting it in
+     your head or by flipping every other screen with it. The tools menu still
+     owns the app-wide setting; the exercise sheet now sets an override for
+     that lift alone. The MODEL IS STILL KILOGRAMS everywhere -- the override
+     changes the reading of a row and never what is stored -- and it is kept
+     in lk_exEquip beside the bar weight, because it is the same kind of fact
+     about the lift and it has to be true the next time it comes round. */
+  function unitOf(ex) { return (ex && ex.unit === 'lb') || (ex && ex.unit === 'kg') ? ex.unit : S.unit; }
+  function unitAt(e) { return unitOf(S.exercises[e]); }
+  function toDisplay(kgValue, u) {       /* stored kg -> the unit being read */
     if (kgValue === null || kgValue === undefined || kgValue === '') return null;
-    return S.unit === 'kg' ? Number(kgValue) : Math.round(Number(kgValue) * LB_PER_KG * 10) / 10;
+    return (u || S.unit) === 'kg' ? Number(kgValue) : Math.round(Number(kgValue) * LB_PER_KG * 10) / 10;
   }
-  function toKg(displayValue) {          /* profile unit -> stored kg */
+  function toKg(displayValue, u) {       /* the unit being read -> stored kg */
     if (displayValue === null || displayValue === '' || isNaN(displayValue)) return null;
-    return S.unit === 'kg' ? Number(displayValue) : Math.round((Number(displayValue) / LB_PER_KG) * 100) / 100;
+    return (u || S.unit) === 'kg' ? Number(displayValue) : Math.round((Number(displayValue) / LB_PER_KG) * 100) / 100;
   }
-  function unitLabel() { return S.unit === 'kg' ? 'kg' : 'lb'; }
+  function unitLabel(u) { return (u || S.unit) === 'kg' ? 'kg' : 'lb'; }
   /* "everywhere" means everywhere. */
   function setUnit(u) {
     S.unit = u;
     if (window.LKUnits) LKUnits.set(u === 'kg');
   }
-  function unitWord() { return S.unit === 'kg' ? 'kilograms' : 'pounds'; }
+  function unitWord(u) { return (u || S.unit) === 'kg' ? 'kilograms' : 'pounds'; }
+  /* THE PHONE'S OWN CONFIRMATION. A set logged is a thing done with the eyes
+     on the bar, not on the screen, and navigator.vibrate appeared nowhere in
+     the build. Guarded: desktop Safari has no vibrate and iOS ignores it, so
+     the tick still pops and still announces itself. */
+  function buzz(pattern) {
+    try { if (navigator && typeof navigator.vibrate === 'function') navigator.vibrate(pattern); } catch (e) {}
+  }
+
   function clock(s) {
     var m = Math.floor(s / 60), r = s % 60;
     return m + ':' + (r < 10 ? '0' : '') + r;
@@ -31821,7 +33283,9 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       var all = LKStore.get('lk_exNotes', {}) || {};
       if (all[id]) kept = all[id];
     }
-    return { id: id, name: name, muscle: muscle, note: kept || note || '', sets: sets };
+    var eq = equipFor(id) || {};
+    return { id: id, name: name, muscle: muscle, note: kept || note || '', sets: sets,
+             unit: eq.unit === 'lb' || eq.unit === 'kg' ? eq.unit : null };
   }
 
   /* The seeded mid-session, for the dev states and for a demo. A build with
@@ -32200,8 +33664,9 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     /* Weight carries over from last session and is shown, as shipped —
        but in the ghost tone, because it is not yet the lifter's entry.
        Reps start blank, also as shipped. */
+    var u = unitAt(e);
     var raw = own !== null ? own : (field === 'weight' ? prev : null);
-    var shown = field === 'weight' ? toDisplay(raw) : raw;
+    var shown = field === 'weight' ? toDisplay(raw, u) : raw;
     var blank = shown === null || shown === undefined;
     var ghost = blank || own === null;
     var text = blank ? '--' : (field === 'weight' ? trim(shown) : String(shown));
@@ -32211,7 +33676,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
        against left them out. */
     var partial = (field === 'reps' && !blank && st.partials) ? st.partials : 0;
     var label = 'Set ' + (i + 1) + ' ' + field + (blank ? ', empty'
-      : (ghost ? ', last session ' : ', ') + text + (field === 'weight' ? ' ' + unitWord() : ' reps')) +
+      : (ghost ? ', last session ' : ', ') + text + (field === 'weight' ? ' ' + unitWord(u) : ' reps')) +
       (partial ? ' plus ' + partial + (partial === 1 ? ' partial' : ' partials') : '');
     return '<button class="cell' + (ghost ? ' cell--empty' : '') + (editing ? ' cell--editing' : '') + '" type="button" ' +
       'data-act="edit" data-ex="' + e + '" data-set="' + i + '" data-field="' + field + '" ' +
@@ -32293,7 +33758,8 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
 
   function gridHead(e) {
     return '<div class="setgrid__head setgrid__head--n">#</div>' +
-      '<div class="setgrid__head setgrid__head--unit" data-testid="unit-head-' + e + '">' + unitLabel().toUpperCase() + '</div>' +
+      '<div class="setgrid__head setgrid__head--unit" data-testid="unit-head-' + e + '">' +
+        unitLabel(unitAt(e)).toUpperCase() + '</div>' +
       '<div class="setgrid__head">Reps</div>' +
       '<div class="setgrid__head">RIR</div>' +
       '<div class="setgrid__head" aria-hidden="true"></div>';
@@ -32304,13 +33770,14 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
         'aria-pressed="' + (S.liftedEx === e ? 'true' : 'false') + '" aria-label="Reorder ' + esc(ex.name) +
         ', position ' + (e + 1) + ' of ' + S.exercises.length + '">' + ICO.grip + '</button>' +
       '<button class="exc__main" type="button" data-act="exsheet" data-ex="' + e + '" data-testid="exercise-menu-' + e + '" ' +
-        'aria-haspopup="dialog" aria-label="Options for ' + esc(ex.name) + '">' +
+        'aria-haspopup="dialog" aria-label="Options for ' + esc(ex.name) +
+        '. Press and hold, or press Enter." aria-description="Press and hold to open">' +
         '<span class="exc__name">' + esc(ex.name) + '</span>' +
         '<span class="exc__muscle">' + esc(ex.muscle) +
           (ex.unilateral ? ' &middot; left and right' : '') +
           /* The bar or carriage, where there is one. A set logged as 60 on a
              20 kg bar was 60, and nothing on the card said which. */
-          (baseOf(ex) ? ' &middot; +' + trim(toDisplay(baseOf(ex))) + ' ' + unitLabel() + ' base' : '') +
+          (baseOf(ex) ? ' &middot; +' + trim(toDisplay(baseOf(ex), unitOf(ex))) + ' ' + unitLabel(unitOf(ex)) + ' base' : '') +
           /* How long since this lift was last trained, once that is long
              enough to be the reason the numbers have not moved. Under a
              month it is just a rest day and saying so would be noise. */
@@ -32369,10 +33836,45 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     '</div>';
   }
 
+  /* THE RECORDS SET IN THIS SESSION, read off the sets themselves so they
+     survive a reload with the rows. A record was a four-second toast: beaten
+     in the first exercise, it left no mark anywhere by the time the session
+     ended, and the one place it appeared again was another screen days
+     later. It is marked on the set, badged on the card, and banded across
+     the top of the log for as long as the workout is open. */
+  function sessionPRs() {
+    var out = [];
+    S.exercises.forEach(function (ex) {
+      ex.sets.forEach(function (st, i) {
+        if (st.pr) out.push({ name: ex.name, text: st.prText || '', set: i + 1 });
+      });
+    });
+    return out;
+  }
+  function exHasPR(ex) {
+    for (var i = 0; i < ex.sets.length; i++) if (ex.sets[i].pr) return true;
+    return false;
+  }
+  function prBannerHTML() {
+    var prs = sessionPRs();
+    if (!prs.length) return '';
+    return '<div class="prband" role="status" data-testid="pr-banner" data-count="' + prs.length + '">' +
+      '<span class="badge badge--success">All-time ' + (prs.length === 1 ? 'PR' : 'PRs') + '</span>' +
+      '<div class="prband__main">' +
+        prs.map(function (r) {
+          return '<p class="t-body-em">' + esc(r.name) + '</p>' +
+            '<p class="t-detail muted">' + esc(r.text) + ' Set ' + r.set + ', saved to your records.</p>';
+        }).join('') +
+      '</div>' +
+    '</div>';
+  }
+
   function exerciseHTML(ex, e) {
     return '<article class="exc' + (S.liftedEx === e ? ' exc--lifted' : '') +
         (S.dragEx === e ? ' exc--dragging' : '') + '" data-testid="exercise-card-' + e + '">' +
-      '<div class="exc__head">' + headBtns(ex, e) + '</div>' +
+      '<div class="exc__head">' + headBtns(ex, e) +
+        (exHasPR(ex) ? '<span class="badge badge--success" data-testid="pr-badge-' + e + '">PR</span>' : '') +
+      '</div>' +
       '<div class="sets"><div class="setgrid">' + gridHead(e) + setRows(ex, e) + '</div></div>' +
       '<div class="exc__foot">' +
         '<button class="btn btn--sm btn--secondary" type="button" data-act="addset" data-ex="' + e + '" data-testid="btn-add-set-' + e + '">' + ICO.plus + '<span class="btn__label">Add Set</span></button>' +
@@ -32403,7 +33905,8 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       '<div class="exc__head exc__head--b">' +
         '<span class="exc__grip" aria-hidden="true"></span>' +
         '<button class="exc__main" type="button" data-act="exsheet" data-ex="' + (e + 1) + '" data-testid="exercise-menu-' + (e + 1) + '" ' +
-          'aria-haspopup="dialog" aria-label="Options for ' + esc(b.name) + '">' +
+          'aria-haspopup="dialog" aria-label="Options for ' + esc(b.name) +
+          '. Press and hold, or press Enter." aria-description="Press and hold to open">' +
           '<span class="exc__name">' + esc(b.name) + '</span>' +
           '<span class="exc__muscle">' + esc(b.muscle) + '</span>' +
         '</button>' +
@@ -32463,8 +33966,21 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     '</article>';
   }
 
+  /* The gesture has to be taught once. lk_holdTipSeen is the shipped app's
+     own key for exactly this, and it is set the first time a hold lands. */
+  function holdTipSeen() {
+    return !!(window.LKStore && LKStore.get('lk_holdTipSeen', false));
+  }
+  function markHoldTipSeen() {
+    if (window.LKStore && !holdTipSeen()) LKStore.set('lk_holdTipSeen', true);
+  }
+
   function bodyHTML() {
-    var out = '';
+    var out = prBannerHTML();
+    if (S.exercises.length && !holdTipSeen()) {
+      out += '<p class="t-detail muted holdtip" data-testid="hold-tip">' +
+        'Hold an exercise name for its options \u2014 swap, warm-ups, equipment, remove.</p>';
+    }
     if (!S.exercises.length && !S.blocks.length) {
       /* The only empty state in the build that pointed at a button instead
          of being one. Every other one carries the way out; this one said
@@ -32509,10 +34025,11 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
   function openPadFor(e, i, field) {
     var st = S.exercises[e].sets[i];
     var own = field === 'weight' ? st.kg : st.reps;
+    var u = unitAt(e);
     var raw = own !== null ? own : (field === 'weight' ? st.prevKg : null);
-    var shown = field === 'weight' ? toDisplay(raw) : raw;
+    var shown = field === 'weight' ? toDisplay(raw, u) : raw;
     return {
-      ex: e, set: i, field: field,
+      ex: e, set: i, field: field, unit: u,
       buffer: (shown === null || shown === undefined) ? '' : trim(shown),
       /* THE FIX. The pad opens showing the pending value, as shipped,
          but the first digit replaces it whole instead of appending to
@@ -32526,7 +34043,8 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
   function padHTML() {
     var p = S.pad;
     var isWeight = p.field === 'weight';
-    var steps = isWeight ? STEPS[S.unit] : [-2, -1, 1, 2];
+    var pu = p.unit || S.unit;
+    var steps = isWeight ? STEPS[pu] : [-2, -1, 1, 2];
     var shown = p.buffer === '' ? '0' : p.buffer;
     var pending = p.fromPrev && !p.replaced;
     var keys = '';
@@ -32543,7 +34061,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
           '<span class="padsheet__what">' + (isWeight ? 'Weight' : 'Reps') + ' · set ' + (p.set + 1) + '</span>' +
           '<span class="padsheet__figure">' +
             '<span class="padsheet__value' + (pending ? ' padsheet__value--pending' : '') + '" data-testid="pad-value">' + esc(shown) + '</span>' +
-            (isWeight ? '<span class="padsheet__unit" data-testid="pad-unit">' + unitLabel() + '</span>' : '') +
+            (isWeight ? '<span class="padsheet__unit" data-testid="pad-unit">' + unitLabel(pu) + '</span>' : '') +
           '</span>' +
         '</div>' +
         (pending ? '<p class="padsheet__hint" data-testid="pad-hint">Last session. Type to replace it.</p>' : '') +
@@ -32575,7 +34093,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
   function padCommit() {
     var p = S.pad, st = S.exercises[p.ex].sets[p.set];
     var v = p.buffer === '' ? null : parseFloat(p.buffer);
-    if (p.field === 'weight') st.kg = v === null || isNaN(v) ? null : toKg(v);
+    if (p.field === 'weight') st.kg = v === null || isNaN(v) ? null : toKg(v, p.unit);
     else st.reps = v === null || isNaN(v) ? null : Math.round(v);
     S.pad = null;
   }
@@ -32612,7 +34130,11 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     var items = [
       ['info', ICO.note, 'Info & notes', ''],
       ['swap', ICO.swap, 'Swap exercise', ''],
-      ['unit', ICO.scale, 'Switch to ' + (S.unit === 'kg' ? 'lb' : 'kg'), ''],
+      /* THIS LIFT, not the app. The tools menu keeps the app-wide switch;
+         here the question being asked is about the dumbbells in front of you. */
+      ['unit', ICO.scale, (unitOf(ex) === S.unit
+        ? 'Log this lift in ' + (unitOf(ex) === 'kg' ? 'lb' : 'kg')
+        : 'Back to ' + unitLabel(S.unit) + ', like the rest of the session'), ''],
       ['warmup', ICO.drop, 'Add warm-up sets', ''],
       ['superset', ICO.link, 'Make it a superset', ''],
       /* The key the handler tests. It was emitted as 'sides' and handled as
@@ -32623,7 +34145,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       ['delset', ICO.trash, 'Remove the last set', ''],
       ['delrow', ICO.trash, 'Remove a set by number', ''],
       ['equip', ICO.note, eq.eq ? 'Equipment \u00b7 ' + eq.eq +
-        (eq.base ? ' \u00b7 ' + trim(toDisplay(eq.base)) + ' ' + unitLabel() + ' base' : '')
+        (eq.base ? ' \u00b7 ' + trim(toDisplay(eq.base, unitOf(ex))) + ' ' + unitLabel(unitOf(ex)) + ' base' : '')
         : 'Set the equipment', ''],
       ['remove', ICO.trash, 'Remove exercise', ' sheetact--danger']
     ];
@@ -32668,7 +34190,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
               var prev = lastSetsFor(ex.id);
               if (!prev || !prev.length) return 'No earlier session with this lift.';
               return prev.map(function (st) {
-                return trim(toDisplay(st.kg)) + unitLabel() + ' x ' + (st.reps || '--') +
+                return trim(toDisplay(st.kg, unitOf(ex))) + unitLabel(unitOf(ex)) + ' x ' + (st.reps || '--') +
                   (st.warm ? ' (warm-up)' : '');
               }).join(' \u00b7 ');
             })() + '</p></div>' +
@@ -32778,15 +34300,25 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
           }).join('') + '</div>' +
           /* Six presets are six opinions about how long a set takes to
              recover from, and a heavy triple is not on the list. */
+          /* MINUTES AND SECONDS, the way a rest is said. One seconds box
+             meant "two and a half minutes" had to be typed as 150, and it
+             opened empty so the length already set had to be remembered
+             before it could be nudged. Both boxes are seeded from the
+             current target. */
           '<p class="t-label mt-4">Or a length of your own</p>' +
-          '<div class="addrow mt-2">' +
-            '<input class="input num" id="rest-custom" type="number" min="5" max="900" step="5" ' +
-              'inputmode="numeric" placeholder="' + S.restSeconds + '" ' +
-              'aria-label="Rest in seconds" data-testid="rest-custom">' +
+          '<div class="restcustom mt-2">' +
+            '<label class="field"><span class="field__label t-label">Minutes</span>' +
+              '<input class="input num" id="rest-min" type="number" min="0" max="15" step="1" ' +
+                'inputmode="numeric" value="' + Math.floor(S.restSeconds / 60) + '" ' +
+                'aria-label="Rest minutes" data-testid="rest-min"></label>' +
+            '<label class="field"><span class="field__label t-label">Seconds</span>' +
+              '<input class="input num" id="rest-sec" type="number" min="0" max="59" step="5" ' +
+                'inputmode="numeric" value="' + (S.restSeconds % 60) + '" ' +
+                'aria-label="Rest seconds" data-testid="rest-sec"></label>' +
             '<button class="btn btn--secondary" type="button" data-act="rest-custom" ' +
               'data-testid="rest-custom-set">Use it</button>' +
           '</div>' +
-          '<p class="t-meta mt-1">Seconds, 5 to 900. Now: ' + n(clock(S.restSeconds)) + '.</p>' +
+          '<p class="t-meta mt-1">Between 5 seconds and 15 minutes. Now: ' + n(clock(S.restSeconds)) + '.</p>' +
           (S.restError ? '<p class="field__error mt-2" role="alert" data-testid="rest-error">' +
             esc(S.restError) + '</p>' : '') +
         '</div>' +
@@ -32853,7 +34385,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
           '<button class="iconbtn" type="button" data-act="close" data-testid="pickset-close" aria-label="Close">' + ICO.close + '</button></div>' +
         '<div class="sheet__body"><div class="sheetlist">' +
           ex.sets.map(function (st, i) {
-            var w = st.kg !== null ? trim(toDisplay(st.kg)) + ' ' + unitLabel() : 'no weight';
+            var w = st.kg !== null ? trim(toDisplay(st.kg, unitOf(ex))) + ' ' + unitLabel(unitOf(ex)) : 'no weight';
             var r = st.reps !== null ? st.reps + ' reps' : 'no reps';
             return '<button class="sheetact" type="button" data-act="delrow-go" data-i="' + i + '" ' +
               'data-testid="pickset-' + i + '">' +
@@ -33232,6 +34764,17 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     put(overlay, overlayHTML());
     put(toastSlot, toastHTML());
 
+    if (S.pop) {
+      var popped = document.querySelector('[data-testid="' + S.pop + '"]');
+      S.pop = null;
+      if (popped) {
+        popped.classList.remove('done--pop');
+        /* Next frame, or the class is added inside the same style pass the
+           element was patched in and the animation never restarts. */
+        requestAnimationFrame(function () { popped.classList.add('done--pop'); });
+      }
+    }
+
     var nowOverlay = !!(S.overlay || S.pad);
     renderedOverlay = nowOverlay;
 
@@ -33356,6 +34899,10 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
           if (st.kg === null) st.kg = st.prevKg;
           if (st.reps === null) st.reps = st.prevReps;
           startRest();
+          /* Felt as well as seen. One short pulse for a set, two for a
+             record, and the tick pops under the thumb. */
+          buzz(12);
+          S.pop = 'done-' + e + '-' + i;
           /* The moment a best is beaten is the moment to say so. A 100 kg
              set against a 72.5 kg best produced "Set 4 logged" and nothing
              else, and the record only appeared days later on another
@@ -33363,13 +34910,22 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
           var pr = prBeaten(S.exercises[e], st);
           if (pr) {
             recordPR(S.exercises[e], st);
-            toast('Personal best. ' + pr, 'info');
+            /* On the set, so the banner and the card badge can be drawn from
+               the session itself and outlive the toast. */
+            st.pr = true;
+            st.prText = pr;
+            buzz([12, 60, 24]);
+            toast('All-time PR. ' + pr, 'info');
             say(S.exercises[e].name + ', personal best. ' + pr);
           } else {
             say('Set ' + (i + 1) + ' logged. ' + doneSets() + ' sets this session.');
           }
         } else {
           S.restRunning = false;
+          /* Reopening a set takes back what ticking it claimed. The record
+             row already written stands -- it was lifted -- but this session
+             stops announcing it. */
+          st.pr = false; st.prText = '';
           say('Set ' + (i + 1) + ' reopened');
         }
         break;
@@ -33423,7 +34979,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
           }, 0)) || 20;
           s2.suggestKg = Math.round((base + 2.5) * 2) / 2;
           s2.suggestReps = s2.prevReps || 8;
-          toast('Suggested ' + trim(toDisplay(s2.suggestKg)) + ' ' + unitLabel() + ' x ' +
+          toast('Suggested ' + trim(toDisplay(s2.suggestKg, unitAt(e))) + ' ' + unitLabel(unitAt(e)) + ' x ' +
                 s2.suggestReps + ' for set ' + (target + 1) + '. Tap the cell to take it.',
                 'info', 'Take it', function () {
                   s2.kg = s2.suggestKg; s2.reps = s2.suggestReps;
@@ -33457,12 +35013,37 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
         break;
       }
       case 'move-done': S.liftedEx = -1; say('Order kept'); refocus('grip-' + e); break;
-      case 'exsheet': S.overlayEx = e; S.overlay = 'sheet'; break;
+      /* THE SHEET IS HELD OPEN, NOT TAPPED OPEN. It opened on a plain tap of
+         the exercise name -- a 44-tall target sitting directly above the set
+         grid, in the middle of a screen people jab at with one hand between
+         sets -- so it fired by accident, and the gesture the shipped app
+         taught was gone. A short press now says how to open it instead of
+         opening it, which is the one thing a tap can do that is neither a
+         surprise nor a dead control. Enter and Space still open it outright,
+         because a keyboard cannot hold. */
+      case 'exsheet':
+        if (heldOpenAt && Date.now() - heldOpenAt < 600) break;   /* the hold already opened it */
+        say('Hold ' + S.exercises[e].name + ' to open its options.');
+        toast('Hold the name to open options for ' + S.exercises[e].name + '.');
+        break;
       case 'exact': {
         var key = t.getAttribute('data-key');
         var cur = S.exercises[S.overlayEx];
         if (key === 'info') { S.overlay = 'detail'; break; }
-        if (key === 'unit') { setUnit(S.unit === 'kg' ? 'lb' : 'kg'); S.overlay = null; toast('Showing ' + unitLabel() + ' everywhere.'); break; }
+        if (key === 'unit') {
+          /* An override, stored against the lift. Nothing already logged
+             changes: the rows are kilograms and stay kilograms, and only the
+             reading of them moves. */
+          var wasU = unitOf(cur);
+          var nextU = wasU === S.unit ? (S.unit === 'kg' ? 'lb' : 'kg') : null;
+          cur.unit = nextU;
+          if (cur.id) setEquip(cur.id, { unit: nextU });
+          S.overlay = null;
+          toast(nextU
+            ? cur.name + ' reads in ' + unitLabel(nextU) + '. Every other lift stays in ' + unitLabel(S.unit) + '.'
+            : cur.name + ' is back in ' + unitLabel(S.unit) + ', like the rest of the session.');
+          break;
+        }
         if (key === 'warmup') {
           /* A ramp, not the same set twice. Pressing this twice put two
              identical 50% warm-ups on the exercise, which is not how anybody
@@ -33491,8 +35072,8 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
           cur.sets.splice(at, 0, set(Math.round(work * rung[0] * 2) / 2, rung[1],
                                      { warm: true, rir: 4 }));
           S.overlay = null;
-          toast('Warm-up at ' + trim(toDisplay(Math.round(work * rung[0] * 2) / 2)) + ' ' +
-                unitLabel() + ' added.');
+          toast('Warm-up at ' + trim(toDisplay(Math.round(work * rung[0] * 2) / 2, unitOf(cur))) + ' ' +
+                unitLabel(unitOf(cur)) + ' added.');
           break;
         }
         /* Any set, not only the last. delset pops, so shedding the second of
@@ -33633,7 +35214,8 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
           var total = S.plate.bar + S.plate.added.reduce(function (a, b) { return a + b; }, 0) * 2;
           S.exercises[target2.ex].sets[target2.set].kg = total;
           S.overlay = null;
-          toast(trim(toDisplay(total)) + unitLabel() + ' applied to set ' + (target2.set + 1) + '.');
+          var au = unitAt(target2.ex);
+          toast(trim(toDisplay(total, au)) + unitLabel(au) + ' applied to set ' + (target2.set + 1) + '.');
         }
         break;
       }
@@ -33677,24 +35259,59 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
          is a sheet to open, read and dismiss for something that takes a
          tap. */
       case 'rest-custom': {
-        var rf = document.getElementById('rest-custom');
-        var secs = rf ? parseInt(rf.value, 10) : NaN;
-        if (isNaN(secs) || secs < 5 || secs > 900) {
-          S.restError = 'Between 5 and 900 seconds.';
+        var mf = document.getElementById('rest-min');
+        var sf = document.getElementById('rest-sec');
+        var mins = mf ? parseInt(mf.value, 10) : NaN;
+        var secs0 = sf ? parseInt(sf.value, 10) : NaN;
+        if (isNaN(mins)) mins = 0;
+        if (isNaN(secs0)) secs0 = 0;
+        if (mins < 0 || secs0 < 0 || secs0 > 59) {
+          S.restError = 'Minutes, then seconds under 60.';
+          break;
+        }
+        var secs = mins * 60 + secs0;
+        if (secs < 5 || secs > 900) {
+          S.restError = 'Between 5 seconds and 15 minutes.';
           break;
         }
         S.restSeconds = secs;
         S.restError = null;
+        /* A rest already running takes the new length too, or the setting
+           would only apply from the next set and the sheet would look as
+           though it had done nothing. */
+        if (S.restRunning) S.restLeft = secs;
         toast('Rest set to ' + clock(secs) + '.');
         break;
       }
       case 'set-kind': {
         var ke = Number(t.getAttribute('data-ex')), ki = Number(t.getAttribute('data-set'));
-        var ks = S.exercises[ke].sets[ki];
+        var kex = S.exercises[ke], ks = kex.sets[ki];
         var at = SET_KINDS.indexOf(kindOf(ks));
         var next = SET_KINDS[(at + 1) % SET_KINDS.length];
         ks.warm = next === 'warm';
         ks.kind = next === 'warm' ? null : next;
+        /* A DROP SET IS THE SET ABOVE IT, LIGHTER. That is the whole reason
+           the state exists, and the weight was left to be typed by hand in
+           the one moment nobody has a free hand: straight off a set, with the
+           bar still loaded. Three quarters of the preceding set's load,
+           rounded to the half, and only into a row nobody has typed into --
+           a figure already entered is the lifter's and is never overwritten.
+           An undone row can be re-filled; a logged one cannot. */
+        if (next === 'drop' && !ks.done) {
+          var above = null;
+          for (var kk = ki - 1; kk >= 0; kk--) {
+            var cand = kex.sets[kk];
+            var load = cand.kg !== null && cand.kg !== undefined ? cand.kg : cand.prevKg;
+            if (load !== null && load !== undefined) { above = { kg: load, reps: cand.reps }; break; }
+          }
+          if (above) {
+            ks.kg = Math.round(above.kg * 0.75 * 2) / 2;
+            if (ks.reps === null || ks.reps === undefined) ks.reps = above.reps;
+            var du = unitOf(kex);
+            toast('Drop set at ' + trim(toDisplay(ks.kg, du)) + ' ' + unitLabel(du) +
+                  ', three quarters of set ' + (ki) + '. Type over it if it was not.');
+          }
+        }
         say('Set ' + (ki + 1) + ' is a ' + KIND_WORD[next] + '.');
         break;
       }
@@ -33850,6 +35467,72 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
 
   var dragEndedAt = 0;
 
+  /* ---- press and hold, on the exercise name ---------------------------
+     450ms, the shipped app's own dwell. The card squeezes while the finger
+     is down so the gesture is visible before it fires, the phone taps back
+     the moment it does, and a finger that slides more than a few pixels is
+     a scroll rather than a hold. Nothing inside the card can start one: the
+     grip, the cells, the ticks and the foot buttons are all their own
+     controls, and this only ever begins on .exc__main itself. */
+  var HOLD_MS = 450;
+  var holdTimer = null;
+  var heldOpenAt = 0;
+  function cancelHold(el) {
+    if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+    if (el && el.classList) el.classList.remove('exc__main--holding');
+    Array.prototype.forEach.call(document.querySelectorAll('.exc__main--holding'), function (nd) {
+      nd.classList.remove('exc__main--holding');
+    });
+  }
+  document.addEventListener('pointerdown', function (ev) {
+    var main = ev.target.closest ? ev.target.closest('.exc__main[data-act="exsheet"]') : null;
+    if (!main) return;
+    /* A control inside the card that happens to sit over the name -- there
+       are none today, and there must not be one tomorrow either. */
+    if (ev.target.closest('[data-act]') !== main) return;
+    var ie = Number(main.getAttribute('data-ex'));
+    var x0 = ev.clientX, y0 = ev.clientY;
+    main.classList.add('exc__main--holding');
+    cancelHoldOnMove = function (e2) {
+      if (Math.abs(e2.clientX - x0) > 8 || Math.abs(e2.clientY - y0) > 8) done();
+    };
+    function done() {
+      cancelHold(main);
+      document.removeEventListener('pointermove', cancelHoldOnMove);
+      document.removeEventListener('pointerup', done);
+      document.removeEventListener('pointercancel', done);
+    }
+    document.addEventListener('pointermove', cancelHoldOnMove);
+    document.addEventListener('pointerup', done);
+    document.addEventListener('pointercancel', done);
+    holdTimer = setTimeout(function () {
+      holdTimer = null;
+      cancelHold(main);
+      buzz(18);
+      markHoldTipSeen();
+      heldOpenAt = Date.now();
+      lastOpener = 'exercise-menu-' + ie;
+      S.overlayEx = ie;
+      S.overlay = 'sheet';
+      paint();
+    }, HOLD_MS);
+  });
+  var cancelHoldOnMove = function () {};
+
+  /* A keyboard has no hold. Enter and Space open it outright. */
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+    var main = ev.target.closest ? ev.target.closest('.exc__main[data-act="exsheet"]') : null;
+    if (!main) return;
+    ev.preventDefault();
+    heldOpenAt = Date.now();
+    markHoldTipSeen();
+    lastOpener = main.dataset.testid;
+    S.overlayEx = Number(main.getAttribute('data-ex'));
+    S.overlay = 'sheet';
+    paint();
+  });
+
   document.addEventListener('pointerdown', function (ev) {
     var grip = ev.target.closest ? ev.target.closest('[data-act="grip"]') : null;
     if (!grip) return;
@@ -33928,18 +35611,23 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
 
   /* Beaten means more weight at the same reps or better, or the same weight
      for more reps. The same rule Progress uses to refuse a junk record. */
+  /* In the unit the row is being read in. It printed "kg" whatever the
+     screen said, so a lifter working in pounds was told they had just put
+     165 kg over their head. */
   function prBeaten(ex, st) {
     if (!ex || !ex.id || st.warm) return null;
     if (st.kg === null || st.reps === null) return null;
+    var u = unitOf(ex);
+    var w = function (v) { return trim(toDisplay(v, u)) + ' ' + unitLabel(u); };
     var b = bestFor(ex.id, st.reps);
     if (!b) {
       var any = bestFor(ex.id);
       if (!any) return null;              /* nothing to beat: not a claim */
-      if (st.kg > any.w) return st.kg + ' kg for ' + st.reps + ', past ' + any.w + ' kg for ' + any.r + '.';
+      if (st.kg > any.w) return w(st.kg) + ' for ' + st.reps + ', past ' + w(any.w) + ' for ' + any.r + '.';
       return null;
     }
-    if (st.kg > b.w) return st.kg + ' kg for ' + st.reps + ', past ' + b.w + ' kg.';
-    if (st.kg === b.w && st.reps > b.r) return st.kg + ' kg for ' + st.reps + ', past ' + b.r + ' reps.';
+    if (st.kg > b.w) return w(st.kg) + ' for ' + st.reps + ', past ' + w(b.w) + '.';
+    if (st.kg === b.w && st.reps > b.r) return w(st.kg) + ' for ' + st.reps + ', past ' + b.r + ' reps.';
     return null;
   }
 
@@ -34047,7 +35735,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       ex.sets.forEach(function (st) {
         if (!st.done || st.kg == null || st.reps == null) return;
         rows.push({ kg: st.kg, reps: st.reps, rir: st.rir, warm: !!st.warm,
-                    partials: st.partials || 0, done: true });
+                    partials: st.partials || 0, done: true, pr: !!st.pr });
         if (st.warm) return;
         sets++; vol += st.kg * st.reps;
         if (!top || st.kg > top[0] || (st.kg === top[0] && st.reps > top[1])) top = [st.kg, st.reps];

@@ -97,6 +97,11 @@
                     aria-selected="false" data-action="body-view" data-view="back">Back</button>
           </div>
           <p class="t-detail quiet mt-2">Tap a muscle. Search finds a lift by name, muscle, region or equipment.</p>
+          <!-- Said only when it is true: how much of the catalogue this device
+               can actually read. Over file:// the fetch cannot run and the
+               inline list is all there is, and the screen used to go on
+               offering "867" in every count regardless. -->
+          <p class="t-detail quiet mt-2" id="libmap-note" hidden></p>
         </div>
       </div>
 
@@ -110,7 +115,7 @@
           </span>
           <label class="vis-hidden" for="q">Search exercises by name, muscle or equipment</label>
           <input class="input" id="q" type="text" autocomplete="off" autocorrect="off" spellcheck="false"
-                 enterkeyhint="search" placeholder="Search 227 exercises" data-testid="search-input">
+                 enterkeyhint="search" placeholder="Search exercises" data-testid="search-input">
           <button class="search__clear" id="clear" type="button" hidden data-testid="search-clear" aria-label="Clear search">
             <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>
           </button>
@@ -777,6 +782,95 @@
   var IN_SPLIT = SPLIT_MAP.inSplit;
   var SPLIT_DAYS = SPLIT_MAP.days;
 
+  /* ---------------------------------------------------------------
+     PER-EXERCISE NOTES — F-TRAIN-007. They were written from the workout
+     log into lk_exNotes and could be read nowhere else, so the note you
+     wrote about a lift was invisible on the screen where you browse that
+     lift. Same key, same shape (keyed by exercise id), read and written
+     here through these two functions and nowhere else in this file.
+     --------------------------------------------------------------- */
+  function allNotes() {
+    return (window.LKStore ? window.LKStore.get('lk_exNotes', {}) : null) || {};
+  }
+  function exNote(id) {
+    var all = allNotes();
+    var v = all[id];
+    if (v === undefined) v = all[String(id)];
+    return v === undefined || v === null ? '' : String(v);
+  }
+  function setExNote(id, text) {
+    if (!window.LKStore) return false;
+    var all = allNotes();
+    if (text.trim()) all[id] = text; else { delete all[id]; delete all[String(id)]; }
+    window.LKStore.set('lk_exNotes', all);
+    return true;
+  }
+
+  /* ---------------------------------------------------------------
+     HOW MUCH OF THE CATALOGUE IS ACTUALLY HERE — F-TRAIN-306. The app
+     ships 867 exercises and Train's row says so; over file:// the fetch
+     cannot run and this screen has the inline list only. Rather than two
+     screens quoting two different totals with nothing saying why, the
+     count on screen is always the count of what can be opened, and this
+     sentence says what is missing when anything is.
+     --------------------------------------------------------------- */
+  function shipped() {
+    var lib = window.LKFixtures && window.LKFixtures.library;
+    return lib && lib.total ? Number(lib.total) : 0;
+  }
+  function shortfallNote() {
+    var have = S.items.length, all = shipped();
+    if (!all || have >= all) return '';
+    return have + ' of the ' + all + ' exercises LOCKED ships are readable here. ' +
+      'The rest are in the app’s own catalogue file, which a page opened straight ' +
+      'from disk cannot read.';
+  }
+
+  /* ---------------------------------------------------------------
+     LEAVING FOR THE WORKOUT LOG. In the assembled demo this file is one
+     screen of locked-demo.html and a raw location.href would take the
+     whole page with it, so the one crossing declared out of this screen
+     -- the session shelf's Resume -- is the one that is used. Standalone
+     that same click reaches this screen's own handler at the bottom of
+     the file, which navigates. One path, both builds.
+     --------------------------------------------------------------- */
+  function leaveToLog() {
+    var b = document.querySelector('[data-testid="shelf-resume"]');
+    if (b) { b.click(); return true; }
+    if (/exercise-library\.html$/i.test(location.pathname)) {
+      location.href = 'workout-log.html';
+      return true;
+    }
+    return false;
+  }
+
+  /* The running session's own rows, under the workout log's key. Adding a
+     lift to a workout that is already going means appending to them; the
+     record is stamped with the session's start time, so a stale set of rows
+     from a finished workout is never written back into a live one. */
+  function addToLiveSession(it) {
+    if (!window.LKStore || !window.LKSession) return false;
+    var live = window.LKSession.get();
+    if (!live) return false;
+    var rows = window.LKStore.get('lk_liveSessionRows', null);
+    if (!rows || !rows.exercises || rows.startedAt !== live.startedAt) return false;
+    for (var i = 0; i < rows.exercises.length; i++) {
+      if (String(rows.exercises[i].id) === String(it.id)) return 'dup';
+    }
+    rows.exercises.push(newExRow(it));
+    window.LKStore.set('lk_liveSessionRows', rows);
+    return true;
+  }
+  /* The log's own row shape, three empty working sets. Written here so what
+     this screen appends is indistinguishable from what the log itself adds. */
+  function newExRow(it) {
+    var sets = [];
+    for (var i = 0; i < 3; i++) {
+      sets.push({ kg: null, reps: null, rir: 2, done: false, warm: false, partials: 0 });
+    }
+    return { id: it.id, name: it.name, muscle: it.muscle || '', note: exNote(it.id), sets: sets };
+  }
+
   /* Words a lifter types that are not in the catalogue. */
   var ALIAS = {
     legs: ['quads', 'hams', 'glutes', 'calves', 'adduc'],
@@ -1003,9 +1097,11 @@
        the whole browse surface. So the body renders nothing here, and the
        heading and the hint travel with the figure instead. */
     if (S.browse === 'map') return '';
+    var short = shortfallNote();
     return head('Muscle groups', n(total) + ' exercises') +
       listCard(GROUP_INDEX.map(function (g) { return groupRow(g[0]); })) +
-      '<p class="t-detail quiet mt-4 gutter">Search finds a lift by name, muscle, region or equipment. Browsing is two taps: a group, then the lift.</p>';
+      '<p class="t-detail quiet mt-4 gutter">Search finds a lift by name, muscle, region or equipment. Browsing is two taps: a group, then the lift.</p>' +
+      (short ? '<p class="t-detail quiet mt-3 gutter" data-testid="catalogue-short">' + esc(short) + '</p>' : '');
   }
 
   function viewGroup(gid) {
@@ -1169,8 +1265,30 @@
   /* The demonstration slot only exists when there is a clip to show.
      It is never the sheet's subject, so its three states are three small
      things in one 16:9 box, not a void. */
+  /* YOUR NOTES ON THIS LIFT — F-TRAIN-007. The same lk_exNotes the workout
+     log autosaves into, so a cue typed mid-set is here when the lift is next
+     browsed, and one typed here is on the card when it is next lifted. It
+     saves as you type; there is no Save button because there is nothing to
+     confirm and nothing to lose. */
+  function notesBlock(it) {
+    var has = !!window.LKStore;
+    return '<div class="section"><div class="section__head"><h3 class="t-label">Your notes</h3>' +
+      '<span class="t-meta" data-testid="note-status">' +
+        (has ? 'Saves as you type' : 'Storage unavailable') + '</span></div>' +
+      '<label class="field">' +
+        '<span class="vis-hidden">Your notes on ' + esc(it.name) + '</span>' +
+        '<textarea class="input" rows="3" data-action="exnote" data-id="' + it.id + '"' +
+          (has ? '' : ' disabled') + ' data-testid="sheet-note" ' +
+          'placeholder="Seat 4, elbows tucked, pause a beat at the bottom.">' +
+          esc(exNote(it.id)) + '</textarea>' +
+      '</label>' +
+      '<p class="field__help">Kept on this phone against this exercise, and shown on its ' +
+        'card in the workout log.</p>' +
+    '</div>';
+  }
+
   function mediaBlock(it) {
-    if (S.media === 'none') return '';
+    if (S.media === 'none') return demoNote();
     var inner;
     if (S.media === 'loading') {
       inner = '<div class="media" role="status" aria-busy="true" aria-label="Loading the demonstration clip" data-testid="media-loading">' +
@@ -1195,10 +1313,23 @@
     return '<div class="section"><div class="section__head"><h3 class="t-label">Demonstration</h3></div>' + inner + '</div>';
   }
 
+  /* F-TRAIN-015, said rather than mimed. Nothing on this device holds a
+     demonstration clip: there is no cache to look in and no lookup to run,
+     so the slot is not shown as an empty box waiting on a network that is
+     not there. What the remaining half needs is named, at the point where a
+     reader would otherwise wonder where the video is. */
+  function demoNote() {
+    return '<div class="section"><div class="section__head"><h3 class="t-label">Demonstration</h3></div>' +
+      '<p class="t-detail">No clip is stored on this phone. Form videos come from LOCKED’s ' +
+      'media service, which this build has no connection to; nothing is downloaded and nothing ' +
+      'is cached. The muscle map and your history above do not need one.</p></div>';
+  }
+
   function actions(it) {
     var primary, secondary = '';
     if (S.entry === 'picker') {
-      primary = ['add-day', 'Add to Push', 'plus'];
+      var first = SPLIT_DAYS[0];
+      primary = ['add-day', 'Add to ' + esc(first ? first.name : 'a split day'), 'plus'];
     } else if (S.entry === 'active') {
       primary = ['add-workout', 'Add to today&rsquo;s workout', 'plus'];
       secondary = 'Add to a split day';
@@ -1229,6 +1360,7 @@
           bodymap(it) +
           factsBlock(it) +
           historyBlock(it) +
+          notesBlock(it) +
           mediaBlock(it) +
         '</div>' +
         actions(it) +
@@ -1447,6 +1579,12 @@
     FIG.select(null);
     var count = document.getElementById('libmap-count');
     if (count) count.textContent = pool().length + ' exercises';
+    var note = document.getElementById('libmap-note');
+    if (note) {
+      var short = shortfallNote();
+      note.textContent = short;
+      note.hidden = !short;
+    }
     var f = document.getElementById('tab-front'), b = document.getElementById('tab-back');
     if (f) f.setAttribute('aria-selected', String(S.bodyView === 'front'));
     if (b) b.setAttribute('aria-selected', String(S.bodyView === 'back'));
@@ -1471,8 +1609,12 @@
     LKPatch(layer, renderLayer());
     clear.hidden = !S.q;
     input.disabled = S.status !== 'ready';
+    /* COUNTED, not typed. Both of these said 227 -- the length of the inline
+       fallback -- whichever catalogue was actually loaded, so the field
+       offered 227 over a list of 867. */
     input.placeholder = S.status !== 'ready' ? 'Search'
-      : (S.gid && !S.q ? 'Search all 227, not just ' + GNAME[S.gid] : 'Search ' + S.items.length + ' exercises');
+      : (S.gid && !S.q ? 'Search all ' + S.items.length + ', not just ' + GNAME[S.gid]
+                       : 'Search ' + S.items.length + ' exercises');
     syncMap();
     mountSheetFigures();
     screen.setAttribute('data-state', stateName());
@@ -1544,7 +1686,11 @@
     'close-days': function () { S.days = false; render({ focus: 'sheet-secondary' }); },
     'add-day': function (el) {
       var it = byId(Number(el.getAttribute('data-id')));
-      var day = el.getAttribute('data-day') || 'push';
+      /* The sheet's own primary carries no day, so it means the first one --
+         which is what its label says. It used to default to the literal
+         string "push", which matches no day id at all, so the button did
+         nothing at all from a picker. */
+      var day = el.getAttribute('data-day') || (SPLIT_DAYS[0] && SPLIT_DAYS[0].id);
       var d = SPLIT_DAYS.filter(function (x) { return x.id === day; })[0];
       S.days = false; S.sheet = null;
       if (!d) { render({ focus: S.restore }); return; }
@@ -1552,33 +1698,101 @@
          stored split now, so the planner and Train see it on the next open. */
       var added = addToSplitDay(d, it);
       SPLIT_MAP = buildSplits(); IN_SPLIT = SPLIT_MAP.inSplit; SPLIT_DAYS = SPLIT_MAP.days;
+      S.lastAdded = added ? { kind: 'day', id: it.id, name: it.name, day: d } : null;
       render({ focus: S.restore });
       toast(added
         ? 'Added ' + esc(it.name) + ' to ' + esc(d.name) + ', ' + esc(d.split) + '.'
-        : esc(it.name) + ' is already in ' + esc(d.name) + ', ' + esc(d.split) + '.', true);
+        : esc(it.name) + ' is already in ' + esc(d.name) + ', ' + esc(d.split) + '.', !!added);
       render();
     },
+    /* F-TRAIN-006. Both of these used to toast and stop: nothing was written
+       anywhere and nothing moved, so the whole catalogue was a dead end
+       unless you happened to pick the secondary. They write now, through the
+       keys the workout log actually reads, and they leave. */
     'add-workout': function (el) {
       var it = byId(Number(el.getAttribute('data-id')));
+      if (!it) return;
+      var r = addToLiveSession(it);
+      if (r === 'dup') {
+        S.sheet = null;
+        render({ focus: S.restore });
+        toast(esc(it.name) + ' is already in this workout.', false);
+        render();
+        return;
+      }
+      if (!r) {
+        /* No live rows to append to -- the workout has not written any yet,
+           or it has ended. Say that rather than claim the lift went in. */
+        toast('That workout is not open on this phone, so nothing was added.', false);
+        render();
+        return;
+      }
+      S.lastAdded = { kind: 'workout', id: it.id, name: it.name };
       S.sheet = null;
       render({ focus: S.restore });
-      S.lastAdded = it.name;
-      toast('Added ' + esc(it.name) + ' to today&rsquo;s workout.', true);
+      toast('Added ' + esc(it.name) + ' to your workout.', true);
       render();
+      leaveToLog();
     },
     start: function (el) {
       var it = byId(Number(el.getAttribute('data-id')));
-      S.sheet = null; S.entry = 'active';
-      render({ focus: S.restore });
-      toast('Workout started with ' + esc(it.name) + '.', false);
+      if (!it) return;
+      /* lk_repeatWorkout is the log's own "start this session" key: a name
+         and the lifts, each with its planned set count. The log reads it on
+         boot and on lk:enter, clears it, and opens a fresh session at zero. */
+      if (window.LKStore) {
+        window.LKStore.set('lk_repeatWorkout', {
+          name: it.name,
+          exercises: [{ id: it.id, name: it.name, muscle: it.muscle || '', sets: 3 }]
+        });
+      }
+      /* The session record, so the shelf exists and the one declared crossing
+         out of this screen is there to be taken. */
+      if (window.LKSession) window.LKSession.start({ name: it.name, done: 0, total: 3 });
+      S.sheet = null; S.days = false; S.entry = 'active';
       render();
+      if (!leaveToLog()) toast('Workout started with ' + esc(it.name) + '. Open it from the strip below.', false);
     },
     undo: function () {
+      var last = S.lastAdded;
       S.toast = null;
+      /* Undo takes the lift back OUT of the running session. It used to only
+         print a second sentence saying it had. */
+      var removed = false;
+      if (last && last.kind === 'day') {
+        /* Out of the stored split day it was just written into. */
+        var all = rdSplits();
+        all.forEach(function (sp) {
+          if (sp.id !== last.day.splitId) return;
+          (sp.days || []).forEach(function (dd) {
+            if (dd.name !== last.day.day || !dd.exercises) return;
+            var before = dd.exercises.length;
+            dd.exercises = dd.exercises.filter(function (x) { return String(x.id) !== String(last.id); });
+            if (dd.exercises.length !== before) removed = true;
+          });
+        });
+        if (removed && window.LKStore) window.LKStore.set('lk_splits', all);
+        SPLIT_MAP = buildSplits(); IN_SPLIT = SPLIT_MAP.inSplit; SPLIT_DAYS = SPLIT_MAP.days;
+        S.lastAdded = null;
+        render();
+        toast(removed ? 'Took ' + esc(last.name) + ' back out of ' + esc(last.day.name) + '.' : 'Undone.', false);
+        render();
+        return;
+      }
+      if (last && window.LKStore && window.LKSession && window.LKSession.get()) {
+        var rows = window.LKStore.get('lk_liveSessionRows', null);
+        if (rows && rows.exercises) {
+          var keep = rows.exercises.filter(function (x) { return String(x.id) !== String(last.id); });
+          if (keep.length !== rows.exercises.length) {
+            rows.exercises = keep;
+            window.LKStore.set('lk_liveSessionRows', rows);
+            removed = true;
+          }
+        }
+      }
+      S.lastAdded = null;
       render();
-      toast(S.lastAdded
-        ? 'Took ' + esc(S.lastAdded) + ' back out of today&rsquo;s workout.'
-        : 'Undone.', false);
+      toast(removed ? 'Took ' + esc(last.name) + ' back out of your workout.' : 'Undone.', false);
       render();
     },
     create: function () {
@@ -1618,6 +1832,14 @@
   };
 
   var INPUTS = {
+    /* Autosaving, like the workout log's note field: no Save button, because
+       there is nothing to confirm. The status line is written directly rather
+       than through a render, so the caret never moves while typing. */
+    exnote: function (el) {
+      var ok = setExNote(Number(el.getAttribute('data-id')), el.value);
+      var st = document.querySelector('[data-testid="note-status"]');
+      if (st) st.textContent = ok ? 'Saved' : 'Not saved: storage unavailable';
+    },
     cname: function (el) { S.create.name = el.value; document.querySelector('[data-testid="create-save"]').disabled = !el.value.trim(); },
     ceq: function (el) { S.create.eq = el.value; render({ focus: 'create-equipment' }); },
     cbase: function (el) { S.create.startResist = el.value; },
@@ -1768,7 +1990,44 @@
      library was behind a keyboard nobody asked for. Focus follows the
      tap on the field, and follows a preset, because those are asks.
      --------------------------------------------------------------- */
+  /* WHICH ENTRY THIS IS, from the session record rather than from the dev
+     switcher. S.entry decided the sheet's primary action and only the
+     switcher ever changed it, so with a workout genuinely running the sheet
+     still offered to start a second one. */
+  function syncEntry() {
+    if (S.entry === 'picker') return;
+    S.entry = (window.LKSession && window.LKSession.get()) ? 'active' : 'tab';
+  }
+
+  /* Everything on this screen that comes from stored data, re-read. The demo
+     mounts each screen once, so a split edited in the builder, a session
+     finished in the log or a note typed anywhere else reached this screen
+     only after a full reload. */
+  function reread() {
+    HISTORY = buildHistory();
+    SPLIT_MAP = buildSplits(); IN_SPLIT = SPLIT_MAP.inSplit; SPLIT_DAYS = SPLIT_MAP.days;
+    CUSTOMS = ((window.LKStore ? window.LKStore.get('lk_customEx', null) : null) ||
+               (window.LKFixtures && LKFixtures.customEx) || []).map(function (c) {
+      return { id: c.id, name: c.name, eq: c.eq, gid: c.gid, sid: c.sid,
+               startResist: c.startResist || 0, smithNoCB: !!c.smithNoCB };
+    });
+    S.customs = CUSTOMS.slice();
+    syncEntry();
+    rebuild();
+  }
+  document.addEventListener('lk:enter', function () { reread(); render(); });
+  if (window.LKStore && window.LKStore.onChange) {
+    ['lk_history', 'lk_splits', 'lk_customEx'].forEach(function (k) {
+      window.LKStore.onChange(k, function () {
+        if (S.sheet || S.create || S.days) return;
+        reread();
+        render();
+      });
+    });
+  }
+
   seed(fromTuples(FALLBACK), 'inline');
+  syncEntry();
   S.preset = 0;
   render();
   /* Same reason as above: from disk the inline catalogue is the catalogue. */
