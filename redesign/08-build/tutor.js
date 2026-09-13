@@ -51,6 +51,7 @@
     handler: null,
     cancel: null,
     root: null,
+    armedEl: null,
     idleT: null,
     settleT: null,
     waitT: null,
@@ -263,7 +264,8 @@
     }
     S.root = null;
     if (S.host) S.host.style.pointerEvents = '';
-    S.armed = null; S.host = null; S.handler = null; S.cancel = null;
+    watch(false);
+    S.armed = null; S.armedEl = null; S.host = null; S.handler = null; S.cancel = null;
     q('.tut__show').hidden = true;
     q('.tut__go').hidden = true;
     q('.tut__ghost').style.opacity = '0';
@@ -301,6 +303,42 @@
     try { console.warn('LKTutor: no control for step', S.i + 1, st); } catch (e) {}
   }
 
+  /* THE SPOTLIGHT HAS TO FOLLOW. Every rect here is measured once when a
+     step arms, and the reader can scroll, rotate the phone, or open a
+     sheet that reflows the page under it. Without this the hole stays
+     where the control used to be, which reads as the app breaking rather
+     than as a stale measurement. Passive and capture, because the
+     scrolling happens inside a shadow root that does not bubble scroll. */
+  function follow() {
+    if (!S.armedEl) return;
+    var st = step();
+    /* A reader can wander off the script -- tap a tab, close a sheet, hit
+       Back -- and the control the step armed is then gone. Re-arming from
+       the step rather than painting a hole over nothing is the difference
+       between the walkthrough waiting for them to come back and the
+       walkthrough looking broken. */
+    if (!S.armedEl.getClientRects().length) {
+      disarm();
+      setPulse(false); setTag(null);
+      return waitForScreen(st, 0);
+    }
+    setSpot(S.armedEl, st && st.pad);
+    if (!st || !st.read) setTag(S.armedEl, (st && st.hint) || 'Tap');
+    placeCard(S.armedEl);
+  }
+
+  function watch(on) {
+    if (on) {
+      doc.addEventListener('scroll', follow, { capture: true, passive: true });
+      g.addEventListener('resize', follow);
+      if (g.visualViewport) g.visualViewport.addEventListener('resize', follow);
+    } else {
+      doc.removeEventListener('scroll', follow, true);
+      g.removeEventListener('resize', follow);
+      if (g.visualViewport) g.visualViewport.removeEventListener('resize', follow);
+    }
+  }
+
   function arm() {
     var st = step();
     if (!st) return finish();
@@ -315,6 +353,8 @@
       try { el.scrollIntoView({ block: 'center', behavior: REDUCED ? 'auto' : 'smooth' }); } catch (e) {}
     }
     setTimeout(function () {
+      S.armedEl = el;
+      watch(true);
       setSpot(el, st.pad);
       placeCard(el);
 
