@@ -38,6 +38,7 @@ run "dynamic type — default ladder and AX5"         node dynamic-type.mjs
 run "actions — every control does something"       node action-coverage.mjs
 run "catalogue ids — a lift is its own id"         node catalogue-ids.mjs
 run "empty state — a first run with no seed"      node empty-state.mjs
+run "coach actions — what the gate refuses"       node coach-actions.mjs
 run "crossings — every selector names a control"   node nav-selectors.mjs
 run "session — a workout survives leaving"        node session-persist.mjs
 run "demo — assembled"                             sh -c 'node ../10-final/assemble.mjs && node ../10-final/verify-demo.mjs'
