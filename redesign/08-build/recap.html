@@ -141,44 +141,90 @@
      reported a September of 5 sessions and 50,203 kg against Train's 4 and
      25,787, and claimed a 102.5 kg squat when the record is 87.5. Nothing
      caught it, because every screen agreed with itself. */
-  var HISTORY = (window.LKFixtures && LKFixtures.history) || [];
-  var PRS = (window.LKFixtures && LKFixtures.prs) || [];
-  var WEIGHT = (window.LKFixtures && LKFixtures.weightLog) || [];
+  /* Read through the store, not the fixture. Recap sat one layer behind
+     every other screen: a meal logged in Fuel, a weigh-in on Progress and a
+     finished session all left it showing the seed. The fixture is the seed,
+     the store is the truth the moment anything is written. */
+  var ST = window.LKStore;
+  function stored(key, fb) { return ST ? ST.get(key, fb) : fb; }
+  var FX = window.LKFixtures || {};
 
-  /* The day's fuel, supplements and reflection. Keyed by date: this was one
-     module-level object read by every day, so stepping back through the week
-     showed the same 2,180 kcal and the same "rest day" note on a day the
-     screen was simultaneously reporting a session for. Days not in here have
-     no fuel logged, which is a fact rather than a gap. */
-  /* The day's food, from the same fixture Fuel eats from. It used to be a
-     second hand-typed copy, and the two disagreed about the same person's
-     targets by 580 kcal and 10 g of protein. Nothing here is a total: the
-     totals are added up from the meals. */
-  var NUT = (window.LKFixtures && LKFixtures.nutrition) || { targets: {}, days: {} };
-  var FEEL = {
-    '2026-09-09': { felt: 'Good', note: 'Rest day. Legs still heavy from Monday.' },
-    '2026-09-08': { felt: 'Good', note: 'Ate late but hit protein.' },
-    '2026-09-07': { felt: 'Strong', note: 'Legs day. Squat moved well.' },
-    '2026-09-06': { felt: 'Flat', note: 'Ran in the morning, under-ate after.' }
-  };
+  var HISTORY = stored('lk_history', null) || FX.history || [];
+  var PRS = stored('lk_prs', null) || FX.prs || [];
+  var WEIGHT = stored('lk_weightLog', null) || FX.weightLog || [];
+
+  /* The day's food. Fuel writes lk_fuelLog in the fixture's own day shape,
+     so the same reader serves both. Days not in here have no food logged,
+     which is a fact rather than a gap. */
+  var NUT = FX.nutrition || { targets: {}, days: {} };
+  var FUELLOG = stored('lk_fuelLog', null) || NUT.days || {};
+  var TARGETS = stored('lk_fuelTargets', null) || NUT.targets || {};
+
+  /* How the day felt, from the check-ins the Coach writes. Four days of
+     hand-typed notes used to live here, and none of them existed in the
+     stored check-ins the rest of the app reads. */
+  var FELT_WORD = [null, 'Rough', 'Flat', 'Okay', 'Good', 'Strong'];
+  function isoOfCheckin(c) {
+    if (!c) return null;
+    if (c.date && /^\d{4}-\d{2}-\d{2}/.test(String(c.date))) return String(c.date).slice(0, 10);
+    if (c.dateStr) {
+      var a = String(c.dateStr).split('/');
+      if (a.length === 3) return a[2] + '-' + ('0' + a[0]).slice(-2) + '-' + ('0' + a[1]).slice(-2);
+    }
+    return null;
+  }
+  function buildFeel() {
+    var out = {};
+    (stored('lk_feedback', null) || FX.feedback || []).forEach(function (c) {
+      var iso = isoOfCheckin(c);
+      if (!iso) return;
+      var m = Number(c.mood);
+      out[iso] = {
+        felt: FELT_WORD[m] || null,
+        note: c.note || (c.tags && c.tags.length ? c.tags.join(', ') : '')
+      };
+    });
+    return out;
+  }
+  var FEEL = buildFeel();
+
+  /* Supplements ticked on a day. The day's own record wins where Fuel wrote
+     one; otherwise the shared log, which is what Stack and Home read. */
+  var SUPP_LOG = stored('lk_suppLog', null) || FX.suppLog || {};
+  var SUPPS = stored('lk_supplements', null) || FX.supplements || [];
+  function suppsOn(iso, day) {
+    if (day && day.supps && day.supps.length) {
+      return day.supps.map(function (sp) { return { name: sp.name, taken: !!sp.taken }; });
+    }
+    var took = SUPP_LOG[iso] || [];
+    return SUPPS.map(function (sp) {
+      var name = sp.name || sp;
+      return { name: name, taken: took.indexOf(name) >= 0 };
+    });
+  }
+
+  /* The weigh-in nearest on or before the day, and the day it was taken.
+     The row used to print the day being viewed, so a Monday weigh-in read
+     as Wednesday for the rest of the week. */
   function weightOn(iso) {
-    var log = (window.LKFixtures && LKFixtures.weightLog) || [];
     var last = null;
-    for (var i = 0; i < log.length; i++) { if (log[i].date <= iso) last = log[i]; }
-    return last ? last.kg : null;
+    for (var i = 0; i < WEIGHT.length; i++) { if (WEIGHT[i].date <= iso) last = WEIGHT[i]; }
+    return last ? { kg: last.kg, date: last.date } : null;
   }
   function dayOf(iso) {
-    var d = NUT.days && NUT.days[iso];
+    var d = FUELLOG[iso];
     if (!d) return null;
     var f = FEEL[iso] || { felt: null, note: '' };
-    var tg = NUT.targets;
+    var tg = TARGETS;
+    var w = weightOn(iso);
     return {
       kcal: d.eaten, kcalTarget: tg.kcal,
       protein: Math.round(d.pro), proteinTarget: tg.pro,
       carbs: Math.round(d.carb), fat: Math.round(d.fat),
       waterMl: d.waterMl, waterGoalMl: tg.waterMl,
-      weightKg: weightOn(iso),
-      supps: d.supps.map(function (sp) { return { name: sp.name, taken: sp.taken }; }),
+      weightKg: w ? w.kg : null,
+      weightOn: w ? w.date : null,
+      supps: suppsOn(iso, d),
       felt: f.felt, note: f.note
     };
   }
@@ -351,12 +397,13 @@
          to print a fixed date, which was wrong on every day but one. */
       '<div class="row row--static"><span class="row__main stack">' +
         '<span class="row__title">Body weight</span>' +
-        '<span class="row__sub">' + esc(pretty(S.day)) + '</span></span>' +
-        '<span class="row__value">' + n(LKUnits.v(DAY.weightKg)) + ' ' + LKUnits.label() + '</span></div>',
+        '<span class="row__sub">' + esc(DAY.weightOn ? pretty(DAY.weightOn) : 'no weigh-in yet') + '</span></span>' +
+        '<span class="row__value">' + (DAY.weightKg == null ? '&mdash;'
+          : n(LKUnits.v(DAY.weightKg)) + ' ' + LKUnits.label()) + '</span></div>',
       '<div class="row row--static"><span class="row__main stack">' +
         '<span class="row__title">How it felt</span>' +
-        '<span class="row__sub">' + esc(DAY.note) + '</span></span>' +
-        '<span class="row__value">' + esc(DAY.felt) + '</span></div>'
+        '<span class="row__sub">' + esc(DAY.felt ? (DAY.note || 'no note') : 'no check-in on this day') + '</span></span>' +
+        '<span class="row__value">' + esc(DAY.felt || '\u2014') + '</span></div>'
     ]);
 
     return out;

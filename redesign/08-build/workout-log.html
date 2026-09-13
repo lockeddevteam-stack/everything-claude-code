@@ -2224,15 +2224,27 @@
     return null;
   }
 
+  /* Appended as a row, in the one shape lk_prs holds everywhere. This used
+     to write back the lookup map prMap() builds, which carries no name,
+     group or muscle -- so a bench record set here read on Progress as three
+     records fewer than before it was set. */
   function recordPR(ex, st) {
     if (!window.LKStore || !ex.id) return;
-    var map = prMap();
-    var key = map[ex.id] !== undefined ? ex.id : String(ex.id);
-    var list = (map[key] || []).slice();
-    list.push({ r: st.reps, w: st.kg,
-                date: (window.LKFixtures && LKFixtures.today) || new Date().toISOString().slice(0, 10) });
-    map[key] = list;
-    LKStore.set('lk_prs', map);
+    var raw = LKStore.get('lk_prs', null);
+    var rows = [];
+    if (Array.isArray(raw)) rows = raw.slice();
+    else if (raw && typeof raw === 'object') {
+      Object.keys(raw).forEach(function (k) {
+        (raw[k] || []).forEach(function (r) {
+          rows.push({ exId: Number(k), name: '', group: '', muscle: '',
+                      kg: r.w, reps: r.r, date: r.date });
+        });
+      });
+    }
+    rows.unshift({ exId: ex.id, name: ex.name || '', group: ex.group || '',
+                   muscle: ex.muscle || '', kg: st.kg, reps: st.reps,
+                   date: (window.LKFixtures && LKFixtures.today) || new Date().toISOString().slice(0, 10) });
+    LKStore.set('lk_prs', rows);
   }
 
   document.addEventListener('keydown', function (ev) {
@@ -2338,6 +2350,17 @@
     if (window.LKStore) LKStore.set('lk_lastSession', rec);
     else { try { localStorage.setItem('lk_lastSession', JSON.stringify(rec)); } catch (e) {} }
   }
+
+  /* In the demo the router claims the Finish click in the capture phase --
+     it has to, because the handler above leaves with location.href -- so the
+     hand-over never ran and Review opened on a session nobody had done. The
+     router announces the crossing first and this does the handing over. */
+  document.addEventListener('lk:handoff', function (e) {
+    var d = e.detail || {};
+    if (d.selector !== '[data-testid="btn-finish"]') return;
+    S.over = true;
+    handOff();
+  });
 
   /* Entered, rather than merely still on screen. In the demo the log stays
      mounted for the life of the page, so after Finish, Train's "Start today's

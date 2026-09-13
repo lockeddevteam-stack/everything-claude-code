@@ -1,0 +1,10 @@
+import {open,DEMO,T,ids as IDS} from './zz4-lib.mjs';
+const {b,p,errs}=await open(DEMO+'#/profile/settings');
+await p.waitForTimeout(1500);
+console.log('before:',(await IDS(p)).filter(x=>/pw|pass/.test(x)).join(','));
+await p.click('[data-testid="row-password"]'); await p.waitForTimeout(1000);
+console.log('after :',(await IDS(p)).join(','));
+console.log('URL',p.url());
+console.log('inputs:',await p.$$eval('input',ns=>ns.filter(n=>n.offsetParent).map(n=>n.type+':'+(n.dataset.testid||n.name||n.placeholder))));
+console.log('ERRS',errs);
+await b.close();

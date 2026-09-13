@@ -1,0 +1,10 @@
+import {open,DEMO,T,ids as IDS} from './zz4-lib.mjs';
+const {b,p,errs}=await open(DEMO+'#/profile/settings');
+await p.waitForTimeout(1500);
+await p.click('[data-testid="row-password"]'); await p.waitForTimeout(800);
+console.log('IDS:',(await IDS(p)).filter(x=>/pw|pass|sheet|save|close/.test(x)).join(','));
+const sh=p.locator('[data-testid$="sheet"],[data-testid$="dialog"]').first();
+console.log('SHEET:',T(await sh.innerText()).slice(0,700));
+console.log('inputs:',await p.$$eval('input',ns=>ns.filter(n=>n.offsetParent).map(n=>n.type+':'+(n.dataset.testid||n.name||n.placeholder))));
+console.log('ERRS',errs);
+await b.close();

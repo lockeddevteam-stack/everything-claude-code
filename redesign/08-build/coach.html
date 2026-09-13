@@ -113,14 +113,28 @@
   var TODAY = new Date(2026, 8, 9); /* Wed 9 Sep 2026 */
   var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-  /* lk_prs — the real logged bests. Progress is computed from these. */
-  var PRS = {
-    111: [{ r: 5, w: 72.5 }, { r: 8, w: 72.5 }],
-    202: [{ r: 8, w: 62.5 }],
-    221: [{ r: 4, w: 115 }, { r: 6, w: 110 }],
-    701: [{ r: 5, w: 82.5 }, { r: 8, w: 87.5 }]
-  };
-  var EX = { 111: 'Barbell Bench Press', 202: 'Lat Pulldown', 221: 'Barbell Deadlift', 701: 'Barbell Squat' };
+  /* lk_prs, read rather than restated. A copy of four lifts used to sit
+     here, so a record set anywhere else never moved a phase bar. */
+  function rdPRS() {
+    var raw = (window.LKStore ? window.LKStore.get('lk_prs', null) : null) ||
+              (window.LKFixtures && LKFixtures.prs) || [];
+    var map = {}, names = {};
+    if (Array.isArray(raw)) {
+      raw.forEach(function (r) {
+        var id = Number(r.exId != null ? r.exId : r.id);
+        (map[id] = map[id] || []).push({ r: r.reps, w: r.kg });
+        if (r.name && !names[id]) names[id] = r.name;
+      });
+    } else if (raw && typeof raw === 'object') {
+      Object.keys(raw).forEach(function (k) {
+        (raw[k] || []).forEach(function (r) { (map[Number(k)] = map[Number(k)] || []).push({ r: r.r, w: r.w }); });
+      });
+    }
+    return { map: map, names: names };
+  }
+  var PR_READ = rdPRS();
+  var PRS = PR_READ.map;
+  var EX = PR_READ.names;
   /* Targets resolve by lift and rep floor. The old build mapped these
      through a stale id table, which is why every bar read 0%. */
   var TARGETS = {
@@ -562,9 +576,9 @@
   function progress(t) {
     var map = TARGETS[t.name];
     var b = map ? best(map.id, map.reps) : null;
-    if (!b) return { has: false, lift: map ? EX[map.id] : '', reps: map ? map.reps : 0 };
+    if (!b) return { has: false, lift: map ? (EX[map.id] || '') : '', reps: map ? map.reps : 0 };
     return {
-      has: true, lift: EX[map.id], reps: map.reps, now: b.w, target: t.value,
+      has: true, lift: EX[map.id] || '', reps: map.reps, now: b.w, target: t.value,
       pct: Math.round((b.w / t.value) * 100), met: b.w >= t.value
     };
   }
@@ -610,8 +624,14 @@
        description covers the records: "sets, loads and RIR, and your best set
        for each lift". */
     if (F && F.totals && perms.training) {
-      var lifts = (F.history || []).filter(function (h) { return h.kind === 'lift'; });
-      bits.push(n(lifts.length) + (lifts.length === 1 ? ' session' : ' sessions'));
+      /* Named for what it counts. This said "18 sessions" while Home, Train,
+         Progress and Profile all said 22: it silently drops the four cardio
+         sessions, which is correct for what the training switch shares and
+         wrong to call the whole log. Read through the store so a session
+         finished today is in it. */
+      var hist = (window.LKStore ? window.LKStore.get('lk_history', null) : null) || F.history || [];
+      var lifts = hist.filter(function (h) { return h.kind === 'lift'; });
+      bits.push(n(lifts.length) + (lifts.length === 1 ? ' lifting session' : ' lifting sessions'));
       if (lifts.length) {
         /* Whole weeks BETWEEN the first and the last, not a rounded span plus
            one. 2026-07-30 to 2026-09-07 is 39 days, which is five and a half
@@ -622,8 +642,9 @@
         var wks = Math.max(1, Math.floor(days / 7));
         bits.push('over ' + n(wks) + (wks === 1 ? ' week' : ' weeks'));
       }
-      if (F.totals.recordLifts) {
-        bits.push(n(F.totals.recordLifts) + ' lifts with records');
+      var nLifts = Object.keys(PRS).length || F.totals.recordLifts;
+      if (nLifts) {
+        bits.push(n(nLifts) + (nLifts === 1 ? ' lift with records' : ' lifts with records'));
       }
     }
     if (S.checkin.log.length && perms.checkins) {

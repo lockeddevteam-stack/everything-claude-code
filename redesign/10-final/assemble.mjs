@@ -724,6 +724,16 @@ const RUNTIME = String.raw`
         if (n.from !== rec.id) continue;
         if (hit(n.selector)) {
           e.preventDefault(); e.stopPropagation();
+          /* The screen's own handler is never going to run -- it navigates
+             with location.href and would take the demo with it -- so tell the
+             screen the crossing is happening and let it hand over first.
+             Without this the log's Finish wrote no lk_lastSession and Review
+             opened on a session nobody had done. */
+          try {
+            rec.root.dispatchEvent(new CustomEvent('lk:handoff', {
+              detail: { selector: n.selector, from: n.from, to: n.to }
+            }));
+          } catch (err) {}
           if (n.endsSession && window.LKSession) window.LKSession.end();
           if (n.mode === 'push') push(n.to); else goTab(n.to);
           return;

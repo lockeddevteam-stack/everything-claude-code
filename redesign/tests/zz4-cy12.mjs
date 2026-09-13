@@ -1,0 +1,17 @@
+import {open,DEMO,T,ids as IDS,CYCLEON} from './zz4-lib.mjs';
+const {b,p,errs}=await open(DEMO+'#/home/cycle',CYCLEON);
+await p.waitForTimeout(1400);
+const CS=async()=>T(await p.locator('[data-testid="cycle-scroll"]').innerText());
+await p.click('[data-testid="qa-log-symptoms"]'); await p.waitForTimeout(600);
+await p.click('[data-testid="sym-cramps-2"]'); await p.waitForTimeout(200);
+await p.click('[data-testid="sym-fatigue-3"]'); await p.waitForTimeout(200);
+await p.click('[data-testid="energy-2"]'); await p.waitForTimeout(200);
+await p.click('[data-testid="sleep-4"]'); await p.waitForTimeout(200);
+await p.click('[data-testid="mood-tired"]'); await p.waitForTimeout(200);
+await p.fill('[data-testid="day-note"]','felt rough'); await p.waitForTimeout(200);
+await p.click('[data-testid="day-save"]'); await p.waitForTimeout(700);
+console.log('stored:',JSON.stringify(await p.evaluate(()=>JSON.parse(localStorage.getItem('lk_mcDays')||'{}')['2026-09-09'])));
+await p.reload(); await p.waitForTimeout(1500);
+console.log('AFTER RELOAD scroll:',(await CS()).slice(0,900));
+console.log('ERRS',errs);
+await b.close();

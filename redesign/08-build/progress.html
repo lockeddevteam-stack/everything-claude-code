@@ -201,44 +201,46 @@
   }
   var LIFTS = buildLifts(HISTORY);
 
-  /* lk_prs, in the shape the shipped app stores: a map of exercise id to
-     every record on that lift, which is where "12 records over 9 lifts"
-     comes from. fixtures.js flattens the same key to one row per lift, so
-     the untouched key reads back 9 rows and three records go missing; the
-     seed table below is the map form of exactly what seed-data.json holds,
-     and it is used until somebody writes a record of their own. */
-  var SEED_RECORDS = [
-    { id: 701, reps: 8, kg: 87.5, date: "2026-09-07" },
-    { id: 701, reps: 5, kg: 82.5, date: "2026-09-07" },
-    { id: 703, reps: 10, kg: 165, date: "2026-09-07" },
-    { id: 801, reps: 8, kg: 77.5, date: "2026-09-07" },
-    { id: 202, reps: 8, kg: 62.5, date: "2026-09-05" },
-    { id: 213, reps: 10, kg: 57.5, date: "2026-09-05" },
-    { id: 221, reps: 4, kg: 115, date: "2026-09-05" },
-    { id: 503, reps: 8, kg: 30, date: "2026-09-05" },
-    { id: 111, reps: 8, kg: 72.5, date: "2026-09-03" },
-    { id: 111, reps: 5, kg: 72.5, date: "2026-09-03" },
-    { id: 302, reps: 8, kg: 25, date: "2026-09-03" },
-    { id: 221, reps: 6, kg: 110, date: "2026-08-29" }
-  ];
+  /* lk_prs: one array of record rows, the shape the fixture seeds and every
+     screen reads. A hand-typed copy of the same twelve rows used to sit here
+     because fixtures.js flattened the key to one row per lift; the generator
+     emits all of them now, so there is nothing to restate. The map shape an
+     older build wrote is still read, so a phone that stored one does not
+     lose its records. */
   function readRecords() {
     var raw = ST && ST.touched('lk_prs') ? ST.get('lk_prs', null) : null;
-    if (!raw || Array.isArray(raw) || typeof raw !== 'object') return SEED_RECORDS.slice();
+    if (!raw) raw = (window.LKFixtures && LKFixtures.prs) || [];
     var out = [];
-    Object.keys(raw).forEach(function (id) {
-      (raw[id] || []).forEach(function (r) {
-        out.push({ id: Number(id), reps: r.r, kg: r.w, date: String(r.date || '').slice(0, 10) });
+    if (Array.isArray(raw)) {
+      raw.forEach(function (r) {
+        out.push({ id: Number(r.exId != null ? r.exId : r.id), reps: r.reps, kg: r.kg,
+                   date: String(r.date || '').slice(0, 10) });
       });
-    });
+    } else if (typeof raw === 'object') {
+      Object.keys(raw).forEach(function (id) {
+        (raw[id] || []).forEach(function (r) {
+          out.push({ id: Number(id), reps: r.r, kg: r.w, date: String(r.date || '').slice(0, 10) });
+        });
+      });
+    }
     out.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
     return out;
   }
+  function nameOfLift(id) {
+    var l = liftById(id);
+    if (l) return { name: l.name, group: l.group || '', muscle: l.muscle || '' };
+    var all = (window.LKFixtures && LKFixtures.prs) || [];
+    for (var i = 0; i < all.length; i++) if (Number(all[i].exId) === Number(id)) return all[i];
+    return null;
+  }
   function saveRecords() {
-    var map = {};
-    RECORDS.forEach(function (r) {
-      (map[r.id] = map[r.id] || []).push({ r: r.reps, w: r.kg, date: r.date });
-    });
-    put('lk_prs', map);
+    /* Written back as rows, carrying the lift's name and group, so a record
+       set here reads the same on Recap, Profile and the library. */
+    put('lk_prs', RECORDS.map(function (r) {
+      var meta = nameOfLift(r.id) || {};
+      return { exId: r.id, name: meta.name || '', group: meta.group || '',
+               muscle: meta.muscle || '', kg: r.kg, reps: r.reps, date: r.date };
+    }));
   }
   var RECORDS = readRecords();
 

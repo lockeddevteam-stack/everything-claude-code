@@ -3244,15 +3244,6 @@
     ],
     prs: [
           {
-                "exId": 801,
-                "name": "Romanian Deadlift",
-                "group": "Hamstrings",
-                "muscle": "Hamstrings",
-                "kg": 77.5,
-                "reps": 8,
-                "date": "2026-09-07"
-          },
-          {
                 "exId": 703,
                 "name": "Leg Press",
                 "group": "Quads",
@@ -3271,13 +3262,22 @@
                 "date": "2026-09-07"
           },
           {
-                "exId": 503,
-                "name": "Barbell Curl",
-                "group": "Biceps",
-                "muscle": "Long Head",
-                "kg": 30,
+                "exId": 701,
+                "name": "Barbell Squat",
+                "group": "Quads",
+                "muscle": "Quads",
+                "kg": 82.5,
+                "reps": 5,
+                "date": "2026-09-07"
+          },
+          {
+                "exId": 801,
+                "name": "Romanian Deadlift",
+                "group": "Hamstrings",
+                "muscle": "Hamstrings",
+                "kg": 77.5,
                 "reps": 8,
-                "date": "2026-09-05"
+                "date": "2026-09-07"
           },
           {
                 "exId": 221,
@@ -3286,15 +3286,6 @@
                 "muscle": "Lower Back",
                 "kg": 115,
                 "reps": 4,
-                "date": "2026-09-05"
-          },
-          {
-                "exId": 213,
-                "name": "Seated Cable Row",
-                "group": "Back",
-                "muscle": "Mid Back",
-                "kg": 57.5,
-                "reps": 10,
                 "date": "2026-09-05"
           },
           {
@@ -3307,12 +3298,30 @@
                 "date": "2026-09-05"
           },
           {
-                "exId": 302,
-                "name": "DB Shoulder Press",
-                "group": "Shoulders",
-                "muscle": "Front Delt",
-                "kg": 25,
+                "exId": 213,
+                "name": "Seated Cable Row",
+                "group": "Back",
+                "muscle": "Mid Back",
+                "kg": 57.5,
+                "reps": 10,
+                "date": "2026-09-05"
+          },
+          {
+                "exId": 503,
+                "name": "Barbell Curl",
+                "group": "Biceps",
+                "muscle": "Long Head",
+                "kg": 30,
                 "reps": 8,
+                "date": "2026-09-05"
+          },
+          {
+                "exId": 111,
+                "name": "Barbell Bench Press",
+                "group": "Chest",
+                "muscle": "Mid Chest",
+                "kg": 72.5,
+                "reps": 5,
                 "date": "2026-09-03"
           },
           {
@@ -3323,6 +3332,24 @@
                 "kg": 72.5,
                 "reps": 8,
                 "date": "2026-09-03"
+          },
+          {
+                "exId": 302,
+                "name": "DB Shoulder Press",
+                "group": "Shoulders",
+                "muscle": "Front Delt",
+                "kg": 25,
+                "reps": 8,
+                "date": "2026-09-03"
+          },
+          {
+                "exId": 221,
+                "name": "Barbell Deadlift",
+                "group": "Back",
+                "muscle": "Lower Back",
+                "kg": 110,
+                "reps": 6,
+                "date": "2026-08-29"
           }
     ],
     weightLog: [
@@ -3386,7 +3413,7 @@
           "sets": 288,
           "volumeKg": 140204,
           "records": 12,
-          "recordLifts": 9,
+          "recordLifts": 12,
           "cardioMin": 120
     },
     library: {

@@ -1,0 +1,14 @@
+import {open,DEMO,T,ids as IDS,CYCLEON} from './zz4-lib.mjs';
+const {b,p,errs}=await open(DEMO+'#/home/cycle',CYCLEON);
+await p.waitForTimeout(1400);
+const CS=async()=>T(await p.locator('[data-testid="cycle-scroll"]').innerText());
+await p.click('[data-testid="cycle-settings"]'); await p.waitForTimeout(600);
+console.log('discreet aria:',await p.getAttribute('[data-testid="cs-discreet"]','aria-checked'));
+await p.click('[data-testid="cs-discreet"]'); await p.waitForTimeout(400);
+console.log('after toggle:',await p.getAttribute('[data-testid="cs-discreet"]','aria-checked'),'|',T(await p.locator('[data-testid="cs-discreet"]').innerText()));
+await p.click('[data-testid="cs-save"]'); await p.waitForTimeout(800);
+console.log('\nDISCREET SCROLL:',(await CS()).slice(0,2500));
+console.log('\nRING:',T(await p.locator('[data-testid="cycle-ring"]').innerText()));
+console.log('profile:',await p.evaluate(()=>localStorage.getItem('lk_mcProfile')));
+console.log('ERRS',errs);
+await b.close();

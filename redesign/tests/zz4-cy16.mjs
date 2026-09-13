@@ -1,0 +1,17 @@
+import {open,DEMO,T,ids as IDS,CYCLEON} from './zz4-lib.mjs';
+const {b,p,errs}=await open(DEMO+'#/home/cycle',CYCLEON);
+await p.waitForTimeout(1400);
+const row=async(t)=>T(await p.locator('[data-testid="'+t+'"]').evaluate(n=>n.closest('.row,.switchrow,li,div').innerText));
+await p.click('[data-testid="cycle-settings"]'); await p.waitForTimeout(500);
+console.log('discreet row OFF:',await row('cs-discreet'));
+console.log('irregular row OFF:',await row('cs-irregular'));
+await p.click('[data-testid="cs-discreet"]'); await p.click('[data-testid="cs-irregular"]'); await p.waitForTimeout(400);
+console.log('discreet row ON :',await row('cs-discreet'));
+console.log('irregular row ON :',await row('cs-irregular'));
+await p.click('[data-testid="cs-save"]'); await p.waitForTimeout(800);
+console.log('\nPREDICTIONS:',T(await p.locator('[data-testid="pred-next"]').innerText()));
+console.log('FERTILE:',T(await p.locator('[data-testid="pred-fertile"]').innerText()));
+console.log('PMS:',T(await p.locator('[data-testid="pred-pms"]').innerText()));
+console.log('RING:',T(await p.locator('[data-testid="cycle-ring"]').innerText()));
+console.log('ERRS',errs);
+await b.close();

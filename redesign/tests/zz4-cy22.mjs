@@ -1,0 +1,15 @@
+import {open,DEMO,T,ids as IDS,CYCLEON} from './zz4-lib.mjs';
+const {b,p,errs}=await open(DEMO+'#/home/cycle',CYCLEON);
+await p.waitForTimeout(1500);
+await p.click('[data-testid="cycle-settings"]'); await p.waitForTimeout(400);
+await p.click('[data-testid="cs-delete"]'); await p.waitForTimeout(400);
+await p.click('[data-testid="confirm-delete"]'); await p.waitForTimeout(900);
+console.log('IMMEDIATE:',T(await p.locator('[data-testid="cycle-scroll"]').innerText()).slice(0,200));
+console.log('storage:',await p.evaluate(()=>[localStorage.getItem('lk_mcProfile'),localStorage.getItem('lk_mcDays')]));
+await p.reload({waitUntil:'domcontentloaded'}); await p.waitForTimeout(2500);
+console.log('URL',p.url());
+console.log('storage:',await p.evaluate(()=>[localStorage.getItem('lk_mcProfile'),localStorage.getItem('lk_mcDays')]));
+console.log('RELOAD IDS:',(await IDS(p)).slice(0,20).join(','));
+console.log('RELOAD:',T(await p.locator('[data-testid="cycle-scroll"]').innerText()).slice(0,400));
+console.log('ERRS',errs);
+await b.close();

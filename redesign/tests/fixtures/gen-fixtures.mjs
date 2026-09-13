@@ -124,14 +124,22 @@ const nameOf = new Map(catalogue.map((e) => [e.id, e.name]));
 const groupOf = new Map(catalogue.map((e) => [e.id, e.group || '']));
 const muscleOf = new Map(catalogue.map((e) => [e.id, e.muscle || '']));
 const missing = [];
-const prs = Object.keys(prsRaw).map((id) => {
-  const best = prsRaw[id].slice().sort((a, b) => b.w - a.w || b.r - a.r)[0];
+/* EVERY stored record row, not the best per lift. Flattening here cost
+   three of the twelve records the seed holds, and Progress carried a
+   hand-typed copy of the full map to get them back -- a second source of
+   truth for the same key, which is how a record could be written on one
+   screen and read as missing on another. Screens that want "the PR" take
+   the heaviest row for the lift. */
+const prs = Object.keys(prsRaw).reduce((acc, id) => {
   const nm = nameOf.get(Number(id));
   if (!nm) missing.push(id);
-  return { exId: Number(id), name: nm || ('Exercise ' + id),
-           group: groupOf.get(Number(id)) || '', muscle: muscleOf.get(Number(id)) || '',
-           kg: best.w, reps: best.r, date: best.date };
-}).sort((a, b) => (a.date < b.date ? 1 : -1));
+  prsRaw[id].forEach((r) => {
+    acc.push({ exId: Number(id), name: nm || ('Exercise ' + id),
+               group: groupOf.get(Number(id)) || '', muscle: muscleOf.get(Number(id)) || '',
+               kg: r.w, reps: r.r, date: r.date });
+  });
+  return acc;
+}, []).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.kg - a.kg));
 if (missing.length) warn.push('records name no exercise in the catalogue: ' + missing.join(', '));
 
 /* ---------------------------------------------------------------------

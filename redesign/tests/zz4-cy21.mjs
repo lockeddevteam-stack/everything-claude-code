@@ -1,0 +1,11 @@
+import {open,DEMO,T,CYCLEON} from './zz4-lib.mjs';
+const {b,p,errs}=await open(DEMO+'#/home/cycle',CYCLEON);
+await p.waitForTimeout(1400);
+await p.click('[data-testid="cycle-settings"]'); await p.waitForTimeout(400);
+await p.click('[data-testid="cs-delete"]'); await p.waitForTimeout(500);
+await p.click('[data-testid="confirm-delete"]'); await p.waitForTimeout(900);
+console.log('before reload:',await p.evaluate(()=>({pr:localStorage.getItem('lk_mcProfile'),dy:localStorage.getItem('lk_mcDays')})));
+await p.reload(); await p.waitForTimeout(1600);
+console.log('after reload :',await p.evaluate(()=>({pr:localStorage.getItem('lk_mcProfile'),dy:(localStorage.getItem('lk_mcDays')||'').slice(0,120)})));
+console.log('ERRS',errs);
+await b.close();

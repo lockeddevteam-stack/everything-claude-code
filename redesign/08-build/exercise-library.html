@@ -683,24 +683,97 @@
              startResist: c.startResist || 0, smithNoCB: !!c.smithNoCB };
   });
 
-  /* Logged history, from the seeded guest profile (kg). */
-  var HISTORY = {
-    111: { last: { kg: 82.5, reps: 8, daysAgo: 2, iso: '2026-09-07' }, best: { kg: 90, reps: 5, iso: '2026-08-24' }, trend: [74, 76, 77, 78, 80, 82.5] },
-    101: { last: { kg: 60, reps: 10, daysAgo: 2, iso: '2026-09-07' }, best: { kg: 65, reps: 8, iso: '2026-08-31' }, trend: [52, 55, 55, 57.5, 60, 60] },
-    202: { last: { kg: 72.5, reps: 10, daysAgo: 1, iso: '2026-09-08' }, best: { kg: 80, reps: 7, iso: '2026-08-17' }, trend: [65, 67.5, 70, 70, 72.5, 72.5] },
-    211: { last: { kg: 85, reps: 8, daysAgo: 1, iso: '2026-09-08' }, best: { kg: 92.5, reps: 6, iso: '2026-08-24' }, trend: [75, 77.5, 80, 82.5, 85, 85] },
-    301: { last: { kg: 47.5, reps: 8, daysAgo: 6, iso: '2026-09-03' }, best: { kg: 55, reps: 5, iso: '2026-07-27' }, trend: [45, 45, 47.5, 45, 47.5, 47.5] },
-    701: { last: { kg: 120, reps: 5, daysAgo: 4, iso: '2026-09-05' }, best: { kg: 140, reps: 3, iso: '2026-08-15' }, trend: [105, 110, 110, 115, 120, 120] }
-  };
+  /* Logged history, derived from the stored sessions. A hand-written table
+     used to sit here, and it disagreed with Progress, Train, the workout log
+     and the seed on every lift it named. There is one source now. */
+  var TODAY = (window.LKFixtures && LKFixtures.today) || '2026-09-09';
+  function daysBack(iso) {
+    var a = Date.parse(iso + 'T00:00:00Z'), b = Date.parse(TODAY + 'T00:00:00Z');
+    if (isNaN(a) || isNaN(b)) return 0;
+    return Math.round((b - a) / 86400000);
+  }
+  function rdHistory() {
+    return (window.LKStore ? window.LKStore.get('lk_history', null) : null) ||
+           (window.LKFixtures && LKFixtures.history) || [];
+  }
+  /* The top working set of a lift inside one session. Warm-ups and
+     unticked rows never count, the same rule the log and Progress use. */
+  function topSet(ex) {
+    var top = null;
+    (ex.sets || []).forEach(function (st) {
+      if (!st.done || st.warm || st.kg == null || st.reps == null) return;
+      if (!top || st.kg > top.kg || (st.kg === top.kg && st.reps > top.reps)) top = { kg: st.kg, reps: st.reps };
+    });
+    return top;
+  }
+  function buildHistory() {
+    var out = {};
+    var sess = rdHistory().slice().sort(function (a, b) {
+      return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
+    });
+    sess.forEach(function (s) {
+      (s.exercises || []).forEach(function (ex) {
+        var top = topSet(ex);
+        if (!top || ex.id == null) return;
+        var h = out[ex.id] || (out[ex.id] = { last: null, best: null, trend: [] });
+        h.last = { kg: top.kg, reps: top.reps, iso: s.date, daysAgo: daysBack(s.date) };
+        h.trend.push(top.kg);
+        if (!h.best || top.kg > h.best.kg || (top.kg === h.best.kg && top.reps > h.best.reps)) {
+          h.best = { kg: top.kg, reps: top.reps, iso: s.date };
+        }
+      });
+    });
+    Object.keys(out).forEach(function (k) { out[k].trend = out[k].trend.slice(-6); });
+    return out;
+  }
+  var HISTORY = buildHistory();
 
-  /* Which split day already uses a lift. */
-  var IN_SPLIT = { 111: 'PPL v2 · Push', 301: 'PPL v2 · Push', 411: 'PPL v2 · Push', 202: 'PPL v2 · Pull', 211: 'PPL v2 · Pull', 701: 'PPL v2 · Legs', 801: 'PPL v2 · Legs' };
-  var SPLIT_DAYS = [
-    { id: 'push', name: 'Push', split: 'PPL v2', count: 5 },
-    { id: 'pull', name: 'Pull', split: 'PPL v2', count: 5 },
-    { id: 'legs', name: 'Legs', split: 'PPL v2', count: 6 },
-    { id: 'upper', name: 'Upper', split: 'Upper / Lower', count: 7 }
-  ];
+  /* Which split day already uses a lift, read from the stored splits.
+     The names here were invented ("PPL v2", six leg exercises); they are
+     now whatever the planner actually saved. */
+  function rdSplits() {
+    return (window.LKStore ? window.LKStore.get('lk_splits', null) : null) ||
+           (window.LKFixtures && LKFixtures.splits) || [];
+  }
+  function buildSplits() {
+    var inSplit = {}, days = [];
+    rdSplits().forEach(function (sp) {
+      (sp.days || []).forEach(function (d) {
+        var exs = d.exercises || [];
+        days.push({ id: 'd' + days.length, splitId: sp.id, day: d.name,
+                    name: d.name, split: sp.name, count: exs.length });
+        exs.forEach(function (e) {
+          if (e.id == null) return;
+          if (!inSplit[e.id]) inSplit[e.id] = sp.name + ' \u00b7 ' + d.name;
+        });
+      });
+    });
+    return { inSplit: inSplit, days: days };
+  }
+  /* Write the lift into the stored split day. Returns false when it is
+     already there, so the toast can say so rather than claim a second copy. */
+  function addToSplitDay(d, it) {
+    var all = rdSplits(), done = false, dup = false;
+    all.forEach(function (sp) {
+      if (sp.id !== d.splitId) return;
+      (sp.days || []).forEach(function (day) {
+        if (day.name !== d.day) return;
+        day.exercises = day.exercises || [];
+        for (var i = 0; i < day.exercises.length; i++) {
+          if (day.exercises[i].id === it.id) { dup = true; return; }
+        }
+        if (dup) return;
+        day.exercises.push({ id: it.id, name: it.name, group: it.group, muscle: it.muscle });
+        done = true;
+      });
+    });
+    if (done && window.LKStore) window.LKStore.set('lk_splits', all);
+    return done;
+  }
+
+  var SPLIT_MAP = buildSplits();
+  var IN_SPLIT = SPLIT_MAP.inSplit;
+  var SPLIT_DAYS = SPLIT_MAP.days;
 
   /* Words a lifter types that are not in the catalogue. */
   var ALIAS = {
@@ -1064,7 +1137,7 @@
         '<p class="t-detail">No sets logged yet. The first time you log this lift, your last and best set appear here.</p></div>';
     }
     return '<div class="section"><div class="section__head"><h3 class="t-label">Your history</h3>' +
-      '<span class="t-meta">Last 6 sessions</span></div>' +
+      '<span class="t-meta">Last ' + n(h.trend.length) + (h.trend.length === 1 ? ' session' : ' sessions') + '</span></div>' +
       '<div class="facts">' +
         '<div class="stat"><span class="stat__label">Last set</span>' +
           '<span class="stat__value">' + n(h.last.kg) + '<span class="stat__unit"> kg</span></span>' +
@@ -1074,7 +1147,8 @@
           '<span class="t-detail">' + n(h.best.reps) + ' reps &middot; ' + when(99, h.best.iso) + '</span></div>' +
       '</div>' +
       '<div class="mt-3">' + spark(h.trend) +
-        '<div class="spread"><span class="t-meta">' + kg(h.trend[0]) + ', 6 sessions ago</span>' +
+        '<div class="spread"><span class="t-meta">' + kg(h.trend[0]) + ', ' +
+          (h.trend.length > 1 ? n(h.trend.length - 1) + ' sessions ago' : 'your only session') + '</span>' +
         '<span class="t-meta">' + kg(h.trend[h.trend.length - 1]) + ', last</span></div>' +
       '</div>' +
     '</div>';
@@ -1464,15 +1538,22 @@
       var back = S.restore; S.sheet = null; S.days = false; S.restore = null;
       render({ focus: back });
     },
-    'choose-day': function () { S.days = true; render({ focus: 'row-day-push' }); },
+    'choose-day': function () { S.days = true; render({ focus: SPLIT_DAYS.length ? 'row-day-' + SPLIT_DAYS[0].id : 'days-close' }); },
     'close-days': function () { S.days = false; render({ focus: 'sheet-secondary' }); },
     'add-day': function (el) {
       var it = byId(Number(el.getAttribute('data-id')));
       var day = el.getAttribute('data-day') || 'push';
       var d = SPLIT_DAYS.filter(function (x) { return x.id === day; })[0];
       S.days = false; S.sheet = null;
+      if (!d) { render({ focus: S.restore }); return; }
+      /* The toast used to be the whole of it. The lift is written into the
+         stored split now, so the planner and Train see it on the next open. */
+      var added = addToSplitDay(d, it);
+      SPLIT_MAP = buildSplits(); IN_SPLIT = SPLIT_MAP.inSplit; SPLIT_DAYS = SPLIT_MAP.days;
       render({ focus: S.restore });
-      toast('Added ' + esc(it.name) + ' to ' + esc(d.name) + ', ' + esc(d.split) + '.', true);
+      toast(added
+        ? 'Added ' + esc(it.name) + ' to ' + esc(d.name) + ', ' + esc(d.split) + '.'
+        : esc(it.name) + ' is already in ' + esc(d.name) + ', ' + esc(d.split) + '.', true);
       render();
     },
     'add-workout': function (el) {

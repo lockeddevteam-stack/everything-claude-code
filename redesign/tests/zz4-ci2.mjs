@@ -1,0 +1,23 @@
+import {open,DEMO,T} from './zz4-lib.mjs';
+const {b,p,errs}=await open(DEMO+'#/coach');
+await p.waitForTimeout(800);
+const go=async()=>{await p.click('[data-testid="seg-checkin"]');await p.waitForTimeout(500);};
+const recent=async()=>T(await p.locator('[data-testid="view-checkin"]').innerText()).split('RECENT')[1].slice(0,600);
+await go();
+for(const [k,v] of [['energy',4],['sleep',2],['soreness',5],['stress',1],['mood',3]]) await p.click(`[data-testid="feel-${k}-${v}"]`);
+await p.click('[data-testid="checkin-save"]'); await p.waitForTimeout(700);
+console.log('1st:',await recent());
+const fb1=await p.evaluate(()=>JSON.parse(localStorage.getItem('lk_feedback')));
+console.log('entry0:',JSON.stringify(fb1[0]));
+// second check-in same day, different values
+for(const [k,v] of [['energy',1],['sleep',5],['soreness',1],['stress',5],['mood',5]]) await p.click(`[data-testid="feel-${k}-${v}"]`);
+await p.waitForTimeout(200);
+console.log('status:',T(await p.locator('[data-testid="checkin-status"]').innerText()));
+await p.click('[data-testid="checkin-save"]'); await p.waitForTimeout(800);
+console.log('\n2nd:',await recent());
+const fb2=await p.evaluate(()=>JSON.parse(localStorage.getItem('lk_feedback')));
+console.log('count',fb2.length); console.log('entries today:',JSON.stringify(fb2.filter(e=>e.dateStr==='9/9/2026'||String(e.date).startsWith('2026-09-09'))));
+await p.reload(); await p.waitForTimeout(1200); await go();
+console.log('\nAFTER RELOAD:',await recent());
+console.log('ERRS',errs);
+await b.close();

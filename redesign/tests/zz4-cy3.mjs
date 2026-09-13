@@ -1,0 +1,10 @@
+import {open,DEMO,T,ids as IDS} from './zz4-lib.mjs';
+const {b,p,errs}=await open(DEMO+'#/profile/settings');
+await p.waitForTimeout(1200);
+await p.click('[data-testid="switch-cycle"]'); await p.waitForTimeout(600);
+console.log('lk_cycle:',await p.evaluate(()=>localStorage.getItem('lk_cycle')));
+await p.goto(DEMO+'#/home/cycle'); await p.waitForTimeout(1500);
+console.log('IDS:',(await IDS(p)).join(','));
+console.log('TEXT:',T(await p.locator('[data-testid="cycle-scroll"], #screen-cycle').first().innerText()).slice(0,2500));
+console.log('ERRS',errs);
+await b.close();

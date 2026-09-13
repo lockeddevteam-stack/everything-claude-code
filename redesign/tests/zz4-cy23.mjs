@@ -1,0 +1,17 @@
+import {open,DEMO,T} from './zz4-lib.mjs';
+const init=()=>{try{localStorage.setItem('lk_cycle','true');
+const ri=localStorage.removeItem.bind(localStorage), cl=localStorage.clear.bind(localStorage);
+localStorage.removeItem=function(k){if(String(k).indexOf('lk_mc')===0)console.log('REMOVE '+k+' :: '+new Error().stack.split('\n').slice(1,5).join(' <- '));return ri(k)};
+localStorage.clear=function(){console.log('CLEAR :: '+new Error().stack.split('\n').slice(1,5).join(' <- '));return cl()};
+}catch(e){}};
+const b1=await open(DEMO+'#/home/cycle',init);
+b1.p.on('console',m=>{if(/REMOVE|CLEAR/.test(m.text()))console.log('>>',m.text())});
+const p=b1.p;
+await p.waitForTimeout(1500);
+await p.click('[data-testid="cycle-settings"]'); await p.waitForTimeout(400);
+await p.click('[data-testid="cs-delete"]'); await p.waitForTimeout(400);
+await p.click('[data-testid="confirm-delete"]'); await p.waitForTimeout(900);
+console.log('--- reloading ---');
+await p.reload(); await p.waitForTimeout(6000);
+console.log('storage:',await p.evaluate(()=>[localStorage.getItem('lk_mcProfile'),localStorage.getItem('lk_mcDays')]));
+await b1.b.close();
