@@ -346,6 +346,7 @@
     /* A real timestamp or nothing at all. It was the literal string
        "2 minutes ago" on a build that has never synced anything. */
     syncedAt: get('lk_lastSync', null),
+    bodyError: null,
     pwError: null,
     pwDone: false,
     restoreError: null,
@@ -1271,6 +1272,8 @@
         '</label>' +
         '<p class="field__help">Switching the weight unit converts this figure. It does not relabel it.</p>' +
         segField('goal', 'Goal', GOAL, 'seg-goal') +
+        (S.bodyError ? '<p class="field__error" role="alert" data-testid="body-error">' +
+          esc(S.bodyError) + '</p>' : '') +
       '</div>' +
       '<div class="sheet__foot stack stack--2">' +
         '<button class="btn btn--secondary btn--block" data-action="save-body" data-testid="save-body">' +
@@ -1584,10 +1587,26 @@
       var age = Number((document.getElementById('f-age') || {}).value);
       var hv = Number((document.getElementById('f-height') || {}).value);
       var wv = Number((document.getElementById('f-weight') || {}).value);
-      if (age > 0) S.body.age = Math.round(age);
+      /* BOUNDED, AND A REJECTION IS SAID OUT LOUD. Age 999 saved and came
+         back after a reload; a weight of 0 was dropped in silence, leaving
+         the old figure under a toast saying it had been saved. */
+      var wKg = S.unit === 'kg' ? wv : wv / LB;
+      var hCm = S.unit === 'kg' ? hv : hv * 2.54;
+      var bad = null;
+      if (!(age >= 13 && age <= 120)) bad = 'An age between 13 and 120.';
+      else if (!(hCm >= 100 && hCm <= 250)) {
+        bad = S.unit === 'kg' ? 'A height between 100 and 250 cm.'
+                              : 'A height between 39 and 98 inches.';
+      } else if (!(wKg >= 20 && wKg <= 400)) {
+        bad = S.unit === 'kg' ? 'A body weight between 20 and 400 kg.'
+                              : 'A body weight between 45 and 880 lb.';
+      }
+      if (bad) { S.bodyError = bad; render(); return; }
+      S.bodyError = null;
+      S.body.age = Math.round(age);
       /* Read back into the stored unit, never into the displayed one. */
-      if (hv > 0) S.body.heightCm = S.unit === 'kg' ? Math.round(hv) : Math.round(hv * 2.54);
-      if (wv > 0) S.body.weightKg = S.unit === 'kg' ? round1(wv) : round1(wv / LB);
+      S.body.heightCm = Math.round(hCm);
+      S.body.weightKg = round1(wKg);
       /* One key, in kilograms and centimetres, which is what every other
          screen reads. Save Stats used to change four variables on this page
          and nothing else. */

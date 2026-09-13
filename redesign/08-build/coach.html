@@ -1438,7 +1438,8 @@
     if (!S.toast) return '';
     return '<div class="toast" role="status" data-testid="toast">' +
       '<span class="toast__body">' + esc(S.toast.text) + '</span>' +
-      (S.toast.action ? '<button class="toast__action" data-act="toast" data-testid="toast-action">' + esc(S.toast.action) + '</button>' : '') +
+      (S.toast.action ? '<button class="toast__action" data-act="toast" data-testid="' +
+        esc(S.toast.actionTestid || 'toast-action') + '">' + esc(S.toast.action) + '</button>' : '') +
       '</div>';
   }
 
@@ -1618,8 +1619,8 @@
     renderDev();
   }
 
-  function toast(text, action, fn) {
-    S.toast = { text: text, action: action, fn: fn };
+  function toast(text, action, fn, actionTestid) {
+    S.toast = { text: text, action: action, fn: fn, actionTestid: actionTestid || null };
     clearTimeout(S.toastTimer);
     S.toastTimer = setTimeout(function () { S.toast = null; render(); }, 6000);
     render();
@@ -1642,27 +1643,46 @@
      the Coach note card is labelled "Generated, not measured" -- but it
      answers the question that was asked rather than the same sentence every
      time, so a thread reads as a conversation. */
+  /* EVERY ANSWER THAT READS DATA IS GATED ON THE SWITCH THAT SHARES IT.
+     With all nine off the screen said "Every source is switched off in Setup,
+     so I can see nothing of yours" and the receipt said 0 of 9 -- and asking
+     about the bench still came back with "Your bench moved 60 to 72.5 kg",
+     which is the logged number the screen had just promised was not sent.
+     An answer whose source is off says what it would need instead. */
+  function permOn(k) {
+    var perms = (S.setup && S.setup.perms) || {};
+    return !!perms[k];
+  }
+  function needs(k, label) {
+    return 'I cannot answer that without your ' + label + ', and that source is off in ' +
+      'Setup. Turn it on there and ask again.';
+  }
   function replyFor(text) {
     var q = String(text || '').toLowerCase();
     if (/sleep|tired|rest|recover/.test(q)) {
+      if (!permOn('checkins')) return needs('checkins', 'check-ins');
       return 'Four days at 7 hours and soreness at 3. Train, but drop the last set on ' +
         'every movement. Recovery is the limiter this week, not strength.';
     }
     if (/knee|shoulder|back|pain|tight|hurt/.test(q)) {
+      /* No stored figure in it: general guidance, which needs no source. */
       return 'Tightness without pain after a top set is normal. Warm up with two extra ' +
         'sets at 50 percent and hold RIR 2 for the week. If it is still there on the ' +
         'next session, tell me and we drop the load rather than the exercise.';
     }
     if (/eat|food|protein|calorie|macro|diet/.test(q)) {
+      if (!permOn('nutrition')) return needs('nutrition', 'nutrition');
       return 'You are averaging 2,702 kcal over the last fourteen days against a 2,980 ' +
         'target. Protein is the one to fix first: close the day at your usual dinner ' +
         'time and the rest follows.';
     }
     if (/bench/.test(q)) {
+      if (!permOn('training')) return needs('training', 'training history');
       return 'Your bench moved 60 to 72.5 kg for 5 in six weeks. Keep adding 2.5 kg when ' +
         'every working set hits 8 reps at RIR 2. If the top set stalls twice, hold the ' +
         'load and add one rep.';
     }
+    if (!permOn('training')) return needs('training', 'training history');
     return 'On your logged sets: the lifts that are moving are the ones you run first in ' +
       'the session, and the ones that have stalled run last. Reorder before you change ' +
       'anything else.';
@@ -1684,7 +1704,9 @@
     if (box) box.value = '';
     later(function () {
       if (S.chat.status !== 'thinking') return;
-      var wantsPlan = /plan|block|program/i.test(text);
+      /* A plan is built on the loads being hit, so it needs the training
+         switch like any other answer that reads the log. */
+      var wantsPlan = /plan|block|program/i.test(text) && permOn('training');
       S.chat.status = 'ready';
       if (wantsPlan) {
         S.chat.offer = true;
@@ -1807,7 +1829,7 @@
       var f = phone.querySelector('[data-testid="composer-input"]');
       if (f) { f.value = m.text; f.focus(); try { f.setSelectionRange(f.value.length, f.value.length); } catch (e) {} }
       toast(dropped.length === 1 ? 'Edit it and send again.'
-                                 : n(dropped.length) + ' messages removed. Edit it and send again.',
+                                 : dropped.length + ' messages removed. Edit it and send again.',
         'Undo', function () {
           S.chat.msgs = S.chat.msgs.concat(dropped);
           S.chat.status = 'ready';
@@ -1979,11 +2001,13 @@
          run". */
       persistPlan();
       render();
+      /* A real navigation, on a testid of its own. On the shared toast-action
+         id the demo's router could not tell this crossing from an Undo, so it
+         was undeclared and the raw location.href left for a file that is not
+         beside locked-demo.html: the whole demo gone in one tap. */
       toast(S.plan.data.name + ' runs on ' + sp.name + '. ' + sp.days[0] + ' is next.', 'Open in Train', function () {
-        /* A real navigation. It toasted "Opening ... in Train" and stayed
-           here, which is the only kind of lie a toast can tell. */
         location.href = 'train.html';
-      });
+      }, 'toast-open-train');
     },
     'delete': function () { S.modal = 'delete'; render(); },
     'delete-confirm': function () {
@@ -2099,7 +2123,7 @@
       S.setup.dirty = true;
       persistSetup();
       render();
-      toast(was.length === 1 ? 'Forgotten.' : n(was.length) + ' facts forgotten.', 'Undo', function () {
+      toast(was.length === 1 ? 'Forgotten.' : was.length + ' facts forgotten.', 'Undo', function () {
         S.setup.memory = was;
         persistSetup();
       });

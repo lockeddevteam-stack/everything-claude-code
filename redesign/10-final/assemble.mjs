@@ -129,6 +129,11 @@ const MANIFEST = {
     { from: 'train', selector: '[data-action="edit-split"]', to: 'split-builder', mode: 'push' },
     { from: 'coach', selector: '[data-act="open-split"]', to: 'split-builder', mode: 'push' },
     { from: 'coach', selector: '[data-testid="plan-start"]', to: 'train', mode: 'tab' },
+    /* The plan-binding toast's own action. On the shared toast-action id this
+       crossing could not be declared without claiming every Undo on the
+       screen, so it was not declared and its raw location.href took the demo
+       with it. */
+    { from: 'coach', selector: '[data-testid="toast-open-train"]', to: 'train', mode: 'tab' },
     { from: 'home', selector: '[data-testid="open-account"]', to: 'settings', mode: 'push' },
     { from: 'train', selector: '[data-action="start-today"]', to: 'workout-log', mode: 'push' },
     /* endsSession: the router swallows this click before the screen's own

@@ -160,11 +160,24 @@
       rows.sort(function (a, b) { return b.kg - a.kg; });
       return { rows: rows, count: count };
     }
+    /* ONE ROW PER LIFT, its heaviest. Sorted by load across all twelve
+       record rows, the list showed Barbell Deadlift twice and Barbell Squat
+       twice and pushed the bench press -- the lift the coach talks about --
+       off the end of a list capped at six. */
     var arr = Array.isArray(raw) ? raw : (FXP.prs || []);
+    var best = {}, order = [];
+    arr.forEach(function (r) {
+      var id = String(r.exId != null ? r.exId : r.id);
+      var cur = best[id];
+      if (!cur) { order.push(id); best[id] = r; return; }
+      if (r.kg > cur.kg || (r.kg === cur.kg && r.reps > cur.reps)) best[id] = r;
+    });
     return {
-      rows: arr.slice().sort(function (a, b) { return b.kg - a.kg; })
+      rows: order.map(function (id) { return best[id]; })
+        .sort(function (a, b) { return b.kg - a.kg; })
         .map(function (r) { return { lift: r.name, group: r.group || r.muscle || '', kg: r.kg }; }),
-      count: TOT.records || arr.length
+      count: arr.length,
+      lifts: order.length
     };
   }
   function nameFor(id) {
@@ -185,6 +198,7 @@
       handle: p.username || '',
       workouts: t.sessions,
       prs: recs.count,
+      recordLifts: recs.lifts || recs.rows.length,
       sets: t.sets,
       volumeKg: t.volumeKg,
       useKg: p.useKg !== false,
@@ -355,7 +369,12 @@
     return '<div class="section">' +
       '<div class="section__head">' +
         '<h2 class="t-label">Personal records</h2>' +
-        '<span class="t-meta num">' + ME.prs + ' in all</span>' +
+        /* What the list is: the heaviest on each lift. The header said
+           "12 in all" over six rows and no way to reach the others. */
+        '<span class="t-meta num">' + (ME.records.length > 6
+          ? 'Top 6 of ' + ME.recordLifts + ' lifts'
+          : ME.recordLifts + (ME.recordLifts === 1 ? ' lift' : ' lifts')) +
+        ' &middot; ' + ME.prs + ' records</span>' +
       '</div>' +
       '<div class="card card--flush">' + ME.records.slice(0, 6).map(function (r, i) {
         return '<div class="row row--static" data-testid="pr-' + i + '">' +

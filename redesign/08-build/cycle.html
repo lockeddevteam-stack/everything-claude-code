@@ -2185,9 +2185,25 @@
 
   /* Settings owns the gate and writes it where this screen can read it. It
      is the default here, not an override: the dev switcher still wins. */
-  try {
-    if (localStorage.getItem('lk_cycle') !== 'true') S.state = 'gated';
-  } catch (e) {}
+  function gateOn() {
+    try { return localStorage.getItem('lk_cycle') === 'true'; } catch (e) { return false; }
+  }
+  if (!gateOn()) S.state = 'gated';
+
+  /* THE SWITCH CAN MOVE AFTER THIS SCREEN HAS BOOTED. Read once, turning
+     tracking on in Settings left this screen gated for good: Home grew a
+     correct cycle row, tapping it said tracking was off, and Open Settings
+     landed on the switch that was already on. Only a reload escaped, which a
+     phone has no way to do. */
+  function regate() {
+    var want = gateOn();
+    if (!want && S.state !== 'gated') { S.state = 'gated'; render(); return; }
+    if (want && S.state === 'gated') {
+      S.state = (store() && store().touched('lk_mcProfile')) || (S.p && S.p.setup) ? 'populated' : 'setup';
+      render();
+    }
+  }
+  document.addEventListener('lk:enter', regate);
 
   var q = new URLSearchParams(location.search);
   if (q.get('state')) applyState(q.get('state'));
@@ -2198,6 +2214,7 @@
   if (store()) {
     store().onChange('lk_mcProfile', function (v) { if (v) { S.p = v; render(); } });
     store().onChange('lk_mcDays', function (v) { if (v) { S.days = v; render(); } });
+    store().onChange('lk_cycle', regate);
   }
 
   requestAnimationFrame(function () { window.__ready = true; });

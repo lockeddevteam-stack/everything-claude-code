@@ -66,6 +66,42 @@
     }
   }
 
+  /* Keys a person has deleted, kept under one key of their own so the
+     decision survives a reload. Without it a delete only lasted until the
+     next read, which fell back to the seed and put the thing back. */
+  var GONE_KEY = 'lk_removedKeys';
+  var goneMem = null;
+  function goneSet() {
+    if (goneMem) return goneMem;
+    var raw = null;
+    if (canWrite()) { try { raw = g.localStorage.getItem(GONE_KEY); } catch (e) {} }
+    else raw = mem[GONE_KEY] === undefined ? null : mem[GONE_KEY];
+    var list = [];
+    if (raw) { try { list = JSON.parse(raw) || []; } catch (e) { list = []; } }
+    goneMem = {};
+    list.forEach(function (k) { goneMem[k] = 1; });
+    return goneMem;
+  }
+  function writeGone() {
+    var str = JSON.stringify(Object.keys(goneSet()));
+    if (canWrite()) { try { g.localStorage.setItem(GONE_KEY, str); return; } catch (e) {} }
+    mem[GONE_KEY] = str;
+  }
+  function isGone(key) { return key !== GONE_KEY && !!goneSet()[key]; }
+  function markGone(key) {
+    if (key === GONE_KEY) return;
+    goneSet()[key] = 1; writeGone();
+  }
+  function unGone(key) {
+    if (key === GONE_KEY || !goneSet()[key]) return;
+    delete goneSet()[key]; writeGone();
+  }
+  function clearGone() {
+    goneMem = {};
+    if (canWrite()) { try { g.localStorage.removeItem(GONE_KEY); } catch (e) {} }
+    delete mem[GONE_KEY];
+  }
+
   function fire(key, value) {
     (listeners[key] || []).forEach(function (fn) {
       try { fn(value, key); } catch (e) {}
@@ -78,6 +114,17 @@
   /* The fixture's value for a key, or undefined when it has none. The map is
      deliberately explicit: a key that is not here has no seed, and reads back
      the caller's own fallback. */
+  /* Every key the seed answers for, so a backup can carry what the app is
+     actually showing rather than only what has been written over it. */
+  var SEEDED_KEYS = [
+    'lk_history', 'lk_prs', 'lk_weightLog', 'lk_bfLog', 'lk_profile', 'lk_splits',
+    'lk_goals', 'lk_progressPhotos', 'lk_supplements', 'lk_shoppingList',
+    'lk_pantryItems', 'lk_budgetData', 'lk_myStores', 'lk_customEx',
+    'lk_featuredLifts', 'lk_nutrition', 'lk_mcProfile', 'lk_mcDays',
+    'lk_mcFuelAdjust', 'lk_cardioPrefs', 'lk_cardioFavorites', 'lk_cycles',
+    'lk_suppLog', 'lk_feedback', 'lk_coachPlan'
+  ];
+
   function seedFor(key) {
     var F = g.LKFixtures;
     if (!F) return undefined;
@@ -123,18 +170,26 @@
         try { return JSON.parse(raw); }
         catch (e) { return raw; }          /* a plain string key, e.g. lk_theme */
       }
+      /* DELETED IS NOT UNTOUCHED. Removing a key left it indistinguishable
+         from one nobody had written, so the seed came back: deleting the
+         coach plan emptied the pane, and a reload put the twelve-week block
+         back in full. A removed key is remembered as removed. */
+      if (isGone(key)) return fallback;
       var seed = seedFor(key);
       if (seed !== undefined) return clone(seed);
       return fallback;
     },
 
-    /* Has a person actually written this, or is it still the seed? */
+    /* Has a person actually written this, or is it still the seed? A key they
+       deleted counts: they decided what is there, which is nothing. */
     touched: function (key) {
-      return rawGet(key) !== null && rawGet(key) !== undefined;
+      var raw = rawGet(key);
+      return (raw !== null && raw !== undefined) || isGone(key);
     },
 
     set: function (key, value) {
       var str = typeof value === 'string' ? value : JSON.stringify(value);
+      unGone(key);
       var ok = rawSet(key, str);
       fire(key, value);
       return ok;
@@ -160,6 +215,7 @@
     remove: function (key) {
       if (canWrite()) { try { g.localStorage.removeItem(key); } catch (e) {} }
       delete mem[key];
+      markGone(key);
       fire(key, undefined);
     },
 
@@ -179,6 +235,9 @@
       }
       Object.keys(mem).forEach(function (k) { if (keys.indexOf(k) < 0) keys.push(k); });
       keys.forEach(function (k) { API.remove(k); });
+      /* Erase everything means back to the seed, which is the one case where
+         a removed key must NOT be remembered as removed. */
+      clearGone();
       return keys.length;
     },
 
@@ -192,7 +251,14 @@
     },
 
     /* Everything under the prefix, for export. */
-    dump: function () {
+    /* WHAT THE APP IS SHOWING, not only what has been written over the seed.
+       "Export a backup -- one file with every workout, split and record"
+       wrote five keys and three kilobytes: a name, a theme and a live
+       session. Every key the seed answers for is included, unless the reader
+       deleted it, so a restore onto a clean phone brings the app back.
+
+       `writtenOnly` is for the caller that wants the overrides alone. */
+    dump: function (writtenOnly) {
       var out = {};
       if (canWrite()) {
         try {
@@ -203,6 +269,14 @@
         } catch (e) {}
       }
       Object.keys(mem).forEach(function (k) { if (out[k] === undefined) out[k] = mem[k]; });
+      delete out[GONE_KEY];
+      if (writtenOnly) return out;
+      SEEDED_KEYS.forEach(function (k) {
+        if (out[k] !== undefined || isGone(k)) return;
+        var seed = seedFor(k);
+        if (seed === undefined) return;
+        try { out[k] = JSON.stringify(seed); } catch (e) {}
+      });
       return out;
     },
 

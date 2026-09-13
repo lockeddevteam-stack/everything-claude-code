@@ -1,6 +1,6 @@
 # E2E 4 — Coach, Cycle, Settings/Profile
 
-Target: `10-final/locked-demo.html` over `file://` (hash router), iPhone-sized Chromium, Playwright 1.56.1.
+Target: `10-final/locked-demo.html` over `file://` (hash router), iPhone-sized Chromium, Playwright 1.56.1. Build of 2026-09-13 03:49; every defect below was re-confirmed against that build.
 Journey: coach chat/interview/setup/plan/check-in → cycle setup, logging, discreet, irregular, loss/recovery, export, delete → settings units, body, export/restore, erase, password.
 Reference: `tests/fixtures/seed-data.json`, TODAY 2026-09-09.
 `pageerror` and console errors were collected on every run. **Zero of either were seen anywhere in this journey.**
@@ -9,19 +9,19 @@ Reference: `tests/fixtures/seed-data.json`, TODAY 2026-09-09.
 
 ### 1. Deleting the coach plan is undone by a reload
 Coach → Plan → **Delete this plan** → **Delete everything** (`delete-confirm`). The pane empties, the toast says "Plan deleted.", `localStorage.lk_coachPlan` becomes `null`. Reload → the 12-week strength block is back in full.
-Cause: the handler removes the key (`08-build/coach.html:1974`, demo `locked-demo.html:24453`, `if (store()) store().remove('lk_coachPlan')`), but `LKStore.get` falls back to the fixture for that key (`08-build/store.js:109` / demo `:11666`, `case 'lk_coachPlan': return F.coachPlan;`). A removed key is indistinguishable from an untouched one, so delete can never stick.
+Cause: the handler removes the key (`08-build/coach.html:1995`, demo `locked-demo.html:24642`, `if (store()) store().remove('lk_coachPlan')`), but `LKStore.get` falls back to the fixture for that key (`08-build/store.js:109` / demo `:11688`, `case 'lk_coachPlan': return F.coachPlan;`). A removed key is indistinguishable from an untouched one, so delete can never stick.
 Worse in sequence: save a *new* plan from chat, bind it, delete it — the reload brings back the **old seeded** plan, not an empty pane. The split binding is lost, so the state after reload is one that was never saved by anybody.
-The source comment two lines above (`coach.html:1971-1973`) claims this exact bug was fixed. It was not.
+The source comment two lines above (the comment block just above `coach.html:1995`) claims this exact bug was fixed. It was not.
 
 ### 2. Turning Cycle tracking on in Settings leaves the Cycle screen permanently gated
 Home → account → Settings → **Cycle tracking** switch (`switch-cycle`, writes `lk_cycle="true"`, switch reads `aria-checked=true`) → back → Home now shows the Cycle row ("Day 12 · Follicular, estimated · next period in 17 days") → tap it → **"Cycle tracking is off. The switch is in Settings, under Cycle tracking." / Open Settings**.
 Tapping **Open Settings** lands on the switch that is already on, so the loop has no exit inside the app. Only a full page reload clears it — which a phone user has no way to do.
-Cause: the gate is read once at screen boot (`08-build/cycle.html:2189`, demo `:39163`) and the screen subscribes to `lk_mcProfile` and `lk_mcDays` only, never to `lk_cycle` (`cycle.html:2197-2200`, demo `:39172-39174`).
+Cause: the gate is read once at screen boot (`08-build/cycle.html:2189`, demo `:39806`) and the screen subscribes to `lk_mcProfile` and `lk_mcDays` only, never to `lk_cycle` (`cycle.html:2199-2200`, demo `:39816-39817`).
 
 ### 3. "Open in Train" on the plan-binding toast destroys the demo
 Coach → Plan → **Run it on a split** → pick any split. Toast: "12-week strength block runs on PPL. Push is next. | **Open in Train**". Tapping it navigates to `file:///…/10-final/train.html`, which does not exist: the page becomes `chrome-error://chromewebdata/`, blank, with the whole app gone.
-Cause: `coach.html:1964` (demo `:24277`) does a raw `location.href = 'train.html'` inside the toast callback. `MANIFEST.nav` in `10-final/assemble.mjs` claims coach→train only through `[data-testid="plan-start"]` (`assemble.mjs:125`); the toast action button is not covered. The assemble-time check (`assemble.mjs:1071-1090`) only asserts that *some* coach→train row exists, so the undeclared crossing passes the build.
-The same file already guards this pattern elsewhere (`locked-demo.html:26224-26228`, "from a timer is not a click and would take the whole demo with it"), so the hazard is known.
+Cause: `coach.html:1985` (demo `:24632`, inside the `toast(… , 'Open in Train', …)` callback at `:24629`) does a raw `location.href = 'train.html'` inside the toast callback. `MANIFEST.nav` in `10-final/assemble.mjs` claims coach→train only through `[data-testid="plan-start"]` (`assemble.mjs:131`); the toast action button is not covered. The assemble-time check (`assemble.mjs:1090-1114`) only asserts that *some* coach→train row exists, so the undeclared crossing passes the build.
+The same file already guards this pattern elsewhere (the `split-builder` timer guard in `locked-demo.html`, "from a timer is not a click and would take the whole demo with it"), so the hazard is known.
 
 ### 4. "Export a backup — One file with every workout, split and record" exports none of them
 Settings → **Export a backup**. Toast: "LOCKED-backup-2026-09-09.json saved. 5 keys, 3 KB." The file contains exactly `lk_profile`, `lk_liveSessionRows`, `lk_liveSession`, `lk_proactiveTip`, `lk_theme` — no history, no splits, no PRs, no cycle log, no coach data.
@@ -30,17 +30,17 @@ Cause: `exportBackup()` (`08-build/settings.html`, `var dump = ST.dump()`) seria
 ### 5. Toast markup is printed as literal text (two places)
 - Coach → Chat → **Edit** on the first user message ("How should I progress bench?"). Toast reads: `<span class="num">2</span> messages removed. Edit it and send again.`
 - Coach → Setup → **Clear all** → **Tap again to forget all 2**. Toast reads: `<span class="num">2</span> facts forgotten.`
-`toast()` escapes its text (`coach.html:1419`, demo `:23898`) while the two callers build it with the `n()` markup helper (`coach.html:106`; callers `:1789` and `:2081`, demo `:24268` and `:24560`). DOM confirms `&lt;span class="num"&gt;2&lt;/span&gt;` inside `.toast__body`. Only triggers when the count is 2+; the singular branches are plain strings, which is why it survived.
+`toast()` escapes its text (`coach.html:1440`, demo `:24087`) while the two callers build it with the `n()` markup helper (`coach.html:106`; callers `:1810` and `:2102`, demo `:24457` and `:24749`). DOM confirms `&lt;span class="num"&gt;2&lt;/span&gt;` inside `.toast__body`. Only triggers when the count is 2+; the singular branches are plain strings, which is why it survived.
 
 ### 6. Body and goal accepts and stores an impossible age; an impossible weight is dropped in silence
 Settings → **Body and goal** → Age `999`, Body weight `0` → **Save**. The sheet closes, toast "Body and goal saved.", the row reads `999 · Female · 172 cm · 70.5 kg · Build muscle` and `lk_profile.age` is `999` after a reload. The `0` weight was neither saved nor reported — the old value stays with no message.
-Cause: `settings.html:1586-1590` — `if (age > 0) … if (wv > 0) …`; there is no upper bound and no error path for a rejected field.
+Cause: `settings.html:1586-1590` (current build: `if (age > 0) …` at `:1587`) — `if (age > 0) … if (wv > 0) …`; there is no upper bound and no error path for a rejected field.
 
 ### 7. Two screens give two different session counts for the same log
 Profile stat tile: **22 SESSIONS**. Coach, new chat: **"I can see 18 sessions, over 5 weeks, 9 lifts with records and 6 check-ins."** Both are reading `lk_history`, which holds 18 lifting sessions and 4 cardio records (22 rows). The Profile tile counts all 22 while the SETS (288) and VOLUME (140k kg) tiles beside it are lift-only, so the row is internally inconsistent as well.
 
-### 8. Profile "PERSONAL RECORDS · 12 in all" lists 6 and offers no way to the rest
-`lk_prs` holds 12 record entries across 9 lifts. The card header says "12 in all", the list is hard-capped at 6 (`08-build/profile.html:360`, `ME.records.slice(0, 6)`), the rows are `row--static` (not tappable), and the screen has no "see all" control. The other records are unreachable from Profile.
+### 8. Profile "PERSONAL RECORDS · 12 in all" shows 6, repeats lifts, and drops others entirely
+`lk_prs` holds 12 record entries across 9 lifts. The header says "12 in all"; the list is hard-capped at 6 (`08-build/profile.html:360`, `ME.records.slice(0, 6)`) and is ordered by load, so it currently reads Leg Press 165, **Barbell Deadlift 115, Barbell Deadlift 110, Barbell Squat 87.5, Barbell Squat 82.5**, Romanian Deadlift 77.5 — two lifts twice, and Barbell Bench Press (72.5 kg, the lift the coach talks about) not shown at all. The rows are `row--static`, and the screen has no "see all", so the other six records are unreachable from Profile.
 
 ### 9. Every data source off, and the coach still answers from the data
 Coach → Setup → **Turn all off** → Save. New chat intro: "Every source is switched off in Setup, so I can see nothing of yours." Receipt: "Coach can see 0 of 9 sources". Sending "How is my bench going?" returns "Your bench moved 60 to 72.5 kg for 5 in six weeks…" — the user's logged numbers, which the screen just promised were not sent. The reply pipeline never consults `S.setup.perms` (no reference to it outside the Setup pane in `coach.html`). The privacy claim under the switches, "Only what is on is sent", is contradicted on screen.
