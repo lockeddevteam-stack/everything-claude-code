@@ -454,6 +454,123 @@
       if (ST.get('lk_weightsKgMigrated', false)) return false;
       ST.set('lk_weightsKgMigrated', true);
       return true;
+    },
+
+    /* 3 — THE SHAPE A REAL PHONE ACTUALLY HOLDS.
+
+       tests/fixtures/seed-data.json is a copy of a device, and it does not
+       match what the screens read. A lifting row carries `vol: "14363 kg"`
+       and `dur: "52 min"` as STRINGS WITH THEIR UNITS IN THEM, a US
+       `date: "9/7/2026"` beside an ISO `dateISO`, and its sets as
+       `{ w:"87.5", r:"8", setType:"warmup" }` — strings, and a set type
+       rather than a boolean. The build reads `kg`, `min`, an ISO `date`,
+       and `{ kg, reps, warm }`.
+
+       The generator normalises all of it on the way into fixtures.js, so
+       the demo never sees the difference. A person upgrading does: their
+       own stored history is read raw, and Train, Progress, Recap and the
+       log render it empty or as "undefined NaN". It is the same defect as
+       the cardio v1 migration and it costs more, because it is every
+       session they have ever logged.
+
+       Idempotent: a row already carrying a numeric `kg` is left alone. */
+    function (ST) {
+      if (!ST.touched('lk_history')) return false;
+      var rows = ST.get('lk_history', null);
+      if (!Array.isArray(rows) || !rows.length) return false;
+      var n2 = function (v) {
+        if (typeof v === 'number') return v;
+        if (v === '' || v == null) return null;
+        var x = parseFloat(String(v).replace(/[^0-9.\-]/g, ''));
+        return isFinite(x) ? x : null;
+      };
+      var iso = function (w) {
+        if (w.dateISO) return String(w.dateISO).slice(0, 10);
+        var d = String(w.date || '');
+        if (/^\d{4}-\d{2}-\d{2}/.test(d)) return d.slice(0, 10);
+        var a2 = d.split('/');            /* M/D/YYYY, the stored form */
+        if (a2.length === 3) {
+          return a2[2] + '-' + ('0' + a2[0]).slice(-2) + '-' + ('0' + a2[1]).slice(-2);
+        }
+        return d;
+      };
+      var touched = false;
+      var out = rows.map(function (w) {
+        if (!w || typeof w !== 'object') return w;
+        var already = typeof w.kg === 'number' && /^\d{4}-\d{2}-\d{2}$/.test(String(w.date || ''));
+        if (already) return w;
+        touched = true;
+        var r = {};
+        Object.keys(w).forEach(function (k) { r[k] = w[k]; });
+        r.date = iso(w);
+        r.min = n2(w.min !== undefined ? w.min : w.dur);
+        if (w.kind === 'cardio') return r;
+        r.kind = w.kind || 'lift';
+        r.sets = n2(w.sets);
+        r.kg = n2(w.kg !== undefined ? w.kg : w.vol);
+        r.exercises = (w.exercises || []).map(function (ex) {
+          return {
+            id: ex.id, name: ex.name, muscle: ex.muscle || '',
+            sets: (ex.sets || []).map(function (st) {
+              /* A set already in the read shape keeps it. */
+              if (typeof st.kg === 'number' || st.warm !== undefined) return st;
+              return {
+                kg: n2(st.w), reps: n2(st.r), rir: n2(st.rir),
+                warm: st.setType === 'warmup',
+                done: !!st.done,
+                partials: n2(st.partials) || 0
+              };
+            })
+          };
+        });
+        return r;
+      });
+      if (!touched) return false;
+      ST.set('lk_history', out);
+      return true;
+    },
+
+    /* 4 — a stored split day carries `exIds: [111, 302, ...]` and the
+       screens read `exercises: [{id, name, group, muscle}]`. Read raw, a
+       real user's every day counts as empty: no lifts on Train, nothing to
+       start, nothing to edit.
+
+       The names cannot be resolved without the catalogue, which is fetched
+       and may not be here yet. The ids are what matter — every screen
+       resolves a name from one — so the day is filled with the ids it
+       holds and whatever names the fixture can supply, and a name that
+       cannot be found yet is left for the catalogue to fill in. */
+    function (ST) {
+      if (!ST.touched('lk_splits')) return false;
+      var all = ST.get('lk_splits', null);
+      if (!Array.isArray(all) || !all.length) return false;
+      var F = g.LKFixtures;
+      var known = {};
+      ((F && F.splits) || []).forEach(function (sp) {
+        (sp.days || []).forEach(function (d) {
+          (d.exercises || []).forEach(function (e) { known[e.id] = e; });
+        });
+      });
+      ((F && F.prs) || []).forEach(function (r) {
+        if (!known[r.exId]) known[r.exId] = { id: r.exId, name: r.name, group: r.group, muscle: r.muscle };
+      });
+      var touched = false;
+      all.forEach(function (sp) {
+        (sp.days || []).forEach(function (d) {
+          if (!d || !Array.isArray(d.exIds)) return;
+          if (Array.isArray(d.exercises) && d.exercises.length) return;
+          touched = true;
+          d.exercises = d.exIds.map(function (id) {
+            var k = known[id];
+            return { id: id, name: k ? k.name : '', group: k ? (k.group || '') : '',
+                     muscle: k ? (k.muscle || '') : '' };
+          });
+          d.blocks = d.blocks || [];
+        });
+      });
+      if (!touched) return false;
+      ST.set('lk_splits', all);
+      return true;
     }
   ];
 

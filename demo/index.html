@@ -4287,6 +4287,10 @@ button.shelf:active { background: var(--fill-press); }
   text-align: left;
   flex: 1 1 0%;
   min-width: min(100%, 7em);
+  /* A full target in its own right: it is the control that opens the form,
+     and .row's own min-height belongs to the container, not to this. */
+  min-height: var(--tap);
+  justify-content: center;
 }
 .trainrow__main:active { opacity: 0.55; }
 .iconbtn--on { color: var(--text); }
@@ -18455,6 +18459,11 @@ DEMO.define("train", function (document, window, location, fetch) {
     var l = S.logging;
     if (!l || !l.done) return;
     var act = findCardio(l.id) || {};
+    /* One favourite per setup. The star on the activity row and this button
+       write the same list, so without this a second tap made a second copy of
+       the same saved setup and the quick rows printed it twice. */
+    var already = favForAct(l.id);
+    if (already) { say(esc(favName(already)) + ' is already in your favourites.'); return; }
     var stored = (rd('lk_cardioFavorites', [], false) || []).slice();
     var fav = {
       id: 'fav_' + Date.now(), label: l.done.name, modality: act.mod || l.id,
@@ -36907,33 +36916,76 @@ DEMO.define("settings", function (document, window, location, fetch) {
      failure. Nothing about the result is assumed before it arrives.
      ------------------------------------------------------------- */
   var syncTimer = null;
+  /* THE REAL SYNC, through the one seam. LKCloud knows whether there is a
+     server; this screen knows how to say what happened. Neither guesses at
+     the other's job.
+
+     Every branch fails closed. The old build's catch called onResult(true)
+     and rendered the verified panel, so a dropped connection granted
+     access; and a sync timestamp written for a sync that did not happen is
+     the same lie one screen further on. */
   function syncNow() {
     if (S.sync === 'busy') return;
+
+    /* The dev switcher's "Account unreachable" state, kept: it is how the
+       failure path is looked at without unplugging anything. */
+    if (S.view === 'error') {
+      S.sync = 'busy'; render(); say('Syncing');
+      clearTimeout(syncTimer);
+      syncTimer = setTimeout(function () {
+        S.sync = 'failed'; render(); say('Sync failed. Nothing was sent.');
+      }, 900);
+      return;
+    }
+
+    var C = window.LKCloud;
+    if (!C || !C.ready()) {
+      /* No server configured. It says exactly that rather than "everything
+         is up to date", which reads as a completed sync. */
+      S.sync = 'idle';
+      render();
+      toast('Not in this build. Nothing has left this device.');
+      return;
+    }
+    if (!C.signedIn()) {
+      S.sync = 'idle';
+      render();
+      toast('Sign in to sync. Your training stays on this phone until you do.');
+      return;
+    }
+
     S.sync = 'busy';
     render();
     say('Syncing');
-    var willFail = S.view === 'error';       /* dev state: Account unreachable */
-    clearTimeout(syncTimer);
-    syncTimer = setTimeout(function () {
-      if (willFail) {
-        /* FAIL CLOSED. The old build's catch called onResult(true) and
-           rendered the verified panel; a dropped connection granted
-           access. A failure here reports a failure and offers the retry,
-           and it is the only branch that can be reached on failure. */
+    C.sync().then(function (r) {
+      if (!r.ok) {
         S.sync = 'failed';
         render();
-        say('Sync failed. Nothing was sent.');
-      } else {
-        /* It says what this build does, which is nothing. "Everything is up
-           to date" reads as a completed sync on a build with no server and
-           no request; no timestamp is written either, because a sync
-           timestamp for a sync that did not happen is the same lie one
-           screen further on. */
-        S.sync = 'idle';
-        render();
-        toast('Not in this build. Nothing has left this device.');
+        say(r.message || 'Sync failed. Nothing was sent.');
+        return;
       }
-    }, 1200);
+      /* Written only on a sync that happened. */
+      S.syncedAt = new Date().toISOString();
+      put('lk_lastSync', S.syncedAt);
+      S.sync = 'idle';
+      render();
+      var up = (r.data && r.data.pushed && r.data.pushed.pushed) || 0;
+      var down = (r.data && r.data.pulled && r.data.pulled.applied) || 0;
+      toast(!up && !down ? 'Already up to date.'
+        : 'Synced. ' + up + ' up, ' + down + ' down.');
+    }, function () {
+      S.sync = 'failed';
+      render();
+      say('Sync failed. Nothing was sent.');
+    });
+  }
+
+  /* WHAT THE CYCLE LOG IS ALLOWED TO DO. The sync carries it only with
+     this on, in both directions -- it is the one key set here where
+     ignoring the switch would not be a bug but a breach. */
+  function cycleBackupOn() {
+    var mc = get('lk_mcProfile', null);
+    return !!(mc && mc.cloudBackup);
   }
 
   /* =============================================================
