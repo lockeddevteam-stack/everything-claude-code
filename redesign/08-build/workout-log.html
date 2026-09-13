@@ -252,7 +252,12 @@
     return { id: id, name: name, muscle: muscle, note: kept || note || '', sets: sets };
   }
 
+  /* The seeded mid-session, for the dev states and for a demo. A build with
+     no seed has no such session: a workout nobody logged is exactly the
+     stranger's training this screen must never show. Without a seed the log
+     opens empty, which is what starting a workout from nothing looks like. */
   function pushDay() {
+    if (!window.LKFixtures) return [];
     /* The warm-up and the two working sets already logged are today's, and
        they stay as they are; everything else is last session's figures. */
     return [
@@ -391,15 +396,20 @@
     return v === true || v === 'true';
   }
 
+  /* A seeded mid-session, or a new workout. The literals below describe the
+     demo's half-finished Push; with no seed there is no such session, and
+     opening the log means starting one. */
+  var SEEDED = !!window.LKFixtures;
+
   var S = {
-    state: 'mid-session',
-    name: 'PPL - Push',
+    state: SEEDED ? 'mid-session' : 'empty',
+    name: SEEDED ? 'PPL - Push' : 'Quick Workout',
     /* lk_profile.useKg, through LKUnits. This screen's switch was its own:
        it converted this screen correctly and toasted "Showing lb everywhere"
        while every other screen stayed in kg, and it opened in kg whatever the
        profile said. There is one setting now, and this switch writes it. */
     unit: (window.LKUnits && !LKUnits.useKg()) ? 'lb' : 'kg',
-    elapsed: 1261,           /* 21:01 */
+    elapsed: SEEDED ? 1261 : 0,   /* 21:01 into the demo's session, or a new one */
     exercises: pushDay(),
     blocks: [],
     /* Which exercise the picker is replacing, or null when it is adding. */
@@ -476,6 +486,12 @@
       toast('Could not get a recommendation. Check your connection and retry.', 'error', 'Retry');
     }
     if (name !== 'first-set' && name !== 'empty') S.name = 'PPL - Push';
+    /* Nothing seeded means nothing to be in the middle of. */
+    if (!SEEDED && !S.exercises.length) {
+      S.name = 'Quick Workout';
+      S.elapsed = 0;
+      S.state = 'empty';
+    }
   }
 
   /* =============================================================

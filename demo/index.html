@@ -11759,6 +11759,19 @@ button.shelf:active { background: var(--fill-press); }
       return fallback;
     },
 
+    /* TODAY. The build pinned every screen to the seed's own date, so a
+       product with no seed read `undefined` and Fuel threw on the first
+       paint. Today is the wall clock; the seed's date wins only while a seed
+       is loaded, which is what keeps the tests deterministic. */
+    today: function () {
+      var F = g.LKFixtures;
+      if (F && F.today) return F.today;
+      var d = new Date();
+      return d.getFullYear() + '-' +
+        ('0' + (d.getMonth() + 1)).slice(-2) + '-' +
+        ('0' + d.getDate()).slice(-2);
+    },
+
     /* Has a person actually written this, or is it still the seed? A key they
        deleted counts: they decided what is there, which is nothing. */
     touched: function (key) {
@@ -14679,7 +14692,9 @@ DEMO.define("home", function (document, window, location, fetch) {
   /* ---- dates ------------------------------------------------------
      UTC throughout. A local-midnight date is a day out for half the
      planet, and every date in this build is an ISO day, not an instant. */
-  var TODAY = (window.LKFixtures && LKFixtures.today) || '2026-09-09';
+  /* The wall clock, or the seed's date while a seed is loaded. Pinned to
+     the fixture, a build with no seed read undefined. */
+  var TODAY = window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10);
   function ms(iso) { var a = String(iso).split('-'); return Date.UTC(+a[0], +a[1] - 1, +a[2]); }
   function isoOf(t) { return new Date(t).toISOString().slice(0, 10); }
   function addDays(iso, k) { return isoOf(ms(iso) + k * 86400000); }
@@ -15884,7 +15899,9 @@ DEMO.define("train", function (document, window, location, fetch) {
   /* The fixture's today, not the wall clock. Every date on this screen is
      measured against the seed, so a log stamped with the real date read
      "last -1 days ago" the moment the two disagreed. */
-  var TODAY = (window.LKFixtures && LKFixtures.today) || '2026-09-09';
+  /* The wall clock, or the seed's date while a seed is loaded. Pinned to
+     the fixture, a build with no seed read undefined. */
+  var TODAY = window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10);
 
   function esc(s) {
     return String(s).replace(/[&<>"]/g, function (c) {
@@ -17996,7 +18013,26 @@ DEMO.define("fuel", function (document, window, location, fetch) {
      one, a rescaled portion, a glass of water, a supplement tick, an edited
      target -- lived in a variable and was gone on reload. */
   var FUELLOG = stored('lk_fuelLog', null) || cloneDays(NUT.days || {});
-  var TARGETS = stored('lk_fuelTargets', NUT.targets || {});
+  /* Targets, in order: what was set, then what the profile computes, then
+     none at all. A build with no seed had none of the three and every figure
+     on the hero read NaN -- which is what a new account saw. */
+  var TARGETS = (function () {
+    var own = stored('lk_fuelTargets', null);
+    if (own && own.kcal) return own;
+    var seeded = NUT.targets;
+    if (seeded && seeded.kcal) return seeded;
+    /* Computed from the profile, if there is enough of one to compute from.
+       PROFILE is read above; calcMacros needs weight, height and age. */
+    var p = PROFILE || {};
+    if (p.weightKg && p.heightCm && p.age) {
+      var m = calcMacros({ weightKg: p.weightKg, heightCm: p.heightCm, age: p.age,
+                           sex: p.sex === 'male' ? 'male' : 'female',
+                           goal: goalKey(), activity: activityKey() });
+      return { kcal: m.kcal, pro: m.pro, carb: m.carb, fat: m.fat, waterMl: 0, computed: true };
+    }
+    return { kcal: null, pro: null, carb: null, fat: null, waterMl: 0, unset: true };
+  })();
+  function hasTargets() { return !!(TARGETS && TARGETS.kcal); }
 
   function cloneDays(d) {
     try { return JSON.parse(JSON.stringify(d)); } catch (e) { return {}; }
@@ -18424,7 +18460,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
   /* A function, not a literal: the dev switcher rebuilds it so one state's
      edits do not leak into the next. */
   function day() {
-    var iso = FX.today;
+    var iso = ST ? ST.today() : new Date().toISOString().slice(0, 10);
     var src = FUELLOG[iso] || { meals: [], waterMl: 0, supps: [] };
     var tg = TARGETS;
     var rf = ST ? ST.get('lk_fuelRefeed', null) : null;
@@ -18543,8 +18579,13 @@ DEMO.define("fuel", function (document, window, location, fetch) {
      often list. Per-serving is derived on read, never stored, because a
      stored per-serving figure and a changed serving count disagree the moment
      either one moves. */
+  /* Priced off the food table, so a recipe for a food the table does not hold
+     is not a recipe this screen can cost. With no table at all -- a build
+     that ships no seed -- there are no recipes, and the sheet says so rather
+     than throwing on the first paint. */
   function recipe(key, name, servings, ing, mins, tags, steps) {
     var f = FOODS[key];
+    if (!f) return null;
     return { icon: f.icon, name: name, servings: servings, key: key,
              kcal: f.kcal * servings, pro: f.pro * servings,
              carb: f.carb * servings, fat: f.fat * servings, ing: ing,
@@ -18575,7 +18616,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       ['Blitz everything to a batter. It should pour, not drop.',
        'Medium heat, dry pan, three minutes a side.',
        'They brown faster than flour pancakes because of the whey, so go lower than you think.'])
-  ];
+  ].filter(Boolean);
 
   /* Recipes you built yourself, after the three above. A built recipe carries
      its own macro total rather than borrowing a food's, because that is the
@@ -18694,6 +18735,9 @@ DEMO.define("fuel", function (document, window, location, fetch) {
      recipes and often-logged meals, which cannot fabricate anything. */
   function slot(at, key) {
     var f = FOODS[key];
+    /* A slot names a food from the table. With no table there is no plan to
+       seed, which is the state a new account is in anyway. */
+    if (!f) return null;
     var k = at.toLowerCase();
     var sl = k.indexOf('breakfast') === 0 ? 'breakfast'
            : k === 'lunch' ? 'lunch' : k === 'dinner' ? 'dinner' : 'snack';
@@ -18712,7 +18756,8 @@ DEMO.define("fuel", function (document, window, location, fetch) {
         slot('Dinner', 'pasta')] },
     { d: 'Fri', iso: '2026-09-11', slots: [slot('Breakfast', 'shake'), slot('Lunch', 'chilli'),
         slot('Dinner', 'bowl')] }
-  ];
+  ].map(function (d) { d.slots = d.slots.filter(Boolean); return d; })
+   .filter(function (d) { return d.slots.length; });
 
   /* A swapped meal is a change to the plan, so it is stored. Untouched, the
      plan is the one above. */
@@ -19247,6 +19292,20 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     var eaten = S.state === 'empty' ? 0 : DAY.eaten;
     var left = DAY.target - eaten;
 
+    /* NO TARGET YET. A new account has no profile to compute one from and
+       nothing stored, so every figure here read NaN. The hero shows what was
+       eaten -- which is a real number -- and asks for the one thing it needs
+       to say anything else. */
+    if (!hasTargets()) {
+      return '<div class="fuel-hero" data-testid="hero">' +
+        '<div class="stack stack--1">' +
+          '<p class="fuel-hero__num num" data-testid="hero-value">' + n(eaten) + '</p>' +
+          '<p class="t-footnote quiet">kcal today. No target set yet.</p>' +
+          '<button class="btn btn--secondary btn--sm mt-3" type="button" data-action="fuel-profile" ' +
+            'data-testid="hero-set-target"><span class="btn__label">Set your target</span></button>' +
+        '</div></div>';
+    }
+
     if (S.state === 'hidden') {
       return '<div class="fuel-hero" data-testid="hero">' +
         '<div class="stack stack--1">' +
@@ -19558,7 +19617,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
             '<div class="hstack"><span class="t-subheadline grow">' + esc(m.name) + '</span>' +
             '<span class="t-footnote quiet">' + words[i] + '</span></div>' +
             '<div class="meter meter--quiet mt-2"><span class="meter__fill" style="width:' +
-              Math.round(m.have / m.want * 100) + '%"></span></div>' +
+              (m.want > 0 ? Math.min(100, Math.round(m.have / m.want * 100)) : 0) + '%"></span></div>' +
           '</div>';
         }).join('') + '</div>';
     }
@@ -19569,14 +19628,21 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     return '<button class="card mt-4" type="button" data-action="targets" ' +
       'data-testid="macros" aria-label="Macro targets, edit">' +
       DAY.macros.map(function (m) {
-        var pct = Math.min(100, Math.round(m.have / m.want * 100));
+        /* No target is not a target of zero. Without one the row shows what
+           was eaten and an empty bar, rather than "0 / null g" over a meter
+           filled to NaN per cent. */
+        var has = m.want > 0;
+        var pct = has ? Math.min(100, Math.round(m.have / m.want * 100)) : 0;
+        var reads = has ? m.have + ' of ' + m.want + ' ' + m.unit
+                        : m.have + ' ' + m.unit + ', no target set';
         return '<div class="fuel-macro">' +
           '<div class="hstack">' +
             '<span class="t-subheadline grow">' + esc(m.name) + '</span>' +
-            '<span class="t-footnote num"><strong>' + m.have + '</strong> / ' + m.want + ' ' + m.unit + '</span>' +
+            '<span class="t-footnote num"><strong>' + m.have + '</strong>' +
+              (has ? ' / ' + m.want + ' ' + m.unit : ' ' + m.unit) + '</span>' +
           '</div>' +
-          '<div class="meter meter--quiet mt-2" role="img" aria-label="' + esc(m.name) + ', ' + m.have +
-            ' of ' + m.want + ' ' + m.unit + '"><span class="meter__fill" style="width:' + pct + '%"></span></div>' +
+          '<div class="meter meter--quiet mt-2" role="img" aria-label="' + esc(m.name) + ', ' + reads +
+            '"><span class="meter__fill" style="width:' + pct + '%"></span></div>' +
         '</div>';
       }).join('') + '</button>';
   }
@@ -27628,7 +27694,9 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
   /* Logged history, derived from the stored sessions. A hand-written table
      used to sit here, and it disagreed with Progress, Train, the workout log
      and the seed on every lift it named. There is one source now. */
-  var TODAY = (window.LKFixtures && LKFixtures.today) || '2026-09-09';
+  /* The wall clock, or the seed's date while a seed is loaded. Pinned to
+     the fixture, a build with no seed read undefined. */
+  var TODAY = window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10);
   function daysBack(iso) {
     var a = Date.parse(iso + 'T00:00:00Z'), b = Date.parse(TODAY + 'T00:00:00Z');
     if (isNaN(a) || isNaN(b)) return 0;
@@ -29947,9 +30015,12 @@ DEMO.define("settings", function (document, window, location, fetch) {
     view: String(get('lk_guestMode', '0')) === '1' ? 'guest' : 'signed-in',
     /* lk_profile.displayName is what Save Name writes; name is the seed's
        own name until somebody changes it. */
-    name: PROF.displayName || PROF.name || 'Cesco',
-    username: PROF.username || 'cesco',
-    email: PROF.email || 'cesco@locked.app',
+    /* Whatever the profile holds, and nothing when it holds nothing. These
+       fell back to the seeded persona, so an account that had never entered
+       a name was shown somebody else's. */
+    name: PROF.displayName || PROF.name || '',
+    username: PROF.username || '',
+    email: PROF.email || '',
     /* lk_profile.useKg, through LKUnits. This screen converted its own rows
        correctly and stored nothing, so the choice reached no other screen and
        did not survive a reload. */
@@ -30075,7 +30146,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
      Both do the thing now, with LKStore.dump() and LKStore.load().
      ============================================================= */
   function todayStamp() {
-    var t = (window.LKFixtures && LKFixtures.today) || '';
+    var t = window.LKStore ? LKStore.today() : '';
     return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : new Date().toISOString().slice(0, 10);
   }
   function exportBackup() {
@@ -30466,11 +30537,18 @@ DEMO.define("settings", function (document, window, location, fetch) {
      1. Account
      ============================================================= */
   function identityRow() {
+    /* An account that has entered nothing says so and offers the sheet that
+       asks. It used to print the seeded persona's name, handle and address. */
+    var named = !!(S.name || S.username || S.email);
+    var sub = [S.username ? '@' + S.username : '', S.email].filter(Boolean).join(' \u00b7 ');
     return '<button class="row" data-action="sheet" data-key="profile" data-testid="row-identity">' +
-             '<span class="hdr__initial" aria-hidden="true">' + esc(S.name.charAt(0)) + '</span>' +
+             '<span class="hdr__initial" aria-hidden="true">' +
+               esc(S.name ? S.name.charAt(0) : '\u2013') + '</span>' +
              '<span class="row__main">' +
-               '<span class="row__title">' + esc(S.name) + '</span>' +
-               '<span class="row__sub truncate">@' + esc(S.username) + ' &middot; ' + esc(S.email) + '</span>' +
+               '<span class="row__title">' + esc(S.name || 'Add your name') + '</span>' +
+               '<span class="row__sub truncate">' +
+                 esc(named ? (sub || 'No handle or email yet')
+                           : 'Nothing set yet. Tap to add it.') + '</span>' +
              '</span>' +
              '<span class="row__chev">' + ICO.chev + '</span>' +
            '</button>';
@@ -31588,7 +31666,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
   function lastSetsFor(exId) {
     var FX = window.LKFixtures;
     if (!FX || !FX.lastTime) return null;
-    var last = FX.lastTime(exId, FX.today);
+    var last = FX.lastTime(exId, window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10));
     if (!last) return null;
     return last.exercise.sets.filter(function (st) { return st.done; });
   }
@@ -31625,7 +31703,12 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     return { id: id, name: name, muscle: muscle, note: kept || note || '', sets: sets };
   }
 
+  /* The seeded mid-session, for the dev states and for a demo. A build with
+     no seed has no such session: a workout nobody logged is exactly the
+     stranger's training this screen must never show. Without a seed the log
+     opens empty, which is what starting a workout from nothing looks like. */
   function pushDay() {
+    if (!window.LKFixtures) return [];
     /* The warm-up and the two working sets already logged are today's, and
        they stay as they are; everything else is last session's figures. */
     return [
@@ -31764,15 +31847,20 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     return v === true || v === 'true';
   }
 
+  /* A seeded mid-session, or a new workout. The literals below describe the
+     demo's half-finished Push; with no seed there is no such session, and
+     opening the log means starting one. */
+  var SEEDED = !!window.LKFixtures;
+
   var S = {
-    state: 'mid-session',
-    name: 'PPL - Push',
+    state: SEEDED ? 'mid-session' : 'empty',
+    name: SEEDED ? 'PPL - Push' : 'Quick Workout',
     /* lk_profile.useKg, through LKUnits. This screen's switch was its own:
        it converted this screen correctly and toasted "Showing lb everywhere"
        while every other screen stayed in kg, and it opened in kg whatever the
        profile said. There is one setting now, and this switch writes it. */
     unit: (window.LKUnits && !LKUnits.useKg()) ? 'lb' : 'kg',
-    elapsed: 1261,           /* 21:01 */
+    elapsed: SEEDED ? 1261 : 0,   /* 21:01 into the demo's session, or a new one */
     exercises: pushDay(),
     blocks: [],
     /* Which exercise the picker is replacing, or null when it is adding. */
@@ -31849,6 +31937,12 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       toast('Could not get a recommendation. Check your connection and retry.', 'error', 'Retry');
     }
     if (name !== 'first-set' && name !== 'empty') S.name = 'PPL - Push';
+    /* Nothing seeded means nothing to be in the middle of. */
+    if (!SEEDED && !S.exercises.length) {
+      S.name = 'Quick Workout';
+      S.elapsed = 0;
+      S.state = 'empty';
+    }
   }
 
   /* =============================================================
@@ -32111,7 +32205,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
   var STALE_AFTER = 31;
   function staleDays(ex) {
     if (!ex || !ex.id || !window.LKStore) return 0;
-    var today = (window.LKFixtures && LKFixtures.today) || new Date().toISOString().slice(0, 10);
+    var today = window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10);
     var hist = LKStore.get('lk_history', []) || [];
     var last = null;
     hist.forEach(function (w) {
@@ -33747,7 +33841,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     }
     rows.unshift({ exId: ex.id, name: ex.name || '', group: ex.group || '',
                    muscle: ex.muscle || '', kg: st.kg, reps: st.reps,
-                   date: (window.LKFixtures && LKFixtures.today) || new Date().toISOString().slice(0, 10) });
+                   date: window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10) });
     LKStore.set('lk_prs', rows);
   }
 
@@ -33843,7 +33937,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     });
     var rec = {
       title: S.name,
-      dateISO: (window.LKFixtures && LKFixtures.today) || null,
+      dateISO: window.LKStore ? LKStore.today() : null,
       sets: doneSets(),
       warmups: doneWarmups(),
       volumeKg: Math.round(volumeKg()),
@@ -36316,7 +36410,11 @@ DEMO.define("review", function (document, window, location, fetch) {
   ];
 
   /* ---- screen state ---------------------------------------------- */
-  var S = { view: 'record', saved: false, reflection: {}, note: '', discardArmed: false,
+  /* Review reviews a session that was handed over. Opened with nothing handed
+     and no seed to fall back on -- a new account -- there is no session, and
+     the screen says so instead of showing the demo's Push. */
+  var S = { view: (window.LKFixtures ? 'record' : 'empty'),
+            saved: false, reflection: {}, note: '', discardArmed: false,
             ai: 'idle', toast: null,
             /* split: 'pending' | 'updated' | 'kept'. picks: indices chosen
                in the per-change sheet, empty until the lifter picks. */
@@ -36946,7 +37044,7 @@ DEMO.define("review", function (document, window, location, fetch) {
       /* The seed's own field names -- date, min, kg -- because every screen
          that reads history reads those, and a record written in a second
          vocabulary is a record only this screen can read. */
-      date: HANDED.dateISO || (window.LKFixtures && LKFixtures.today) || null,
+      date: HANDED.dateISO || (window.LKStore ? LKStore.today() : null),
       min: HANDED.minutes,
       sets: HANDED.sets,
       kg: HANDED.volumeKg,
@@ -37162,7 +37260,11 @@ DEMO.define("review", function (document, window, location, fetch) {
     if (b) show(b.dataset.state);
   });
 
-  show(new URLSearchParams(location.search).get('state') || 'record');
+  /* The demo's finished Push is the entry state while a seed is loaded. With
+     no seed there is no session to review until one is handed over, and
+     showing the seeded Push would be a workout nobody did. */
+  show(new URLSearchParams(location.search).get('state') ||
+       (window.LKFixtures ? 'record' : 'empty'));
 })();
 
   /* The running workout, from a screen that is not it. Leaving the workout
@@ -37669,6 +37771,20 @@ DEMO.define("workout-detail", function (document, window, location, fetch) {
       '</div>';
   };
 
+  /* Opened with no session handed over and nothing in the history. A new
+     account reaches this by tapping a row that is not there yet, or by
+     opening the screen directly; either way there is nothing to show, and
+     the demo's Pull is not an answer. */
+  VIEWS.none = function () {
+    return '<div class="empty mt-5" data-testid="detail-none">' +
+        '<p class="empty__title">No session to show</p>' +
+        '<p class="empty__body">Nothing has been logged yet. Finish a workout and it ' +
+          'opens here, with every set, the volume and what changed since last time.</p>' +
+        '<button class="btn btn--secondary mt-2" type="button" data-act="back" data-testid="none-back">' +
+          '<span class="btn__label">Back to Train</span></button>' +
+      '</div>';
+  };
+
   VIEWS.loading = function () {
     return '<div class="mt-4" role="status" aria-busy="true" aria-label="Loading the session">' +
       '<div class="skel" style="height: var(--sp-3); width: 60%"></div>' +
@@ -38019,17 +38135,22 @@ DEMO.define("workout-detail", function (document, window, location, fetch) {
         if (w) return w;
       }
     }
+    /* No history at all -- a new account -- is not a session to show. The
+       literal below describes the demo's Pull; falling back to it showed a
+       workout nobody did. */
+    if (!window.LKFixtures) return null;
     return clone(SESSION);
   }
   var openId = null;
   try { openId = localStorage.getItem('lk_openWorkout'); } catch (e) {}
   var handed = openId ? fromFixture(openId) : null;
   S.w = handed || defaultSession();
-  if (handed && handed.kind === 'cardio') S.state = 'cardio';
+  if (!S.w) { S.w = { name: '', date: '', exercises: [], sets: 0, kg: 0, min: 0 }; S.state = 'none'; }
+  else if (handed && handed.kind === 'cardio') S.state = 'cardio';
   var q = new URLSearchParams(location.search);
   if (q.get('state') && VIEWS[q.get('state')]) {
     S.state = q.get('state');
-    S.w = q.get('state') === 'cardio' ? clone(CARDIO) : defaultSession();
+    S.w = q.get('state') === 'cardio' ? clone(CARDIO) : (defaultSession() || S.w);
   }
   render();
   requestAnimationFrame(function () { window.__ready = true; });
@@ -40246,7 +40367,9 @@ DEMO.define("progress", function (document, window, location, fetch) {
   function get(key, dflt) { return ST ? ST.get(key, dflt) : dflt; }
   function put(key, v) { if (ST) ST.set(key, v); }
 
-  var TODAY = (window.LKFixtures && LKFixtures.today) || '2026-09-09';
+  /* The wall clock, or the seed's date while a seed is loaded. Pinned to
+     the fixture, a build with no seed read undefined. */
+  var TODAY = window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10);
 
   var HISTORY = get('lk_history', []) || [];
 
@@ -40820,7 +40943,15 @@ DEMO.define("progress", function (document, window, location, fetch) {
 
   function trendCard() {
     var days = rangeDays();
-    var lift = liftById(S.liftId);
+    var lift = liftById(S.liftId) || LIFTS[0];
+    /* No lifts at all -- a new account -- is not a chart with a hole in it. */
+    if (!lift) {
+      return '<div class="card mt-3" data-testid="card-trend">' +
+        '<div class="t-label">Strength over time</div>' +
+        '<p class="t-detail mt-2">Nothing logged yet. Finish a session and the ' +
+          'lifts in it get a chart here.</p>' +
+      '</div>';
+    }
     var pts = ptsIn(lift, days);
     /* A lift with nothing inside the range is not an error, it is an answer.
        The three routines that read pts[0] and pts[length-1] threw on it,
@@ -41003,6 +41134,12 @@ DEMO.define("progress", function (document, window, location, fetch) {
   var VIEWS = {};
 
   VIEWS.populated = function () {
+    /* Gated on the DATA, not on a dev state. A new account with nothing
+       logged was shown the populated screen and its charts read from an
+       empty history. The switcher still wins for looking at the screen. */
+    if (!LIFTS.length && !WEIGHT_LOG.length && !RECORDS.length && S.view === 'populated') {
+      return VIEWS.empty();
+    }
     return rangeControl() + answerCard() + trendCard() + recordsSection() + moreSection();
   };
 
