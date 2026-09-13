@@ -672,13 +672,15 @@
        back through the same mapping the seed does. Writing a prettier shape
        would mean this file could load its own output and get nothing. */
     window.LKStore.set('lk_customEx', S.customs.map(function (c) {
-      return { id: c.id, name: c.name, eq: c.eq, gid: c.gid, sid: c.sid, custom: true };
+      return { id: c.id, name: c.name, eq: c.eq, gid: c.gid, sid: c.sid, custom: true,
+               startResist: c.startResist || 0, smithNoCB: !!c.smithNoCB };
     }));
   }
 
   var CUSTOMS = ((window.LKStore ? window.LKStore.get('lk_customEx', null) : null) ||
                  (window.LKFixtures && LKFixtures.customEx) || []).map(function (c) {
-    return { id: c.id, name: c.name, eq: c.eq, gid: c.gid, sid: c.sid };
+    return { id: c.id, name: c.name, eq: c.eq, gid: c.gid, sid: c.sid,
+             startResist: c.startResist || 0, smithNoCB: !!c.smithNoCB };
   });
 
   /* Logged history, from the seeded guest profile (kg). */
@@ -1176,6 +1178,28 @@
       '</div>';
   }
 
+  /* The nine ways a load is actually carried. Each one changes how a number
+     on a set is read, which is why it is a choice rather than the constant
+     'Machine' every custom exercise used to get. */
+  var EQUIPMENT = [
+    ['Barbell', 'The bar counts. Set what it weighs below.'],
+    ['Dumbbell', 'The figure you log is one dumbbell, the way the rack is labelled.'],
+    ['Machine', 'Whatever the stack says.'],
+    ['Cable', 'Whatever the stack says.'],
+    ['Smith machine', 'The carriage may or may not count. Say which below.'],
+    ['Bodyweight', 'No load to set. Add weight as a set figure when you wear it.'],
+    ['Band', 'Bands are not kilos. Log what you can, the trend is the useful part.'],
+    ['Kettlebell', 'The bell you picked up.'],
+    ['Plate-loaded', 'The carriage counts. Set what it weighs below.']
+  ];
+  function eqNote(id) {
+    for (var i = 0; i < EQUIPMENT.length; i++) if (EQUIPMENT[i][0] === id) return EQUIPMENT[i][1];
+    return EQUIPMENT[2][1];
+  }
+  function eqIsPlate(id) {
+    return id === 'Barbell' || id === 'Plate-loaded' || id === 'Smith machine';
+  }
+
   function sheetCreate() {
     var d = S.create, subs = GROUP_INDEX[GORDER[d.gid]][2];
     return '<div class="scrim" data-action="close-create" data-testid="scrim-create"></div>' +
@@ -1198,7 +1222,42 @@
               subs.map(function (s) {
                 return '<option value="' + s[0] + '"' + (s[0] === d.sid ? ' selected' : '') + '>' + esc(s[1]) + '</option>';
               }).join('') + '</select></label>' +
-          '<p class="field__help">It is saved on this device and appears in browse, search and the counts.</p>' +
+          /* Equipment, which decides how the weight is read. It was hardcoded
+             'Machine' on every custom exercise, so a barbell lift somebody
+             added carried the wrong word in the list and the wrong maths
+             behind it. */
+          '<label class="field mt-4"><span class="field__label t-label">Equipment</span>' +
+            '<select class="input" id="ceq" data-action="ceq" data-testid="create-equipment">' +
+              EQUIPMENT.map(function (e) {
+                return '<option value="' + esc(e[0]) + '"' + (e[0] === d.eq ? ' selected' : '') +
+                  '>' + esc(e[0]) + '</option>';
+              }).join('') + '</select></label>' +
+          '<p class="field__help">' + esc(eqNote(d.eq)) + '</p>' +
+          /* Only where it means something. A dumbbell has no bar and a
+             cable has no counterbalance, so asking about either would be
+             asking a question with no answer. */
+          (eqIsPlate(d.eq)
+            ? '<label class="field mt-4"><span class="field__label t-label">Weight before any plates</span>' +
+                '<input class="input num" id="cbase" type="number" min="0" max="200" step="0.5" ' +
+                  'inputmode="decimal" value="' + (d.startResist || 0) + '" ' +
+                  'data-action="cbase" data-testid="create-base"></label>' +
+              '<p class="field__help">The bar, sled or carriage on its own, in kg. Added to every ' +
+                'set so the log matches what was lifted.</p>'
+            : '') +
+          (d.eq === 'Smith machine'
+            ? '<div class="row row--withaside mt-3">' +
+                '<span class="row__main stack">' +
+                  '<span class="row__title" id="cnocb-lbl">No counterbalance</span>' +
+                  '<span class="row__sub">' + (d.smithNoCB
+                    ? 'The carriage weight counts, so it is added.'
+                    : 'The carriage is counterbalanced, so only the plates count.') + '</span>' +
+                '</span>' +
+                '<button class="switch" role="switch" aria-checked="' + !!d.smithNoCB + '" ' +
+                  'aria-labelledby="cnocb-lbl" data-action="cnocb" data-testid="create-nocb">' +
+                  '<span class="switch__knob"></span></button>' +
+              '</div>'
+            : '') +
+          '<p class="field__help mt-3">It is saved on this device and appears in browse, search and the counts.</p>' +
         '</div>' +
         '<div class="sheet__foot mt-4">' +
           '<button class="btn btn--primary btn--block" type="button" data-action="save-custom" data-testid="create-save"' +
@@ -1440,15 +1499,23 @@
       render();
     },
     create: function () {
-      S.create = { name: S.q.trim(), gid: 'chest', sid: 'upper' };
+      S.create = { name: S.q.trim(), gid: 'chest', sid: 'upper', eq: 'Machine',
+                   startResist: 0, smithNoCB: false };
       render({ focus: 'create-name' });
     },
     'close-create': function () { S.create = null; render({ focus: 'search-input' }); },
+    cnocb: function () {
+      S.create.smithNoCB = !S.create.smithNoCB;
+      render({ focus: 'create-nocb' });
+    },
     'save-custom': function () {
       var d = S.create;
       if (!d.name.trim()) return;
       var id = 900001 + S.customs.length + 1;
-      S.customs.push({ id: id, name: d.name.trim(), eq: 'Machine', gid: d.gid, sid: d.sid });
+      S.customs.push({ id: id, name: d.name.trim(), eq: d.eq || 'Machine',
+                       gid: d.gid, sid: d.sid,
+                       startResist: eqIsPlate(d.eq) ? (Number(d.startResist) || 0) : 0,
+                       smithNoCB: d.eq === 'Smith machine' ? !!d.smithNoCB : false });
       /* Written, because the sheet says "It is saved on this device" and it
          was not: the exercise appeared in the list, in the counts and in
          search, and was gone on the next load. A screen that claims a save it
@@ -1469,6 +1536,8 @@
 
   var INPUTS = {
     cname: function (el) { S.create.name = el.value; document.querySelector('[data-testid="create-save"]').disabled = !el.value.trim(); },
+    ceq: function (el) { S.create.eq = el.value; render({ focus: 'create-equipment' }); },
+    cbase: function (el) { S.create.startResist = el.value; },
     cgroup: function (el) {
       S.create.gid = el.value;
       S.create.sid = GROUP_INDEX[GORDER[el.value]][2][0][0];

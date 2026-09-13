@@ -582,6 +582,9 @@
     sheet: null,          /* null | {kind:'split'|'activity'|'favs'|'newcardio'} */
     query: '',
     toast: null,
+    /* The id of the split whose delete is armed. One at a time, and cleared
+       by anything else, so an armed button cannot be hit by accident later. */
+    confirmDel: null,
     /* The cardio log in progress. `v` is the form, `done` the record once it
        has been written, so the sheet can show what was logged rather than
        closing on a toast. */
@@ -1249,6 +1252,8 @@
         '<div class="card card--flush">' + SPLITS.map(splitRow).join('') + '</div>' +
       '</section>' +
 
+      recoveryBlock() +
+
       cardioBlock() +
 
       '<section class="section" data-testid="section-history">' +
@@ -1274,6 +1279,131 @@
         '</div>' +
       '</section>';
   };
+
+  /* =============================================================
+     What has been trained, and what has had time to recover.
+
+     Neither existed. The screen could tell you what you did yesterday and
+     what your split says to do next, and nothing at all about which muscles
+     had been hit twice this week and which had not been touched in nine days
+     -- the one question a split is meant to answer and the one a log is
+     uniquely able to answer.
+
+     The muscles are the seed's own strings, grouped the way the body is
+     trained rather than the way an anatomy chart names it, so Mid Chest and
+     Upper Chest are Chest and the screen does not report thirteen separate
+     regions nobody plans around.
+     ============================================================= */
+  var MUSCLE_GROUP = {
+    'Quads': 'Legs', 'Hamstrings': 'Legs', 'Calves': 'Legs', 'Glutes': 'Legs',
+    'Lats': 'Back', 'Mid Back': 'Back', 'Lower Back': 'Back', 'Traps': 'Back',
+    'Mid Chest': 'Chest', 'Upper Chest': 'Chest', 'Lower Chest': 'Chest',
+    'Front Delt': 'Shoulders', 'Side Delt': 'Shoulders', 'Rear Delt': 'Shoulders',
+    'Long Head': 'Arms', 'Short Head': 'Arms', 'Lateral Head': 'Arms',
+    'Medial Head': 'Arms', 'Biceps': 'Arms', 'Triceps': 'Arms', 'Forearms': 'Arms',
+    'Abs': 'Core', 'Obliques': 'Core'
+  };
+  var GROUP_ORDER = ['Legs', 'Back', 'Chest', 'Shoulders', 'Arms', 'Core'];
+
+  /* Sets and days since, per group, from the logged sets only. A warm-up is
+     not volume and an unfinished set is not work. */
+  function muscleState() {
+    var out = {};
+    GROUP_ORDER.forEach(function (g) { out[g] = { week: 0, last: null, total: 0 }; });
+    var weekAgo = new Date(ms(TODAY) - 6 * 86400000).toISOString().slice(0, 10);
+    (rd('lk_history', [], false) || []).forEach(function (w) {
+      if (w.kind === 'cardio') return;
+      var iso = String(w.date || w.dateISO || '').slice(0, 10);
+      if (!iso) return;
+      (w.exercises || []).forEach(function (ex) {
+        var g = MUSCLE_GROUP[ex.muscle];
+        if (!g || !out[g]) return;
+        var work = (ex.sets || []).filter(function (st) { return st.done && !st.warm; }).length;
+        if (!work) return;
+        out[g].total += work;
+        if (iso >= weekAgo) out[g].week += work;
+        if (!out[g].last || iso > out[g].last) out[g].last = iso;
+      });
+    });
+    return out;
+  }
+
+  /* Recovered, ready, or resting. Forty-eight hours is the figure most
+     programmes use for a trained muscle group, so two clear days is "ready"
+     and anything past six days without work is called what it is. */
+  function recoveryWord(days) {
+    if (days === null) return ['Never logged', 'rec--none'];
+    if (days <= 1) return ['Trained ' + (days === 0 ? 'today' : 'yesterday'), 'rec--fresh'];
+    if (days <= 3) return ['Ready', 'rec--ready'];
+    if (days <= 6) return [days + ' days ago', 'rec--ready'];
+    return [days + ' days ago', 'rec--stale'];
+  }
+
+  function recoveryBlock() {
+    var st = muscleState();
+    var any = GROUP_ORDER.some(function (g) { return st[g].total > 0; });
+    if (!any) return '';
+    var max = Math.max.apply(null, GROUP_ORDER.map(function (g) { return st[g].week; }).concat([1]));
+    /* What to train today, from what has recovered. v6 put this in hours;
+       the log is dated to the day, so hours would be precision this data does
+       not have. Days, and the sentence says which groups rather than naming a
+       number nothing measured. */
+    var ready = [], resting = [], never = [];
+    GROUP_ORDER.forEach(function (g) {
+      var d = st[g];
+      if (!d.total) { never.push(g); return; }
+      var days = daysAgo(d.last);
+      if (days >= 2) ready.push({ g: g, days: days }); else resting.push({ g: g, days: days });
+    });
+    /* Least recently trained first: the group that has waited longest is the
+       one a week has been neglecting. */
+    ready.sort(function (a, b) { return b.days - a.days; });
+    var line;
+    if (ready.length) {
+      var pick = ready.slice(0, 2).map(function (r) { return r.g.toLowerCase(); });
+      line = 'Recovered and ready: ' + (pick.length === 2 ? pick[0] + ' or ' + pick[1] : pick[0]) + '.';
+      if (resting.length) {
+        line += ' ' + resting.map(function (r) { return r.g.toLowerCase(); }).join(' and ') +
+          (resting.length === 1 ? ' was' : ' were') + ' trained ' +
+          (resting[0].days === 0 ? 'today' : 'yesterday') + '.';
+      }
+    } else if (resting.length) {
+      line = 'Everything you train was hit in the last two days. Rest, or something easy.';
+    } else {
+      line = 'Nothing logged yet, so there is nothing to recover from.';
+    }
+    if (never.length) {
+      line += ' ' + never.map(function (g) { return g.toLowerCase(); }).join(' and ') +
+        ' ' + (never.length === 1 ? 'has' : 'have') + ' never been logged.';
+    }
+
+    return '<section class="section" data-testid="section-recovery">' +
+      '<div class="section__head"><h2 class="t-label">By muscle, this week</h2></div>' +
+      '<div class="card">' +
+      '<p class="t-body-em" data-testid="rec-suggestion">' + esc(line) + '</p>' +
+      '<div class="mt-3">' + GROUP_ORDER.map(function (g, i) {
+        var d = st[g];
+        var days = d.last === null ? null : daysAgo(d.last);
+        var word = recoveryWord(days);
+        var pct = Math.round(d.week / max * 100);
+        return '<div class="recrow' + (i ? ' mt-3' : '') + '" data-testid="rec-' + g.toLowerCase() + '">' +
+          '<div class="hstack hstack--3">' +
+            '<span class="t-subheadline grow">' + g + '</span>' +
+            '<span class="t-caption-1 ' + word[1] + '">' + esc(word[0]) + '</span>' +
+            '<span class="t-subheadline num">' + n(d.week) + '</span>' +
+          '</div>' +
+          '<div class="meter meter--quiet mt-2" role="img" aria-label="' + g + ', ' + d.week +
+            (d.week === 1 ? ' working set' : ' working sets') + ' in the last seven days">' +
+            '<span class="meter__fill" style="width:' + pct + '%"></span></div>' +
+        '</div>';
+      }).join('') + '</div>' +
+      '<p class="t-caption-1 quiet mt-3">Working sets in the last seven days, counted from what ' +
+        'you ticked. Warm-ups are not volume. The bar is each group against the hardest-worked ' +
+        'one, not against a target: this screen does not have an opinion about how much is ' +
+        'right for you.</p>' +
+      '</div>' +
+    '</section>';
+  }
 
   /* Nothing has been earned yet, so nothing is claimed and nothing
      competes: one sentence, one action. The audited empty state
@@ -1438,6 +1568,20 @@
           '<button class="btn btn--secondary btn--block" type="button" data-action="edit-split" data-id="' + sp.id + '" ' +
                   'data-testid="edit-split">' + ICO.pencil +
             '<span class="btn__label">Edit split</span></button>' +
+          /* A split could be made and edited and never removed, so a week
+             somebody had stopped running sat at the top of the screen for
+             good. Two taps, and the sessions it produced are not touched:
+             deleting a plan is not a claim the training never happened. */
+          '<button class="btn btn--block mt-2 ' +
+            (S.confirmDel === sp.id ? 'btn--danger' : 'btn--tertiary') + '" type="button" ' +
+            'data-action="del-split" data-id="' + sp.id + '" data-testid="delete-split">' +
+            '<span class="btn__label">' + (S.confirmDel === sp.id
+              ? 'Tap again to delete ' + esc(sp.name)
+              : 'Delete this split') + '</span></button>' +
+          (S.confirmDel === sp.id
+            ? '<p class="t-meta mt-2" data-testid="delete-split-note">The sessions you logged from ' +
+              'it stay in your history.</p>'
+            : '') +
         '</div>' +
       '</div>';
   }
@@ -1746,6 +1890,11 @@
      ============================================================= */
   document.addEventListener('click', function (e) {
     var t = e.target.closest('[data-action]');
+    /* Any other control disarms a pending delete. An armed destructive button
+       that stays armed while somebody does three other things is a trap. */
+    if (S.confirmDel && (!t || t.getAttribute('data-action') !== 'del-split')) {
+      S.confirmDel = null;
+    }
     if (!t) return;
     var a = t.dataset.action;
 
@@ -1855,6 +2004,20 @@
     if (a === 'start-day') { closeSheet(); location.href = 'workout-log.html'; return; }
     /* WHICH split. Both of these opened the builder with no idea which split
        was meant, so "Edit split" and "New split" landed on the same thing. */
+    if (a === 'del-split') {
+      var did = t.getAttribute('data-id');
+      if (S.confirmDel !== did) { S.confirmDel = did; render(true); return; }
+      var keep = [], goneSp = null;
+      (rd('lk_splits', [], false) || []).forEach(function (x) {
+        if (x.id === did) goneSp = x; else keep.push(x);
+      });
+      if (store()) store().set('lk_splits', keep);
+      S.confirmDel = null; S.sheet = null;
+      loadSplits(false);
+      render(true);
+      say(goneSp ? goneSp.name + ' deleted. Its sessions are still in your history.' : 'Deleted.');
+      return;
+    }
     if (a === 'edit-split') {
       try { localStorage.setItem('lk_openSplit', t.getAttribute('data-id') || ''); } catch (err) {}
       location.href = 'split-builder.html'; return;
