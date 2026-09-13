@@ -265,6 +265,50 @@
 
   var GOAL_OFFSET = { cut: -400, maintain: 0, build: 250 };
 
+  /* ---------------------------------------------------------------
+     The refeed
+     --------------------------------------------------------------- */
+
+  /* Three consecutive new lows on a cut is the point at which eating less is
+     no longer the thing that is working. The offer is carbs, because that is
+     what a refeed is; it is an offer and not an instruction, and it lasts one
+     day.
+
+     Only on a cut. Offering somebody who is building a day of extra carbs
+     because their weight keeps falling would be advice pointing the wrong
+     way. */
+  function refeedDue() {
+    if (goalKey() !== 'cut') return null;
+    var log = (WEIGHTLOG || []).filter(function (e) { return e && e.date && e.kg; })
+      .slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+    if (log.length < 4) return null;
+    var lows = 0;
+    for (var i = log.length - 1; i >= 1; i--) {
+      var isLow = true;
+      for (var j = 0; j < i; j++) if (log[j].kg <= log[i].kg) { isLow = false; break; }
+      if (isLow) lows++; else break;
+      if (lows >= 3) break;
+    }
+    if (lows < 3) return null;
+    /* A refeed is a day at maintenance, not a day at twenty per cent more.
+       Taking a blind percentage off a target that was itself set for a
+       different goal gave 3,580 kcal on a cut, which is not a refeed, it is a
+       different week. The ceiling is what this body is estimated to spend.
+       Where that is unknown, a fifth more, capped. */
+    var a = adaptive();
+    var maint = a ? a.tdee : null;
+    var want = maint !== null ? Math.max(DAY.target, Math.round(maint / 10) * 10)
+                              : DAY.target + Math.round(DAY.target * 0.2 / 10) * 10;
+    var extra = want - DAY.target;
+    if (extra < 100) return null;     /* not a refeed, just a rounding */
+    return { lows: lows, kcal: want, carb: DAY.macros[1].want + Math.round(extra / 4) };
+  }
+
+  function refeedOn() {
+    var r = stored('lk_fuelRefeed', null);
+    return r && r.date === DAY.iso ? r : null;
+  }
+
   /* One place the figures a target is computed from actually live. They were
      spread across lk_profile, a constant inside a formula, and nothing at
      all. lk_profile still owns weight, height, age, sex and goal, because
@@ -502,17 +546,19 @@
     var iso = FX.today;
     var src = FUELLOG[iso] || { meals: [], waterMl: 0, supps: [] };
     var tg = TARGETS;
+    var rf = ST ? ST.get('lk_fuelRefeed', null) : null;
+    var isRefeed = rf && rf.date === iso;
     var d = {
       iso: iso,
       date: dayLabel(iso),
-      target: tg.kcal,
+      target: isRefeed ? rf.kcal : tg.kcal,
       goal: GOAL_WORD[goalKey()],
       goalKey: goalKey(),
       weightKg: (weekRate() || {}).kgNow || PROFILE.weightKg || 0,
       rate: weekRate(),
       macros: [
         { name: 'Protein', have: 0, want: tg.pro, unit: 'g', key: 'pro' },
-        { name: 'Carbs', have: 0, want: tg.carb, unit: 'g', key: 'carb' },
+        { name: 'Carbs', have: 0, want: isRefeed ? rf.carb : tg.carb, unit: 'g', key: 'carb' },
         { name: 'Fat', have: 0, want: tg.fat, unit: 'g', key: 'fat' }
       ],
       meals: src.meals.map(function (m) {
@@ -772,6 +818,60 @@
     if (ST && persisting()) ST.set('lk_shoppingList', list);
     render();
     say(add.length + (add.length === 1 ? ' thing' : ' things') + ' added to the list.');
+  }
+
+  /* ---------------------------------------------------------------
+     The cupboard, and what logging takes out of it
+     --------------------------------------------------------------- */
+
+  /* Loose, on purpose. "Greek yogurt" in the pantry and "Skyr, plain" on the
+     plate are the same tub to the person who bought it, and a match that
+     insists on the exact string would deplete nothing, ever. A word of four
+     letters or more shared between the two is enough. */
+  function pantryMatch(foodName) {
+    var pantry = stored('lk_pantryItems', []) || [];
+    var words = String(foodName).toLowerCase().split(/[^a-z]+/)
+      .filter(function (w) { return w.length >= 4; });
+    for (var i = 0; i < pantry.length; i++) {
+      var it = pantry[i];
+      if (it.empty) continue;
+      var pn = String(it.name || '').toLowerCase();
+      for (var j = 0; j < words.length; j++) {
+        if (pn.indexOf(words[j]) >= 0) return i;
+      }
+    }
+    return -1;
+  }
+
+  /* Logging a food takes it out of the cupboard, and the last of it goes
+     straight onto the list. This is the loop the two screens were missing:
+     the pantry was a list somebody edited by hand, so it drifted away from
+     what had actually been eaten within a day. */
+  function depletePantry(foodName) {
+    if (!ST || !persisting()) return null;
+    var pantry = (stored('lk_pantryItems', []) || []).slice();
+    var i = pantryMatch(foodName);
+    if (i < 0) return null;
+    var it = pantry[i];
+    var q = typeof it.quantity === 'number' ? it.quantity : 1;
+    q -= 1;
+    if (q > 0) { it.quantity = q; ST.set('lk_pantryItems', pantry); return null; }
+    it.quantity = 0;
+    it.empty = true;
+    ST.set('lk_pantryItems', pantry);
+    /* Onto the list, unless it is already there. Running out is exactly when
+       a thing should appear on a list without anybody remembering to add it. */
+    var list = (stored('lk_shoppingList', []) || []).slice();
+    var already = list.some(function (r) {
+      return String(r.itemName || '').toLowerCase() === String(it.name).toLowerCase();
+    });
+    if (!already) {
+      list.push({ id: 'sh_' + Date.now() + '_out', itemName: it.name, quantity: 1,
+                  unit: it.unit || '', category: it.category || 'pantry',
+                  dateAdded: new Date().toISOString(), checked: false });
+      ST.set('lk_shoppingList', list);
+    }
+    return it.name;
   }
 
   function savePlan() {
@@ -1358,6 +1458,23 @@
       '<div class="meter meter--quiet mt-2" role="img" aria-label="' + pct +
         ' per cent of today\u2019s water">' +
         '<span class="meter__fill" style="width:' + pct + '%"></span></div>' +
+      /* Glasses, not the difference in millilitres. "500 ml to go" is
+         arithmetic somebody has to do; two glasses is a thing you can picture
+         and then go and drink. */
+      '<p class="t-caption-1 quiet mt-1" data-testid="water-left">' +
+        (function () {
+          var left = DAY.waterGoalMl - DAY.waterMl;
+          /* Past the goal it says by how much, rather than stopping at
+             "there for the day". A line that stops moving once the meter is
+             full tells somebody who has drunk four litres exactly what it
+             tells somebody who has drunk two and a quarter. */
+          if (left <= 0) {
+            return left === 0 ? 'There for the day.'
+              : 'There for the day, and ' + n(-left) + ' ml past it.';
+          }
+          var g = Math.ceil(left / 250);
+          return g === 1 ? 'One glass to go.' : n(g) + ' glasses to go.';
+        })() + '</p>' +
       '<div class="hstack hstack--3 mt-3">' +
         '<button class="btn btn--secondary grow" type="button" data-action="water-add" ' +
           'data-testid="water-card-250"><span class="btn__label">+ ' + show(250) + '</span></button>' +
@@ -1429,6 +1546,37 @@
       '<button class="btn btn--secondary btn--block mt-3" type="button" data-action="suggest-log" ' +
         'data-k="' + best + '" data-testid="suggest-log">' +
         '<span class="btn__label">Add it to today</span></button>' +
+    '</div>';
+  }
+
+  function refeedCard() {
+    var on = refeedOn();
+    if (on) {
+      return '<div class="card mt-4" data-testid="refeed-banner">' +
+        '<div class="hstack hstack--3">' +
+          '<span class="t-subheadline grow">Refeed day</span>' +
+          '<button class="btn btn--sm btn--tertiary" type="button" data-action="refeed-off" ' +
+            'data-testid="refeed-off">End it</button>' +
+        '</div>' +
+        '<p class="t-detail mt-1">Today only: ' + n(on.kcal) + ' kcal and ' + n(on.carb) +
+          ' g of carbs, back to normal tomorrow.</p>' +
+      '</div>';
+    }
+    if (S.refeedDismissed) return '';
+    var r = refeedDue();
+    if (!r) return '';
+    return '<div class="card mt-4" data-testid="refeed-card">' +
+      '<span class="t-subheadline">Three new lows in a row</span>' +
+      '<p class="t-detail mt-1">A day at ' + n(r.kcal) + ' kcal, most of the difference in carbs, ' +
+        'is what a cut usually wants at this point. It is one day and it is an offer, not a ' +
+        'plan change: tomorrow goes back to ' + n(DAY.target) + '.</p>' +
+      '<div class="hstack hstack--3 mt-3">' +
+        '<button class="btn btn--secondary grow" type="button" data-action="refeed-on" ' +
+          'data-k="' + r.kcal + '" data-c="' + r.carb + '" data-testid="refeed-accept">' +
+          '<span class="btn__label">Take it today</span></button>' +
+        '<button class="btn btn--tertiary" type="button" data-action="refeed-no" ' +
+          'data-testid="refeed-dismiss"><span class="btn__label">Not today</span></button>' +
+      '</div>' +
     '</div>';
   }
 
@@ -1566,7 +1714,7 @@
   VIEWS.populated = function () {
     return '<div>' + hero() + logAction() + macros() + microPanel() + '</div>' +
       today() +
-      '<div>' + (S.tdeeDismissed ? '' : tdeeCard()) + suggestCard() +
+      '<div>' + refeedCard() + (S.tdeeDismissed ? '' : tdeeCard()) + suggestCard() +
         waterCard() + weightCard() + chips() + '</div>';
   };
   VIEWS['first-weeks'] = VIEWS.populated;
@@ -2857,6 +3005,22 @@
       return;
     }
     if (a === 'trend-range') { S.trendRange = +act.getAttribute('data-r'); render(); return; }
+    if (a === 'refeed-on') {
+      var rk = +act.getAttribute('data-k'), rc = +act.getAttribute('data-c');
+      if (ST && persisting()) ST.set('lk_fuelRefeed', { date: DAY.iso, kcal: rk, carb: rc });
+      DAY.target = rk; DAY.macros[1].want = rc;
+      render();
+      say('Refeed on. ' + n(rk) + ' kcal today.');
+      return;
+    }
+    if (a === 'refeed-no') { S.refeedDismissed = true; render(); return; }
+    if (a === 'refeed-off') {
+      if (ST && persisting()) ST.remove('lk_fuelRefeed');
+      DAY.target = TARGETS.kcal; DAY.macros[1].want = TARGETS.carb;
+      render();
+      say('Back to ' + n(TARGETS.kcal) + ' kcal.');
+      return;
+    }
     if (a === 'fuel-profile') { S.fp = fuelProfile(); S.sheet = 'fuel-profile'; render(); return; }
     if (a === 'fp-sex' || a === 'fp-act' || a === 'fp-goal' || a === 'fp-mm') {
       readFP();
@@ -3111,6 +3275,13 @@
     recount(DAY);
     saveDay();
     OFTEN = frequent();
+    var out = depletePantry(meal.name);
+    if (out) {
+      /* Said, not silent. A thing leaving the cupboard and joining a list is
+         a change to two other screens, and a person should hear about it
+         from the screen that caused it. */
+      S.pantryOut = out;
+    }
   }
 
   /* The two fields are uncontrolled, so anything typed into them has to be
@@ -3452,6 +3623,14 @@
      back: three rows became four. An action that cannot be taken back says
      so by passing nothing. */
   function say(msg, undo) {
+    /* A thing leaving the cupboard and joining the list is a change to two
+       other screens, and the person should hear it from the screen that
+       caused it -- appended to the message the log already produced, rather
+       than as a second toast that replaces the first. */
+    if (S.pantryOut) {
+      msg = msg + ' Last of the ' + String(S.pantryOut).toLowerCase() + ', so it is on the list.';
+      S.pantryOut = null;
+    }
     S.toast = msg;
     S.undo = undo || null;
     render();

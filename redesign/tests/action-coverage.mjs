@@ -97,6 +97,14 @@ for (const file of screens) {
           .map(e => (e.dataset.testid || '') + (e.getAttribute('aria-pressed') || '') +
                     (e.getAttribute('aria-selected') || '') + (e.getAttribute('aria-checked') || '') +
                     (e.getAttribute('aria-current') || '')).join('|'),
+        /* Inline widths, because a meter moving is exactly what a length diff
+           cannot see. Fuel's water control took the day from 1,750 to 2,000 ml
+           and reported dead: the figures either side are the same number of
+           characters, the caption went from "2 glasses to go." to "One glass
+           to go." which is also the same number of characters, and the only
+           thing that actually moved was a fill width in a style attribute. */
+        fills: [...document.querySelectorAll('[style*="width"]')]
+          .map(e => (e.getAttribute('style') || '')).join('|'),
         hash: location.hash,
         focus: document.activeElement?.getAttribute('data-testid') || '',
         scroll: [...document.querySelectorAll('*')].filter(e => e.scrollTop > 0).length
@@ -135,12 +143,20 @@ for (const file of screens) {
           .map(e => (e.dataset.testid || '') + (e.getAttribute('aria-pressed') || '') +
                     (e.getAttribute('aria-selected') || '') + (e.getAttribute('aria-checked') || '') +
                     (e.getAttribute('aria-current') || '')).join('|'),
+        /* Inline widths, because a meter moving is exactly what a length diff
+           cannot see. Fuel's water control took the day from 1,750 to 2,000 ml
+           and reported dead: the figures either side are the same number of
+           characters, the caption went from "2 glasses to go." to "One glass
+           to go." which is also the same number of characters, and the only
+           thing that actually moved was a fill width in a style attribute. */
+        fills: [...document.querySelectorAll('[style*="width"]')]
+          .map(e => (e.getAttribute('style') || '')).join('|'),
         hash: location.hash,
         focus: document.activeElement?.getAttribute('data-testid') || '',
         scroll: [...document.querySelectorAll('*')].filter(e => e.scrollTop > 0).length
       }));
       let changed = before.dom !== after.dom || before.hash !== after.hash ||
-                    before.aria !== after.aria ||
+                    before.aria !== after.aria || before.fills !== after.fills ||
                     before.focus !== after.focus || before.scroll !== after.scroll;
 
       /* A confirmation has to change the screen under it, not just dismiss
