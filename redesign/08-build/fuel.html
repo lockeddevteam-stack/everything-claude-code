@@ -2629,35 +2629,94 @@
         '</div>';
     }
     if (S.sheet === 'cam') {
+      var plate = camPlate();
+      var items = camItems();
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
         '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="cam-title" ' +
-          'data-detents="0.6 0.88" data-testid="sheet-cam">' +
+          'data-detents="0.6 0.94" data-testid="sheet-cam">' +
           '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
           '<div class="sheet__head"><h2 class="t-headline grow" id="cam-title">What is on the plate</h2>' +
             '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="cam-close">' +
               '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
             '</button></div>' +
           '<div class="sheet__body">' +
-            '<p class="t-body-17">Chicken, rice, broccoli. <span class="quiet">About ' +
-              n(camPlate().kcal) + ' kcal, ' + camPlate().pro + ' g protein.</span></p>' +
-            '<p class="t-caption-1 quiet mt-2">Estimated from the photo, 71% confident.' +
-              (S.camOil ? ' Adjusted for ' + { none: 'no oil', little: 'a little oil', lot: 'a lot of oil' }[S.camOil] + '.' : '') +
-            '</p>' +
-            '<p class="t-label mt-5">Was there oil or sauce?</p>' +
-            '<div class="chiprow mt-2">' +
-              ['none', 'little', 'lot'].map(function (k, i) {
-                return '<button class="chip" type="button" data-action="cam-oil" data-oil="' + k +
-                  '" aria-pressed="' + (S.camOil === k ? 'true' : 'false') +
-                  '" data-testid="cam-a' + (i + 1) + '">' +
-                  ['None', 'A little', 'A lot'][i] + '</button>';
-              }).join('') +
-            '</div>' +
-            '<p class="t-caption-1 quiet mt-3">One question, asked because oil moves this plate by ' +
-              'more than 15%. Nothing else is worth interrupting you for.</p>' +
+            /* A real file input, with capture so a phone opens the camera and
+               a second one for the library. The photo itself stays in the
+               browser: reading a plate needs a model, which needs a server,
+               and the sheet says so rather than implying the picture was
+               looked at. */
+            (S.camShot
+              ? '<div class="fuel-shot" data-testid="cam-shot">' +
+                  '<img src="' + esc(S.camShot) + '" alt="The photo you took">' +
+                '</div>' +
+                '<div class="hstack hstack--3 mt-2">' +
+                  '<button class="btn btn--tertiary grow" type="button" data-action="cam-discard" ' +
+                    'data-testid="cam-discard"><span class="btn__label">Discard the photo</span></button>' +
+                  '<button class="btn btn--tertiary grow" type="button" data-action="cam-redo" ' +
+                    'data-testid="cam-redo"><span class="btn__label">Estimate again</span></button>' +
+                '</div>'
+              : '<div class="fuel-shot fuel-shot--empty" data-testid="cam-empty" aria-hidden="true">' +
+                  ICO.cam + '</div>' +
+                '<div class="hstack hstack--3 mt-3">' +
+                  '<label class="btn btn--secondary grow" for="cam-take">' +
+                    '<span class="btn__label">Take a photo</span></label>' +
+                  '<input class="vis-hidden" id="cam-take" type="file" accept="image/*" ' +
+                    'capture="environment" data-testid="cam-take">' +
+                  '<label class="btn btn--secondary grow" for="cam-pick">' +
+                    '<span class="btn__label">From the library</span></label>' +
+                  '<input class="vis-hidden" id="cam-pick" type="file" accept="image/*" ' +
+                    'data-testid="cam-pick">' +
+                '</div>') +
+            '<p class="t-caption-1 quiet mt-3">The photo stays on this phone. Reading a plate needs ' +
+              'a model behind a server, which this build does not reach, so the items below are ' +
+              'the worked example \u2014 they are not what is in your picture.</p>' +
+            '<h3 class="t-label mt-5">What it reads as</h3>' +
+            (items.length
+              ? '<div class="card card--flush mt-2" data-testid="cam-items">' +
+                  items.map(function (x, i) {
+                    return '<div class="row row--withaside">' +
+                      '<span class="fuel-thumb" aria-hidden="true">' + x.icon + '</span>' +
+                      '<span class="row__main stack">' +
+                        '<span class="row__title">' + esc(x.name) + '</span>' +
+                        '<span class="row__sub">' + n(x.pro) + ' P \u00b7 ' + n(x.carb) +
+                          ' C \u00b7 ' + n(x.fat) + ' F</span>' +
+                      '</span>' +
+                      '<span class="row__value num">' + n(x.kcal) +
+                        '<small class="t-caption-2 quiet"> kcal</small></span>' +
+                      '<button class="iconbtn" type="button" data-action="cam-drop" data-i="' + i + '" ' +
+                        'aria-label="Not on the plate: ' + esc(x.name) + '" ' +
+                        'data-testid="cam-drop-' + i + '">' +
+                        '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
+                    '</div>';
+                  }).join('') + '</div>'
+              : '<p class="t-detail quiet mt-2" data-testid="cam-none">Nothing left on the plate. ' +
+                'Estimate again to start over.</p>') +
+            (items.length
+              ? '<p class="t-detail mt-2" data-testid="cam-total">' + n(plate.kcal) + ' kcal, ' +
+                  n(plate.pro) + ' g protein. <span class="quiet">Estimated, 71% confident.' +
+                  (S.camOil ? ' Adjusted for ' + { none: 'no oil', little: 'a little oil', lot: 'a lot of oil' }[S.camOil] + '.' : '') +
+                  '</span></p>' +
+                '<p class="t-label mt-5">Was there oil or sauce?</p>' +
+                '<div class="chiprow mt-2">' +
+                  ['none', 'little', 'lot'].map(function (k, i) {
+                    return '<button class="chip" type="button" data-action="cam-oil" data-oil="' + k +
+                      '" aria-pressed="' + (S.camOil === k ? 'true' : 'false') +
+                      '" data-testid="cam-a' + (i + 1) + '">' +
+                      ['None', 'A little', 'A lot'][i] + '</button>';
+                  }).join('') +
+                '</div>' +
+                '<p class="t-caption-1 quiet mt-3">One question, asked because oil moves this plate ' +
+                  'by more than 15%. Nothing else is worth interrupting you for. It goes on the ' +
+                  'plate rather than on any one item, so dropping the rice does not drop two ' +
+                  'thirds of the oil that went over all of it.</p>' +
+                slotPicker(S.logSlot || slotForNow(), 'pick-slot', 'cam-slot')
+              : '') +
           '</div>' +
           '<div class="sheet__foot">' +
-            '<button class="btn btn--primary btn--block" type="button" data-action="cam-log" data-testid="cam-confirm">' +
-              '<span class="btn__label">Log it</span></button>' +
+            '<button class="btn btn--primary btn--block" type="button" data-action="cam-log" ' +
+              (items.length ? '' : 'disabled ') + 'data-testid="cam-confirm">' +
+              '<span class="btn__label">' + (items.length ? 'Log ' + n(plate.kcal) + ' kcal' : 'Nothing to log') +
+              '</span></button>' +
           '</div>' +
         '</div>';
     }
@@ -2686,7 +2745,16 @@
     if (!act) return;
     var a = act.getAttribute('data-action');
     if (a === 'mic') { S.sheet = 'mic'; S.micText = ''; S.micItems = null; render(); return; }
-    if (a === 'cam') { S.sheet = 'cam'; render(); return; }
+    if (a === 'cam') {
+      S.sheet = 'cam'; S.camOil = null; S.camItems = null; S.camShot = null;
+      render(); return;
+    }
+    if (a === 'cam-drop') { camItems().splice(+act.getAttribute('data-i'), 1); render(); return; }
+    if (a === 'cam-redo') { S.camItems = null; S.camOil = null; render(); say('Estimated again.'); return; }
+    if (a === 'cam-discard') {
+      if (S.camShot) { try { URL.revokeObjectURL(S.camShot); } catch (e) {} }
+      S.camShot = null; render(); return;
+    }
     if (a === 'scan') {
       S.sheet = 'scan'; S.scanServings = 1; S.scanState = 'idle';
       S.scanCode = ''; S.scanError = null; S.scanHit = null;
@@ -2987,12 +3055,38 @@
 
   /* The plate the camera sheet is looking at. Oil is the one question worth
      interrupting for because it is the one that moves the figure. */
-  var CAM_BASE = { name: 'Chicken, rice, broccoli', icon: '🍗', kcal: 690, pro: 54, carb: 78, fat: 18 };
+  /* Items, not one lump. A photo estimate that comes back as a single
+     690 kcal row cannot be corrected: the broccoli is right, the rice is
+     double, and there is nothing on the screen to say so. Each item is
+     removable, and the total is what is left. */
+  var CAM_ITEMS = [
+    { name: 'Chicken breast', icon: '\ud83c\udf57', kcal: 330, pro: 46, carb: 0, fat: 8 },
+    { name: 'Rice, cooked', icon: '\ud83c\udf5a', kcal: 310, pro: 6, carb: 68, fat: 2 },
+    { name: 'Broccoli', icon: '\ud83e\udd66', kcal: 50, pro: 4, carb: 10, fat: 1 }
+  ];
+  var CAM_BASE = { name: 'Chicken, rice, broccoli', icon: '\ud83c\udf57', kcal: 690, pro: 54, carb: 78, fat: 18 };
   var OIL = { none: { kcal: -90, fat: -10 }, little: { kcal: 0, fat: 0 }, lot: { kcal: 160, fat: 18 } };
+  function camItems() {
+    if (!S.camItems) S.camItems = CAM_ITEMS.map(function (x) { return x; });
+    return S.camItems;
+  }
+
+  /* The oil sits on the plate, not on any one item, so it is added once to
+     whatever is left rather than divided among the items. Removing the rice
+     should not remove two thirds of the oil somebody poured over all of it. */
   function camPlate() {
     var d = OIL[S.camOil] || OIL.little;
-    return { name: CAM_BASE.name, icon: CAM_BASE.icon, kcal: CAM_BASE.kcal + d.kcal,
-             pro: CAM_BASE.pro, carb: CAM_BASE.carb, fat: CAM_BASE.fat + d.fat, src: 'estimate' };
+    var t = { kcal: 0, pro: 0, carb: 0, fat: 0 };
+    camItems().forEach(function (x) {
+      t.kcal += x.kcal; t.pro += x.pro; t.carb += x.carb; t.fat += x.fat;
+    });
+    var names = camItems().map(function (x) { return x.name.split(',')[0].toLowerCase(); });
+    return { name: names.length ? names.join(', ').replace(/^./, function (c) { return c.toUpperCase(); })
+                                : CAM_BASE.name,
+             icon: (camItems()[0] || CAM_BASE).icon,
+             kcal: Math.max(0, t.kcal + (camItems().length ? d.kcal : 0)),
+             pro: t.pro, carb: t.carb,
+             fat: Math.max(0, t.fat + (camItems().length ? d.fat : 0)), src: 'estimate' };
   }
 
   function nowLabel() {
@@ -3250,8 +3344,11 @@
 
   function camLog() {
     var plate = camPlate();
+    if (!camItems().length) return;
+    plate.slot = S.logSlot || slotForNow();
     addMeal(plate);
-    S.sheet = null; S.camOil = null;
+    if (S.camShot) { try { URL.revokeObjectURL(S.camShot); } catch (e) {} }
+    S.sheet = null; S.camOil = null; S.camItems = null; S.camShot = null;
     say(esc(plate.name) + ' logged, ' + n(plate.kcal) + ' kcal.');
   }
 
@@ -3390,6 +3487,17 @@
        is typed. The name keeps its own value across that repaint through
        readDraft, and the caret is put back the same way the search field
        does it. */
+    if (e.target.id === 'cam-take' || e.target.id === 'cam-pick') {
+      var file = e.target.files && e.target.files[0];
+      if (!file) return;
+      if (S.camShot) { try { URL.revokeObjectURL(S.camShot); } catch (err) {} }
+      /* An object URL, not a data URL: a phone photo is several megabytes and
+         base64 in a re-rendered attribute is a stall you can feel. */
+      S.camShot = URL.createObjectURL(file);
+      S.camItems = null; S.camOil = null;
+      render();
+      return;
+    }
     if (e.target.id === 'mn-name' || e.target.id === 'mn-kcal') {
       var wid = e.target.id;
       readManual();
