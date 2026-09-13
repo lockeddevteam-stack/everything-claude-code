@@ -192,9 +192,25 @@
     };
     ST.set('lk_fuelLog', FUELLOG);
     /* Supplements are one list the whole app reads, so today's ticks go back
-       to the key Stack and Recap read rather than only into the day. */
-    ST.set('lk_supplements', DAY.supps.map(function (sp) {
-      return { name: sp.name, dose: sp.dose, timeOf: sp.when, taken: sp.taken };
+       to the key Stack, Recap and Home read rather than only into the day.
+
+       MERGED, not rebuilt. Writing a fresh object per row dropped freq,
+       reminder and created -- fields this screen never shows and does not
+       own -- so one tick here silently deleted the data Home's
+       "supplements due" windows are computed from. Only `taken` is this
+       screen's to change. */
+    var kept = stored('lk_supplements', []) || [];
+    ST.set('lk_supplements', DAY.supps.map(function (sp, i) {
+      var was = kept[i] && kept[i].name === sp.name ? kept[i] : null;
+      if (!was) {
+        for (var j = 0; j < kept.length; j++) {
+          if (kept[j] && kept[j].name === sp.name) { was = kept[j]; break; }
+        }
+      }
+      var out = {};
+      if (was) Object.keys(was).forEach(function (k) { out[k] = was[k]; });
+      out.name = sp.name; out.dose = sp.dose; out.timeOf = sp.when; out.taken = sp.taken;
+      return out;
     }));
   }
 

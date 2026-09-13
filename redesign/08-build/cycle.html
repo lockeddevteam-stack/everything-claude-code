@@ -414,9 +414,16 @@
 
   /* Recovery mode. Set by logging a pregnancy loss or an abortion in the
      events section, cleared by the reader. While it is on, nothing on this
-     screen predicts anything. */
+     screen predicts anything.
+
+     Dismissing it records WHICH event was dismissed, not a bare "off". A
+     single boolean meant that once somebody had pressed "Start estimating
+     again", a loss logged months later could never bring the card back: the
+     screen would keep predicting through it, permanently, and the one reason
+     recovery mode exists is that a body after a loss does not follow the
+     arithmetic. So a recovery event dated after the dismissed one opens it
+     again, and the reader can dismiss that one in its turn. */
   function recoveryDate() {
-    if (S.p.recoveryOff) return null;
     var keys = Object.keys(S.days).sort(), found = null;
     keys.forEach(function (k) {
       var ev = S.days[k].events || [];
@@ -424,6 +431,12 @@
         if (ev.indexOf(RECOVERY_EVENTS[i]) >= 0) found = k;
       }
     });
+    if (!found) return null;
+    /* recoveryOff is the old shape: true meant "off for whatever was logged
+       then". Treated as dismissing everything up to today, so an upgrade does
+       not reopen a card somebody had already closed. */
+    var off = S.p.recoveryOffAt || (S.p.recoveryOff ? TODAY : null);
+    if (off && found <= off) return null;
     return found;
   }
   function ecDate() {
@@ -598,8 +611,12 @@
     return '<div class="cycring mt-4">' +
       '<div class="cycring__box" id="ring-box" data-testid="cycle-ring" ' +
         'role="slider" tabindex="0" aria-label="Cycle ring. Drag or use the arrow keys to look at any day." ' +
-        'aria-valuemin="1" aria-valuemax="' + p.cycleLen + '" ' +
-        'aria-valuenow="' + (S.preview !== null ? S.preview : (d === null ? 1 : Math.min(d, p.cycleLen))) + '" ' +
+        /* The maximum is the cycle length OR the day actually reached,
+           whichever is larger. Past the estimated length the centre said
+           "Day 47" while the slider reported 28 of 28, so anything reading
+           the control rather than the label was told the cycle had ended. */
+        'aria-valuemin="1" aria-valuemax="' + Math.max(p.cycleLen, d || 1) + '" ' +
+        'aria-valuenow="' + (S.preview !== null ? S.preview : (d === null ? 1 : d)) + '" ' +
         'aria-valuetext="' + esc(S.preview !== null ? 'Day ' + S.preview : label) + '">' +
         '<svg class="cycring__svg" viewBox="0 0 ' + R_SIZE + ' ' + R_SIZE + '" aria-hidden="true" focusable="false">' +
           '<circle cx="' + R_C + '" cy="' + R_C + '" r="' + R_R + '" fill="none" ' +
@@ -1150,11 +1167,22 @@
       var pt = paintOf(date);
       var future = daysBetween(TODAY, date) > 0;
       var cls = 'cal__d cyccal__d' + (future ? ' cal__d--future' : '');
-      if (pt && pt.kind === 'period') cls += ' cyccal-pred';
-      if (pt && pt.kind === 'fertile') cls += ' cyccal-fert';
-      if (pt && pt.kind === 'ov') cls += ' cyccal-ov';
-      if (pt && pt.kind === 'pms') cls += ' cyccal-pms';
-      var flow = pt && pt.kind === 'flow'
+      /* Discreet mode paints nothing predicted. The ring greys its arcs here
+         because colour IS the phase; the grid was still painting seventeen
+         fertile, ovulation, PMS and predicted-period cells with the legend
+         hidden, so the windows stayed perfectly visible to whoever was
+         holding the phone and only the words for them were gone. A logged day
+         keeps one neutral mark, because "something was logged" is what the
+         day sheet already shows in this mode. */
+      if (!S.p.discreet) {
+        if (pt && pt.kind === 'period') cls += ' cyccal-pred';
+        if (pt && pt.kind === 'fertile') cls += ' cyccal-fert';
+        if (pt && pt.kind === 'ov') cls += ' cyccal-ov';
+        if (pt && pt.kind === 'pms') cls += ' cyccal-pms';
+      } else if (pt && pt.kind === 'flow') {
+        cls += ' cyccal-quiet';
+      }
+      var flow = (!S.p.discreet && pt && pt.kind === 'flow')
         ? '<span class="cyccal__flow" style="opacity:' + (0.25 + pt.flow * 0.15) + '" aria-hidden="true"></span>'
         : '';
       var what = pt ? (pt.kind === 'flow' ? 'flow logged' :
@@ -1177,6 +1205,11 @@
       '<div class="cal__dow mt-3" aria-hidden="true">' +
         DOW.map(function (x) { return '<span>' + x[0] + '</span>'; }).join('') + '</div>' +
       '<div class="cal">' + cells + '</div>' +
+      (S.p.discreet
+        ? '<p class="t-caption-1 quiet mt-3" data-testid="cal-discreet">Predicted days are not ' +
+          'painted in discreet mode. A day you logged carries one neutral mark and nothing ' +
+          'else.</p>'
+        : '') +
     '</div>';
   }
 
@@ -1866,6 +1899,8 @@
       return;
     }
     if (a === 'end-recovery') {
+      /* The date of the event being dismissed, so a later one still counts. */
+      S.p.recoveryOffAt = recoveryDate() || TODAY;
       S.p.recoveryOff = true;
       persistProfile();
       render();
@@ -1914,10 +1949,6 @@
       /* No lastStart is written here. The starts are read back out of the
          log whenever they are needed, which is what makes clearing this day
          undo exactly what saving it did. */
-      if (!blank && !S.p.recoveryOff) {
-        var started = (S.draft.events || []).filter(function (x) { return RECOVERY_EVENTS.indexOf(x) >= 0; });
-        if (started.length) S.p.recoveryOff = false;
-      }
       persistDays();
       persistProfile();
       S.sheet = null; S.draft = null; S.reveal = false;

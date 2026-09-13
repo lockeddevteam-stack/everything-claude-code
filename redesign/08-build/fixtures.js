@@ -4848,6 +4848,76 @@
                 "pinned": true
           }
     ],
+    cycles: [
+          {
+                "id": "c1",
+                "name": "Autumn block",
+                "status": "active",
+                "start": "2026-08-11",
+                "weeks": 12,
+                "endPlanned": "2026-11-02",
+                "endActual": null,
+                "note": "Bloods booked for week 6.",
+                "comps": [
+                      {
+                            "name": "Testosterone enanthate",
+                            "cat": "aas",
+                            "dose": "250 mg",
+                            "freq": "twice-weekly",
+                            "route": "Intramuscular",
+                            "at": "08:00",
+                            "halfLifeH": 192,
+                            "taken": [
+                                  "2026-09-07"
+                            ]
+                      },
+                      {
+                            "name": "Anastrozole",
+                            "cat": "anc",
+                            "dose": "0.5 mg",
+                            "freq": "eod",
+                            "route": "Oral",
+                            "at": "08:00",
+                            "since": "2026-08-11",
+                            "halfLifeH": 46,
+                            "taken": []
+                      },
+                      {
+                            "name": "BPC-157",
+                            "cat": "sarm",
+                            "dose": "250 mcg",
+                            "freq": "daily",
+                            "route": "Subcutaneous",
+                            "at": "21:00",
+                            "halfLifeH": 4,
+                            "taken": []
+                      }
+                ]
+          },
+          {
+                "id": "c2",
+                "name": "Spring cut",
+                "status": "completed",
+                "start": "2026-03-02",
+                "weeks": 10,
+                "endPlanned": "2026-05-11",
+                "endActual": "2026-04-27",
+                "note": "Ended two weeks early, shoulder.",
+                "comps": [
+                      {
+                            "name": "Testosterone propionate",
+                            "cat": "aas",
+                            "dose": "100 mg",
+                            "freq": "eod",
+                            "route": "Intramuscular",
+                            "at": "07:30",
+                            "since": "2026-03-02",
+                            "halfLifeH": 20,
+                            "taken": []
+                      }
+                ]
+          }
+    ],
 
     /* Every session on a date, newest first. */
     on: function (iso) {

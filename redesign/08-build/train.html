@@ -1104,9 +1104,15 @@
       if (act.id === 'row' || act.id === 'waterrow') add('Split', paceStr(w.min / (w.km * 2)) + ' /500 m');
     }
     add('Average power', w.watts != null ? w.watts + ' W' : null);
-    add('Heart rate', w.hr != null ? w.hr + ' bpm' : null);
+    /* Off the record, in the record's own shape. `w` here is what was just
+       written to lk_history, where a heart rate is heartRate.avg and a
+       machine is machine.category -- so reading w.hr and w.surface dropped
+       the two figures somebody had just typed, on the screen confirming what
+       had been saved. */
+    add('Heart rate', (w.heartRate && w.heartRate.avg != null) ? w.heartRate.avg + ' bpm'
+                    : (w.hr != null ? w.hr + ' bpm' : null));
     add('Effort', w.effort);
-    add('Surface', w.surface);
+    add('Surface', w.surface || (w.machine && w.machine.category) || null);
     add('Riding position', w.position);
     add('Gross burn', group(w.cal) + ' kcal');
     add('Net burn', group(w.calDetail ? w.calDetail.net : est.net) + ' kcal');
@@ -1569,20 +1575,27 @@
         return '<div class="row" data-testid="fav-' + f.id + '">' +
           '<span class="ico-well">' + ICO.star + '</span>' +
           '<span class="row__main stack">' +
-            '<input class="input" type="text" value="' + esc(f.name) + '" aria-label="Name of favourite" ' +
+            /* favName/favMin, not f.name/f.min. A stored favourite carries
+               `label` and `defaults.durationSec` -- the shipped app's shape,
+               which is why the helpers exist two hundred lines above this --
+               so reading the raw keys rendered the literal string "undefined"
+               in the name field, in the sub-line, and in all three aria
+               labels. The helpers were written for exactly this and this row
+               was the one place that did not call them. */
+            '<input class="input" type="text" value="' + esc(favName(f)) + '" aria-label="Name of favourite" ' +
               'data-action="fav-rename" data-id="' + f.id + '" data-testid="fav-name-' + f.id + '">' +
-            '<span class="row__sub">' + n(f.min) + ' min' +
+            '<span class="row__sub">' + n(favMin(f)) + ' min' +
               (f.last ? ' &middot; saved ' + relDate(f.last) : '') + '</span>' +
           '</span>' +
           '<button class="iconbtn" type="button" data-action="fav-move" data-dir="-1" data-id="' + f.id + '" ' +
-            (i === 0 ? 'disabled aria-disabled="true" ' : '') + 'aria-label="Move ' + esc(f.name) + ' up" ' +
+            (i === 0 ? 'disabled aria-disabled="true" ' : '') + 'aria-label="Move ' + esc(favName(f)) + ' up" ' +
             'data-testid="fav-up-' + f.id + '">' + ICO.up + '</button>' +
           '<button class="iconbtn" type="button" data-action="fav-move" data-dir="1" data-id="' + f.id + '" ' +
-            (i === FAVS.length - 1 ? 'disabled aria-disabled="true" ' : '') + 'aria-label="Move ' + esc(f.name) + ' down" ' +
+            (i === FAVS.length - 1 ? 'disabled aria-disabled="true" ' : '') + 'aria-label="Move ' + esc(favName(f)) + ' down" ' +
             'data-testid="fav-down-' + f.id + '">' + ICO.down + '</button>' +
           '<button class="iconbtn iconbtn--danger' + (confirming ? '' : '-quiet') + '" type="button" ' +
             'data-action="fav-delete" data-id="' + f.id + '" data-testid="fav-delete-' + f.id + '" ' +
-            'aria-label="' + (confirming ? 'Confirm removing ' : 'Remove ') + esc(f.name) + '">' +
+            'aria-label="' + (confirming ? 'Confirm removing ' : 'Remove ') + esc(favName(f)) + '">' +
             (confirming ? '<span class="btn__label">Remove</span>' : ICO.trash) + '</button>' +
         '</div>';
       }).join('') + '</div>' +

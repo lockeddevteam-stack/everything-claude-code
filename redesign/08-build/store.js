@@ -103,6 +103,7 @@
       case 'lk_mcFuelAdjust':  return F.mcFuelAdjust;
       case 'lk_cardioPrefs':   return F.cardioPrefs;
       case 'lk_cardioFavorites': return F.cardioFavorites;
+      case 'lk_cycles':        return F.cycles;
       default:                  return undefined;
     }
   }

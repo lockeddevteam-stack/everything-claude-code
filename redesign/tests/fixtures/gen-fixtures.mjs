@@ -416,6 +416,35 @@ for (let i = 29; i >= 0; i--) {
 const trendTail = ['2026-09-06', '2026-09-07', '2026-09-08', '2026-09-09'].map((iso) => nutritionDays[iso].eaten);
 const trendValues = trendHead.concat(trendTail);
 if (trendValues.length !== 30) throw new Error('trend is ' + trendValues.length + ' days, want 30');
+/* Performance cycles. This lived as a literal inside stack.html while Home's
+   "compounds due" card read lk_cycles, so the card had nothing to read and
+   never rendered: two screens, one of them holding the data privately. It is
+   seed data now, and both read the same key.
+
+   endPlanned and endActual are separate fields on purpose. The shipped app
+   had one, so ending a cycle early overwrote the plan with the date you
+   ended it and the schedule the cycle had been measured against disappeared. */
+const cycles = [
+    { id: 'c1', name: 'Autumn block', status: 'active',
+      start: '2026-08-11', weeks: 12, endPlanned: '2026-11-02', endActual: null,
+      note: 'Bloods booked for week 6.',
+      comps: [
+        { name: 'Testosterone enanthate', cat: 'aas', dose: '250 mg', freq: 'twice-weekly',
+          route: 'Intramuscular', at: '08:00', halfLifeH: 192, taken: ['2026-09-07'] },
+        { name: 'Anastrozole', cat: 'anc', dose: '0.5 mg', freq: 'eod',
+          route: 'Oral', at: '08:00', since: '2026-08-11', halfLifeH: 46, taken: [] },
+        { name: 'BPC-157', cat: 'sarm', dose: '250 mcg', freq: 'daily',
+          route: 'Subcutaneous', at: '21:00', halfLifeH: 4, taken: [] }
+      ] },
+    { id: 'c2', name: 'Spring cut', status: 'completed',
+      start: '2026-03-02', weeks: 10, endPlanned: '2026-05-11', endActual: '2026-04-27',
+      note: 'Ended two weeks early, shoulder.',
+      comps: [
+        { name: 'Testosterone propionate', cat: 'aas', dose: '100 mg', freq: 'eod',
+          route: 'Intramuscular', at: '07:30', since: '2026-03-02', halfLifeH: 20, taken: [] }
+      ] }
+  ];
+
 const nutrition = {
   targets: TARGETS,
   microRef: MICRO_REF,
@@ -469,6 +498,7 @@ const body = `/* GENERATED — do not edit.
     mcFuelAdjust: ${JSON.stringify(mcFuelAdjust)},
     cardioPrefs: ${JSON.stringify(cardioPrefs, null, 6).replace(/\n/g, '\n    ')},
     cardioFavorites: ${JSON.stringify(cardioFavorites, null, 6).replace(/\n/g, '\n    ')},
+    cycles: ${JSON.stringify(cycles, null, 6).replace(/\n/g, '\n    ')},
 
     /* Every session on a date, newest first. */
     on: function (iso) {
