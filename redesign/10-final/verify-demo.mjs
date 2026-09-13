@@ -36,7 +36,21 @@ const info = await page.evaluate(() => ({
 console.log('screens (' + info.screens.length + '):', info.screens.join(', '));
 ok('no leaked globals', info.leaked.length === 0, info.leaked.join(', ') || '0 leaked names across ' + info.screens.length + ' screens');
 ok('no subresource requests', info.requests.length === 0, info.requests.join(', ') || '0 requests');
-ok('boots at #/home', info.hash === '#/home', info.hash);
+/* A FIRST RUN GOES TO ONBOARDING, a returning one to Home. This asserted
+   #/home unconditionally, which was the behaviour before the build had a
+   first-run gate: a cleared phone landed on a screen about training nobody
+   had done. Both halves are checked, because a gate that always fires is the
+   same defect pointing the other way. */
+ok('a fresh phone boots at #/onboarding', info.hash === '#/onboarding', info.hash);
+
+await page.evaluate(() => {
+  try { localStorage.setItem('lk_onboarded', JSON.stringify({ at: 'test' })); } catch (e) {}
+});
+await page.goto(DEMO);
+await page.waitForFunction(() => window.DEMO && Object.keys(window.DEMO.screens).length > 0);
+await page.waitForTimeout(500);
+const hash2 = await page.evaluate(() => location.hash);
+ok('a returning phone boots at #/home', hash2 === '#/home', hash2);
 
 const visible = () => page.evaluate(() => {
   const el = [...document.querySelectorAll('.demo-screen')].find((d) => !d.hidden);
