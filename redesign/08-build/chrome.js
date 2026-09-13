@@ -578,8 +578,68 @@
     root.__lk_sheetwatch = true;
   }
 
-  global.LKChrome = { init: init };
+  /* ------------------------------------------------------------------
+     THE KEYBOARD, AND WHAT IT COVERS.
+
+     An on-screen keyboard does not resize the layout viewport on iOS: it
+     slides over it. Everything fixed to the bottom -- the tab bar, a
+     sheet's footer, the action bar a workout log keeps its Finish button
+     in -- ends up underneath it, and the control somebody is typing
+     towards is the one they cannot see.
+
+     visualViewport reports what is actually visible. The height it loses
+     is published as --lk-kb, and the chrome that sits at the bottom reads
+     it. Where the browser has no visualViewport nothing changes, which is
+     the behaviour on every desktop and the right fallback.
+     ------------------------------------------------------------------ */
+  function watchKeyboard() {
+    var vv = global.visualViewport;
+    if (!vv || !doc.documentElement) return;
+    var last = -1;
+    function measure() {
+      /* What the keyboard covers: the window's height less the visible
+         viewport, less however far the page has been scrolled within it.
+         Small values are rounding and address-bar movement, not a keyboard. */
+      var covered = Math.max(0, Math.round(
+        (global.innerHeight || 0) - vv.height - vv.offsetTop));
+      var px = covered > 80 ? covered : 0;
+      if (px === last) return;
+      last = px;
+      doc.documentElement.style.setProperty('--lk-kb', px + 'px');
+      doc.documentElement.setAttribute('data-keyboard', px ? 'open' : 'shut');
+    }
+    vv.addEventListener('resize', measure);
+    vv.addEventListener('scroll', measure);
+    measure();
+  }
+
+  /* A DOUBLE TAP ON A NUMBER IS NOT A ZOOM REQUEST. Logging a set means
+     tapping small numeric controls quickly, and Safari reads two taps
+     inside 300ms as zoom-to-fit -- which leaves the reader zoomed into a
+     rep counter with no obvious way back. Pinch is untouched: that is a
+     deliberate gesture and taking it away hurts anybody who needs it. */
+  function lockDoubleTapZoom() {
+    var lastTouch = 0;
+    doc.addEventListener('touchend', function (e) {
+      var now = Date.now();
+      if (now - lastTouch <= 300) {
+        var t = e.target;
+        /* Only over the app's own controls. Text somebody is reading can
+           still be double-tapped to zoom, which is what that gesture is
+           for. */
+        if (t && t.closest && t.closest('button, .row, .chip, .seg__item, [data-act], [data-action]')) {
+          e.preventDefault();
+        }
+      }
+      lastTouch = now;
+    }, { passive: false });
+  }
+
+  global.LKChrome = { init: init, watchKeyboard: watchKeyboard };
 
   if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', function () { init(doc); });
   else init(doc);
+
+  /* Once per document, not per screen: the keyboard belongs to the window. */
+  if (!global.__lk_kbwatch) { global.__lk_kbwatch = true; watchKeyboard(); lockDoubleTapZoom(); }
 })(typeof window !== 'undefined' ? window : this);

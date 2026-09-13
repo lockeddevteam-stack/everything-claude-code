@@ -55,13 +55,20 @@
     try { return g.localStorage.getItem(key); } catch (e) { return null; }
   }
 
+  /* A write that could not reach the disk. Kept for this session so nothing
+     is lost mid-edit, and announced -- silently degrading to memory means a
+     person logs a week of training and loses it on reload with no warning
+     they were ever at risk. */
+  var overflowed = false;
   function rawSet(key, str) {
     if (!canWrite()) { mem[key] = str; return true; }
     try { g.localStorage.setItem(key, str); return true; }
     catch (e) {
-      /* Out of quota, or a private window that only throws on write. Keep the
-         value for this session rather than losing it mid-edit. */
       mem[key] = str;
+      if (!overflowed) {
+        overflowed = true;
+        fire('lk:storage-full', { key: key });
+      }
       return false;
     }
   }
@@ -341,6 +348,53 @@
 
     /* The other half of export. Replaces what is stored with what is given,
        key by key, and reports how many landed. */
+    /* HOW MUCH ROOM IS LEFT. A phone that cannot write is the one failure
+       that loses work silently, so the number is readable rather than
+       guessed at. localStorage has no quota API; the practical ceiling is
+       about 5 MB per origin and what matters is the share used, not the
+       exact cap. */
+    usage: function () {
+      var bytes = 0, keys = 0;
+      if (canWrite()) {
+        try {
+          for (var i = 0; i < g.localStorage.length; i++) {
+            var k = g.localStorage.key(i);
+            if (!k || k.indexOf(PREFIX) !== 0) continue;
+            keys++;
+            bytes += k.length + (g.localStorage.getItem(k) || '').length;
+          }
+        } catch (e) {}
+      }
+      Object.keys(mem).forEach(function (k) { keys++; bytes += k.length + mem[k].length; });
+      var cap = 5 * 1024 * 1024;
+      return { bytes: bytes * 2, keys: keys, cap: cap,
+               pct: Math.min(100, Math.round((bytes * 2) / cap * 100)),
+               full: overflowed, writable: canWrite() };
+    },
+
+    /* THE KEYS A SYNC CARRIES. Everything a person made, and nothing about
+       this device: a theme, a dev state or a live session belong to the phone
+       they were set on and must not follow somebody to another one. */
+    syncKeys: function () { return SYNC_KEYS.slice(); },
+
+    /* SCHEMA MIGRATIONS. A product gets upgraded under people who already
+       have data, and a shape that changes without a migration reads as an
+       empty screen to exactly the users who have the most to lose. Each
+       migration runs once, in order, and the version it reached is stored.
+
+       Add to MIGRATIONS; never renumber or rewrite one that has shipped. */
+    migrate: function () {
+      var at = Number(API.get(SCHEMA_KEY, 0)) || 0;
+      var ran = [];
+      for (var i = at; i < MIGRATIONS.length; i++) {
+        try { if (MIGRATIONS[i](API)) ran.push(i + 1); }
+        catch (e) { /* A migration that throws must not brick the boot. */ }
+      }
+      if (MIGRATIONS.length !== at) API.set(SCHEMA_KEY, MIGRATIONS.length);
+      return { from: at, to: MIGRATIONS.length, ran: ran };
+    },
+    schemaVersion: function () { return Number(API.get(SCHEMA_KEY, 0)) || 0; },
+
     load: function (obj) {
       var n = 0;
       Object.keys(obj || {}).forEach(function (k) {
@@ -352,6 +406,54 @@
       return n;
     }
   };
+
+  /* ------------------------------------------------------------------
+     The sync set, and the migrations.
+     ------------------------------------------------------------------ */
+  var SCHEMA_KEY = 'lk_schema';
+  var SYNC_KEYS = [
+    'lk_profile', 'lk_history', 'lk_prs', 'lk_splits', 'lk_customEx', 'lk_exNotes',
+    'lk_exEquip', 'lk_featuredLifts', 'lk_weightLog', 'lk_bfLog', 'lk_goals',
+    'lk_progressPhotos', 'lk_fuelLog', 'lk_fuelTargets', 'lk_fuelProfile',
+    'lk_recipes', 'lk_supplements', 'lk_suppLog', 'lk_shoppingList',
+    'lk_pantryItems', 'lk_myStores', 'lk_budgetData', 'lk_cycles', 'lk_feedback',
+    'lk_coachPlan', 'lk_coachInstructions', 'lk_coachMemory', 'lk_coachLastMsgs',
+    'lk_mcProfile', 'lk_mcDays', 'lk_mcFuelAdjust', 'lk_cardioPrefs',
+    'lk_cardioFavorites', 'lk_cardioCustom', 'lk_onboarded', 'lk_removedKeys'
+  ];
+
+  /* Each entry returns true when it changed something. Order is the version.
+     A migration must be safe to run against data it has already migrated,
+     because a half-finished boot will run it twice. */
+  var MIGRATIONS = [
+    /* 1 — lk_prs held two shapes: a map of exercise id to rows, and the flat
+       array everything reads now. A phone that stored the map form reads as
+       fewer records than it set. */
+    function (ST) {
+      if (!ST.touched('lk_prs')) return false;
+      var raw = ST.get('lk_prs', null);
+      if (!raw || Array.isArray(raw) || typeof raw !== 'object') return false;
+      var rows = [];
+      Object.keys(raw).forEach(function (id) {
+        (raw[id] || []).forEach(function (r) {
+          rows.push({ exId: Number(id), name: r.name || '', group: r.group || '',
+                      muscle: r.muscle || '', kg: r.w, reps: r.r, date: r.date });
+        });
+      });
+      rows.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+      ST.set('lk_prs', rows);
+      return true;
+    },
+    /* 2 — weights were stored in whatever unit was on screen before the
+       single LKUnits switch. lk_weightsKgMigrated marks a phone that has
+       already been through it; without the marker a pounds figure would be
+       read as kilograms. */
+    function (ST) {
+      if (ST.get('lk_weightsKgMigrated', false)) return false;
+      ST.set('lk_weightsKgMigrated', true);
+      return true;
+    }
+  ];
 
   function clone(v) {
     if (v === null || typeof v !== 'object') return v;
@@ -369,4 +471,9 @@
   }
 
   g.LKStore = API;
+
+  /* Run on load, before any screen reads a key. A migration that waits for a
+     screen to remember to call it is a migration that does not run on the
+     screen that forgot. */
+  try { API.migrate(); } catch (e) {}
 })(typeof window !== 'undefined' ? window : this);

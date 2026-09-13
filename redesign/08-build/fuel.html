@@ -687,6 +687,105 @@
     return log[log.length - 1].kg;
   }
 
+  /* THE TREND, not the weigh-ins. A scale reads food, water and salt as well
+     as body mass, so the line drawn through raw weigh-ins zig-zags by half a
+     kilo and a person reads a bad Tuesday off it. Every weight figure that is
+     compared against another one on this screen goes through here.
+
+     It is the Hacker's Diet smoothing: carry the last reading forward over
+     the days with no weigh-in, then an exponential moving average at a tenth
+     a day, seeded on the first reading rather than on zero -- seeding at zero
+     spends a fortnight climbing and prints a trend nobody weighs. */
+  var TREND_ALPHA = 0.1;
+  function weightTrend(fromIso, toIso) {
+    var log = (WEIGHTLOG || []).filter(function (e) { return e && e.date && e.kg; })
+      .slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+    if (!log.length) return [];
+    var out = [], ema = null, li = 0;
+    var cur = log[0].kg;
+    var start = fromIso && fromIso < log[0].date ? log[0].date : (fromIso || log[0].date);
+    var end = toIso || log[log.length - 1].date;
+    if (end < start) return [];
+    var d = start;
+    for (var guard = 0; guard < 800 && d <= end; guard++) {
+      while (li < log.length && log[li].date <= d) { cur = log[li].kg; li++; }
+      ema = ema === null ? cur : ema + TREND_ALPHA * (cur - ema);
+      out.push({ date: d, kg: cur, trend: Math.round(ema * 100) / 100 });
+      d = isoPlus(d, 1);
+    }
+    return out;
+  }
+  function isoPlus(iso, k) {
+    var p = iso.split('-');
+    var t = Date.UTC(+p[0], +p[1] - 1, +p[2]) + k * 86400000;
+    var d = new Date(t);
+    return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) +
+      '-' + ('0' + d.getUTCDate()).slice(-2);
+  }
+  /* The trend on or before a date, which is the lookup every chart and every
+     comparison actually wants. Before the first weigh-in there is no trend,
+     and that is returned as null rather than as the first reading. */
+  var TREND_CACHE = null;
+  function trendAt(iso) {
+    if (!TREND_CACHE || TREND_CACHE.to !== DAY.iso) {
+      TREND_CACHE = { to: DAY.iso, rows: weightTrend(null, DAY.iso) };
+    }
+    var rows = TREND_CACHE.rows, out = null;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].date <= iso) out = rows[i].trend; else break;
+    }
+    return out;
+  }
+
+  /* One day added up, out of the log rather than out of the series: the
+     series carries energy only, so an average protein figure can only be
+     honest over the days that have meals on them. `full` says whether every
+     meal on the day carried the four micros, because a day with a photo
+     estimate in it under-counts fibre rather than being wrong about it. */
+  function dayTotals(iso) {
+    var rec = FUELLOG[iso];
+    var meals = (rec && rec.meals) || [];
+    if (iso === DAY.iso) meals = DAY.meals;
+    if (!meals.length) return null;
+    var t = { kcal: 0, pro: 0, carb: 0, fat: 0, fibre: 0, sodium: 0, full: true };
+    meals.forEach(function (m) {
+      t.kcal += m.kcal || 0; t.pro += m.pro || 0; t.carb += m.carb || 0; t.fat += m.fat || 0;
+      if (typeof m.fibre === 'number') t.fibre += m.fibre; else t.full = false;
+      if (typeof m.sodium === 'number') t.sodium += m.sodium;
+    });
+    return t;
+  }
+
+  /* Averages over the days that were actually logged, which is the only
+     window an average means anything over: a day nobody logged is not a day
+     somebody ate nothing, and counting it as a zero drags every figure down. */
+  function loggedAverages(dates) {
+    var days = [], full = 0;
+    dates.forEach(function (iso) {
+      var t = dayTotals(iso);
+      if (t) { days.push(t); if (t.full) full++; }
+    });
+    if (!days.length) return null;
+    var mean = function (k) {
+      return Math.round(days.reduce(function (a, d) { return a + d[k]; }, 0) / days.length);
+    };
+    return { n: days.length, full: full, kcal: mean('kcal'), pro: mean('pro'),
+             carb: mean('carb'), fat: mean('fat'), fibre: mean('fibre'), sodium: mean('sodium') };
+  }
+
+  /* Whether today is a training day, read off the same history Train writes.
+     Nothing in Fuel knew, so a rest day and a leg day were offered the same
+     carbohydrate and the same closing line. It is a fact, not advice: the
+     screen says which kind of day it is and leaves the target alone. */
+  function trainedOn(iso) {
+    var h = stored('lk_history', []) || [];
+    for (var i = 0; i < h.length; i++) {
+      if (h[i] && h[i].date === iso) return h[i];
+    }
+    return null;
+  }
+  function isTrainingDay() { return !!trainedOn(DAY.iso); }
+
   /* Module scope and with macros on it, because these rows log. The list was
      a literal inside the sheet's own render function and every row closed the
      sheet without logging anything, under copy that says "one tap logs it
@@ -2606,7 +2705,10 @@
       /* The weight line shares the x axis and gets its own scale, because a
          kilo and a kilocalorie are not comparable quantities and drawing them
          on one scale would flatten the weight to a straight line. */
-      var wk = se.map(function (e) { return weightAt(e.date); });
+      /* THE TREND LINE, not the weigh-ins. Raw readings drew a saw edge that
+         says more about salt and water than about fat, and two people read
+         two different stories off the same seven points. */
+      var wk = se.map(function (e) { return trendAt(e.date); });
       var wHas = wk.filter(function (v) { return v; });
       var wPts = '';
       if (wHas.length > 1) {
@@ -2650,8 +2752,11 @@
             '</svg>' +
             '<div class="hstack hstack--3 mt-2">' +
               '<span class="t-meta grow">Energy</span>' +
-              (wPts ? '<span class="t-meta">Body weight</span>' : '') +
+              (wPts ? '<span class="t-meta">Weight trend</span>' : '') +
             '</div>' +
+            (wPts ? '<p class="t-caption-2 quiet mt-1" data-testid="trend-weight-note">The weight ' +
+              'line is a smoothed trend, not the weigh-ins: the last reading carried forward and ' +
+              'averaged a tenth a day, so a heavy meal on Sunday does not read as fat gained.</p>' : '') +
             '<h3 class="t-label mt-5">Over these ' + range + ' days</h3>' +
             '<div class="card card--sunken mt-2" data-testid="trend-stats">' +
               '<div class="hstack hstack--3"><span class="t-body grow">Average against target</span>' +
@@ -2666,6 +2771,48 @@
                   '<span class="t-body-em num">' + signed(DAY.rate.pct) + '%</span></div>'
                 : '') +
             '</div>' +
+            /* THE DAILY AVERAGES. A trend view exists to show what an average
+               day looks like, and this sheet showed one figure -- calories --
+               and three sentences about it. Protein, carbs, fat, fibre and
+               sodium are the five figures a person changes anything on the
+               strength of.
+
+               Over the LOGGED days only, and it says how many. Averaging over
+               the window would divide by thirty and report 340 kcal a day for
+               somebody who logged four of them. */
+            (function () {
+              var av = loggedAverages(se.map(function (e) { return e.date; }));
+              if (!av) {
+                return '<h3 class="t-label mt-5">An average day</h3>' +
+                  '<p class="t-detail quiet mt-2" data-testid="trend-avg-none">No day in this ' +
+                  'window has a meal on it, so there is no average to take. The line above is ' +
+                  'energy only, which is all the days before you started logging carry.</p>';
+              }
+              var tiles = [
+                ['Calories', n(av.kcal), 'kcal'], ['Protein', n(av.pro), 'g'],
+                ['Carbs', n(av.carb), 'g'], ['Fat', n(av.fat), 'g'],
+                ['Fibre', n(av.fibre), 'g'], ['Sodium', n(av.sodium), 'mg']
+              ];
+              return '<h3 class="t-label mt-5">An average day</h3>' +
+                '<div class="card mt-2" data-testid="trend-averages">' +
+                  '<div class="statgrid">' + tiles.map(function (t, ti) {
+                    return '<div class="statgrid__i" data-testid="trend-avg-' + ti + '">' +
+                      '<span class="statrow__n num">' + t[1] + '<small class="t-caption-2 quiet"> ' +
+                        t[2] + '</small></span>' +
+                      '<span class="statrow__l">' + t[0] + '</span></div>';
+                  }).join('') + '</div>' +
+                  '<p class="t-caption-1 quiet mt-3" data-testid="trend-avg-note">Over the ' +
+                    (av.n === 1 ? 'one day' : av.n + ' days') + ' in these ' + range +
+                    ' with a meal logged on ' + (av.n === 1 ? 'it' : 'them') + ', not over all ' +
+                    range + '. ' +
+                    (av.full === av.n
+                      ? 'Every meal on those days carried fibre and sodium.'
+                      : (av.n - av.full) + ' of them ' + (av.n - av.full === 1 ? 'has' : 'have') +
+                        ' a meal with no breakdown \u2014 fibre and sodium are under-counted on ' +
+                        (av.n - av.full === 1 ? 'that day' : 'those days') + ' rather than wrong.') +
+                  '</p>' +
+                '</div>';
+            })() +
           '</div>' +
         '</div>';
     }

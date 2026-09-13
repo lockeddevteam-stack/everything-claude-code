@@ -13,6 +13,7 @@
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 <script src="session.js"></script>
+<script src="coach-actions.js"></script>
 </head>
 <body>
 <!--
@@ -243,7 +244,46 @@
     try { localStorage.setItem('lk_coachDataPrefs', JSON.stringify(S.setup.perms)); } catch (e) {}
   }
 
-  var STYLES = [['direct', 'Direct'], ['encouraging', 'Encouraging'], ['technical', 'Technical'], ['brief', 'Brief']];
+  /* THE SEVEN PERSONAS, with their ids and their descriptions, taken from the
+     shipped app's COACH_STYLES. The rebuild carried four -- and two of them
+     ("encouraging", "brief") are ids the stored key has never held, so a
+     phone with `warm` or `athlete` in lk_coachStyle showed nothing selected.
+
+     Each persona's `tone` is the sentence that goes into the system prompt.
+     It is shown here rather than hidden, because in this build there is no
+     model to send it to and a picker that silently changes nothing is worse
+     than one that says what it would do. */
+  var STYLES = [
+    ['direct', 'Direct', 'Short. No cheerleading. Tells you when something is not working.',
+     'Direct and brief. No cheerleading, no filler. Says plainly when something is not working.'],
+    ['warm', 'Warm', 'Encouraging. Notices effort as well as results.',
+     'Warm and conversational, like a knowledgeable friend who trains. Notices effort as well as results.'],
+    ['technical', 'Technical', 'Explains the mechanism. Cites the reasoning.',
+     'Precise and mechanistic. Names the mechanism or the principle behind every recommendation.'],
+    ['teacher', 'Teacher', 'Assumes nothing. Defines terms as it goes.',
+     'Patient teacher. Assumes no prior knowledge and defines any term of art the first time it appears.'],
+    ['hype', 'Hype', 'High energy. Celebrates loudly, calls out slacking with love.',
+     'High energy, gym slang welcome. Celebrates wins loudly and calls out slacking directly but with love.'],
+    ['athlete', 'Performance', 'Thinks in blocks and readiness. Every answer serves an outcome.',
+     'Performance coach for a competitive athlete. Thinks in blocks, periodisation and readiness.'],
+    ['physio', 'Physiology-Aware', 'Factors hormones, energy availability, and recovery differences.',
+     'Deep knowledge of female physiology. Factors hormonal fluctuation, energy availability and recovery differences in where relevant.']
+  ];
+  /* The two ids this rebuild invented, mapped onto the ones the key holds, so
+     nobody's stored answer reads as "none picked". */
+  var STYLE_ALIAS = { encouraging: 'warm', brief: 'direct' };
+  function normStyle(id) {
+    id = STYLE_ALIAS[id] || id;
+    for (var i = 0; i < STYLES.length; i++) { if (STYLES[i][0] === id) return id; }
+    return 'direct';
+  }
+  function styleRow(id) {
+    for (var i = 0; i < STYLES.length; i++) { if (STYLES[i][0] === id) return STYLES[i]; }
+    return STYLES[0];
+  }
+
+  /* The check-in's tags, the shipped app's own five. */
+  var CHECKIN_TAGS = ['Travel', 'Illness', 'Poor food', 'Big day at work', 'Period'];
 
   var QUICK = ['Reference my numbers.', 'Keep replies under 80 words.', 'No pep talk.',
                'Explain the why, briefly.', 'Do not suggest supplements.'];
@@ -393,7 +433,7 @@
       setup: {
         status: 'ready',
         instructions: rd('lk_coachInstructions', SEED_INSTRUCTIONS),
-        style: rd('lk_coachStyle', 'direct'),
+        style: normStyle(rd('lk_coachStyle', 'direct')),
         memory: mem,
         memoryOn: rd('lk_coachMemoryOn', true) !== false,
         perms: fresh ? defaultPerms() : storedPerms(),
@@ -1191,13 +1231,30 @@
         '</div>' +
       '</div></section>';
 
+    /* Seven personas, each with the description the shipped app gives it, and
+       the sentence that would be sent shown in full underneath the one that
+       is picked. The tone is stored and nothing in this build reads it -- the
+       replies here are written on this page -- so the card says that rather
+       than letting the picker imply an effect it cannot have. */
     var style = '<section class="section" data-testid="setup-style-block">' +
       '<div class="section__head"><h2 class="t-label">Tone</h2></div>' +
-      '<div class="card"><div class="hstack hstack--2 wrap">' +
+      '<div class="card card--flush">' +
         STYLES.map(function (t) {
-          return '<button class="chip" aria-pressed="' + (s.style === t[0]) + '" data-act="style" data-style="' + t[0] + '" data-testid="setup-style-' + t[0] + '">' + t[1] + '</button>';
+          return '<button class="opt" role="radio" aria-checked="' + (s.style === t[0]) + '" data-act="style" ' +
+            'data-style="' + t[0] + '" data-testid="setup-style-' + t[0] + '">' +
+            '<span class="opt__mark">' + ico('check') + '</span>' +
+            '<span class="opt__main"><span class="opt__title">' + esc(t[1]) + '</span>' +
+            '<span class="opt__sub">' + esc(t[2]) + '</span></span></button>';
         }).join('') +
-      '</div></div></section>';
+      '</div>' +
+      '<div class="card mt-2" data-testid="setup-style-effect">' +
+        '<div class="t-label">What gets sent</div>' +
+        '<p class="t-detail mt-2">&ldquo;' + esc(styleRow(s.style)[3]) + '&rdquo;</p>' +
+        '<p class="t-detail quiet mt-2">This build has no model behind the coach, so the replies ' +
+          'in Chat are written on this phone and read the same whichever tone is picked. ' +
+          'The choice is stored in lk_coachStyle and goes into the system prompt as soon as ' +
+          'the coach endpoint is connected.</p>' +
+      '</div></section>';
 
     /* Memory, with a master switch, a typed add and a way to clear the lot.
        "Add a fact" used to push the same hardcoded sentence every time it was
