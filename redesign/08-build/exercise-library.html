@@ -666,7 +666,18 @@
      dropped every custom out of browse. */
   /* lk_customEx, through the shared fixture. Two were invented here, so the
      library reported "Custom 2" where the stored data holds one. */
-  var CUSTOMS = ((window.LKFixtures && LKFixtures.customEx) || []).map(function (c) {
+  function saveCustoms() {
+    if (!window.LKStore) return;
+    /* The fixture's own keys -- eq, gid, sid -- so what is written reads
+       back through the same mapping the seed does. Writing a prettier shape
+       would mean this file could load its own output and get nothing. */
+    window.LKStore.set('lk_customEx', S.customs.map(function (c) {
+      return { id: c.id, name: c.name, eq: c.eq, gid: c.gid, sid: c.sid, custom: true };
+    }));
+  }
+
+  var CUSTOMS = ((window.LKStore ? window.LKStore.get('lk_customEx', null) : null) ||
+                 (window.LKFixtures && LKFixtures.customEx) || []).map(function (c) {
     return { id: c.id, name: c.name, eq: c.eq, gid: c.gid, sid: c.sid };
   });
 
@@ -1438,6 +1449,11 @@
       if (!d.name.trim()) return;
       var id = 900001 + S.customs.length + 1;
       S.customs.push({ id: id, name: d.name.trim(), eq: 'Machine', gid: d.gid, sid: d.sid });
+      /* Written, because the sheet says "It is saved on this device" and it
+         was not: the exercise appeared in the list, in the counts and in
+         search, and was gone on the next load. A screen that claims a save it
+         did not perform is worse than one with no save at all. */
+      saveCustoms();
       rebuild();
       S.create = null; S.q = ''; input.value = ''; S.filter = 'all'; S.gid = d.gid;
       render({ scrollTop: true });

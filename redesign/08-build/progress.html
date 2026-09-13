@@ -1540,6 +1540,27 @@
     if (isNaN(load) || load <= 0) { S.recordError = 'How much did you lift?'; render(); focusIn('rec-kg'); return; }
     if (isNaN(reps) || reps < 1) { S.recordError = 'At least one rep.'; render(); focusIn('rec-reps'); return; }
     var id = liftSel ? Number(liftSel.value) : 0;
+    /* A record has to beat the record. This accepted 1 kg for 5 as a Leg
+       Press record against a stored best of 165 for 10, and then redated the
+       row to today -- so the screen asserted a personal best that had never
+       been lifted, and buried the real one.
+
+       Beating it means more weight at the same reps or better, or the same
+       weight for more reps. Anything else is a set, and a set belongs in a
+       session rather than in the record book. */
+    var beaten = null;
+    RECORDS.forEach(function (r) {
+      if (r.id !== id) return;
+      if (r.kg > load && r.reps >= reps) { if (!beaten || r.kg > beaten.kg) beaten = r; }
+      else if (r.kg === load && r.reps >= reps) { if (!beaten || r.reps > (beaten.reps || 0)) beaten = r; }
+    });
+    if (beaten) {
+      var lift0 = liftById(id);
+      S.recordError = (lift0 ? lift0.name : 'That lift') + ' already has ' + num1(beaten.kg) +
+        ' kg for ' + beaten.reps + '. A record has to beat the record \u2014 more weight at the ' +
+        'same reps, or the same weight for more. Log it as a set instead.';
+      render(); focusIn('rec-kg'); return;
+    }
     RECORDS.unshift({ id: id, reps: reps, kg: load, date: todayISO() });
     saveRecords();
     S.recordError = null;

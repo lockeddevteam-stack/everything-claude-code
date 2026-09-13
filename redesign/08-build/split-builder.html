@@ -131,18 +131,34 @@
      different exercises is the worst possible answer to "what am I running".
 
      Which split: whichever Train handed over, else the first stored one. */
+  /* Through the store, so an edit saved here is the split Train and Home
+     read. The builder read the fixture directly, which was right when nothing
+     could be saved and wrong the moment anything could. */
+  function allSplits() {
+    if (window.LKStore) return window.LKStore.get('lk_splits', []) || [];
+    return (window.LKFixtures && LKFixtures.splits) || [];
+  }
+
   function splitFromFixture(id) {
-    var all = (window.LKFixtures && LKFixtures.splits) || [];
+    var all = allSplits();
     if (!all.length) return null;
     var sp = null;
     if (id) { for (var i = 0; i < all.length; i++) if (all[i].id === id) sp = all[i]; }
     if (!sp) sp = all[0];
     return {
       id: sp.id,
+      created: sp.created,
       name: sp.name,
       days: sp.days.map(function (d) {
         return { id: nid('d'), name: d.name,
-                 exercises: d.exercises.map(function (e) { return ex(e.name, e.muscle || ''); }) };
+                 exercises: d.exercises.map(function (e) {
+                   var row = ex(e.name, e.muscle || '');
+                   /* The catalogue id, kept so a saved split still points at
+                      the same exercises the rest of the app knows. */
+                   row.exId = e.id;
+                   row.group = e.group || '';
+                   return row;
+                 }) };
       })
     };
   }
@@ -774,11 +790,11 @@
   var PRESETS = [
     ['Manual · empty', function () { reset(); }],
     ['Manual · loading', function () { reset(); S.manual.status = 'loading'; }],
-    ['Manual · populated', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.savedAt = '2 minutes ago'; }],
-    ['Manual · edit mode', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.savedAt = '2 minutes ago'; S.manual.edit = true; }],
-    ['Manual · unsaved', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; }],
-    ['Manual · leave prompt', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; S.modal = { type: 'leave' }; }],
-    ['Manual · save error', function () { reset(); var s = seedSplit(); S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; S.manual.error = 'No connection to the LOCKED server. The draft is on this phone and will go up when you are back online.'; }],
+    ['Manual · populated', function () { reset(); var s = seedSplit(); S.manual.id = s.id || null; S.manual.created = s.created || null; S.manual.name = s.name; S.manual.days = s.days; S.manual.savedAt = '2 minutes ago'; }],
+    ['Manual · edit mode', function () { reset(); var s = seedSplit(); S.manual.id = s.id || null; S.manual.created = s.created || null; S.manual.name = s.name; S.manual.days = s.days; S.manual.savedAt = '2 minutes ago'; S.manual.edit = true; }],
+    ['Manual · unsaved', function () { reset(); var s = seedSplit(); S.manual.id = s.id || null; S.manual.created = s.created || null; S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; }],
+    ['Manual · leave prompt', function () { reset(); var s = seedSplit(); S.manual.id = s.id || null; S.manual.created = s.created || null; S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; S.modal = { type: 'leave' }; }],
+    ['Manual · save error', function () { reset(); var s = seedSplit(); S.manual.id = s.id || null; S.manual.created = s.created || null; S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; S.manual.error = 'No connection to the LOCKED server. The draft is on this phone and will go up when you are back online.'; }],
     ['AI · description', function () { reset(); S.screen = 'ai'; }],
     ['AI · generating', function () { reset(); S.screen = 'ai'; S.ai.status = 'loading'; S.ai.note = 'Three days a week, barbell and cables, shoulders need volume.'; S.ai.step = 1; }],
     ['AI · failed', function () { reset(); S.screen = 'ai'; S.ai.status = 'error'; S.ai.note = 'Three days a week, barbell and cables, shoulders need volume.'; S.ai.error = 'The request timed out after 20 seconds. Nothing was charged and nothing was saved.'; }],
@@ -788,7 +804,8 @@
   function reset() {
     clearTimers();
     S.screen = 'manual';
-    S.manual = { status: 'ready', name: '', days: [], dirty: false, savedAt: null, error: null, edit: false };
+    S.manual = { status: 'ready', id: null, created: null, name: '', days: [],
+                 dirty: false, savedAt: null, error: null, edit: false };
     S.ai = { status: 'idle', note: '', plan: null, error: null, step: 0 };
     S.lifted = null; S.dragging = null; S.modal = null; S.toast = null; S.swipe = null;
   }
@@ -902,10 +919,52 @@
     }, 450);
   }
 
+  /* It writes. This said "Split saved." and "saved just now" and wrote
+     nothing at all: a rename, a deleted lift, a whole new day, and after a
+     reload Train still showed the split as it was. A screen that reports a
+     save it did not perform is worse than one with no save button. */
+  function persistSplit() {
+    if (!window.LKStore) return false;
+    var list = allSplits().slice();
+    var rec = {
+      id: S.manual.id || ('s' + Date.now()),
+      name: S.manual.name.trim(),
+      created: S.manual.created || new Date().toLocaleDateString('en-US'),
+      days: S.manual.days.map(function (d) {
+        return {
+          name: d.name,
+          blocks: [],
+          exercises: d.exercises.map(function (x) {
+            /* The stored shape carries a catalogue id, a group and a muscle.
+               The builder's own rows carry a generated id and a muscle, so
+               anything already known keeps its figures and anything new
+               carries what the builder has. */
+            return { id: x.exId || x.id, name: x.name,
+                     group: x.group || '', muscle: x.muscle || '' };
+          })
+        };
+      })
+    };
+    S.manual.id = rec.id;
+    S.manual.created = rec.created;
+    var at = -1;
+    for (var i = 0; i < list.length; i++) if (list[i].id === rec.id) at = i;
+    if (at >= 0) list[at] = rec; else list.unshift(rec);
+    window.LKStore.set('lk_splits', list);
+    return true;
+  }
+
   function doSave(thenLeave) {
     S.manual.status = 'saving';
     render();
     later(function () {
+      if (!persistSplit()) {
+        S.manual.status = 'ready';
+        S.manual.error = 'This browser will not let the app store anything, so the split is ' +
+          'held for this visit only.';
+        render();
+        return;
+      }
       S.manual.status = 'ready';
       S.manual.dirty = false;
       S.manual.error = null;
@@ -1025,6 +1084,7 @@
       var was = { name: S.manual.name, days: JSON.parse(JSON.stringify(S.manual.days)) };
       var fresh = seedSplit();
       S.modal = null;
+      S.manual.id = fresh.id || S.manual.id; S.manual.created = fresh.created || S.manual.created;
       S.manual.name = fresh.name; S.manual.days = fresh.days;
       S.manual.dirty = false; S.manual.edit = false; S.lifted = null; S.swipe = null;
       toast('Changes discarded.', 'Undo', function () {

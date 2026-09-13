@@ -541,6 +541,101 @@
     }
   ];
 
+  /* ---------------------------------------------------------------
+     The plan the answers actually build
+     ---------------------------------------------------------------
+
+     The overview said "6 exercises, about 59 minutes" from a lookup keyed on
+     the days answer. It was a number about the answer rather than a count of
+     anything, because there was no session behind it: the whole flow ended on
+     a description of a plan that did not exist, and finishing it wrote
+     nothing at all -- Object.keys(localStorage) came back empty, so the app
+     behind it had no name, no units and no split.
+
+     These are real days with real exercises out of the same catalogue Train
+     reads, so the count is a count and the split can be started. */
+  var EX = {
+    bench:   { id: 111, name: 'Barbell Bench Press', group: 'Chest', muscle: 'Mid Chest' },
+    incline: { id: 103, name: 'Incline Cable Fly', group: 'Chest', muscle: 'Upper Chest' },
+    ohp:     { id: 302, name: 'DB Shoulder Press', group: 'Shoulders', muscle: 'Front Delt' },
+    lat:     { id: 311, name: 'Lateral Raise', group: 'Shoulders', muscle: 'Side Delt' },
+    push:    { id: 411, name: 'Tricep Pushdown', group: 'Triceps', muscle: 'Lateral Head' },
+    row:     { id: 201, name: 'Barbell Row', group: 'Back', muscle: 'Lats' },
+    pull:    { id: 205, name: 'Lat Pulldown', group: 'Back', muscle: 'Lats' },
+    curl:    { id: 401, name: 'Barbell Curl', group: 'Biceps', muscle: 'Long Head' },
+    squat:   { id: 501, name: 'Barbell Squat', group: 'Legs', muscle: 'Quads' },
+    rdl:     { id: 503, name: 'Romanian Deadlift', group: 'Legs', muscle: 'Hamstrings' },
+    press:   { id: 511, name: 'Leg Press', group: 'Legs', muscle: 'Quads' },
+    ham:     { id: 513, name: 'Seated Leg Curl', group: 'Legs', muscle: 'Hamstrings' },
+    calf:    { id: 521, name: 'Seated Calf Raise', group: 'Legs', muscle: 'Calves' },
+    dead:    { id: 502, name: 'Barbell Deadlift', group: 'Back', muscle: 'Lower Back' }
+  };
+  function planDay(name) {
+    var ex = [];
+    for (var i = 1; i < arguments.length; i++) ex.push(EX[arguments[i]]);
+    return { name: name, blocks: [], exercises: ex };
+  }
+  /* Fewer days a week means each session carries more of the week, which is
+     why the two-day plan has the longest sessions and the six-day plan the
+     shortest. */
+  var PLANS = {
+    '2': { name: 'Full body', days: [
+            planDay('Full body A', 'squat', 'bench', 'row', 'ohp', 'rdl', 'curl', 'push', 'calf'),
+            planDay('Full body B', 'dead', 'incline', 'pull', 'press', 'lat', 'ham', 'curl', 'calf')] },
+    '3': { name: 'Full body', days: [
+            planDay('Day A', 'squat', 'bench', 'row', 'ohp', 'curl', 'calf', 'push'),
+            planDay('Day B', 'dead', 'incline', 'pull', 'lat', 'ham', 'curl', 'calf'),
+            planDay('Day C', 'press', 'bench', 'row', 'ohp', 'rdl', 'lat', 'push')] },
+    '4': { name: 'Upper / lower', days: [
+            planDay('Upper A', 'bench', 'row', 'ohp', 'pull', 'curl', 'push'),
+            planDay('Lower A', 'squat', 'rdl', 'press', 'ham', 'calf', 'curl'),
+            planDay('Upper B', 'incline', 'pull', 'lat', 'row', 'push', 'curl'),
+            planDay('Lower B', 'dead', 'press', 'ham', 'squat', 'calf', 'lat')] },
+    '5': { name: 'Upper / lower / accessory', days: [
+            planDay('Upper A', 'bench', 'row', 'ohp', 'pull', 'curl'),
+            planDay('Lower A', 'squat', 'rdl', 'press', 'ham', 'calf'),
+            planDay('Upper B', 'incline', 'pull', 'lat', 'push', 'curl'),
+            planDay('Lower B', 'dead', 'press', 'ham', 'calf', 'squat'),
+            planDay('Accessory', 'lat', 'curl', 'push', 'calf', 'ham')] },
+    '6': { name: 'Push / pull / legs', days: [
+            planDay('Push A', 'bench', 'ohp', 'incline', 'lat', 'push'),
+            planDay('Pull A', 'row', 'pull', 'curl', 'lat', 'dead'),
+            planDay('Legs A', 'squat', 'rdl', 'press', 'ham', 'calf'),
+            planDay('Push B', 'incline', 'ohp', 'bench', 'lat', 'push'),
+            planDay('Pull B', 'dead', 'pull', 'row', 'curl', 'lat'),
+            planDay('Legs B', 'press', 'squat', 'ham', 'rdl', 'calf')] }
+  };
+  function planFor(d) { return PLANS[d] || PLANS['4']; }
+
+  /* What finishing setup actually leaves behind: five answers written to the
+     same keys every other screen reads, so the app opens knowing who you are
+     and what you are training. */
+  function commitSetup() {
+    if (!window.LKStore) return false;
+    var a = S.answers;
+    var d = a.days || '4';
+    var plan = planFor(d);
+    var prof = window.LKStore.get('lk_profile', {}) || {};
+    prof.name = (a.name || '').trim() || prof.name || 'You';
+    prof.useKg = (a.units || 'kg') === 'kg';
+    prof.experience = a.experience || '1to3';
+    prof.daysPerWeek = Number(d);
+    prof.trainingGoal = a.goal || 'size';
+    prof.createdAt = prof.createdAt || new Date().toLocaleDateString('en-US');
+    window.LKStore.set('lk_profile', prof);
+    window.LKStore.set('lk_splits', [{
+      id: 's' + Date.now(), name: plan.name, created: prof.createdAt,
+      days: plan.days.map(function (x) {
+        return { name: x.name, blocks: [], exercises: x.exercises.slice() };
+      })
+    }]);
+    /* The one key that says setup has been through. Without it there is no
+       way to tell a first run from a returning one, which is why a cleared
+       phone landed straight on Home. */
+    window.LKStore.set('lk_onboarded', { at: new Date().toISOString(), answers: a });
+    return true;
+  }
+
   var SPLIT = { '2': 'Full body', '3': 'Full body', '4': 'Upper / lower', '5': 'Upper / lower / accessory', '6': 'Push / pull / legs' };
   var REPS = { strength: '3 to 6 reps', size: '6 to 12 reps', general: '8 to 15 reps' };
   /* The experience answer said it "sets how fast loads climb in the first
@@ -737,9 +832,27 @@
       setBusy('signin-submit', true, 'Signing in');
     }
     if (S.variant === 'reset') {
-      email.value = 'cesco@example.com';
-      banner('#signin-banner', 'success', 'Reset link sent',
-        'If cesco@example.com has an account, a link is on the way. It expires in one hour.');
+      /* The typed address is left alone, and nothing claims a link was sent.
+         This overwrote whatever had been typed with cesco@example.com and
+         then asserted a reset link was on its way to that address -- for an
+         address the person had not entered, from a build with no server and
+         no way to send anything. An empty field produced the same claim.
+
+         Resetting a password needs a mail server; this says so. The address
+         is validated anyway, because the thing it CAN check is worth
+         checking. */
+      var typed = String(email.value || '').trim();
+      if (!typed) {
+        setError('signin-email', 'Enter the email address on the account first.');
+        email.focus();
+      } else if (!validEmail(typed)) {
+        setError('signin-email', 'This is not a complete email address. Add the part after the dot, like cesco@example.com.');
+        email.focus();
+      } else {
+        banner('#signin-banner', 'info', 'Resetting a password needs a server',
+          'There is no account system behind this build, so nothing can be sent to ' + typed +
+          '. In the live app this is where the link would go.');
+      }
     }
   }
 
@@ -929,6 +1042,13 @@
     renderSetup();
     window.setTimeout(function () {
       S.variant = 'default';
+      /* Written before the overview describes it, so that screen reads the
+         plan rather than predicting one. */
+      if (countAnswers() && !commitSetup()) {
+        S.variant = 'error';
+        renderSetup();
+        return;
+      }
       go('overview', 'loading');
       window.setTimeout(function () { go('overview', countAnswers() ? 'populated' : 'empty'); }, 1100);
     }, 800);
@@ -986,9 +1106,14 @@
     var units = a.units === 'lb' ? 'Pounds' : 'Kilograms';
     var who = a.name ? a.name : 'you';
     var exp = a.experience || '1to3';
-    var sessionName = SPLIT[days] === 'Upper / lower' ? 'Upper A' : SPLIT[days] === 'Push / pull / legs' ? 'Push A' : 'Full body A';
-    /* Fewer days means each session carries more of the week. */
-    var exCount = { '2': 8, '3': 7, '4': 6, '5': 5, '6': 5 }[days] || 6;
+    /* The first day of the split that was just written, and the count is its
+       exercises. It was a lookup keyed on the days answer: a number about the
+       answer rather than a count of anything, printed beside a session that
+       did not exist. */
+    var plan = planFor(days);
+    var first = plan.days[0];
+    var sessionName = first.name;
+    var exCount = first.exercises.length;
     var mins = exCount * 9 + 5;
 
     LKPatch(body, '<p class="t-label">Week 1 · Day 1</p>' +
@@ -1008,6 +1133,14 @@
         row('Starting loads', 'Set by your first working set of each lift') +
       '</div>' +
 
+      '<div class="section">' +
+        '<div class="section__head"><h3 class="t-section">' + escapeHtml(sessionName) + '</h3></div>' +
+        '<div class="card card--flush">' + first.exercises.map(function (x) {
+          return '<div class="row row--static"><span class="row__main stack">' +
+            '<span class="row__title">' + escapeHtml(x.name) + '</span>' +
+            '<span class="row__sub">' + escapeHtml(x.group) + '</span></span></div>';
+        }).join('') + '</div>' +
+      '</div>' +
       '<div class="section">' +
         '<div class="section__head"><h3 class="t-section">Do this first</h3></div>' +
         '<div class="card">' +
