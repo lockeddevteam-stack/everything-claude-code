@@ -1,0 +1,12 @@
+import {open,DEMO,T,ids as IDS,CYCLEON} from './zz4-lib.mjs';
+const {b,p,errs}=await open(DEMO+'#/home/cycle',CYCLEON);
+await p.waitForTimeout(1400);
+await p.click('[data-testid="cycle-settings"]'); await p.waitForTimeout(400);
+await p.click('[data-testid="cs-discreet"]'); await p.click('[data-testid="cs-save"]'); await p.waitForTimeout(700);
+await p.click('[data-testid="cycle-view-toggle"]'); await p.waitForTimeout(800);
+console.log('DISCREET CALENDAR:',T(await p.locator('[data-testid="cycle-scroll"]').innerText()).slice(0,900));
+console.log('legend:',T(await p.locator('[data-testid="cal-legend"]').innerText()));
+const cells=await p.$$eval('[data-testid^="cal-2026-09"]',ns=>ns.slice(0,14).map(n=>n.dataset.testid.slice(4)+'|'+(n.getAttribute('aria-label')||'')+'|'+n.className));
+cells.forEach(c=>console.log('  ',c));
+console.log('ERRS',errs);
+await b.close();

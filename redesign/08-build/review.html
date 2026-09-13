@@ -300,17 +300,25 @@
                delta: (raw2 < 0 ? -1 : 1) * Math.round(Math.abs(raw2)) };
     });
 
-    /* A record is claimed only when a top set actually beats the stored one
-       for that lift. */
+    /* A record is claimed only when a top set beats EVERY stored row for that
+       lift. Checked row by row, a 72.5 kg x 8 "beat" the stored 72.5 x 5 and
+       the screen awarded a record for equalling its own standing best.
+       Beaten means no stored row matches or exceeds it on both counts. */
     var rec = null;
-    (FX && FX.prs ? FX.prs : []).forEach(function (p) {
-      if (rec) return;
-      r.lifts.forEach(function (l) {
-        if (rec || l.id !== p.exId || !l.top) return;
-        var beats = l.top[0] > p.kg || (l.top[0] === p.kg && l.top[1] > p.reps);
-        if (beats) rec = { exId: p.exId, lift: l.name, w: l.top[0], r: l.top[1],
-                           prevW: p.kg, prevDate: p.date };
-      });
+    var rows = (window.LKStore ? window.LKStore.get('lk_prs', null) : null) ||
+               (FX && FX.prs) || [];
+    if (!Array.isArray(rows)) rows = [];
+    r.lifts.forEach(function (l) {
+      if (rec || !l.top) return;
+      var mine = rows.filter(function (p) { return Number(p.exId) === Number(l.id); });
+      if (!mine.length) return;               /* nothing to beat is not a claim */
+      var held = null;
+      for (var i = 0; i < mine.length; i++) {
+        if (mine[i].kg >= l.top[0] && mine[i].reps >= l.top[1]) return;  /* not beaten */
+        if (!held || mine[i].kg > held.kg || (mine[i].kg === held.kg && mine[i].reps > held.reps)) held = mine[i];
+      }
+      rec = { exId: l.id, lift: l.name, w: l.top[0], r: l.top[1],
+              prevW: held.kg, prevDate: held.date };
     });
 
     return {
@@ -1006,10 +1014,16 @@
     });
   }
 
-  /* Read once, at boot. Reading it on every paint would mean the screen
-     changed under a reader who had only pressed a dev-state button. */
-  var HANDED = handed();
-  if (HANDED) {
+  /* Read on boot and on entry, not on every paint: re-reading on paint would
+     change the screen under a reader who had only pressed a dev-state button,
+     but in the demo this screen is mounted once and Finish arrives long
+     after boot -- so it reported its fixture's 16 sets and 4,383 kg against
+     a session of two sets and 1,088 kg. */
+  var HANDED = null;
+  function takeHanded() {
+    var h = handed();
+    if (!h) return false;
+    HANDED = h;
     /* The prior column has to be the same lifts. Left at the fixture's whole
        5-lift Push, a session of one bench read "-2,671 kg, -62.6%" against a
        workout it shares one exercise with. Comparing like for like means
@@ -1030,7 +1044,13 @@
                    volumeKg: HANDED.volumeKg, minutes: HANDED.minutes };
     DATA.empty = { title: HANDED.title, date: HANDED.date };
     DATA.loading = DATA.empty;
+    SAVED = null;
+    return true;
   }
+  takeHanded();
+  document.addEventListener('lk:enter', function () {
+    if (takeHanded()) { S.view = 'populated'; paint(); }
+  });
 
   /* ---- saving ------------------------------------------------------
      SAVING SAVES. "Save session" set a flag, disabled its own button and
