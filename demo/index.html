@@ -29037,11 +29037,17 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
   function allNotes() {
     return (window.LKStore ? window.LKStore.get('lk_exNotes', {}) : null) || {};
   }
+  /* Two shapes are in the wild under this key: the seed carries
+     { text, updated } and the workout log writes a bare string. Read both,
+     write the one the log writes, so a note typed here is the note the log
+     puts on the card and neither screen renders "[object Object]". */
   function exNote(id) {
     var all = allNotes();
     var v = all[id];
     if (v === undefined) v = all[String(id)];
-    return v === undefined || v === null ? '' : String(v);
+    if (v === undefined || v === null) return '';
+    if (typeof v === 'object') return String(v.text || v.note || '');
+    return String(v);
   }
   function setExNote(id, text) {
     if (!window.LKStore) return false;
@@ -40102,6 +40108,42 @@ DEMO.define("cycle", function (document, window, location, fetch) {
     luteal: 'Effort feels higher for the same weight, especially late. That is the reading, not a drop in strength. Judge sessions on RIR rather than on how heavy they felt.',
     overdue: 'Nothing about training changes because a period is late. The screen has simply run out of cycle to estimate from.'
   };
+
+  /* What the phase says about food. The training half is PHASE_NOTE above --
+     one copy, shared -- and this is the other half.
+
+     F-CYCLE-020 and F-CYCLE-022. The sign-off found the cycle to be a
+     complete island: 41 of its 46 features worked and not one of them
+     reached Fuel or Train, which is the only reason a training app carries
+     a cycle at all. Nothing here is a measurement of the reader: the luteal
+     figure is the few per cent most people's resting burn rises by in the
+     second half, printed as an estimate and labelled as one.
+
+     BOTH SPELLINGS OF LATE. phaseOf() calls a cycle past its length
+     'overdue'; LKFixtures.cycleOn calls the same state 'late'. The guide
+     answers to both, so a reader that got its phase from either one finds a
+     row rather than a hole. */
+  var FUEL_NOTE = {
+    menstrual: 'Appetite is usually back to normal once the first day or two have passed, so nothing about the targets changes here.',
+    follicular: 'Appetite tends to sit at its lowest of the cycle through this stretch. Targets unchanged.',
+    ovulatory: 'Appetite is usually steady around here. Targets unchanged.',
+    luteal: 'Resting burn runs a few per cent higher in the second half for most people, and appetite usually rises with it. The suggestion below is that average, not a measurement of you: if your weight is going where you want it, ignore it.',
+    overdue: 'The arithmetic has run out of cycle to estimate from, so nothing is suggested for food either.'
+  };
+  var FUEL_PCT = { menstrual: 0, follicular: 0, ovulatory: 0, luteal: 5, overdue: 0 };
+  function fuelGuide() {
+    var g = {};
+    Object.keys(FUEL_NOTE).forEach(function (k) {
+      g[k] = {
+        name: PHASE_NAME[k] || k,
+        kcalPct: FUEL_PCT[k],
+        fuel: FUEL_NOTE[k],
+        train: PHASE_NOTE[k]
+      };
+    });
+    g.late = g.overdue;
+    return g;
+  }
 
   /* ---------------------------------------------------------------
      The seeds.

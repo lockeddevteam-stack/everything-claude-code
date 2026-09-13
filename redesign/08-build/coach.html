@@ -448,7 +448,8 @@
                    draft: '', error: null, writeStep: 0 },
       /* The daily check-in. The draft is what today's answers go into until
          it is saved; `log` is every day already answered. */
-      checkin: { draft: {}, saved: false, log: log },
+      checkin: { draft: {}, saved: false, log: log, hours: '', note: '', tags: [],
+                 response: null, inspect: null },
       modal: null,
       toast: null,
       openPhase: null
@@ -456,10 +457,17 @@
     /* Today's reading, if one was already saved, comes back into the form so
        the pane opens on what was answered rather than blank. */
     var todayIso = isoToday();
-    if (S.checkin.log.length && S.checkin.log[0].iso === todayIso) {
+    /* Only once the day's quota is met. With two readings a day asked for,
+       filling the form with the morning's answers and calling it saved hid
+       the fact that the evening one was still owed. */
+    if (S.checkin.log.length && S.checkin.log[0].iso === todayIso &&
+        checkinCountOn(todayIso) >= checkinPerDay()) {
       var t0 = S.checkin.log[0];
       S.checkin.draft = {};
       FEEL.forEach(function (f) { S.checkin.draft[f[0]] = t0[f[0]]; });
+      S.checkin.hours = t0.hoursSlept === null || t0.hoursSlept === undefined ? '' : String(t0.hoursSlept);
+      S.checkin.note = t0.note || '';
+      S.checkin.tags = (t0.tags || []).slice();
       S.checkin.saved = true;
     }
   }
@@ -1883,15 +1891,286 @@
      and the pane says what it is for underneath rather than turning it into
      a streak.
      --------------------------------------------------------------- */
+  /* PER-STEP WORDS, the shipped app's own, not two ends of a line.
+     "Flat to Sharp" leaves three of the five buttons meaning nothing, and
+     the reader picking 3 is guessing at what 3 is.
+
+     SORENESS RAN BACKWARDS. This screen labelled it "None to Heavy", so 5
+     meant wrecked -- while the stored key, the seed's six entries and every
+     piece of arithmetic that reads them treat 5 as fresh. A reader answering
+     honestly wrote the opposite of what they meant into their own log, and
+     the coach then read it as a good day. The scale is the app's: 1 wrecked,
+     5 fresh.
+
+     `mood` is the key's own name for it; this screen called it motivation
+     and wrote a field lk_feedback does not carry. */
   var FEEL = [
-    ['energy', 'Energy', 'Flat', 'Sharp'],
-    ['sleep', 'Sleep', 'Broken', 'Solid'],
-    ['soreness', 'Soreness', 'None', 'Heavy'],
-    ['stress', 'Stress', 'Low', 'High'],
-    /* `mood` is the key's own name for it. The screen called it motivation
-       and wrote a field lk_feedback does not carry. */
-    ['mood', 'Motivation', 'Low', 'High']
+    ['energy', 'Energy', ['Empty', '25%', '50%', '75%', '100%'], 'How much is in the tank?'],
+    ['sleep', 'Sleep', ['Awful', 'Poor', 'OK', 'Good', 'Great'], 'How well did you sleep?'],
+    ['soreness', 'Soreness', ['Wrecked', 'Sore', 'Mild', 'Fresh', '100%'], 'How do your muscles feel?'],
+    ['stress', 'Stress', ['Calm', 'Low', 'Medium', 'High', 'Maxed'], 'How much is life pressing on you?'],
+    ['mood', 'Mood', ['Low', 'Meh', 'OK', 'Good', 'Great'], 'How are you in yourself?']
   ];
+  function feelWord(key, v) {
+    for (var i = 0; i < FEEL.length; i++) {
+      if (FEEL[i][0] === key) return (v >= 1 && v <= 5) ? FEEL[i][2][v - 1] : '\u2014';
+    }
+    return String(v);
+  }
+
+  /* ---- the baseline, and what counts as a bad day ------------------
+     Thirty days of readings, a mean and a standard deviation per item.
+     Under fourteen readings there is no baseline and the screen says so
+     rather than calling an ordinary day low. For stress the bad direction
+     is up; for everything else it is down. */
+  var CHECKIN_MIN_BASELINE = 14;
+  function checkinStats(entries) {
+    var cutoff = new Date(TODAY.getTime() - 30 * 86400000);
+    var recent = (entries || []).filter(function (e) {
+      return e && e.iso && parseDate(e.iso) >= cutoff;
+    });
+    if (recent.length < CHECKIN_MIN_BASELINE) return null;
+    var out = {};
+    FEEL.forEach(function (f) {
+      var vals = [];
+      recent.forEach(function (e) {
+        var v = Number(e[f[0]]);
+        if (v >= 1 && v <= 5) vals.push(v);
+      });
+      if (vals.length < CHECKIN_MIN_BASELINE) return;
+      var mean = vals.reduce(function (a, b) { return a + b; }, 0) / vals.length;
+      var varc = vals.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0) / vals.length;
+      out[f[0]] = { mean: mean, sd: Math.sqrt(varc), n: vals.length };
+    });
+    return out;
+  }
+  function checkinFlag(key, value, stats) {
+    if (!stats || !stats[key]) return null;
+    var s = stats[key];
+    if (s.sd < 0.25) return null;      /* a flat line has no meaningful spread */
+    var dev = (value - s.mean) / s.sd;
+    if (key === 'stress') dev = -dev;
+    if (dev <= -2) return 'red';
+    if (dev <= -1) return 'amber';
+    return null;
+  }
+  function checkinFlags(entry, stats) {
+    var out = {};
+    FEEL.forEach(function (f) {
+      var v = Number(entry && entry[f[0]]);
+      if (v >= 1 && v <= 5) out[f[0]] = checkinFlag(f[0], v, stats);
+    });
+    return out;
+  }
+  function checkinLowRun(entries, key, ceil) {
+    var run = 0;
+    for (var i = 0; i < (entries || []).length; i++) {
+      var v = Number(entries[i] && entries[i][key]);
+      if (v >= 1 && v <= ceil) run++; else break;
+    }
+    return run;
+  }
+
+  /* THE PAYOFF. Saving used to end in a toast, which is the app taking
+     something and giving nothing back. This is the shipped app's own
+     response: an observation from the reader's own numbers, then options
+     with the choice left to them. Written here rather than fetched -- the
+     observations come from figures on this phone, and a round trip would
+     break the fifteen seconds the pane promises. */
+  function checkinResponse(entry, entries) {
+    var stats = checkinStats(entries);
+    var flags = checkinFlags(entry, stats);
+    var reds = [], ambers = [];
+    FEEL.forEach(function (f) {
+      if (flags[f[0]] === 'red') reds.push(f);
+      else if (flags[f[0]] === 'amber') ambers.push(f);
+    });
+    var splits = (store() ? store().get('lk_splits', []) : []) || [];
+    var trainWord = splits.length ? 'today\u2019s session' : 'training today';
+    var sleepRun = checkinLowRun(entries, 'sleep', 2);
+    var text = '', prompt = null, basis;
+
+    if (!stats) {
+      var left = Math.max(0, CHECKIN_MIN_BASELINE - entries.length);
+      text = left > 0
+        ? 'Saved. After ' + left + ' more check-in' + (left === 1 ? '' : 's') +
+          ' I will know your usual well enough to spot the days that are not.'
+        : 'Saved. Your baseline is nearly ready.';
+      if (!reds.length && Number(entry.sleep) <= 2) {
+        text += ' Rough night, though \u2014 go easier than planned if you need to. Your call.';
+      }
+      basis = entries.length + ' of ' + CHECKIN_MIN_BASELINE + ' readings toward a baseline';
+    } else if (reds.length) {
+      var r0 = reds[0];
+      text = 'Your ' + r0[1].toLowerCase() + ' today is well below your own usual';
+      if (sleepRun >= 3 && r0[0] !== 'sleep') {
+        text += ', and sleep has been under par ' + sleepRun + ' nights running';
+      } else if (sleepRun >= 3) {
+        text = 'Sleep has been below your usual ' + sleepRun + ' nights running, and today is the lowest';
+      }
+      text += '. Either cut the top set from ' + trainWord +
+        ', or push it to tomorrow and take the recovery. Your call.';
+      prompt = 'My ' + r0[1].toLowerCase() + ' is well below my usual today. Should I change my training?';
+      basis = 'Against your own 30-day average of ' + fmt(stats[r0[0]].mean) +
+        ' for ' + r0[1].toLowerCase();
+    } else if (ambers.length) {
+      var a0 = ambers[0];
+      text = 'Everything is close to your usual except ' + a0[1].toLowerCase() + ', which is a bit low. ' +
+        'Worth keeping the intensity honest today \u2014 hit the sets, skip the heroics. ' +
+        'Or train as planned and see how the first set feels. Your call.';
+      prompt = 'My ' + a0[1].toLowerCase() + ' is a bit below usual. How should I adjust today?';
+      basis = 'Against your own 30-day average of ' + fmt(stats[a0[0]].mean) +
+        ' for ' + a0[1].toLowerCase();
+    } else if (sleepRun >= 3) {
+      text = 'Today reads normal, but sleep has been below your usual ' + sleepRun +
+        ' nights in a row. If that is a pattern worth breaking, tonight is the cheap place to start.';
+      prompt = 'My sleep has been below usual for ' + sleepRun + ' nights. What should I do about it?';
+      basis = sleepRun + ' nights at 2 or below';
+    } else {
+      var goods = [];
+      FEEL.forEach(function (f) {
+        var v = Number(entry[f[0]]);
+        if (f[0] === 'stress' ? v <= 2 : v >= 4) goods.push(f[1].toLowerCase());
+      });
+      text = goods.length
+        ? 'All at or above your usual \u2014 ' + goods.join(' and ') +
+          ' especially. Good day to push something.'
+        : 'Right on your usual across the board. Steady is underrated.';
+      basis = 'Against your own 30-day averages';
+    }
+
+    /* The wellbeing rule: once, kindly, then left alone for a fortnight. */
+    var wellbeing = null;
+    var moodRun = checkinLowRun(entries, 'mood', 2);
+    var raised = store() ? store().get('lk_coachMoodRaisedAt', null) : null;
+    var quiet = raised && (Date.now() - Date.parse(raised)) < 14 * 86400000;
+    if (moodRun >= 7 && !quiet) {
+      wellbeing = 'One more thing \u2014 your mood has been low for a week now. That is beyond ' +
+        'what training fixes, and worth saying out loud to someone real. No pressure from me, ' +
+        'and I will leave it there.';
+      if (store()) store().set('lk_coachMoodRaisedAt', new Date().toISOString());
+    }
+    return { text: text, prompt: prompt, wellbeing: wellbeing, basis: basis };
+  }
+
+  /* How many readings a day the reader asked Settings for. Settings writes
+     lk_checkinPerDay and this pane never read it, so somebody who asked for
+     two was told "Saved for today" after one. */
+  function checkinPerDay() {
+    var v = parseInt(store() ? store().get('lk_checkinPerDay', 1) : 1, 10);
+    return v === 2 || v === 4 ? v : 1;
+  }
+  function checkinCountOn(iso) {
+    var n2 = 0;
+    S.checkin.log.forEach(function (e) { if (e.iso === iso) n2++; });
+    return n2;
+  }
+
+  /* FOURTEEN DAYS, ONE DOT EACH, newest last. Filled where a reading was
+     saved. No streak counter and no streak language: a missed day is a data
+     point, and a screen that scolds you for one is a screen people stop
+     opening. Tapping a filled dot opens that day; tapping it again closes it. */
+  function dotRow() {
+    var days = [];
+    for (var i = 13; i >= 0; i--) {
+      var d = new Date(TODAY.getTime() - i * 86400000);
+      var iso = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) +
+                '-' + ('0' + d.getDate()).slice(-2);
+      var hit = null;
+      for (var j = 0; j < S.checkin.log.length; j++) {
+        if (S.checkin.log[j].iso === iso) { hit = S.checkin.log[j]; break; }
+      }
+      days.push({ iso: iso, entry: hit });
+    }
+    var filled = days.filter(function (d) { return d.entry; }).length;
+    return '<section class="section" data-testid="checkin-dots-block">' +
+      '<div class="section__head"><h2 class="t-label">Last 14 days</h2>' +
+        '<span class="t-meta num">' + filled + ' of 14</span></div>' +
+      '<div class="card">' +
+        '<div class="cdots" data-testid="checkin-dots">' +
+          days.map(function (d, i) {
+            var on = !!d.entry;
+            var sel = S.checkin.inspect === d.iso;
+            return '<button class="cdots__d" type="button" data-on="' + on + '" data-sel="' + sel + '" ' +
+              (on ? 'data-act="checkin-day" data-iso="' + d.iso + '" ' : 'disabled ') +
+              'aria-label="' + dayLabel(d.iso) + (on ? ', checked in' : ', no check-in') + '" ' +
+              'data-testid="checkin-dot-' + i + '"></button>';
+          }).join('') +
+        '</div>' +
+        '<p class="t-detail quiet mt-3">' + (filled
+          ? 'Tap a filled dot to read that day.'
+          : 'Nothing in the last fortnight. A dot fills the day you save a reading.') + '</p>' +
+        dayInspector() +
+      '</div></section>';
+  }
+
+  /* The day inspector. "Recent" was five rows of bare numbers nobody could
+     open; the numbers are meaningless without the words that go with them. */
+  function dayInspector() {
+    if (!S.checkin.inspect) return '';
+    var iso = S.checkin.inspect;
+    var rows = S.checkin.log.filter(function (e) { return e.iso === iso; });
+    if (!rows.length) {
+      return '<div class="card card--sunken mt-3" data-testid="checkin-inspect">' +
+        '<p class="t-detail">Nothing was saved on ' + dayLabel(iso) + '.</p></div>';
+    }
+    return '<div class="card card--flush card--sunken mt-3" data-testid="checkin-inspect" data-iso="' + iso + '">' +
+      rows.map(function (e, ri) {
+        return '<div class="row row--head"><span class="row__main">' +
+            '<span class="row__title">' + esc(checkinLabel(e)) +
+              (rows.length > 1 ? ' &middot; reading ' + (rows.length - ri) : '') + '</span>' +
+            '<span class="row__sub">' +
+              (e.hoursSlept ? n(fmt(e.hoursSlept)) + ' hours slept' : 'Hours slept not recorded') +
+            '</span></span></div>' +
+          FEEL.map(function (f) {
+            var v = e[f[0]];
+            return '<div class="row row--static"><span class="row__main">' +
+              '<span class="row__title">' + f[1] + '</span>' +
+              '<span class="row__sub">' + (v === null || v === undefined
+                ? 'Not answered'
+                : esc(feelWord(f[0], v)) + ' &middot; ' + v + ' of 5') + '</span></span></div>';
+          }).join('') +
+          ((e.tags || []).length
+            ? '<div class="row row--static"><span class="row__main"><span class="row__title">Tagged</span>' +
+              '<span class="row__sub">' + esc((e.tags || []).join(', ')) + '</span></span></div>'
+            : '') +
+          (e.note
+            ? '<div class="row row--static"><span class="row__main"><span class="row__title">Note</span>' +
+              '<span class="row__sub">' + esc(e.note) + '</span></span></div>'
+            : '');
+      }).join('') +
+      '<div class="row row--foot"><button class="btn btn--tertiary btn--sm" data-act="checkin-close-day" ' +
+        'data-testid="checkin-inspect-close"><span class="btn__label">Close</span></button></div>' +
+    '</div>';
+  }
+
+  /* The card the pane exists for: what the reading means against this
+     person's own baseline, and a way to carry it into Chat. It is written
+     on this phone from figures on this phone -- the card says so, because
+     "the coach says" and "this screen worked it out" are different claims. */
+  function payoffCard() {
+    var r = S.checkin.response;
+    if (!r) return '';
+    return '<section class="section" data-testid="checkin-payoff">' +
+      '<div class="card card--raised">' +
+        '<div class="hstack hstack--3">' +
+          '<span class="msg__avatar">' + ico('coach') + '</span>' +
+          '<span class="grow"><span class="t-body-em">' + esc(S.name) + '</span>' +
+          '<span class="t-detail">' + esc(r.basis) + '</span></span>' +
+        '</div>' +
+        '<p class="t-body mt-3" data-testid="checkin-payoff-text">' + esc(r.text) + '</p>' +
+        (r.wellbeing
+          ? '<div class="banner banner--info mt-3" data-testid="checkin-payoff-wellbeing">' + ico('alert') +
+            '<span>' + esc(r.wellbeing) + '</span></div>'
+          : '') +
+        (r.prompt
+          ? '<button class="btn btn--primary btn--block mt-4" data-act="checkin-talk" ' +
+            'data-testid="checkin-talk"><span class="btn__label">Talk about this</span></button>'
+          : '') +
+        '<p class="t-detail quiet mt-3">Worked out on this phone from your last thirty days. ' +
+          'No model was asked, and nothing left the device.</p>' +
+      '</div></section>';
+  }
 
   function checkinBody() {
     var d = S.checkin.draft;
@@ -1901,60 +2180,79 @@
         '<div class="spread">' +
           '<span class="t-section">' + f[1] + '</span>' +
           '<span class="t-meta num" data-testid="feel-' + f[0] + '-value">' +
-            (v ? v + ' of 5' : '&mdash;') + '</span>' +
+            (v ? esc(f[2][v - 1]) + ' · ' + v + ' of 5' : '&mdash;') + '</span>' +
         '</div>' +
+        '<p class="t-detail mt-1">' + f[3] + '</p>' +
         '<div class="seg mt-3" role="radiogroup" aria-label="' + f[1] + ', one to five">' +
-          [1, 2, 3, 4, 5].map(function (n) {
+          [1, 2, 3, 4, 5].map(function (num2) {
             return '<button class="seg__item" type="button" role="radio" ' +
-              'aria-checked="' + (v === n ? 'true' : 'false') + '" ' +
-              'data-act="feel" data-key="' + f[0] + '" data-n="' + n + '" ' +
-              'data-testid="feel-' + f[0] + '-' + n + '">' + n + '</button>';
+              'aria-checked="' + (v === num2 ? 'true' : 'false') + '" ' +
+              'aria-label="' + esc(f[2][num2 - 1]) + '" ' +
+              'data-act="feel" data-key="' + f[0] + '" data-n="' + num2 + '" ' +
+              'data-testid="feel-' + f[0] + '-' + num2 + '">' + num2 + '</button>';
           }).join('') +
         '</div>' +
-        '<p class="t-caption-1 quiet mt-2">' + f[2] + ' to ' + f[3] + '.</p>' +
+        /* THE WORD FOR EVERY STEP, under the step it belongs to. */
+        '<div class="seg mt-1" aria-hidden="true" data-testid="feel-' + f[0] + '-words">' +
+          f[2].map(function (w) {
+            return '<span class="seg__item quiet t-caption-1">' + esc(w) + '</span>';
+          }).join('') +
+        '</div>' +
       '</div>';
     }).join('');
 
-    var past = S.checkin.log.length
-      ? '<div class="section mt-5">' +
-          '<div class="section__head"><h2 class="t-label">Recent</h2>' +
-            '<span class="t-meta num">' + S.checkin.log.length + '</span></div>' +
-          '<div class="card card--flush">' + S.checkin.log.slice(0, 5).map(function (e, i) {
-            return '<div class="row row--static" data-testid="checkin-' + i + '">' +
-              '<span class="row__main stack">' +
-                '<span class="row__title">' + esc(checkinLabel(e)) + '</span>' +
-                '<span class="row__sub">' + FEEL.map(function (f) {
-                  return f[1] + ' ' + (e[f[0]] === null || e[f[0]] === undefined ? '\u2014' : e[f[0]]);
-                }).join(' &middot; ') + '</span>' +
-              '</span></div>';
-          }).join('') + '</div>' +
-        '</div>'
-      : '<div class="empty mt-5" data-testid="checkin-empty">' +
-          '<p class="empty__title">Nothing recorded yet</p>' +
-          '<p class="empty__body">A reading a day is enough. Two weeks of them is what lets ' +
-            'the coach tell a hard session from a bad week.</p>' +
-        '</div>';
+    /* Hours slept, tags and a note: three things the key already carries and
+       this pane never asked for, so every entry it wrote had them empty. */
+    var extras = '<section class="section" data-testid="checkin-extras">' +
+      '<div class="section__head"><h2 class="t-label">Anything else</h2>' +
+        '<span class="t-meta">Optional</span></div>' +
+      '<div class="card">' +
+        '<label class="field"><span class="field__label t-label" for="ci-hours">Hours slept</span>' +
+          '<input class="input" id="ci-hours" type="number" inputmode="decimal" min="0" max="24" step="0.5" ' +
+            'placeholder="7.5" data-act="ci-hours" data-testid="checkin-hours" value="' +
+            esc(S.checkin.hours || '') + '"></label>' +
+        '<div class="t-label mt-4">What kind of day</div>' +
+        '<div class="hstack hstack--2 wrap mt-2">' +
+          CHECKIN_TAGS.map(function (t, i) {
+            var on = (S.checkin.tags || []).indexOf(t) > -1;
+            return '<button class="chip" aria-pressed="' + on + '" data-act="ci-tag" data-tag="' + esc(t) + '" ' +
+              'data-testid="checkin-tag-' + i + '">' + esc(t) + '</button>';
+          }).join('') +
+        '</div>' +
+        '<label class="field mt-4"><span class="field__label t-label" for="ci-note">Note</span>' +
+          '<textarea class="input" id="ci-note" rows="2" maxlength="280" ' +
+            'placeholder="Anything the numbers do not say." data-act="ci-note" ' +
+            'data-testid="checkin-note">' + esc(S.checkin.note || '') + '</textarea></label>' +
+      '</div></section>';
 
     return '<p class="t-detail mt-3">Five readings, one to five. It takes about fifteen seconds ' +
       'and it is the only thing here that records how you felt rather than what you lifted.</p>' +
-      '<div class="mt-4">' + rows + '</div>' + past;
+      payoffCard() +
+      '<div class="mt-4">' + rows + '</div>' + extras + dotRow();
   }
 
   function checkinFoot() {
     var d = S.checkin.draft;
     var done = FEEL.filter(function (f) { return d[f[0]]; }).length;
-    /* One reading a day is the rule, and a second save replaces the first
-       rather than adding one. It did that silently, so somebody checking in
-       twice had no way to know the morning's answers were gone. */
-    var already = !S.checkin.saved && S.checkin.log.length && S.checkin.log[0].iso === isoToday();
+    var per = checkinPerDay();
+    var today = checkinCountOn(isoToday());
+    var full = today >= per;
+    /* N of M, from lk_checkinPerDay -- the key Settings writes and this pane
+       never read. Somebody who asked for two readings a day was told "Saved
+       for today" after one, and the second one replaced the first. */
+    var status;
+    if (S.checkin.saved && full) status = 'Saved. ' + today + ' of ' + per + ' for today.';
+    else if (S.checkin.saved) status = 'Saved. ' + today + ' of ' + per + ' for today.';
+    else if (full) status = per === 1
+      ? 'Already checked in today. Saving replaces it.'
+      : 'All ' + per + ' readings done today. Saving replaces the last one.';
+    else if (today) status = today + ' of ' + per + ' done today · ' + done + ' of ' + FEEL.length + ' answered';
+    else status = done + ' of ' + FEEL.length + ' answered';
     return '<div class="actionbar" role="contentinfo" aria-label="Check-in actions">' +
-      '<span class="actionbar__status" role="status" data-testid="checkin-status">' +
-        (S.checkin.saved ? 'Saved for today.'
-          : already ? 'Already checked in today. Saving replaces it.'
-          : done + ' of ' + FEEL.length + ' answered') + '</span>' +
+      '<span class="actionbar__status" role="status" data-testid="checkin-status">' + status + '</span>' +
       '<button class="btn btn--primary" type="button" data-act="checkin-save" ' +
         (done ? '' : 'disabled ') + 'data-testid="checkin-save">' +
-        '<span class="btn__label">' + (already ? 'Replace today' : 'Save today') + '</span></button>' +
+        '<span class="btn__label">' + (full ? 'Replace today' : 'Save today') + '</span></button>' +
     '</div>';
   }
 
@@ -2174,24 +2472,67 @@
         return;
       }
       var iso = isoToday();
+      var hrs = parseFloat(S.checkin.hours);
       var entry = { id: 'fb' + Date.now(), date: iso + 'T07:30:00.000Z', iso: iso,
-                    hoursSlept: null, tags: [], note: '' };
+                    hoursSlept: isNaN(hrs) || hrs < 0 || hrs > 24 ? null : hrs,
+                    tags: (S.checkin.tags || []).slice(),
+                    note: (S.checkin.note || '').trim().slice(0, 280) };
       FEEL.forEach(function (f) { entry[f[0]] = S.checkin.draft[f[0]]; });
-      /* One reading a day, matched on the DATE. It matched on the label
-         "Today", which no stored entry carried once the page had been
-         reloaded, so a save on any later day overwrote the newest row
-         whatever day that row belonged to. */
-      var at = -1;
-      S.checkin.log.forEach(function (e, i) { if (e.iso === iso) at = i; });
-      var replaced = at >= 0;
-      if (replaced) { entry.id = S.checkin.log[at].id; S.checkin.log[at] = entry; }
-      else S.checkin.log.unshift(entry);
+
+      /* The quota decides whether this is another reading or a replacement.
+         It matched on the label "Today", which no stored entry carried once
+         the page had been reloaded, so a save on any later day overwrote the
+         newest row whatever day that row belonged to. */
+      var per = checkinPerDay();
+      var todayN = checkinCountOn(iso);
+      var replaced = todayN >= per;
+      if (replaced) {
+        var at = -1;
+        S.checkin.log.forEach(function (e, i) { if (at < 0 && e.iso === iso) at = i; });
+        entry.id = S.checkin.log[at].id;
+        S.checkin.log[at] = entry;
+      } else {
+        S.checkin.log.unshift(entry);
+      }
       S.checkin.saved = true;
+      /* The response reads the log WITHOUT today's entry, the way the
+         shipped app does: a baseline that includes the reading being judged
+         moves toward it and softens the very flag that matters. */
+      var prior = S.checkin.log.filter(function (e) { return e !== entry; });
+      S.checkin.response = checkinResponse(entry, prior);
+      S.checkin.inspect = null;
       persistCheckins();
       render();
-      toast(replaced
-        ? 'Replaced today\u2019s check-in. The coach reads this with your training.'
-        : 'Saved. The coach reads this with your training.');
+      var sc = phone.querySelector('.body');
+      if (sc) sc.scrollTop = 0;
+    },
+    /* Carries the reading into Chat as a question, which is the whole point
+       of recording it. The payoff card's own prompt goes into the composer
+       rather than being sent, because it is the reader's question to ask. */
+    'checkin-talk': function () {
+      var r = S.checkin.response;
+      if (!r || !r.prompt) return;
+      S.view = 'chat';
+      S.chat.status = S.chat.msgs.length ? 'ready' : 'empty';
+      S.chat.draft = r.prompt;
+      render();
+      var t = phone.querySelector('[data-testid="composer-input"]');
+      if (t) { t.value = r.prompt; t.focus(); try { t.setSelectionRange(t.value.length, t.value.length); } catch (e) {} }
+      var send = phone.querySelector('[data-testid="composer-send"]');
+      if (send) send.disabled = false;
+    },
+    'checkin-day': function (el) {
+      var iso = el.dataset.iso;
+      S.checkin.inspect = S.checkin.inspect === iso ? null : iso;
+      render();
+    },
+    'checkin-close-day': function () { S.checkin.inspect = null; render(); },
+    'ci-tag': function (el) {
+      var t = el.dataset.tag;
+      var i = S.checkin.tags.indexOf(t);
+      if (i > -1) S.checkin.tags.splice(i, 1); else S.checkin.tags.push(t);
+      S.checkin.saved = false;
+      render();
     },
     'view': function (el) { setView(el.dataset.view); },
     /* Two taps, and no claim about history. It cleared the whole thread on
@@ -2893,6 +3234,10 @@
       }
       return;
     }
+    /* No repaint: a repaint on every keystroke takes the caret with it, and
+       neither of these changes anything else on the screen. */
+    if (el.getAttribute('data-act') === 'ci-hours') { S.checkin.hours = el.value; S.checkin.saved = false; return; }
+    if (el.getAttribute('data-act') === 'ci-note') { S.checkin.note = el.value; S.checkin.saved = false; return; }
     if (el.getAttribute('data-act') === 'iv-free') {
       S.interview.draft = el.value;
       S.interview.answers[S.interview.step] = el.value.trim() || null;

@@ -115,8 +115,13 @@
   /* ---------------------------------------------------------------
      Dates. Everything is UTC midnight so a day is a day.
      --------------------------------------------------------------- */
-  var TODAY = '2026-09-09';
-  var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  /* The wall clock, or the seed's date while a seed is loaded -- the same
+     answer LKStore gives Home and Fuel. It was pinned to the seed's own day,
+     so a build with no seed showed a reader in a different month "today" on
+     the ring, and the bridge below stamped a date Fuel would read as stale
+     on the day it was written. */
+  var TODAY = window.LKStore ? LKStore.today() : '2026-09-09';
+  var MON =['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var MONL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   var DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   function ms(iso) { var p = iso.split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]); }
@@ -203,6 +208,42 @@
     luteal: 'Effort feels higher for the same weight, especially late. That is the reading, not a drop in strength. Judge sessions on RIR rather than on how heavy they felt.',
     overdue: 'Nothing about training changes because a period is late. The screen has simply run out of cycle to estimate from.'
   };
+
+  /* What the phase says about food. The training half is PHASE_NOTE above --
+     one copy, shared -- and this is the other half.
+
+     F-CYCLE-020 and F-CYCLE-022. The sign-off found the cycle to be a
+     complete island: 41 of its 46 features worked and not one of them
+     reached Fuel or Train, which is the only reason a training app carries
+     a cycle at all. Nothing here is a measurement of the reader: the luteal
+     figure is the few per cent most people's resting burn rises by in the
+     second half, printed as an estimate and labelled as one.
+
+     BOTH SPELLINGS OF LATE. phaseOf() calls a cycle past its length
+     'overdue'; LKFixtures.cycleOn calls the same state 'late'. The guide
+     answers to both, so a reader that got its phase from either one finds a
+     row rather than a hole. */
+  var FUEL_NOTE = {
+    menstrual: 'Appetite is usually back to normal once the first day or two have passed, so nothing about the targets changes here.',
+    follicular: 'Appetite tends to sit at its lowest of the cycle through this stretch. Targets unchanged.',
+    ovulatory: 'Appetite is usually steady around here. Targets unchanged.',
+    luteal: 'Resting burn runs a few per cent higher in the second half for most people, and appetite usually rises with it. The suggestion below is that average, not a measurement of you: if your weight is going where you want it, ignore it.',
+    overdue: 'The arithmetic has run out of cycle to estimate from, so nothing is suggested for food either.'
+  };
+  var FUEL_PCT = { menstrual: 0, follicular: 0, ovulatory: 0, luteal: 5, overdue: 0 };
+  function fuelGuide() {
+    var g = {};
+    Object.keys(FUEL_NOTE).forEach(function (k) {
+      g[k] = {
+        name: PHASE_NAME[k] || k,
+        kcalPct: FUEL_PCT[k],
+        fuel: FUEL_NOTE[k],
+        train: PHASE_NOTE[k]
+      };
+    });
+    g.late = g.overdue;
+    return g;
+  }
 
   /* ---------------------------------------------------------------
      The seeds.
@@ -913,6 +954,109 @@
   }
 
   /* ---------------------------------------------------------------
+     THE FUEL AND TRAIN BRIDGE. F-CYCLE-020, F-CYCLE-022.
+
+     THE KEY IS lk_mcFuelAdjust, which the shipped app already has and which
+     store.js already seeds -- as `false`, a plain opt-in switch. Nothing in
+     the build read it or wrote it, so the switch existed and the two screens
+     it was for could not see the cycle at all.
+
+     WHAT IS WRITTEN. `false` is off, and stays exactly what it was. On, the
+     key holds one object: the switch, the day it was last refreshed, today's
+     phase and day number, and the whole phase-to-guidance table. The table
+     travels with it on purpose. A reader that opens on a day this screen has
+     not been opened on can work out today's phase itself from lk_mcProfile
+     through LKFixtures.cycleOn -- the one calculator in this build -- and
+     look the guidance up here, rather than keeping a second copy of either
+     the arithmetic or the copy. Two copies is how three screens came to give
+     three answers about the same cycle.
+
+     WHAT IS NOT WRITTEN. Nothing about symptoms, moods, notes or events. The
+     bridge carries a phase name and a percentage, which is the least that
+     can be useful, and discreet mode travels with it so a screen in another
+     tab hides the phase name the way this one does.
+
+     WHEN. On every render that has a cycle to describe, and only when the
+     value has actually changed -- an unconditional write on every paint
+     would stamp the key every second and wake every listener in the demo. */
+  function bridgeRecord() {
+    var d = dayInCycle();
+    var ph = d === null ? null : phaseOf(d, S.p);
+    var guide = fuelGuide();
+    var key = ph ? ph.key : null;
+    var g = key ? guide[key] : null;
+    return {
+      on: true,
+      updated: TODAY,
+      phase: key,
+      phaseName: g ? g.name : null,
+      day: d,
+      cycleLen: S.p.cycleLen,
+      discreet: !!S.p.discreet,
+      kcalPct: g ? g.kcalPct : 0,
+      fuel: g ? g.fuel : null,
+      train: g ? g.train : null,
+      guide: guide,
+      source: 'cycle'
+    };
+  }
+  function bridgeOn() {
+    var v = store() ? store().get('lk_mcFuelAdjust', false) : false;
+    return v === true || v === 'true' || !!(v && typeof v === 'object' && v.on);
+  }
+  function writeBridge() {
+    if (!store()) return;
+    /* A dev state is a picture of a data condition rather than the reader's
+       own cycle, so it never writes over what Fuel and Train are reading. */
+    if (S.devState && S.devState !== 'populated' && S.devState !== 'discreet') return;
+    var cur = store().get('lk_mcFuelAdjust', false);
+    var want = bridgeOn() ? bridgeRecord() : false;
+    /* Off is off: `false`, the shape the key has always had, not an object
+       with a flag inside it. */
+    if (want === false) {
+      if (cur === false) return;
+      store().set('lk_mcFuelAdjust', false);
+      return;
+    }
+    if (JSON.stringify(cur) === JSON.stringify(want)) return;
+    store().set('lk_mcFuelAdjust', want);
+  }
+
+  /* The card. It shows the guidance itself, so it is worth reading whether
+     or not anything else on the phone is listening, and the switch says
+     exactly what switching it on does: it writes, and nothing else. */
+  function fuelCard() {
+    var d = dayInCycle();
+    if (recoveryDate()) return '';
+    var ph = d === null ? null : phaseOf(d, S.p);
+    var g = ph ? fuelGuide()[ph.key] : null;
+    var on = bridgeOn();
+    var delta = g && g.kcalPct
+      ? '+' + g.kcalPct + '% on today’s calorie target'
+      : 'No change to today’s targets';
+    return '<div class="card mt-4" data-testid="cycle-fuel">' +
+      '<span class="t-label">FUEL</span>' +
+      (g
+        ? '<p class="t-headline mt-2" data-testid="fuel-delta">' + esc(delta) + '</p>' +
+          '<p class="t-body mt-2">' + esc(g.fuel) + '</p>'
+        : '<p class="t-body mt-2">There is no recorded start to work a phase out from yet, so there is ' +
+          'nothing to suggest about food.</p>') +
+      '<div class="row row--withaside mt-3" style="padding-left: 0; padding-right: 0">' +
+        '<span class="row__main">' +
+          '<span class="row__title" id="lbl-fuelshare">Share this with Fuel and Train</span>' +
+          '<span class="row__sub">' + (on
+            ? 'Today’s phase and this guidance are written where Fuel and Train read them. No symptom, mood or note leaves this screen.'
+            : 'Writes today’s phase and this guidance where Fuel and Train can read them. Nothing else on this device changes, and nothing leaves it.') +
+          '</span>' +
+        '</span>' +
+        '<button class="switch" role="switch" aria-checked="' + on + '" aria-labelledby="lbl-fuelshare" ' +
+          'data-act="fuel-share" data-testid="fuel-share">' +
+          '<span class="switch__track"></span><span class="switch__knob"></span></button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  /* ---------------------------------------------------------------
      Health flags
      --------------------------------------------------------------- */
   function flagsHTML() {
@@ -1277,7 +1421,8 @@
      --------------------------------------------------------------- */
   function cycleView() {
     return ringHTML() + quickHTML() + inlineStrips() + recoveryCard() + ecCard() +
-      phaseCard() + trainingCard() + flagsHTML() + predictions() + strip() + insights() + scienceHTML();
+      phaseCard() + fuelCard() + trainingCard() + flagsHTML() + predictions() + strip() +
+      insights() + scienceHTML();
   }
   function calendarView() {
     return monthGrid() + legend() + statsStrip() + strip();
@@ -1584,6 +1729,24 @@
                 'aria-labelledby="lbl-irregular" data-act="irregular" data-testid="cs-irregular">' +
                 '<span class="switch__track"></span><span class="switch__knob"></span></button>' +
             '</div>' +
+            /* F-CYCLE-036. The opt-in half of health-data sync, built and
+               honest. The switch records the decision in the profile this
+               screen already owns; there is no server in this build, so the
+               row says what would leave the phone and that none of it has.
+               A switch that toasted "backed up" would be the worst thing
+               here: this is a period log. */
+            '<div class="row">' +
+              '<span class="row__main">' +
+                '<span class="row__title" id="lbl-cloud">Back this log up</span>' +
+                '<span class="row__sub">' + (p.cloudBackup
+                  ? 'Recorded as a yes. Nothing has been uploaded: this build has no server, so the log is still only on this phone.'
+                  : 'Off. The log stays on this phone.') +
+                  ' A backup would send your logged days — flow, symptoms, moods, notes and events — and these settings, encrypted, to your account. Turning this on records the choice and nothing else.</span>' +
+              '</span>' +
+              '<button class="switch" role="switch" aria-checked="' + !!p.cloudBackup + '" ' +
+                'aria-labelledby="lbl-cloud" data-act="cs-cloud" data-testid="cs-cloud">' +
+                '<span class="switch__track"></span><span class="switch__knob"></span></button>' +
+            '</div>' +
             '<button class="row row--withaside" type="button" data-act="open-bc" data-testid="cs-bc">' +
               '<span class="row__main"><span class="row__title">Birth control</span>' +
                 '<span class="row__sub">Changes what this screen can honestly say</span></span>' +
@@ -1612,8 +1775,9 @@
             '</button>' +
           '</div>' +
 
-          '<p class="t-caption-1 quiet mt-4">Everything here is on this phone. Deleting removes ' +
-            'the log and the settings and cannot be undone.</p>' +
+          '<p class="t-caption-1 quiet mt-4">Everything here is on this phone, backup switch or ' +
+            'not: this build has no server to send it to. Deleting removes the log and the ' +
+            'settings and cannot be undone.</p>' +
         '</div>' +
         '<div class="sheet__foot">' +
           '<div class="stack stack--2">' +
@@ -1702,6 +1866,10 @@
   }
 
   function render() {
+    /* The bridge is refreshed from the paint, because the paint is the one
+       thing that happens on every route in, every logged day and every
+       settings change. It writes only when the answer has moved. */
+    if (S.state === 'populated' || S.state === 'discreet') writeBridge();
     screen.setAttribute('data-state', S.state);
     screen.setAttribute('data-view', S.view);
     LKPatch(hdr, headerHTML());
@@ -1966,9 +2134,31 @@
       return;
     }
 
+    /* F-CYCLE-020, F-CYCLE-022. The switch is the whole of the write: on
+       writes today's phase and the guidance table to lk_mcFuelAdjust, off
+       puts the key back to `false`, which is what it holds in the seed. */
+    if (a === 'fuel-share') {
+      var wasOn = bridgeOn();
+      if (store()) store().set('lk_mcFuelAdjust', wasOn ? false : bridgeRecord());
+      render();
+      say(wasOn
+        ? 'Fuel and Train stop seeing your phase. Nothing is deleted from this screen.'
+        : 'Fuel and Train can read today’s phase now. Nothing was sent anywhere.');
+      return;
+    }
+
     /* --- settings ------------------------------------------------ */
     if (a === 'discreet') { S.p.discreet = !S.p.discreet; S.reveal = false; persistProfile(); render(); return; }
     if (a === 'irregular') { S.p.irregular = !S.p.irregular; persistProfile(); render(); return; }
+    if (a === 'cs-cloud') {
+      S.p.cloudBackup = !S.p.cloudBackup;
+      persistProfile();
+      render();
+      say(S.p.cloudBackup
+        ? 'Recorded. Nothing has been uploaded — there is no server in this build.'
+        : 'Backup off. Nothing had been uploaded anyway.');
+      return;
+    }
     if (a === 'bc') {
       S.p.birthControl = t.getAttribute('data-v');
       persistProfile();
@@ -2184,7 +2374,17 @@
   if (!S.p.setup) S.state = 'setup';
 
   /* Settings owns the gate and writes it where this screen can read it. It
-     is the default here, not an override: the dev switcher still wins. */
+     is the default here, not an override: the dev switcher still wins.
+
+     F-CYCLE-045, and why this is not gated on sex. The shipped app showed
+     this screen only when lk_profile.sex was "female" and showed everybody
+     else an explainer they could not act on. The gate is the reader's own
+     switch now, for two reasons: a stored sex field is a worse predictor of
+     who wants a cycle screen than the person saying so, and onboarding now
+     offers cycle tracking as a step of its own, which is the same question
+     asked once, in the open. The explainer below is kept -- it is what
+     somebody who arrives here with the switch off needs -- and it points at
+     the switch rather than at a field they cannot change. */
   function gateOn() {
     try { return localStorage.getItem('lk_cycle') === 'true'; } catch (e) { return false; }
   }

@@ -43,6 +43,10 @@ ok('no subresource requests', info.requests.length === 0, info.requests.join(', 
    same defect pointing the other way. */
 ok('a fresh phone boots at #/onboarding', info.hash === '#/onboarding', info.hash);
 
+/* Setup done, the walkthrough not yet seen. tutorial.html writes
+   lk_tutorialSeen on finish and on skip, and nothing read it -- so the
+   walkthrough was built, animated and shown to nobody who had not gone
+   looking for it in Settings. */
 await page.evaluate(() => {
   try { localStorage.setItem('lk_onboarded', JSON.stringify({ at: 'test' })); } catch (e) {}
 });
@@ -50,7 +54,18 @@ await page.goto(DEMO);
 await page.waitForFunction(() => window.DEMO && Object.keys(window.DEMO.screens).length > 0);
 await page.waitForTimeout(500);
 const hash2 = await page.evaluate(() => location.hash);
-ok('a returning phone boots at #/home', hash2 === '#/home', hash2);
+ok('setup done, walkthrough unseen, boots at #/tutorial', hash2 === '#/tutorial', hash2);
+
+/* And only once. All three routes are checked, because a gate that always
+   fires is the same defect pointing the other way. */
+await page.evaluate(() => {
+  try { localStorage.setItem('lk_tutorialSeen', 'true'); } catch (e) {}
+});
+await page.goto(DEMO);
+await page.waitForFunction(() => window.DEMO && Object.keys(window.DEMO.screens).length > 0);
+await page.waitForTimeout(500);
+const hash3 = await page.evaluate(() => location.hash);
+ok('a returning phone boots at #/home', hash3 === '#/home', hash3);
 
 const visible = () => page.evaluate(() => {
   const el = [...document.querySelectorAll('.demo-screen')].find((d) => !d.hidden);
