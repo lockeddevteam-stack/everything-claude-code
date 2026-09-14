@@ -2202,6 +2202,17 @@
          outcome for a destructive confirm: the reader believes their session
          is gone and it is not. The session empties and the screen says so;
          Undo is not offered, because the dialog already asked. */
+      /* AND IT LEAVES. Emptying the screen was right; staying on it was
+         not. Discarding left the reader on a workout log with no workout
+         in it, still offering Discard and Finish for a session that no
+         longer existed -- and pressing Finish there, which is what a
+         person does when a screen has nothing on it and they want out,
+         opened Review on an empty session, where the back button and
+         "Back to workout" only toasted and the tab bar is not drawn. That
+         is a dead end with no way back to the app.
+
+         Discard means "I am not doing this workout", so it goes where not
+         doing a workout leaves you: Train. */
       case 'discard-confirm':
         S.over = true;
         S.overlay = null;
@@ -2210,8 +2221,11 @@
         S.elapsed = 0;
         S.restRunning = false; S.restLeft = 0;
         if (window.LKSession) LKSession.end();
+        if (window.LKStore) LKStore.remove('lk_lastSession');
         toast('Workout discarded.');
-        break;
+        paint();
+        LKGo('train');
+        return;
       /* Finish leaves for Review; in the demo the router takes the click
          first. It used to toast "Opening review." and stay here. */
       /* The session is over the moment Finish is pressed. Review reads the
@@ -2794,9 +2808,30 @@
      router announces the crossing first and this does the handing over. */
   document.addEventListener('lk:handoff', function (e) {
     var d = e.detail || {};
-    if (d.selector !== '[data-testid="btn-finish"]') return;
-    S.over = true;
-    handOff();
+    if (d.selector === '[data-testid="btn-finish"]') {
+      S.over = true;
+      handOff();
+      return;
+    }
+    /* Discard is claimed by the router in the same capture phase, so the
+       screen's own handler never runs: the record and the saved rows
+       survived a workout that had been thrown away, and every screen went
+       on offering to Resume it. The emptying happens here instead, on the
+       announcement, the way the hand-over does. */
+    if (d.selector === '[data-testid="discard-confirm"]') {
+      S.over = true;
+      S.overlay = null;
+      S.exercises = [];
+      S.blocks = [];
+      S.elapsed = 0;
+      S.restRunning = false; S.restLeft = 0;
+      if (window.LKStore) {
+        LKStore.remove('lk_lastSession');
+        LKStore.remove(ROWS_KEY);
+      }
+      if (window.LKSession) LKSession.end();
+      paint();
+    }
   });
 
   /* Entered, rather than merely still on screen. In the demo the log stays

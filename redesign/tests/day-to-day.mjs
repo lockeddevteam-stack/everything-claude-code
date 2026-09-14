@@ -432,17 +432,43 @@ ok(!!(await raw('lk_liveSession')), 'it is running');
 const disc = await tap('btn-discard');
 ok(disc === 'ok', 'discard is offered', disc);
 await page.waitForTimeout(500);
-/* Discard asks first. Confirm whichever way this build words it. */
-for (const t of ['discard-confirm', 'action-discard-confirm', 'confirm-discard']) {
-  if ((await tap(t)) === 'ok') break;
-}
-await page.waitForTimeout(700);
+ok((await tap('discard-confirm')) === 'ok', 'and it asks before doing it');
+await page.waitForTimeout(900);
+/* DISCARD HAS TO LEAVE. It emptied the screen and stayed on it, offering
+   Discard and Finish for a session that no longer existed -- and Finish
+   there opened Review on an empty session, where the back button, "Back
+   to workout" and the discard confirm each only raised a toast and the
+   tab bar is not drawn. A reader who discarded a workout could not get
+   back into the app. */
+ok((await shown()) === 'train', 'discarding leaves the log rather than stranding you on it',
+   await shown());
 ok(!(await raw('lk_liveSession')), 'and nothing is left running after it',
    JSON.stringify(await raw('lk_liveSession')));
+ok(!(await raw('lk_liveSessionRows')), 'and no rows are left to resume from');
 const h3 = await raw('lk_history');
 ok((h3 || []).length === 3, 'a discarded session writes no history row',
    (h3 || []).length + ' rows');
-ok(!errs.length, 'nothing throws discarding', errs[0] || '');
+
+/* AND THE OTHER WAY INTO THE SAME TRAP: finishing a session with nothing
+   in it. Review has no tab bar, so its own controls are the only way
+   out and every one of them has to actually go somewhere. */
+ok((await tap('start-today')) === 'ok', 'a session starts to be finished empty');
+await page.waitForTimeout(900);
+ok((await tap('btn-finish')) === 'ok', 'it finishes with nothing logged');
+await page.waitForTimeout(1200);
+ok((await shown()) === 'review', 'review opens on the empty session', await shown());
+/* Which controls Review offers depends on what was handed over, so the
+   check is that AN exit exists and that it actually leaves -- not that
+   one particular button is on screen. Every one of these used to stop at
+   a toast, on a screen that draws no tab bar. */
+let left = 'none';
+for (const t of ['action-back-to-workout', 'action-done', 'action-back']) {
+  if ((await tap(t)) !== 'ok') continue;
+  await page.waitForTimeout(900);
+  if ((await shown()) !== 'review') { left = t; break; }
+}
+ok(left !== 'none', 'review has a way out that actually leaves', left);
+ok(!errs.length, 'nothing throws discarding or finishing empty', errs[0] || '');
 
 /* AND IT SURVIVES A RELOAD. Everything above is in localStorage; a phone
    that reloads must come back to the same account, not a blank one. */

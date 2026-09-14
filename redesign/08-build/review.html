@@ -1481,7 +1481,16 @@
            workout is still sitting there waiting to be reviewed and saved
            the next time this screen opens. */
         if (window.LKStore) LKStore.remove('lk_lastSession');
-        S.discardArmed = false; paint(true); toast('Session discarded. Nothing was written.'); return;
+        if (window.LKSession) LKSession.end();
+        S.discardArmed = false;
+        toast('Session discarded. Nothing was written.');
+        paint(true);
+        /* AND IT LEAVES. This screen has no tab bar -- it is a pushed
+           screen, reached from the workout -- so a discard that repaints
+           in place leaves the reader on a review of a session that no
+           longer exists with nothing on it that goes anywhere. */
+        LKGo('train');
+        return;
       case 'ai-ask':
       case 'ai-retry':
         askCoach();
@@ -1502,9 +1511,24 @@
         LKGo('home');
         return;
 
+      /* THESE HAVE TO GO SOMEWHERE. Both only toasted and repainted, and
+         this screen draws no tab bar, so a reader who finished a session
+         with nothing in it -- which is exactly what pressing Finish after
+         a discard does -- had a back button that did not go back, a "Back
+         to workout" that did not, and no tabs. Trapped, on a review of a
+         workout that was never saved.
+
+         Back to the workout where there is still a workout to go back to;
+         Train where there is not, because that is where the session came
+         from and the one place that can start another. */
       case 'action-back':
-      case 'action-back-to-workout':
-        toast('Back to the workout. Nothing was saved.'); paint(true); return;
+      case 'action-back-to-workout': {
+        var running = window.LKSession && LKSession.get();
+        if (running) { LKGo('workout-log'); return; }
+        toast('Nothing was saved.');
+        LKGo('train');
+        return;
+      }
 
       /* ---- the split decision. None of these touch S.saved: the
          session can be banked before, after, or instead of answering. */

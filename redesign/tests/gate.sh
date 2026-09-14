@@ -1,0 +1,73 @@
+#!/bin/sh
+# THE GATE: does the app still do the thing people open it to do.
+#
+#   sh redesign/tests/gate.sh
+#
+# Run this before every push. It is the subset that has actually caught
+# real breakage -- a workout that would not log, a session that vanished
+# on reload, a first install that looped forever, a second workout that
+# saved nothing -- and it is deliberately small enough that there is no
+# excuse not to run it. run-parallel.sh is the whole thing, for before a
+# release.
+#
+# What is NOT here: the design and accessibility suites. They matter and
+# they have caught real regressions (a clipped figure at AX5, a blocked
+# pinch zoom), but they do not change under a logic fix, and a gate that
+# takes fifteen minutes is a gate nobody runs.
+cd "$(dirname "$0")" || exit 1
+
+JOBS="${JOBS:-$(nproc 2>/dev/null || echo 3)}"
+OUT=/tmp/lk-gate
+rm -rf "$OUT" && mkdir -p "$OUT"
+export OUT
+
+printf 'building\n'
+if ! node ../10-final/assemble.mjs --prod > "$OUT/build.log" 2>&1; then
+  printf 'FAIL  the product build did not assemble\n'
+  tail -20 "$OUT/build.log"
+  exit 1
+fi
+if ! node ../10-final/assemble.mjs >> "$OUT/build.log" 2>&1; then
+  printf 'FAIL  the demo build did not assemble\n'
+  tail -20 "$OUT/build.log"
+  exit 1
+fi
+
+START=$(date +%s)
+printf 'gate: %s checks, %s at a time\n\n' 7 "$JOBS"
+
+cat > "$OUT/jobs.txt" <<'JOBS_EOF'
+day-in-the-app|node day-to-day.mjs
+first-run|node first-run.mjs
+product-build|node prod-build.mjs
+empty-state|node empty-state.mjs
+session-persist|node session-persist.mjs
+crossings|node nav-selectors.mjs
+cloud-contract|node cloud-contract.mjs
+JOBS_EOF
+
+# shellcheck disable=SC2016
+< "$OUT/jobs.txt" xargs -P "$JOBS" -I{} sh -c '
+  line="{}"
+  name=${line%%|*}
+  cmd=${line#*|}
+  if sh -c "$cmd" > "$OUT/$name.log" 2>&1; then
+    printf "PASS  %s\n" "$name"
+  else
+    printf "FAIL  %s\n" "$name"
+    printf "%s\n" "$name" >> "$OUT/failed.txt"
+  fi
+'
+
+END=$(date +%s)
+printf '\n-----------------------------------------\n'
+printf 'gate ran in %ss\n' "$((END - START))"
+if [ -s "$OUT/failed.txt" ]; then
+  printf 'GATE FAILED:\n'
+  while read -r n; do
+    printf '  %s\n' "$n"
+    grep -m5 -E '^FAIL' "$OUT/$n.log" | sed 's/^/      /'
+  done < "$OUT/failed.txt"
+  exit 1
+fi
+printf 'GATE PASSED — safe to push\n'

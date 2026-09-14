@@ -229,6 +229,24 @@ const MANIFEST = {
        finished session, and it goes to Home rather than back to the log,
        because the log is the thing that just ended. */
     { from: 'review', selector: '[data-testid="action-done"]', to: 'home', mode: 'tab' },
+    /* THE WAYS OUT OF A SESSION THAT WAS NOT SAVED. Review draws no tab
+       bar, so when a workout is finished with nothing in it -- which is
+       what pressing Finish after a discard does -- these three are the
+       only exits on the screen, and every one of them used to stop at a
+       toast. Back and "Back to workout" return to Train when there is no
+       session left to go back to; discarding goes there too, because the
+       session it was reviewing is gone. */
+    { from: 'review', selector: '[data-testid="action-back"]', to: 'train', mode: 'tab' },
+    { from: 'review', selector: '[data-testid="action-back-to-workout"]', to: 'train', mode: 'tab' },
+    { from: 'review', selector: '[data-testid="action-discard-confirm"]', to: 'train', mode: 'tab',
+      endsSession: true },
+    /* Discarding from the log itself leaves the same way. endsSession
+       because the router claims this click in the capture phase, so the
+       screen's own handler never runs to end the record -- without it the
+       resume shelf went on offering the workout that had just been
+       thrown away. */
+    { from: 'workout-log', selector: '[data-testid="discard-confirm"]', to: 'train', mode: 'tab',
+      endsSession: true },
     { from: 'recap', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'stack', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     /* Coach's "open this lift in Progress", and Train's session-picker day.
