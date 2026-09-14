@@ -31,9 +31,24 @@ import { fileURLToPath } from 'node:url';
    MANIFEST — the only thing to touch when the app's shape changes.
    ================================================================= */
 
+/* PRODUCTION vs DEMO — `node 10-final/assemble.mjs --prod`.
+
+   The difference is the seed, and it is not cosmetic. fixtures.js defines
+   LKFixtures, and LKStore.get falls back to it for any key nobody has
+   written -- which is what makes the demo demonstrate anything, and what
+   makes it unshippable as the product. A real person signing up with an
+   empty account was shown "22 sessions logged", "288 sets", "140k kg" and
+   a stranger's personal records as their own, because none of those keys
+   were theirs and every one of them fell back to the seed.
+
+   So the product build omits fixtures.js entirely and hides the dev state
+   switcher, and writes to its own files so the demo keeps working as a
+   demo. Nothing else differs: same screens, same scripts, same order. */
+const PROD = process.argv.includes('--prod');
+
 const MANIFEST = {
   srcDir: '../08-build',
-  outFile: 'locked-demo.html',
+  outFile: PROD ? 'locked-app.html' : 'locked-demo.html',
   css: ['tokens.css', 'components.css'],
 
   /* Shared scripts every screen links with <script src=...> in <head>. They
@@ -61,7 +76,10 @@ const MANIFEST = {
      reads the catalogue. Loaded after, the catalogue is not there when it
      is wanted and the migration has to wait for the next boot. */
   js: ['theme.js', 'app.js', 'chrome.js', 'vendor/body-art.js', 'bodymap.js',
-       'session.js', 'fixtures.js', 'exercises.js', 'store.js', 'units.js',
+       'session.js',
+       /* the seed, and only in the demo */
+       ...(PROD ? [] : ['fixtures.js']),
+       'exercises.js', 'store.js', 'units.js',
        'cloud-config.js', 'cloud.js', 'coach-actions.js',
        'tutor-steps.js', 'tutor.js'],
 
@@ -1225,6 +1243,16 @@ function build() {
 -->
 <style id="demo-global-css">
 ${cssText}
+${PROD ? `
+/* THE DEV STATE SWITCHER IS NOT A PRODUCT CONTROL. Every screen carries
+   one so a reviewer can jump to its empty, loading and error states. It is
+   markup inside the screen rather than something the assembler adds, so
+   the product build hides it here -- one rule, adopted by all eighteen
+   roots -- rather than by editing eighteen files and risking the states
+   the suite drives through it. */
+.dev, .dev__toggle, .dev__menu,
+[data-testid="dev-toggle"], [data-testid="dev-menu"] { display: none !important; }
+` : ''}
 </style>
 <style id="demo-chrome-css">
 ${demoCss()}
@@ -1412,7 +1440,7 @@ console.log(`wrote ${out} (${kb} KB)`);
    it at the repo would put the audits, the fixtures and the working notes on
    a public URL beside the demo. Written here rather than copied by hand so a
    rebuilt demo cannot ship a stale one. */
-const web = join(HERE, '..', '..', 'demo', 'index.html');
+const web = join(HERE, '..', '..', PROD ? 'app' : 'demo', 'index.html');
 mkdirSync(dirname(web), { recursive: true });
 writeFileSync(web, html);
 console.log(`wrote ${web} (${kb} KB)`);
