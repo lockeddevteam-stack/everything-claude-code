@@ -206,8 +206,22 @@
     get: function (key, fallback) {
       var raw = rawGet(key);
       if (raw !== null && raw !== undefined) {
-        try { return JSON.parse(raw); }
+        var parsed;
+        try { parsed = JSON.parse(raw); }
         catch (e) { return raw; }          /* a plain string key, e.g. lk_theme */
+        /* THE SHAPE IS PART OF THE CONTRACT. A key that every reader
+           iterates has to come back iterable. lk_history arriving as a
+           string -- a bad sync, a hand-edited backup, an older build --
+           took Train, Progress and Recap down together with
+           "raw.forEach is not a function", and each one stayed down for
+           the life of that storage because Try again re-threw. One guard
+           here covers every reader, including the ones not written yet.
+           A wrong shape is treated as nothing written: the caller's own
+           fallback, which every caller already has. */
+        if (LIST_KEYS[key] && !Array.isArray(parsed)) return fallback;
+        if (MAP_KEYS[key] && (parsed === null || typeof parsed !== 'object' ||
+                              Array.isArray(parsed))) return fallback;
+        return parsed;
       }
       /* DELETED IS NOT UNTOUCHED. Removing a key left it indistinguishable
          from one nobody had written, so the seed came back: deleting the
@@ -491,6 +505,33 @@
     }
     return { ran: ran, mark: stop < 0 ? MIGRATIONS.length : stop };
   }
+  /* Keys whose readers iterate them, and keys whose readers index them.
+     Anything not listed is read as-is; this is a guard against a shape
+     that cannot work, not a schema. */
+  function asSet(list) {
+    var o = {};
+    for (var i = 0; i < list.length; i++) o[list[i]] = true;
+    return o;
+  }
+  /* NOT lk_prs. It legitimately arrives as a map from the shipped app and
+     migration 1 converts it to the flat array everything reads -- guarding
+     it here hid the map from the migration that exists to fix it, and the
+     records were dropped instead of converted. A key a migration converts
+     is a key whose "wrong" shape is real data. */
+  var LIST_KEYS = asSet([
+    'lk_history', 'lk_splits', 'lk_weightLog', 'lk_bfLog',
+    'lk_goals', 'lk_photos', 'lk_supplements', 'lk_recipes',
+    'lk_shoppingList', 'lk_pantryItems', 'lk_feedback',
+    'lk_myFoods', 'lk_tdeeHistory', 'lk_removedKeys'
+  ]);
+  /* Same rule: lk_fuelLog, lk_profile, lk_customEx and lk_coachMemory are
+     all read by a migration in a shape this build does not otherwise
+     accept, so none of them is guarded. */
+  var MAP_KEYS = asSet([
+    'lk_exNotes', 'lk_exEquip', 'lk_changedAt',
+    'lk_fuelTargets', 'lk_suppLog', 'lk_notifPrefs'
+  ]);
+
   var SYNC_KEYS = [
     'lk_profile', 'lk_history', 'lk_prs', 'lk_splits', 'lk_customEx', 'lk_exNotes',
     'lk_exEquip', 'lk_featuredLifts', 'lk_weightLog', 'lk_bfLog', 'lk_goals',

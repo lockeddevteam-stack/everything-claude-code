@@ -7532,8 +7532,22 @@ button.shelf:active { background: var(--fill-press); }
     get: function (key, fallback) {
       var raw = rawGet(key);
       if (raw !== null && raw !== undefined) {
-        try { return JSON.parse(raw); }
+        var parsed;
+        try { parsed = JSON.parse(raw); }
         catch (e) { return raw; }          /* a plain string key, e.g. lk_theme */
+        /* THE SHAPE IS PART OF THE CONTRACT. A key that every reader
+           iterates has to come back iterable. lk_history arriving as a
+           string -- a bad sync, a hand-edited backup, an older build --
+           took Train, Progress and Recap down together with
+           "raw.forEach is not a function", and each one stayed down for
+           the life of that storage because Try again re-threw. One guard
+           here covers every reader, including the ones not written yet.
+           A wrong shape is treated as nothing written: the caller's own
+           fallback, which every caller already has. */
+        if (LIST_KEYS[key] && !Array.isArray(parsed)) return fallback;
+        if (MAP_KEYS[key] && (parsed === null || typeof parsed !== 'object' ||
+                              Array.isArray(parsed))) return fallback;
+        return parsed;
       }
       /* DELETED IS NOT UNTOUCHED. Removing a key left it indistinguishable
          from one nobody had written, so the seed came back: deleting the
@@ -7817,6 +7831,33 @@ button.shelf:active { background: var(--fill-press); }
     }
     return { ran: ran, mark: stop < 0 ? MIGRATIONS.length : stop };
   }
+  /* Keys whose readers iterate them, and keys whose readers index them.
+     Anything not listed is read as-is; this is a guard against a shape
+     that cannot work, not a schema. */
+  function asSet(list) {
+    var o = {};
+    for (var i = 0; i < list.length; i++) o[list[i]] = true;
+    return o;
+  }
+  /* NOT lk_prs. It legitimately arrives as a map from the shipped app and
+     migration 1 converts it to the flat array everything reads -- guarding
+     it here hid the map from the migration that exists to fix it, and the
+     records were dropped instead of converted. A key a migration converts
+     is a key whose "wrong" shape is real data. */
+  var LIST_KEYS = asSet([
+    'lk_history', 'lk_splits', 'lk_weightLog', 'lk_bfLog',
+    'lk_goals', 'lk_photos', 'lk_supplements', 'lk_recipes',
+    'lk_shoppingList', 'lk_pantryItems', 'lk_feedback',
+    'lk_myFoods', 'lk_tdeeHistory', 'lk_removedKeys'
+  ]);
+  /* Same rule: lk_fuelLog, lk_profile, lk_customEx and lk_coachMemory are
+     all read by a migration in a shape this build does not otherwise
+     accept, so none of them is guarded. */
+  var MAP_KEYS = asSet([
+    'lk_exNotes', 'lk_exEquip', 'lk_changedAt',
+    'lk_fuelTargets', 'lk_suppLog', 'lk_notifPrefs'
+  ]);
+
   var SYNC_KEYS = [
     'lk_profile', 'lk_history', 'lk_prs', 'lk_splits', 'lk_customEx', 'lk_exNotes',
     'lk_exEquip', 'lk_featuredLifts', 'lk_weightLog', 'lk_bfLog', 'lk_goals',
@@ -17856,7 +17897,15 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     ['athlete', 'Twice a day, or manual work plus training', 1.9]
   ];
 
-  var PROFILE = stored('lk_profile', FX.profile || {});
+  /* A STORED null IS NOT A PROFILE. stored() hands back exactly what is
+     on the device, and a key written as null is not "nothing written" --
+     it passes the default straight through and everything downstream then
+     reads weight and height off null. Fuel died on it. */
+  var PROFILE = (function () {
+    var p = stored('lk_profile', null);
+    if (p && typeof p === 'object' && !Array.isArray(p)) return p;
+    return (FX.profile && typeof FX.profile === 'object') ? FX.profile : {};
+  }());
   /* The day log, keyed by date. Untouched it is the fixture's four days; the
      moment anything is logged the stored map wins and the fixture is never
      consulted again. Everything this screen did -- a logged meal, a deleted
@@ -24719,7 +24768,13 @@ DEMO.define("fuel", function (document, window, location, fetch) {
      DOM. Coming back re-reads rather than showing the day as it was when the
      router first painted it. */
   function reread() {
-    PROFILE = stored('lk_profile', FX.profile || {});
+    /* Same guard as the read at the top: reread() runs on every entry and
+       a null here put it straight back. */
+    PROFILE = (function () {
+      var pr = stored('lk_profile', null);
+      if (pr && typeof pr === 'object' && !Array.isArray(pr)) return pr;
+      return (FX.profile && typeof FX.profile === 'object') ? FX.profile : {};
+    }());
     FUELLOG = stored('lk_fuelLog', null) || cloneDays(NUT.days || {});
     WEIGHTLOG = stored('lk_weightLog', FX.weightLog || []);
     var own = stored('lk_fuelTargets', null);
@@ -47907,7 +47962,14 @@ DEMO.define("progress", function (document, window, location, fetch) {
       h.exercises.forEach(function (ex) {
         var best = null;
         (ex.sets || []).forEach(function (st) {
-          if (st.warm || !st.done) return;
+          if (!st || st.warm || !st.done) return;
+          /* A SET NEEDS BOTH HALVES TO BE A POINT. A row carrying a weight
+             and no reps -- an imported one, or a set ticked before the
+             reps were typed -- made e1rm return NaN, and the card then
+             printed "NaN kg" as the estimated one-rep max and "NaN kg
+             since Sep 7" as the change. Half a set is not a data point. */
+          if (typeof st.kg !== 'number' || typeof st.reps !== 'number') return;
+          if (!isFinite(st.kg) || !isFinite(st.reps)) return;
           var e = e1rm(st.kg, st.reps);
           if (!best || e > best.e) best = { e: e, kg: st.kg, reps: st.reps };
         });

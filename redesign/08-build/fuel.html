@@ -236,7 +236,15 @@
     ['athlete', 'Twice a day, or manual work plus training', 1.9]
   ];
 
-  var PROFILE = stored('lk_profile', FX.profile || {});
+  /* A STORED null IS NOT A PROFILE. stored() hands back exactly what is
+     on the device, and a key written as null is not "nothing written" --
+     it passes the default straight through and everything downstream then
+     reads weight and height off null. Fuel died on it. */
+  var PROFILE = (function () {
+    var p = stored('lk_profile', null);
+    if (p && typeof p === 'object' && !Array.isArray(p)) return p;
+    return (FX.profile && typeof FX.profile === 'object') ? FX.profile : {};
+  }());
   /* The day log, keyed by date. Untouched it is the fixture's four days; the
      moment anything is logged the stored map wins and the fixture is never
      consulted again. Everything this screen did -- a logged meal, a deleted
@@ -7099,7 +7107,13 @@
      DOM. Coming back re-reads rather than showing the day as it was when the
      router first painted it. */
   function reread() {
-    PROFILE = stored('lk_profile', FX.profile || {});
+    /* Same guard as the read at the top: reread() runs on every entry and
+       a null here put it straight back. */
+    PROFILE = (function () {
+      var pr = stored('lk_profile', null);
+      if (pr && typeof pr === 'object' && !Array.isArray(pr)) return pr;
+      return (FX.profile && typeof FX.profile === 'object') ? FX.profile : {};
+    }());
     FUELLOG = stored('lk_fuelLog', null) || cloneDays(NUT.days || {});
     WEIGHTLOG = stored('lk_weightLog', FX.weightLog || []);
     var own = stored('lk_fuelTargets', null);
