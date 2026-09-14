@@ -23754,6 +23754,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
             remote: null, remoteQ: '', remoteBusy: false,
             camState: 'idle', camWhy: null,
             brAsking: false, brWhy: null,
+            micBusy: false, micWhy: null,
             /* Which recipe is open inside the recipes sheet. The list and the
                detail are one sheet with two faces rather than two sheets, so
                Back returns to the list without closing and losing the place. */
@@ -26802,8 +26803,8 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       var items = S.micItems || [];
       /* Nothing weighing nothing was eaten. "0 chilli" offered an enabled
          "Log 1 item, 0 kcal" and wrote an empty row into the day. */
-      var hit = items.filter(function (it) { return it.key && it.grams > 0; });
-      var zero = items.filter(function (it) { return it.key && !(it.grams > 0); });
+      var hit = items.filter(function (it) { return it.key && (it.est || it.grams > 0); });
+      var zero = items.filter(function (it) { return it.key && !it.est && !(it.grams > 0); });
       var miss = items.filter(function (it) { return !it.key; });
       var tot = hit.reduce(function (a, it) { return a + it.kcal; }, 0);
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
@@ -26835,7 +26836,10 @@ DEMO.define("fuel", function (document, window, location, fetch) {
                       '<span class="fuel-thumb" aria-hidden="true">' + (it.icon || '\u2753') + '</span>' +
                       '<span class="row__main stack">' +
                         '<span class="row__title">' + esc(it.key ? it.name : it.raw) + '</span>' +
-                        '<span class="row__sub">' + (it.key
+                        '<span class="row__sub">' + (it.est
+                          ? 'Estimated \u00b7 ' + n(it.pro) + ' P \u00b7 ' + n(it.carb) +
+                            ' C \u00b7 ' + n(it.fat) + ' F'
+                          : it.key
                           ? n(it.grams) + ' g \u00b7 ' + n(it.pro) + ' P \u00b7 ' + n(it.carb) +
                             ' C \u00b7 ' + n(it.fat) + ' F'
                           : 'nothing in the table matches this, so it is not counted') + '</span>' +
@@ -26859,6 +26863,21 @@ DEMO.define("fuel", function (document, window, location, fetch) {
                 slotPicker(S.logSlot || slotForNow(), 'pick-slot', 'mic-slot')
               : '<p class="t-detail quiet mt-4">Type a sentence and it will be read out into ' +
                 'items here before anything is logged.</p>') +
+            /* ANYTHING THE TABLE DOES NOT KNOW. The parser matches against
+               the foods on this device, which is most of what somebody
+               eats and not all of it, and an unmatched phrase was simply
+               not counted. Now it can be estimated -- clearly as an
+               estimate, in its own row, beside the looked-up ones. */
+            ((miss.length && window.LKCloud && LKCloud.ready())
+              ? '<button class="btn btn--secondary btn--block mt-4" type="button" ' +
+                  'data-action="mic-estimate"' + (S.micBusy ? ' aria-busy="true" disabled' : '') +
+                  ' data-testid="mic-estimate"><span class="btn__label">' +
+                  (S.micBusy ? 'Estimating' : 'Estimate the ' + miss.length +
+                    (miss.length === 1 ? ' it did not know' : ' it did not know')) +
+                  '</span></button>' +
+                (S.micWhy ? '<p class="t-caption-1 quiet mt-2" data-testid="mic-why">' +
+                  esc(S.micWhy) + '</p>' : '')
+              : '') +
             '<button class="btn btn--secondary btn--block mt-4" type="button" data-action="manual" ' +
               'data-testid="mic-manual"><span class="btn__label">Type the numbers by hand</span></button>' +
           '</div>' +
@@ -27161,6 +27180,10 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       S.gen[a === 'gp-days' ? 'days' : 'perDay'] = +act.getAttribute('data-v');
       S.gen.preview = null;
       render(); return;
+    }
+    if (a === 'mic-estimate') {
+      estimateRest();
+      return;
     }
     if (a === 'br-ask') {
       askRecipe();
@@ -27807,6 +27830,58 @@ DEMO.define("fuel", function (document, window, location, fetch) {
      bounds every field and refuses a total the model states rather than
      one computed from the items, which is the whole reason that gate
      exists. What lands here is the form, filled in. */
+  /* ESTIMATED, AND DRAWN AS AN ESTIMATE. Every row this adds carries
+     src 'estimate' into the log, which is what the diary reads to draw it
+     apart from a looked-up food. A figure somebody cannot tell from a
+     measured one is worse than no figure. */
+  function estimateRest() {
+    var C = window.LKCloud;
+    if (!C || !C.ready() || !C.vision) return;
+    var cur = S.micItems || [];
+    var missed = cur.filter(function (i) { return !i.key; })
+      .map(function (i) { return i.raw; }).filter(Boolean);
+    if (!missed.length) return;
+    S.micBusy = true; S.micWhy = null; render();
+    C.vision('meal', '', { description: missed.join(', ') }).then(function (r) {
+      S.micBusy = false;
+      if (!r || !r.ok || !Array.isArray(r.data) || !r.data.length) {
+        S.micWhy = (r && r.message) || 'No estimate came back, so nothing was added.';
+        render();
+        return;
+      }
+      var made = r.data.slice(0, 10).map(function (it, i) {
+        var kcal = Math.max(0, Math.round(Number(it.cal != null ? it.cal : it.kcal) || 0));
+        if (!kcal) return null;
+        return {
+          /* A key so the row counts and can be logged; est so every place
+             that draws or stores it knows it is a reading, not a lookup. */
+          key: '@est' + Date.now() + i,
+          est: true,
+          name: String(it.name || 'Item').slice(0, 40),
+          icon: '\u{1F37D}\u{FE0F}',
+          grams: 0,
+          kcal: kcal,
+          pro: Math.max(0, Math.round((Number(it.pro) || 0) * 10) / 10),
+          carb: Math.max(0, Math.round((Number(it.carb) || 0) * 10) / 10),
+          fat: Math.max(0, Math.round((Number(it.fat) || 0) * 10) / 10),
+          src: 'estimate'
+        };
+      }).filter(Boolean);
+      /* The phrases that were estimated leave the list: they are these rows
+         now, and showing both would count the meal twice. */
+      S.micItems = cur.filter(function (i) { return i.key; }).concat(made);
+      S.micWhy = made.length
+        ? made.length + (made.length === 1 ? ' estimate' : ' estimates') +
+          ' added, marked as estimates rather than looked-up foods.'
+        : 'Nothing in that came back with a figure, so nothing was added.';
+      render();
+    }, function () {
+      S.micBusy = false;
+      S.micWhy = 'The estimate could not be reached, so nothing was added.';
+      render();
+    });
+  }
+
   function askRecipe() {
     var C = window.LKCloud;
     if (!C || !C.coachReady()) return;
@@ -28275,13 +28350,18 @@ DEMO.define("fuel", function (document, window, location, fetch) {
   /* Exactly what the preview showed, item by item. An unmatched piece is not
      logged and was never counted in the total on the button. */
   function micLog() {
-    var items = (S.micItems || []).filter(function (it) { return it.key && it.grams > 0; });
+    var items = (S.micItems || []).filter(function (it) { return it.key && (it.est || it.grams > 0); });
     if (!items.length) return;
     var slot = S.logSlot || slotForNow();
     var tot = 0;
     items.forEach(function (it) {
-      var meal = { key: it.key, icon: it.icon,
-                   name: it.name + (it.grams === FOODS[it.key].g ? '' : ', ' + n(it.grams) + ' g'),
+      /* An estimated row has no entry in the food table, so it carries no
+         gram weight and must not be looked up in FOODS -- which is how a
+         row read off a sentence used to throw on its own name. */
+      var meal = { key: it.est ? null : it.key, icon: it.icon,
+                   name: it.est
+                     ? it.name
+                     : it.name + (it.grams === FOODS[it.key].g ? '' : ', ' + n(it.grams) + ' g'),
                    kcal: it.kcal, pro: it.pro, carb: it.carb, fat: it.fat,
                    src: 'estimate', slot: slot };
       MICROS.forEach(function (mi) {
@@ -33809,9 +33889,13 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
           (ignored.length
             ? '<p class="t-label mt-3">Not read</p><ul class="t-detail" data-testid="ai-ignored">' +
               ignored.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') +
-              '</ul><p class="t-caption-1 quiet mt-2">This drafter is a rule on your phone, ' +
-              'not a model, so it reads the short list above and nothing else. Swap any lift ' +
-              'below by hand instead.</p>'
+              '</ul><p class="t-caption-1 quiet mt-2">' +
+              (S.ai.read
+                ? 'A coach read your description into days, equipment and things to avoid, and ' +
+                  'the draft is built from those. Anything above is what neither could act on. ' +
+                  'Swap any lift below by hand.'
+                : 'This drafter is a rule on your phone, so it reads the short list above and ' +
+                  'nothing else. Swap any lift below by hand instead.') + '</p>'
             : '') +
         '</div>' +
       '</div>' +
@@ -34293,9 +34377,71 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     }, 600);
   }
 
+  /* THE MODEL READS THE SENTENCE; THE RULE STILL BUILDS THE DRAFT.
+
+     The gap here was never the drafting -- the rule picks real movements
+     and carries three alternatives for every slot, which is the best
+     thing about this screen. What it cannot do is understand a sentence:
+     it matches a day count, a handful of equipment words and "no X". So
+     the model is asked to turn the description into exactly those terms
+     and the rule takes it from there, alternatives intact.
+
+     Nothing the model says becomes an exercise. It returns a day count,
+     equipment words and things to avoid; every lift still comes from the
+     catalogue the rule already picks from. */
+  function readNote(note, done) {
+    var C = window.LKCloud;
+    if (!C || !C.coachReady() || !String(note || '').trim()) return done(null);
+    C.ask([{ role: 'user',
+             content: 'Read this training description and return ONLY a JSON object: ' +
+                      '{"days":number or null,"equipment":[string],"avoid":[string],' +
+                      '"emphasis":[string]}. Use only what the text says; null and empty ' +
+                      'arrays where it says nothing. Text: ' + String(note).slice(0, 400) }], {})
+      .then(function (r) {
+        var txt = (r && r.ok && r.data && (r.data.reply || r.data.raw)) || '';
+        var o = null;
+        try {
+          var a = txt.indexOf('{'), b = txt.lastIndexOf('}');
+          o = JSON.parse(a >= 0 && b > a ? txt.slice(a, b + 1) : txt);
+        } catch (e) { o = null; }
+        if (!o || typeof o !== 'object') return done(null);
+        done({
+          days: (o.days >= 1 && o.days <= 6) ? Math.round(o.days) : null,
+          equipment: (Array.isArray(o.equipment) ? o.equipment : []).slice(0, 6)
+            .map(function (x) { return String(x).toLowerCase().slice(0, 20); }),
+          avoid: (Array.isArray(o.avoid) ? o.avoid : []).slice(0, 6)
+            .map(function (x) { return String(x).toLowerCase().slice(0, 20); }),
+          emphasis: (Array.isArray(o.emphasis) ? o.emphasis : []).slice(0, 4)
+            .map(function (x) { return String(x).toLowerCase().slice(0, 20); })
+        });
+      }, function () { done(null); });
+  }
+
+  /* The read turned back into the words the rule already matches, so
+     there is one matcher rather than two that can disagree. */
+  function noteWithRead(note, read) {
+    if (!read) return note;
+    var extra = [];
+    if (read.days) extra.push(read.days + ' days');
+    read.equipment.forEach(function (e) { extra.push(e); });
+    read.emphasis.forEach(function (e) { extra.push(e); });
+    read.avoid.forEach(function (a) { extra.push('no ' + a); });
+    return extra.length ? String(note || '') + ' ' + extra.join(' ') : note;
+  }
+
   function runGeneration() {
     S.ai.error = null;
-    var plan = planFor(S.ai.note);
+    if (window.LKCloud && LKCloud.coachReady() && !S.ai.readDone) {
+      S.ai.status = 'loading';
+      render();
+      readNote(S.ai.note, function (read) {
+        S.ai.readDone = true;
+        S.ai.read = read;
+        runGeneration();
+      });
+      return;
+    }
+    var plan = planFor(noteWithRead(S.ai.note, S.ai.read));
     if (!plan.read.length) {
       S.ai.status = 'error';
       S.ai.plan = null;
@@ -34617,8 +34763,8 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
       toast('Generation cancelled.');
       render();
     },
-    'ai-edit-note': function () { S.ai.status = 'idle'; render(); },
-    'ai-regenerate': function () { S.ai.status = 'idle'; S.ai.plan = null; render(); },
+    'ai-edit-note': function () { S.ai.status = 'idle'; S.ai.readDone = false; S.ai.read = null; render(); },
+    'ai-regenerate': function () { S.ai.status = 'idle'; S.ai.plan = null; S.ai.readDone = false; S.ai.read = null; render(); },
     'ai-accept': function () { acceptPlan(); },
     'open-swap': function (el) { S.modal = { type: 'swap', id: el.getAttribute('data-id') }; render(); },
     'choose': function (el) {

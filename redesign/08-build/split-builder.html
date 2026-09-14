@@ -12,6 +12,8 @@
 <script src="units.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
+<script src="cloud-config.js"></script>
+<script src="cloud.js"></script>
 <script src="session.js"></script>
 <style>
   /* Demo chrome only. Layout, no new values: every colour, size, radius and
@@ -798,9 +800,13 @@
           (ignored.length
             ? '<p class="t-label mt-3">Not read</p><ul class="t-detail" data-testid="ai-ignored">' +
               ignored.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') +
-              '</ul><p class="t-caption-1 quiet mt-2">This drafter is a rule on your phone, ' +
-              'not a model, so it reads the short list above and nothing else. Swap any lift ' +
-              'below by hand instead.</p>'
+              '</ul><p class="t-caption-1 quiet mt-2">' +
+              (S.ai.read
+                ? 'A coach read your description into days, equipment and things to avoid, and ' +
+                  'the draft is built from those. Anything above is what neither could act on. ' +
+                  'Swap any lift below by hand.'
+                : 'This drafter is a rule on your phone, so it reads the short list above and ' +
+                  'nothing else. Swap any lift below by hand instead.') + '</p>'
             : '') +
         '</div>' +
       '</div>' +
@@ -1282,9 +1288,71 @@
     }, 600);
   }
 
+  /* THE MODEL READS THE SENTENCE; THE RULE STILL BUILDS THE DRAFT.
+
+     The gap here was never the drafting -- the rule picks real movements
+     and carries three alternatives for every slot, which is the best
+     thing about this screen. What it cannot do is understand a sentence:
+     it matches a day count, a handful of equipment words and "no X". So
+     the model is asked to turn the description into exactly those terms
+     and the rule takes it from there, alternatives intact.
+
+     Nothing the model says becomes an exercise. It returns a day count,
+     equipment words and things to avoid; every lift still comes from the
+     catalogue the rule already picks from. */
+  function readNote(note, done) {
+    var C = window.LKCloud;
+    if (!C || !C.coachReady() || !String(note || '').trim()) return done(null);
+    C.ask([{ role: 'user',
+             content: 'Read this training description and return ONLY a JSON object: ' +
+                      '{"days":number or null,"equipment":[string],"avoid":[string],' +
+                      '"emphasis":[string]}. Use only what the text says; null and empty ' +
+                      'arrays where it says nothing. Text: ' + String(note).slice(0, 400) }], {})
+      .then(function (r) {
+        var txt = (r && r.ok && r.data && (r.data.reply || r.data.raw)) || '';
+        var o = null;
+        try {
+          var a = txt.indexOf('{'), b = txt.lastIndexOf('}');
+          o = JSON.parse(a >= 0 && b > a ? txt.slice(a, b + 1) : txt);
+        } catch (e) { o = null; }
+        if (!o || typeof o !== 'object') return done(null);
+        done({
+          days: (o.days >= 1 && o.days <= 6) ? Math.round(o.days) : null,
+          equipment: (Array.isArray(o.equipment) ? o.equipment : []).slice(0, 6)
+            .map(function (x) { return String(x).toLowerCase().slice(0, 20); }),
+          avoid: (Array.isArray(o.avoid) ? o.avoid : []).slice(0, 6)
+            .map(function (x) { return String(x).toLowerCase().slice(0, 20); }),
+          emphasis: (Array.isArray(o.emphasis) ? o.emphasis : []).slice(0, 4)
+            .map(function (x) { return String(x).toLowerCase().slice(0, 20); })
+        });
+      }, function () { done(null); });
+  }
+
+  /* The read turned back into the words the rule already matches, so
+     there is one matcher rather than two that can disagree. */
+  function noteWithRead(note, read) {
+    if (!read) return note;
+    var extra = [];
+    if (read.days) extra.push(read.days + ' days');
+    read.equipment.forEach(function (e) { extra.push(e); });
+    read.emphasis.forEach(function (e) { extra.push(e); });
+    read.avoid.forEach(function (a) { extra.push('no ' + a); });
+    return extra.length ? String(note || '') + ' ' + extra.join(' ') : note;
+  }
+
   function runGeneration() {
     S.ai.error = null;
-    var plan = planFor(S.ai.note);
+    if (window.LKCloud && LKCloud.coachReady() && !S.ai.readDone) {
+      S.ai.status = 'loading';
+      render();
+      readNote(S.ai.note, function (read) {
+        S.ai.readDone = true;
+        S.ai.read = read;
+        runGeneration();
+      });
+      return;
+    }
+    var plan = planFor(noteWithRead(S.ai.note, S.ai.read));
     if (!plan.read.length) {
       S.ai.status = 'error';
       S.ai.plan = null;
@@ -1606,8 +1674,8 @@
       toast('Generation cancelled.');
       render();
     },
-    'ai-edit-note': function () { S.ai.status = 'idle'; render(); },
-    'ai-regenerate': function () { S.ai.status = 'idle'; S.ai.plan = null; render(); },
+    'ai-edit-note': function () { S.ai.status = 'idle'; S.ai.readDone = false; S.ai.read = null; render(); },
+    'ai-regenerate': function () { S.ai.status = 'idle'; S.ai.plan = null; S.ai.readDone = false; S.ai.read = null; render(); },
     'ai-accept': function () { acceptPlan(); },
     'open-swap': function (el) { S.modal = { type: 'swap', id: el.getAttribute('data-id') }; render(); },
     'choose': function (el) {

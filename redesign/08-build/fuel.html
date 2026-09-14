@@ -1998,6 +1998,7 @@
             remote: null, remoteQ: '', remoteBusy: false,
             camState: 'idle', camWhy: null,
             brAsking: false, brWhy: null,
+            micBusy: false, micWhy: null,
             /* Which recipe is open inside the recipes sheet. The list and the
                detail are one sheet with two faces rather than two sheets, so
                Back returns to the list without closing and losing the place. */
@@ -5046,8 +5047,8 @@
       var items = S.micItems || [];
       /* Nothing weighing nothing was eaten. "0 chilli" offered an enabled
          "Log 1 item, 0 kcal" and wrote an empty row into the day. */
-      var hit = items.filter(function (it) { return it.key && it.grams > 0; });
-      var zero = items.filter(function (it) { return it.key && !(it.grams > 0); });
+      var hit = items.filter(function (it) { return it.key && (it.est || it.grams > 0); });
+      var zero = items.filter(function (it) { return it.key && !it.est && !(it.grams > 0); });
       var miss = items.filter(function (it) { return !it.key; });
       var tot = hit.reduce(function (a, it) { return a + it.kcal; }, 0);
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
@@ -5079,7 +5080,10 @@
                       '<span class="fuel-thumb" aria-hidden="true">' + (it.icon || '\u2753') + '</span>' +
                       '<span class="row__main stack">' +
                         '<span class="row__title">' + esc(it.key ? it.name : it.raw) + '</span>' +
-                        '<span class="row__sub">' + (it.key
+                        '<span class="row__sub">' + (it.est
+                          ? 'Estimated \u00b7 ' + n(it.pro) + ' P \u00b7 ' + n(it.carb) +
+                            ' C \u00b7 ' + n(it.fat) + ' F'
+                          : it.key
                           ? n(it.grams) + ' g \u00b7 ' + n(it.pro) + ' P \u00b7 ' + n(it.carb) +
                             ' C \u00b7 ' + n(it.fat) + ' F'
                           : 'nothing in the table matches this, so it is not counted') + '</span>' +
@@ -5103,6 +5107,21 @@
                 slotPicker(S.logSlot || slotForNow(), 'pick-slot', 'mic-slot')
               : '<p class="t-detail quiet mt-4">Type a sentence and it will be read out into ' +
                 'items here before anything is logged.</p>') +
+            /* ANYTHING THE TABLE DOES NOT KNOW. The parser matches against
+               the foods on this device, which is most of what somebody
+               eats and not all of it, and an unmatched phrase was simply
+               not counted. Now it can be estimated -- clearly as an
+               estimate, in its own row, beside the looked-up ones. */
+            ((miss.length && window.LKCloud && LKCloud.ready())
+              ? '<button class="btn btn--secondary btn--block mt-4" type="button" ' +
+                  'data-action="mic-estimate"' + (S.micBusy ? ' aria-busy="true" disabled' : '') +
+                  ' data-testid="mic-estimate"><span class="btn__label">' +
+                  (S.micBusy ? 'Estimating' : 'Estimate the ' + miss.length +
+                    (miss.length === 1 ? ' it did not know' : ' it did not know')) +
+                  '</span></button>' +
+                (S.micWhy ? '<p class="t-caption-1 quiet mt-2" data-testid="mic-why">' +
+                  esc(S.micWhy) + '</p>' : '')
+              : '') +
             '<button class="btn btn--secondary btn--block mt-4" type="button" data-action="manual" ' +
               'data-testid="mic-manual"><span class="btn__label">Type the numbers by hand</span></button>' +
           '</div>' +
@@ -5405,6 +5424,10 @@
       S.gen[a === 'gp-days' ? 'days' : 'perDay'] = +act.getAttribute('data-v');
       S.gen.preview = null;
       render(); return;
+    }
+    if (a === 'mic-estimate') {
+      estimateRest();
+      return;
     }
     if (a === 'br-ask') {
       askRecipe();
@@ -6051,6 +6074,58 @@
      bounds every field and refuses a total the model states rather than
      one computed from the items, which is the whole reason that gate
      exists. What lands here is the form, filled in. */
+  /* ESTIMATED, AND DRAWN AS AN ESTIMATE. Every row this adds carries
+     src 'estimate' into the log, which is what the diary reads to draw it
+     apart from a looked-up food. A figure somebody cannot tell from a
+     measured one is worse than no figure. */
+  function estimateRest() {
+    var C = window.LKCloud;
+    if (!C || !C.ready() || !C.vision) return;
+    var cur = S.micItems || [];
+    var missed = cur.filter(function (i) { return !i.key; })
+      .map(function (i) { return i.raw; }).filter(Boolean);
+    if (!missed.length) return;
+    S.micBusy = true; S.micWhy = null; render();
+    C.vision('meal', '', { description: missed.join(', ') }).then(function (r) {
+      S.micBusy = false;
+      if (!r || !r.ok || !Array.isArray(r.data) || !r.data.length) {
+        S.micWhy = (r && r.message) || 'No estimate came back, so nothing was added.';
+        render();
+        return;
+      }
+      var made = r.data.slice(0, 10).map(function (it, i) {
+        var kcal = Math.max(0, Math.round(Number(it.cal != null ? it.cal : it.kcal) || 0));
+        if (!kcal) return null;
+        return {
+          /* A key so the row counts and can be logged; est so every place
+             that draws or stores it knows it is a reading, not a lookup. */
+          key: '@est' + Date.now() + i,
+          est: true,
+          name: String(it.name || 'Item').slice(0, 40),
+          icon: '\u{1F37D}\u{FE0F}',
+          grams: 0,
+          kcal: kcal,
+          pro: Math.max(0, Math.round((Number(it.pro) || 0) * 10) / 10),
+          carb: Math.max(0, Math.round((Number(it.carb) || 0) * 10) / 10),
+          fat: Math.max(0, Math.round((Number(it.fat) || 0) * 10) / 10),
+          src: 'estimate'
+        };
+      }).filter(Boolean);
+      /* The phrases that were estimated leave the list: they are these rows
+         now, and showing both would count the meal twice. */
+      S.micItems = cur.filter(function (i) { return i.key; }).concat(made);
+      S.micWhy = made.length
+        ? made.length + (made.length === 1 ? ' estimate' : ' estimates') +
+          ' added, marked as estimates rather than looked-up foods.'
+        : 'Nothing in that came back with a figure, so nothing was added.';
+      render();
+    }, function () {
+      S.micBusy = false;
+      S.micWhy = 'The estimate could not be reached, so nothing was added.';
+      render();
+    });
+  }
+
   function askRecipe() {
     var C = window.LKCloud;
     if (!C || !C.coachReady()) return;
@@ -6519,13 +6594,18 @@
   /* Exactly what the preview showed, item by item. An unmatched piece is not
      logged and was never counted in the total on the button. */
   function micLog() {
-    var items = (S.micItems || []).filter(function (it) { return it.key && it.grams > 0; });
+    var items = (S.micItems || []).filter(function (it) { return it.key && (it.est || it.grams > 0); });
     if (!items.length) return;
     var slot = S.logSlot || slotForNow();
     var tot = 0;
     items.forEach(function (it) {
-      var meal = { key: it.key, icon: it.icon,
-                   name: it.name + (it.grams === FOODS[it.key].g ? '' : ', ' + n(it.grams) + ' g'),
+      /* An estimated row has no entry in the food table, so it carries no
+         gram weight and must not be looked up in FOODS -- which is how a
+         row read off a sentence used to throw on its own name. */
+      var meal = { key: it.est ? null : it.key, icon: it.icon,
+                   name: it.est
+                     ? it.name
+                     : it.name + (it.grams === FOODS[it.key].g ? '' : ', ' + n(it.grams) + ' g'),
                    kcal: it.kcal, pro: it.pro, carb: it.carb, fat: it.fat,
                    src: 'estimate', slot: slot };
       MICROS.forEach(function (mi) {
