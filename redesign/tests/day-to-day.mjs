@@ -370,6 +370,66 @@ for (const r of ['home', 'train', 'fuel', 'progress', 'coach', 'exercise-library
   ok(!/undefined|NaN|\[object Object\]|Invalid Date/.test(t), `${r} shows no hole`);
 }
 
+/* A CUSTOM EXERCISE. A lift the catalogue does not have is the first thing
+   anyone with a machine nobody names goes looking for, and it has to be
+   usable in a session afterwards, not just listed. */
+errs.length = 0;
+await page.evaluate(() => window.DEMO.go('exercise-library'));
+await page.waitForTimeout(700);
+/* The create button lives on the Custom filter and on the no-results
+   empty state, not on the default browse view. */
+let toCustom = await tap('filter-custom');
+if (toCustom !== 'ok') toCustom = await tap('show-customs');
+ok(toCustom === 'ok', 'the library offers its custom shelf', toCustom);
+await page.waitForTimeout(600);
+const openCreate = await tap('create-custom');
+ok(openCreate === 'ok', 'the create sheet opens', openCreate);
+await page.waitForTimeout(500);
+const named = await page.evaluate(() => {
+  const rec = window.DEMO.screens['exercise-library'];
+  const root = rec && (rec.root || (rec.host && rec.host.shadowRoot));
+  const i = root && root.querySelector('[data-testid="create-name"]');
+  if (!i) return 'no field';
+  i.focus(); i.value = 'Hammer decline press';
+  i.dispatchEvent(new Event('input', { bubbles: true }));
+  i.dispatchEvent(new Event('change', { bubbles: true }));
+  return 'ok';
+});
+ok(named === 'ok', 'it takes a name', named);
+await page.waitForTimeout(300);
+const madeIt = await tap('create-save');
+ok(madeIt === 'ok', 'and saves', madeIt);
+await page.waitForTimeout(700);
+const customs = await raw('lk_customEx');
+ok(Array.isArray(customs) && customs.some((c) => /Hammer decline/.test(c.name || '')),
+   'the custom lift is on the phone', JSON.stringify(customs || []).slice(0, 140));
+const libText = await text('exercise-library');
+ok(/Hammer decline/.test(libText), 'and in the library that made it');
+ok(!errs.length, 'nothing throws making a custom lift', errs[0] || '');
+
+/* DISCARDING. A session abandoned must leave nothing running, or the app
+   offers to resume a workout that was thrown away. */
+errs.length = 0;
+await page.evaluate(() => window.DEMO.go('train'));
+await page.waitForTimeout(500);
+ok((await tap('start-today')) === 'ok', 'a session starts to be discarded');
+await page.waitForTimeout(900);
+ok(!!(await raw('lk_liveSession')), 'it is running');
+const disc = await tap('btn-discard');
+ok(disc === 'ok', 'discard is offered', disc);
+await page.waitForTimeout(500);
+/* Discard asks first. Confirm whichever way this build words it. */
+for (const t of ['discard-confirm', 'action-discard-confirm', 'confirm-discard']) {
+  if ((await tap(t)) === 'ok') break;
+}
+await page.waitForTimeout(700);
+ok(!(await raw('lk_liveSession')), 'and nothing is left running after it',
+   JSON.stringify(await raw('lk_liveSession')));
+const h3 = await raw('lk_history');
+ok((h3 || []).length === 3, 'a discarded session writes no history row',
+   (h3 || []).length + ' rows');
+ok(!errs.length, 'nothing throws discarding', errs[0] || '');
+
 /* AND IT SURVIVES A RELOAD. Everything above is in localStorage; a phone
    that reloads must come back to the same account, not a blank one. */
 errs.length = 0;
