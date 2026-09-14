@@ -1495,9 +1495,28 @@
        whether or not the catalogue loads. */
     function withCustom(rows) {
       ((window.LKStore ? LKStore.get('lk_customEx', []) : []) || []).forEach(function (c) {
-        rows.push({ id: c.id, name: c.name, muscle: c.muscle || c.sid || c.gid || 'Custom', custom: true });
+        rows.push({ id: c.id, name: c.name, group: c.gid || '',
+                    muscle: c.muscle || c.sid || c.gid || 'Custom', custom: true });
       });
       return rows;
+    }
+    /* THE CATALOGUE IS ALREADY HERE. This fetched a JSON file that does
+       not exist on file:// and dropped `group` on the way in even when it
+       did -- so the picker fell back to six hardcoded lifts offline, and
+       "what else trains this" could never widen past the exact muscle
+       because the group was not in the data it was reading. LKExercises
+       is loaded before this screen, carries all 866 with both their group
+       and their muscle, and needs no network. */
+    if (window.LKExercises && LKExercises.all) {
+      var rows = LKExercises.all();
+      if (rows && rows.length) {
+        LIBRARY = withCustom(rows.map(function (x) {
+          return { id: x.id, name: x.name, group: x.group || '', muscle: x.muscle || x.group || '' };
+        }));
+        LIBRARY.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+        LIBRARY_FULL = true;
+        return;
+      }
     }
     if (location.protocol === 'file:' || typeof fetch !== 'function') {
       LIBRARY = withCustom(LIBRARY.slice());
@@ -1508,7 +1527,7 @@
       .then(function (rows) {
         if (!Array.isArray(rows) || !rows.length) return;
         LIBRARY = withCustom(rows.map(function (x) {
-          return { id: x.id, name: x.name, muscle: x.muscle || x.group || '' };
+          return { id: x.id, name: x.name, group: x.group || '', muscle: x.muscle || x.group || '' };
         }));
         LIBRARY.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
         LIBRARY_FULL = true;
@@ -1556,19 +1575,57 @@
        A plain Add is unchanged: there the whole library IS the answer. */
     var swapping = S.swapAt !== null && S.exercises[S.swapAt];
     var sameOnly = false;
-    if (swapping && !q) {
-      var want = String(S.exercises[S.swapAt].muscle || '').toLowerCase();
-      var same = all.filter(function (x) {
-        return want && String(x.muscle || '').toLowerCase() === want;
-      });
-      if (same.length && !S.addexAll) { all = same; sameOnly = true; }
-    } else if (swapping && q) {
-      var want2 = String(S.exercises[S.swapAt].muscle || '').toLowerCase();
-      all = all.slice().sort(function (a, b) {
-        var sa = String(a.muscle || '').toLowerCase() === want2 ? 0 : 1;
-        var sb = String(b.muscle || '').toLowerCase() === want2 ? 0 : 1;
-        return sa - sb;
-      });
+
+    /* THE SHORT LIST, unless the reader asked for the whole catalogue.
+       866 lifts is a reference; picking one mid-session is a menu. */
+    if (!S.addexAll && window.LKExercises && LKExercises.offered) {
+      var offered = LKExercises.offered(all);
+      if (offered.length) all = offered;
+    }
+
+    /* RELATED MUSCLES, not one muscle. Replacing an incline press offered
+       only other Upper Chest lifts, which is narrower than the question:
+       what else trains this. The muscle comes first, then the rest of the
+       group -- a chest exercise's alternatives are chest exercises -- and
+       the whole library is one button away. */
+    if (swapping) {
+      var cur = S.exercises[S.swapAt];
+      var wantM = String(cur.muscle || '').toLowerCase();
+      /* The group off the CATALOGUE, not off the session. A session's
+         exercise carries id, name and muscle -- exFromHistory never had a
+         group to pass -- so reading it here gave an empty string and the
+         "rest of the group" tier could never match anything. */
+      var wantG = String(cur.group || '').toLowerCase();
+      if (!wantG) {
+        for (var li = 0; li < LIBRARY.length; li++) {
+          if (LIBRARY[li].id === cur.id) { wantG = String(LIBRARY[li].group || '').toLowerCase(); break; }
+        }
+      }
+      var tier = function (x) {
+        if (wantM && String(x.muscle || '').toLowerCase() === wantM) return 0;
+        if (wantG && String(x.group || '').toLowerCase() === wantG) return 1;
+        return 2;
+      };
+      if (!q) {
+        var related = all.filter(function (x) { return tier(x) < 2; });
+        if (related.length && !S.addexAll) { all = related; sameOnly = true; }
+      }
+      all = all.slice().sort(function (a, b) { return tier(a) - tier(b); });
+    }
+
+    /* AND WHAT YOU HAVE ACTUALLY DONE, FIRST. The lift you used last
+       Tuesday is far likelier to be the one you want than whichever sorts
+       first alphabetically. Stable within each tier, so the muscle
+       grouping above still holds. */
+    if (window.LKExercises && LKExercises.doneBefore) {
+      var seenBefore = LKExercises.doneBefore();
+      all = all.slice().map(function (x, i) { return [x, i]; }).sort(function (a, b) {
+        var ra = seenBefore[a[0].id], rb = seenBefore[b[0].id];
+        var ha = ra === undefined ? 1 : 0, hb = rb === undefined ? 1 : 0;
+        if (ha !== hb) return ha - hb;
+        if (!ha && ra !== rb) return ra - rb;
+        return a[1] - b[1];
+      }).map(function (p) { return p[0]; });
     }
     /* 866 rows in one sheet is a scroll nobody finishes, and it is the
        search field's job anyway. A page at a time, with the count and a way
@@ -1577,7 +1634,8 @@
     var sameNote = sameOnly
       ? '<p class="t-detail muted" data-testid="addex-same">' + n(all.length) +
         (all.length === 1 ? ' lift' : ' lifts') + ' for ' +
-        esc(S.exercises[S.swapAt].muscle) + ', which is what this one trains. ' +
+        esc(S.exercises[S.swapAt].muscle) + ' and the rest of ' +
+        esc(S.exercises[S.swapAt].group || 'the group') + '. ' +
         '<button class="btn btn--tertiary btn--sm" type="button" data-act="addex-all" ' +
         'data-testid="addex-all">Show the whole library</button></p>'
       : '';

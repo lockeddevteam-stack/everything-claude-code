@@ -1012,10 +1012,33 @@
 
   function pool() {
     var list = S.items;
-    if (S.filter === 'custom') list = list.filter(function (x) { return x.custom; });
+    if (S.filter === 'custom') return list.filter(function (x) { return x.custom; });
+    /* THE SHORT LIST, when Settings says so. The library is a reference
+       and keeps all 866 on the All filter and in search -- completeness
+       is the point of a reference, and a lift you cannot find is a lift
+       you do not have. Browsing a muscle is the other job: forty
+       near-identical incline presses is not a list anybody reads. */
+    if (S.filter !== 'all' && window.LKExercises && LKExercises.offered) {
+      var offered = LKExercises.offered(list);
+      if (offered.length) return offered;
+    }
     return list;
   }
-  function inGroup(gid) { return pool().filter(function (x) { return x.gid === gid; }); }
+
+  /* Lifts already logged come first wherever a list is browsed: the one
+     you did last Tuesday beats whatever sorts first alphabetically. */
+  function doneFirst(list) {
+    if (!window.LKExercises || !LKExercises.doneBefore) return list;
+    var seen = LKExercises.doneBefore();
+    return list.slice().map(function (x, i) { return [x, i]; }).sort(function (a, b) {
+      var ra = seen[a[0].id], rb = seen[b[0].id];
+      var ha = ra === undefined ? 1 : 0, hb = rb === undefined ? 1 : 0;
+      if (ha !== hb) return ha - hb;
+      if (!ha && ra !== rb) return ra - rb;
+      return a[1] - b[1];
+    }).map(function (p) { return p[0]; });
+  }
+  function inGroup(gid) { return doneFirst(pool().filter(function (x) { return x.gid === gid; })); }
   function results() {
     var base = (S.gid && S.scope === 'group') ? inGroup(S.gid) : pool();
     return search(base, S.q);

@@ -31,3 +31,77 @@
     count: function () { return ROWS.length; }
   };
 })(typeof window !== 'undefined' ? window : this);
+
+/* ===================================================================
+   THE SHORT LIST, AND WHAT YOU HAVE ACTUALLY DONE.
+
+   866 lifts is a catalogue, not a menu. Picking a lift mid-session means
+   scrolling past forty near-identical incline presses to find the one
+   you use, which is the opposite of what a person holding a barbell
+   wants. The library keeps all 866 -- it is a reference and completeness
+   is the point -- but the app can offer the short list instead.
+
+   The short list is not a new judgement. The first 189 ids are the
+   hand-picked core, 6 to 20 per muscle and averaging 10; everything from
+   1000 up is the bulk import. So "the common ones" is a fact already in
+   the data rather than a ranking invented here. Twenty per muscle is the
+   cap because that is where the curated set already tops out.
+   =================================================================== */
+(function (g) {
+  var CORE_MAX_ID = 1000;
+  var PER_MUSCLE = 20;
+
+  function condensed(rows) {
+    var seen = {}, out = [];
+    (rows || []).forEach(function (x) {
+      if (!x || x.id >= CORE_MAX_ID) return;
+      var m = String(x.muscle || '');
+      seen[m] = (seen[m] || 0) + 1;
+      if (seen[m] <= PER_MUSCLE) out.push(x);
+    });
+    return out;
+  }
+
+  /* Whether the reader has turned the short list off. On by default:
+     somebody who has never opened Settings should get the usable list,
+     and the whole catalogue is one switch away. */
+  function wantsShort() {
+    try {
+      if (!g.LKStore) return true;
+      return g.LKStore.get('lk_libraryShort', true) !== false;
+    } catch (e) { return true; }
+  }
+
+  var API = g.LKExercises || {};
+  API.condensed = condensed;
+  API.shortListOn = wantsShort;
+  /* What the pickers should offer, which is the short list unless the
+     reader said otherwise. A custom lift is always offered: you made it. */
+  API.offered = function (rows) {
+    var list = rows || (API.all ? API.all() : []);
+    if (!wantsShort()) return list;
+    var short = condensed(list);
+    var mine = list.filter(function (x) { return x && x.custom; });
+    return short.concat(mine.filter(function (x) { return short.indexOf(x) < 0; }));
+  };
+
+  /* Lifts this person has actually logged, most recent first. The picker
+     puts them at the top: the thing you did last Tuesday is far more
+     likely to be the thing you want than the one that sorts first
+     alphabetically. */
+  API.doneBefore = function () {
+    var out = {}, rank = 0;
+    try {
+      var h = (g.LKStore ? g.LKStore.get('lk_history', null) : null) || [];
+      if (!Array.isArray(h)) return out;
+      h.forEach(function (w) {
+        if (!w || !Array.isArray(w.exercises)) return;
+        w.exercises.forEach(function (ex) {
+          if (ex && ex.id != null && out[ex.id] === undefined) out[ex.id] = rank++;
+        });
+      });
+    } catch (e) {}
+    return out;
+  };
+  g.LKExercises = API;
+}(typeof window !== 'undefined' ? window : this));
