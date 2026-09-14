@@ -178,3 +178,39 @@ derives it from `lk_profile.useKg` and the unit-conversion switch. Weights
 are stored in kilograms under both settings — checked against live rows,
 where a profile reading `useKg: false` still stores `kg: 68.946` — and
 `useKg` is the key both builds display from.
+
+## The migrations are a one-way door, and the rollout has to know it
+
+The migrations write through `LKStore.set`, which marks a key changed, and
+those keys are in the sync set. So opening this build once does not just
+convert the data on the device: the converted shapes go up on the next
+sync and become what the server holds. Measured, not assumed — a device
+staged with the shipped app's storage uploads `lk_history`, `lk_prs`,
+`lk_splits`, `lk_profile` and `lk_badges` after one boot.
+
+That is what a migration is for, and it is fine for a cutover. It is not
+fine for running both builds side by side, because the shipped app then
+reads back shapes it did not write:
+
+| key | after this build has synced | what the shipped app does with it |
+|---|---|---|
+| `lk_prs` | a flat array of records | it reads a map keyed by exercise id. Its records screen gets array indices where it expects lift ids |
+| `lk_history[].exercises[].sets` | `{kg, reps, …}` | it reads `w` and `r`. **Kept alongside** by migration 3, so this one still reads |
+| `lk_history[].vol` / `.dur` | untouched, with `kg` and `min` added beside them | still reads |
+| `lk_profile.goal` | `cut` / `maintain` / `build` | it lowercases the goal where it matters, so this reads; its goal picker shows nothing selected |
+| `lk_splits[].days` | `exIds` kept, `exercises` added | still reads |
+| `lk_fuelLog[day].meals` | a list | it reads buckets. **Not** convertible back |
+
+So: `lk_prs` and `lk_fuelLog` do not survive a trip back to the shipped
+app. Everything else does. Plan the release as a cutover rather than a
+parallel run, or accept that a reader who moves back and forth loses
+sight of their records and their food log in the old build.
+
+Where a migration adds a field it keeps the old one beside it: `vol` and
+`dur` on a session, `w` and `r` on a set, `exIds` on a split day, `water`
+on a fuel day. Two do not work that way, and those are exactly the two in
+the table above that do not survive the trip back: migration 1 turns the
+`lk_prs` map into an array, and migration 8 turns a fuel day's `meals`
+object into a list. Both hold every value they were given — no record and
+no meal is dropped — but the container they sit in is the new one, and
+the shipped app cannot read either container.

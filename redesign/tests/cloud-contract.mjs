@@ -334,6 +334,16 @@ ok(Array.isArray(prs) && prs.every(function (r) { return /^\d{4}-\d{2}-\d{2}$/.t
    'and an ISO date, so the records sort in the order they happened',
    JSON.stringify((prs || []).map(function (r) { return r.date; })));
 
+/* THE SHIPPED APP IS STILL RUNNING WHILE THIS ONE ROLLS OUT, and these
+   converted rows sync back to it. A set that lost w and r read as blank
+   there. They are kept beside kg and reps for that reason; see
+   15-server/README.md for what does not survive the trip and why the
+   release wants to be a cutover. */
+const backSets = (((S.get('lk_history', [])[0] || {}).exercises || [])[0] || {}).sets || [];
+ok(backSets.length > 0 && backSets.every(function (x) { return x.w !== undefined && x.r !== undefined; }),
+   'a converted set still carries the two fields the shipped app reads',
+   JSON.stringify(backSets[0] || {}));
+
 const hist = S.get('lk_history', []) || [];
 const h0 = hist[0] || {};
 /* The build reads kg, not vol -- so the migration puts the number there

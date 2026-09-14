@@ -622,8 +622,19 @@
             sets: (ex.sets || []).map(function (st) {
               /* A set already in the read shape keeps it. */
               if (typeof st.kg === 'number' || st.warm !== undefined) return st;
+              /* w and r are kept beside kg and reps rather than replaced.
+                 Nothing here reads them, and they cost two fields; what
+                 they buy is that the shipped app can still read a session
+                 after this device has converted it and synced it back.
+                 That matters while both builds are live: a reader who
+                 opens this one and then opens the old one on another
+                 phone would otherwise find every set blank there. It does
+                 not make the two interchangeable -- see 15-server/
+                 README.md, which says what does not survive -- it just
+                 stops this migration being the thing that broke it. */
               return {
                 kg: n2(st.w), reps: n2(st.r), rir: n2(st.rir),
+                w: st.w, r: st.r,
                 warm: st.setType === 'warmup',
                 done: !!st.done,
                 partials: n2(st.partials) || 0
