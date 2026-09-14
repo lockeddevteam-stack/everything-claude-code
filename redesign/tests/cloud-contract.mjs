@@ -422,6 +422,50 @@ S.remigrate();
 ok(S.get('lk_badges', null) === false,
    'and it never overwrites a choice made here');
 
+/* ---- 6d. THE TWO SHAPES THAT CHANGED MEANING, NOT JUST NAME ---------
+   The goal and the food log. Both are read off the live project: the
+   shipped app writes lk_profile.goal as "Cut" / "Maintain" / "Bulk", and
+   stores a day's meals in buckets named after the meal rather than as a
+   list of meals that each know their slot. */
+S.set('lk_schema', 8);
+S.set('lk_lastSync', 0);
+const future3 = Date.now() + 240000;
+table = [
+  { key: 'lk_profile', changed_at: future3,
+    value: { useKg: false, username: 'reader', displayName: 'Reader', goal: 'Cut' } },
+  { key: 'lk_fuelLog', changed_at: future3, value: {
+      '2026-07-25': { water: 1905, meals: {
+        breakfast: [{ name: 'Oats', cal: 320, pro: 11, carb: 54, fat: 6 }],
+        lunch: [], dinner: [],
+        snacks: [{ name: 'Cheese crackers', cal: 170, pro: 3, carb: 20, fat: 10,
+                   est: true, src: 'ai', fromVoice: true }] } } } }
+];
+await C.pull();
+
+ok((S.get('lk_profile', {}) || {}).goal === 'cut',
+   'a goal of "Cut" arrives as cutting, not defaulted to maintenance',
+   JSON.stringify((S.get('lk_profile', {}) || {}).goal));
+
+const fl = (S.get('lk_fuelLog', {}) || {})['2026-07-25'] || {};
+ok(Array.isArray(fl.meals) && fl.meals.length === 2,
+   'a day whose meals sit in buckets arrives as the list Fuel reads',
+   Array.isArray(fl.meals) ? fl.meals.length + ' meals' : 'still ' + typeof fl.meals);
+ok(Array.isArray(fl.meals) && fl.meals.every(function (m) { return typeof m.kcal === 'number'; }),
+   'and each one has calories on the field the screen adds up',
+   JSON.stringify((fl.meals || []).map(function (m) { return [m.name, m.kcal]; })));
+ok(Array.isArray(fl.meals) && fl.meals[0].slot === 'breakfast' && fl.meals[1].slot === 'snack',
+   'and the bucket it sat in became the slot it was eaten in',
+   JSON.stringify((fl.meals || []).map(function (m) { return m.slot; })));
+ok(fl.waterMl === 1905, 'and the water came across', String(fl.waterMl));
+ok(Array.isArray(fl.meals) && fl.meals[1].est === true && fl.meals[1].fromVoice === true,
+   'and an estimate is still marked as one, never promoted to a reading');
+
+/* run it again: a converted day must not be converted twice */
+const before = JSON.stringify(S.get('lk_fuelLog', null));
+S.remigrate();
+ok(JSON.stringify(S.get('lk_fuelLog', null)) === before,
+   'and running every migration again changes nothing');
+
 /* ---- 7. entitlements, read off a profile row ------------------------- */
 const DAY = 86400000;
 const cases = [

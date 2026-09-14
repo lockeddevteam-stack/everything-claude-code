@@ -777,6 +777,92 @@
       if (typeof on !== 'boolean') return false;
       ST.set('lk_badges', on);
       return true;
+    },
+
+    /* 7 — THE GOAL, IN THE THREE WORDS THIS BUILD READS.
+
+       The shipped app stores lk_profile.goal as "Cut", "Maintain" or
+       "Bulk". Everything here reads cut / maintain / build, and every
+       reader of it defaults an unknown word to maintain: Fuel's goalKey()
+       does, and Settings blanks the row outright. So a reader who is
+       cutting was given maintenance calories -- 400 more a day than the
+       goal they set -- and one bulking was given 250 fewer, with the
+       screen stating a goal they had not chosen.
+
+       Only the three the shipped app writes are mapped. Anything else is
+       left exactly as it is rather than guessed at: a word this migration
+       does not recognise is not evidence of what somebody meant.
+
+       Idempotent -- the mapped values are already this build's own. */
+    function (ST) {
+      if (!ST.touched('lk_profile')) return false;
+      var p = ST.get('lk_profile', null);
+      if (!p || typeof p !== 'object') return false;
+      var MAP = { Cut: 'cut', Maintain: 'maintain', Bulk: 'build' };
+      var to = MAP[p.goal];
+      if (!to) return false;
+      p.goal = to;
+      ST.set('lk_profile', p);
+      return true;
+    },
+
+    /* 8 — THE FOOD LOG, WHICH CRASHED FUEL OUTRIGHT.
+
+       A day in the shipped app is
+
+         { meals: { breakfast: [], lunch: [], dinner: [], snacks: [ ... ] },
+           water: 1905 }
+
+       and a day here is { meals: [ ... ], waterMl, supps }, where each
+       meal carries the slot it was eaten in rather than sitting in a
+       bucket named after it. Fuel calls src.meals.map, so against the
+       stored shape it threw "meals.forEach is not a function" on load and
+       the screen was blank -- not degraded, gone. One of the five
+       accounts on the live project stores its log this way.
+
+       A row's calories are `cal` there and `kcal` here; everything else
+       carries across under the name it already has, including whether it
+       was an estimate and whether it came from the voice logger.
+
+       Idempotent: a day whose meals are already an array is untouched,
+       so this is safe against a device that has run it and against one
+       whose log arrived half-converted by sync. */
+    function (ST) {
+      if (!ST.touched('lk_fuelLog')) return false;
+      var log = ST.get('lk_fuelLog', null);
+      if (!log || typeof log !== 'object' || Array.isArray(log)) return false;
+      var SLOT = { breakfast: 'breakfast', lunch: 'lunch', dinner: 'dinner',
+                   snacks: 'snack', snack: 'snack' };
+      var did = false;
+      Object.keys(log).forEach(function (iso) {
+        var d = log[iso];
+        if (!d || typeof d !== 'object') return;
+        if (d.meals && !Array.isArray(d.meals)) {
+          var flat = [];
+          Object.keys(d.meals).forEach(function (bucket) {
+            var rows = d.meals[bucket];
+            if (!Array.isArray(rows)) return;
+            rows.forEach(function (m) {
+              if (!m || typeof m !== 'object') return;
+              var row = {};
+              Object.keys(m).forEach(function (k) { row[k] = m[k]; });
+              row.slot = SLOT[bucket] || m.slot || 'snack';
+              if (row.kcal === undefined && m.cal !== undefined) row.kcal = m.cal;
+              flat.push(row);
+            });
+          });
+          d.meals = flat;
+          did = true;
+        }
+        /* water is millilitres under both names; only the name changed */
+        if (d.waterMl === undefined && typeof d.water === 'number') {
+          d.waterMl = d.water;
+          did = true;
+        }
+      });
+      if (!did) return false;
+      ST.set('lk_fuelLog', log);
+      return true;
     }
   ];
 

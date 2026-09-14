@@ -149,6 +149,10 @@ Adopted by a migration:
 | shipped app | this build | how |
 |---|---|---|
 | `lk_gamingLayer` | `lk_badges` | migration 6, a boolean, same meaning |
+| `lk_profile.goal` `"Cut"`/`"Maintain"`/`"Bulk"` | `cut`/`maintain`/`build` | migration 7. Every reader of it defaulted an unknown word to maintain, so a cutting reader was given 400 kcal a day more than the goal they set |
+| `lk_fuelLog[day].meals` as buckets | a list of meals each carrying its slot | migration 8. Fuel calls `src.meals.map`, so against the stored shape it threw on load and the screen was blank |
+| `lk_fuelLog[day].water` | `waterMl` | migration 8, millilitres under both names |
+| `lk_fuelProfile.activityLevel` | `.activity` | read under both names in `fuel.html`, same five words. Unread, the week became a moderate one and the calorie target moved with it |
 
 Deliberately not adopted, and why. Each of these is real content, and each
 would need its values remapped rather than copied — the shapes differ, and

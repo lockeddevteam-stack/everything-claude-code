@@ -308,8 +308,13 @@
      What the body is actually spending
      --------------------------------------------------------------- */
 
+  /* The shipped app stores this as `activityLevel`; this build calls it
+     `activity`, and the five words are the same five. Read under both
+     names, or an upgrading reader's week silently becomes a moderate one
+     and their calorie target moves with it. */
+  function activityOf(fp) { return (fp || {}).activity || (fp || {}).activityLevel; }
   function activityKey() {
-    var k = (stored('lk_fuelProfile', {}) || {}).activity;
+    var k = activityOf(stored('lk_fuelProfile', {}) || {});
     for (var i = 0; i < ACTIVITY.length; i++) if (ACTIVITY[i][0] === k) return k;
     return 'moderate';
   }
@@ -475,16 +480,21 @@
     var bmr = 10 * fp.weightKg + 6.25 * fp.heightCm - 5 * fp.age +
       (fp.sex === 'male' ? 5 : -161);
     var factor = 1.55;
-    ACTIVITY.forEach(function (x) { if (x[0] === fp.activity) factor = x[2]; });
-    var kcal = Math.round((bmr * factor + (GOAL_OFFSET[fp.goal] || 0)) / 10) * 10;
+    ACTIVITY.forEach(function (x) { if (x[0] === activityOf(fp)) factor = x[2]; });
+    /* A goal this build does not offer -- "recomp", which an older
+       version of the shipped app wrote and this reader still carries --
+       used to print as the word "undefined" in the sentence under the
+       targets. It reads as the nearest goal there is, said plainly. */
+    var gk = GOAL_WORD[fp.goal] ? fp.goal : 'maintain';
+    var kcal = Math.round((bmr * factor + (GOAL_OFFSET[gk] || 0)) / 10) * 10;
     var pro = Math.round(fp.weightKg * 2);
     var fat = Math.round(kcal * 0.25 / 9);
     var carb = Math.max(0, Math.round((kcal - pro * 4 - fat * 9) / 4));
     return {
       kcal: kcal, pro: pro, carb: carb, fat: fat,
       why: 'Mifflin-St Jeor at \u00d7' + factor + ', ' +
-        (GOAL_OFFSET[fp.goal] >= 0 ? '+' : '\u2212') + Math.abs(GOAL_OFFSET[fp.goal] || 0) +
-        ' kcal for ' + GOAL_WORD[fp.goal] + '. Protein at 2 g a kilo, fat at a quarter of the ' +
+        (GOAL_OFFSET[gk] >= 0 ? '+' : '\u2212') + Math.abs(GOAL_OFFSET[gk] || 0) +
+        ' kcal for ' + GOAL_WORD[gk] + '. Protein at 2 g a kilo, fat at a quarter of the ' +
         'calories, carbs with what is left.'
     };
   }
@@ -6323,7 +6333,11 @@
                       waterMl: TARGETS.waterMl });
       msg = 'Saved. Your targets: ' + n(fp.kcal) + ' kcal, ' + n(fp.pro) + ' g protein.';
     }
-    DAY.goal = GOAL_WORD[fp.goal]; DAY.goalKey = fp.goal;
+    /* Guarded against the same unknown goal as the targets sentence, and
+       against fp rather than the account profile: this is the fuel
+       profile's own goal, not the one Settings holds. */
+    var dg = GOAL_WORD[fp.goal] ? fp.goal : 'maintain';
+    DAY.goal = GOAL_WORD[dg]; DAY.goalKey = dg;
     DAY.weightKg = fp.weightKg;
     DAY.rate = weekRate();
     DAY.waterGoalMl = waterGoal().ml;

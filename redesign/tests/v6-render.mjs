@@ -71,6 +71,59 @@ const V6 = {
   lk_tutorialSeen: true
 };
 
+/* FOUR MORE ACCOUNTS, SHAPED LIKE THE ONES ON THE PROJECT.
+
+   V6 above is the fullest account there is. Most are not: of the five on
+   the live project, three have no training at all, and the one with a
+   split has never logged a session against it. Those are different code
+   paths -- a screen that reads history is reading nothing, and a profile
+   with no weight, height or age cannot compute a target -- and every one
+   of them is somebody's first sight of this build.
+
+   The fuel profile here is the live shape, which is not the shape this
+   screen writes: the goal is "recomp", a word an older version of the
+   shipped app offered and this build does not; the age is a string; the
+   week is stored under `activityLevel` rather than `activity`; and the
+   account profile's goal is "Cut", one of the three capitalised words
+   the shipped app writes. */
+const ACCOUNTS = {
+  'signed up, never used it': {
+    lk_profile: { useKg: false, username: 'newer', displayName: 'Newer', createdAt: '07/09/2026' },
+    lk_theme: 'dark', lk_tutorialSeen: true
+  },
+  'markers but no content': {
+    lk_profile: { useKg: false, username: 'zed', displayName: 'Zed', createdAt: '07/09/2026' },
+    lk_theme: 'dark', lk_tutorialSeen: true, lk_cardioMigrated: true,
+    lk_prDatesFixed: true, lk_weightsKgMigrated: true, lk_weightStorageUnit: 'kg'
+  },
+  'fuel only, no training': {
+    lk_profile: { useKg: false, username: 'liv', displayName: 'Liv', createdAt: '24/07/2026' },
+    lk_theme: 'dark', lk_tutorialSeen: true, lk_voiceEnabled: true, lk_voiceBtnCorner: 'br',
+    lk_fuelLogDayTs: {},
+    lk_fuelLog: { '2026-07-25': { water: 1905, meals: { breakfast: [], lunch: [], dinner: [],
+      snacks: [{ name: 'Cheese crackers', cal: 170, pro: 3, carb: 20, fat: 10,
+                 est: true, src: 'ai', fromVoice: true }] } } },
+    lk_fuelProfile: { age: '16', sex: 'female', goal: 'recomp', tdee: 1219, tdeeSeed: 1219,
+      heightCm: 15, heightFt: '', heightIn: '6.5', heightUnit: 'ft',
+      weightKg: 49.9, weightVal: '110', weightUnit: 'lbs',
+      macroFat: 34, macroCarbs: 118, macroProtein: 110,
+      activityLevel: 'light', useCustomMacros: false, preferences: [],
+      allergies: '', fridge: 'rice, pasta, mixed vegetables' }
+  },
+  'a split, never trained against it': {
+    lk_profile: { useKg: false, username: 'jay', displayName: 'Jay', createdAt: '9/1/2026',
+                  goal: 'Cut' },
+    lk_theme: 'dark', lk_tutorialSeen: true, lk_gamingLayer: true,
+    lk_cardioMigrated: true, lk_prDatesFixed: true, lk_weightsKgMigrated: true,
+    lk_weightStorageUnit: 'kg', lk_splitsExpanded: { 1: true },
+    lk_customEx: [], lk_exNotes: {},
+    lk_weightLog: [{ kg: 68.94612223421724, date: '2026-09-01' }],
+    lk_splits: [{ id: 1, name: 'Upper Lower', created: 1780000000000,
+                  days: [{ name: 'Upper', exIds: [104, 311] }, { name: 'Lower', exIds: [106] }] }],
+    lk_fuelLog: {}
+  }
+};
+
 let fails = 0;
 const ok = (pass, name, detail) => {
   if (!pass) fails++;
@@ -159,6 +212,47 @@ ok(Array.isArray(after.splits) && after.splits[0].days.every((d) => (d.exercises
 ok(after.badges === true,
    'and the streaks switch survived the rename', JSON.stringify(after.badges));
 await ctx.close();
+
+/* and each of the four, on every screen */
+for (const [who, data] of Object.entries(ACCOUNTS)) {
+  for (const file of files) {
+    const c = await br.newContext({ viewport: { width: 393, height: 852 } });
+    await c.addInitScript((d) => {
+      try {
+        Object.keys(d).forEach(function (k) {
+          var v = d[k];
+          localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
+        });
+      } catch (e) {}
+    }, data);
+    const pg = await c.newPage();
+    const errs = [];
+    pg.on('pageerror', (e) => errs.push(e.message));
+    await pg.route('**/fixtures.js', (r) => r.fulfill({ status: 200, contentType: 'application/javascript', body: '' }));
+    await pg.goto(`http://localhost:${PORT}/08-build/${file}`);
+    await pg.waitForTimeout(500);
+    const t = (await pg.evaluate(() => (document.body.innerText || '').trim())).replace(/STATE[\s\S]*$/i, '');
+    ok(!errs.length, `${who} · ${file} — nothing throws`, errs[0] || '');
+    const h = t.match(HOLES);
+    ok(!h, `${who} · ${file} — prints no holes`, h ? `found "${h[0]}"` : '');
+    await c.close();
+  }
+}
+
+/* the goal the shipped app wrote, in the words this build reads */
+{
+  const c = await br.newContext();
+  await c.addInitScript(() => {
+    localStorage.setItem('lk_profile', JSON.stringify({ useKg: false, username: 'jay', goal: 'Cut' }));
+  });
+  const pg = await c.newPage();
+  await pg.route('**/fixtures.js', (r) => r.fulfill({ status: 200, contentType: 'application/javascript', body: '' }));
+  await pg.goto(`http://localhost:${PORT}/08-build/fuel.html`);
+  await pg.waitForTimeout(500);
+  const g = await pg.evaluate(() => window.LKStore.get('lk_profile', {}).goal);
+  ok(g === 'cut', 'a goal of "Cut" is read as cutting, not defaulted to maintenance', String(g));
+  await c.close();
+}
 
 await br.close();
 srv.kill();

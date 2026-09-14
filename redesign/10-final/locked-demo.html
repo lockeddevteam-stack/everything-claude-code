@@ -12852,6 +12852,92 @@ button.shelf:active { background: var(--fill-press); }
       if (typeof on !== 'boolean') return false;
       ST.set('lk_badges', on);
       return true;
+    },
+
+    /* 7 — THE GOAL, IN THE THREE WORDS THIS BUILD READS.
+
+       The shipped app stores lk_profile.goal as "Cut", "Maintain" or
+       "Bulk". Everything here reads cut / maintain / build, and every
+       reader of it defaults an unknown word to maintain: Fuel's goalKey()
+       does, and Settings blanks the row outright. So a reader who is
+       cutting was given maintenance calories -- 400 more a day than the
+       goal they set -- and one bulking was given 250 fewer, with the
+       screen stating a goal they had not chosen.
+
+       Only the three the shipped app writes are mapped. Anything else is
+       left exactly as it is rather than guessed at: a word this migration
+       does not recognise is not evidence of what somebody meant.
+
+       Idempotent -- the mapped values are already this build's own. */
+    function (ST) {
+      if (!ST.touched('lk_profile')) return false;
+      var p = ST.get('lk_profile', null);
+      if (!p || typeof p !== 'object') return false;
+      var MAP = { Cut: 'cut', Maintain: 'maintain', Bulk: 'build' };
+      var to = MAP[p.goal];
+      if (!to) return false;
+      p.goal = to;
+      ST.set('lk_profile', p);
+      return true;
+    },
+
+    /* 8 — THE FOOD LOG, WHICH CRASHED FUEL OUTRIGHT.
+
+       A day in the shipped app is
+
+         { meals: { breakfast: [], lunch: [], dinner: [], snacks: [ ... ] },
+           water: 1905 }
+
+       and a day here is { meals: [ ... ], waterMl, supps }, where each
+       meal carries the slot it was eaten in rather than sitting in a
+       bucket named after it. Fuel calls src.meals.map, so against the
+       stored shape it threw "meals.forEach is not a function" on load and
+       the screen was blank -- not degraded, gone. One of the five
+       accounts on the live project stores its log this way.
+
+       A row's calories are `cal` there and `kcal` here; everything else
+       carries across under the name it already has, including whether it
+       was an estimate and whether it came from the voice logger.
+
+       Idempotent: a day whose meals are already an array is untouched,
+       so this is safe against a device that has run it and against one
+       whose log arrived half-converted by sync. */
+    function (ST) {
+      if (!ST.touched('lk_fuelLog')) return false;
+      var log = ST.get('lk_fuelLog', null);
+      if (!log || typeof log !== 'object' || Array.isArray(log)) return false;
+      var SLOT = { breakfast: 'breakfast', lunch: 'lunch', dinner: 'dinner',
+                   snacks: 'snack', snack: 'snack' };
+      var did = false;
+      Object.keys(log).forEach(function (iso) {
+        var d = log[iso];
+        if (!d || typeof d !== 'object') return;
+        if (d.meals && !Array.isArray(d.meals)) {
+          var flat = [];
+          Object.keys(d.meals).forEach(function (bucket) {
+            var rows = d.meals[bucket];
+            if (!Array.isArray(rows)) return;
+            rows.forEach(function (m) {
+              if (!m || typeof m !== 'object') return;
+              var row = {};
+              Object.keys(m).forEach(function (k) { row[k] = m[k]; });
+              row.slot = SLOT[bucket] || m.slot || 'snack';
+              if (row.kcal === undefined && m.cal !== undefined) row.kcal = m.cal;
+              flat.push(row);
+            });
+          });
+          d.meals = flat;
+          did = true;
+        }
+        /* water is millilitres under both names; only the name changed */
+        if (d.waterMl === undefined && typeof d.water === 'number') {
+          d.waterMl = d.water;
+          did = true;
+        }
+      });
+      if (!did) return false;
+      ST.set('lk_fuelLog', log);
+      return true;
     }
   ];
 
@@ -22342,8 +22428,13 @@ DEMO.define("fuel", function (document, window, location, fetch) {
      What the body is actually spending
      --------------------------------------------------------------- */
 
+  /* The shipped app stores this as `activityLevel`; this build calls it
+     `activity`, and the five words are the same five. Read under both
+     names, or an upgrading reader's week silently becomes a moderate one
+     and their calorie target moves with it. */
+  function activityOf(fp) { return (fp || {}).activity || (fp || {}).activityLevel; }
   function activityKey() {
-    var k = (stored('lk_fuelProfile', {}) || {}).activity;
+    var k = activityOf(stored('lk_fuelProfile', {}) || {});
     for (var i = 0; i < ACTIVITY.length; i++) if (ACTIVITY[i][0] === k) return k;
     return 'moderate';
   }
@@ -22509,16 +22600,21 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     var bmr = 10 * fp.weightKg + 6.25 * fp.heightCm - 5 * fp.age +
       (fp.sex === 'male' ? 5 : -161);
     var factor = 1.55;
-    ACTIVITY.forEach(function (x) { if (x[0] === fp.activity) factor = x[2]; });
-    var kcal = Math.round((bmr * factor + (GOAL_OFFSET[fp.goal] || 0)) / 10) * 10;
+    ACTIVITY.forEach(function (x) { if (x[0] === activityOf(fp)) factor = x[2]; });
+    /* A goal this build does not offer -- "recomp", which an older
+       version of the shipped app wrote and this reader still carries --
+       used to print as the word "undefined" in the sentence under the
+       targets. It reads as the nearest goal there is, said plainly. */
+    var gk = GOAL_WORD[fp.goal] ? fp.goal : 'maintain';
+    var kcal = Math.round((bmr * factor + (GOAL_OFFSET[gk] || 0)) / 10) * 10;
     var pro = Math.round(fp.weightKg * 2);
     var fat = Math.round(kcal * 0.25 / 9);
     var carb = Math.max(0, Math.round((kcal - pro * 4 - fat * 9) / 4));
     return {
       kcal: kcal, pro: pro, carb: carb, fat: fat,
       why: 'Mifflin-St Jeor at \u00d7' + factor + ', ' +
-        (GOAL_OFFSET[fp.goal] >= 0 ? '+' : '\u2212') + Math.abs(GOAL_OFFSET[fp.goal] || 0) +
-        ' kcal for ' + GOAL_WORD[fp.goal] + '. Protein at 2 g a kilo, fat at a quarter of the ' +
+        (GOAL_OFFSET[gk] >= 0 ? '+' : '\u2212') + Math.abs(GOAL_OFFSET[gk] || 0) +
+        ' kcal for ' + GOAL_WORD[gk] + '. Protein at 2 g a kilo, fat at a quarter of the ' +
         'calories, carbs with what is left.'
     };
   }
@@ -28357,7 +28453,11 @@ DEMO.define("fuel", function (document, window, location, fetch) {
                       waterMl: TARGETS.waterMl });
       msg = 'Saved. Your targets: ' + n(fp.kcal) + ' kcal, ' + n(fp.pro) + ' g protein.';
     }
-    DAY.goal = GOAL_WORD[fp.goal]; DAY.goalKey = fp.goal;
+    /* Guarded against the same unknown goal as the targets sentence, and
+       against fp rather than the account profile: this is the fuel
+       profile's own goal, not the one Settings holds. */
+    var dg = GOAL_WORD[fp.goal] ? fp.goal : 'maintain';
+    DAY.goal = GOAL_WORD[dg]; DAY.goalKey = dg;
     DAY.weightKg = fp.weightKg;
     DAY.rate = weekRate();
     DAY.waterGoalMl = waterGoal().ml;
