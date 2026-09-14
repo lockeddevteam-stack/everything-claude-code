@@ -1992,6 +1992,7 @@
             /* The camera sheet's one question. null until it is answered. */
             camOil: null, toast: null, undo: null, targetError: null, searchQ: '',
             remote: null, remoteQ: '', remoteBusy: false,
+            camState: 'idle', camWhy: null,
             /* Which recipe is open inside the recipes sheet. The list and the
                detail are one sheet with two faces rather than two sheets, so
                Back returns to the list without closing and losing the place. */
@@ -5134,9 +5135,16 @@
                   '<input class="vis-hidden" id="cam-pick" type="file" accept="image/*" ' +
                     'data-testid="cam-pick">' +
                 '</div>') +
-            '<p class="t-caption-1 quiet mt-3">The photo stays on this phone. Reading a plate needs ' +
-              'a model behind a server, which this build does not reach, so the items below are ' +
-              'the worked example \u2014 they are not what is in your picture.</p>' +
+            (S.camState === 'reading'
+              ? '<div class="hstack hstack--3 mt-3" role="status" aria-live="polite" data-testid="cam-reading">' +
+                  '<span class="spinner"></span><span class="t-detail">Reading the plate.</span></div>'
+              : S.camWhy
+              ? '<p class="t-caption-1 quiet mt-3" data-testid="cam-why">' + esc(S.camWhy) + '</p>'
+              : S.camState === 'example'
+              ? '<p class="t-caption-1 quiet mt-3">These are the worked example, not a photo: ' +
+                'this is the state switcher showing the shape of a reading.</p>'
+              : '<p class="t-caption-1 quiet mt-3">The photo is downscaled on this phone and sent ' +
+                'to be read. Every figure that comes back is an estimate and is logged as one.</p>') +
             '<h3 class="t-label mt-5">What it reads as</h3>' +
             (items.length
               ? '<div class="card card--flush mt-2" data-testid="cam-items">' +
@@ -5160,8 +5168,10 @@
                 'Estimate again to start over.</p>') +
             (items.length
               ? '<p class="t-detail mt-2" data-testid="cam-total">' + n(plate.kcal) + ' kcal, ' +
-                  n(plate.pro) + ' g protein. <span class="quiet">From the worked example, ' +
-                  'not from your photo, so there is no confidence to report.' +
+                  n(plate.pro) + ' g protein. <span class="quiet">' +
+                  (S.camState === 'example'
+                    ? 'From the worked example, not from a photo.'
+                    : 'Estimated from the photo, so treat it as a reading rather than a figure.') +
                   (S.camOil ? ' Adjusted for ' + { none: 'no oil', little: 'a little oil', lot: 'a lot of oil' }[S.camOil] + '.' : '') +
                   '</span></p>' +
                 '<p class="t-label mt-5">Was there oil or sauce?</p>' +
@@ -5215,10 +5225,20 @@
     if (a === 'mic') { S.sheet = 'mic'; S.micText = ''; S.micItems = null; render(); return; }
     if (a === 'cam') {
       S.sheet = 'cam'; S.camOil = null; S.camItems = null; S.camShot = null;
+      S.camState = 'idle'; S.camWhy = null;
       render(); return;
     }
     if (a === 'cam-drop') { camItems().splice(+act.getAttribute('data-i'), 1); render(); return; }
-    if (a === 'cam-redo') { S.camItems = null; S.camOil = null; render(); say('Estimated again.'); return; }
+    if (a === 'cam-redo') {
+      /* Reads the photo again rather than clearing the rows and leaving
+         nothing: "Estimate again" is about the reading, not the picture. */
+      S.camOil = null;
+      var again = document.getElementById('cam-take');
+      var f2 = again && again.files && again.files[0];
+      if (!f2) { again = document.getElementById('cam-pick'); f2 = again && again.files && again.files[0]; }
+      if (f2) { readPlate(f2); say('Reading it again.'); return; }
+      S.camItems = null; render(); say('Take a photo first.'); return;
+    }
     if (a === 'cam-discard') {
       if (S.camShot) { try { URL.revokeObjectURL(S.camShot); } catch (e) {} }
       S.camShot = null; render(); return;
@@ -5856,8 +5876,94 @@
   var CAM_BASE = { name: 'Chicken, rice, broccoli', icon: '\ud83c\udf57', kcal: 690, pro: 54, carb: 78, fat: 18 };
   var OIL = { none: { kcal: -90, fat: -10 }, little: { kcal: 0, fat: 0 }, lot: { kcal: 160, fat: 18 } };
   function camItems() {
-    if (!S.camItems) S.camItems = CAM_ITEMS.map(function (x) { return x; });
-    return S.camItems;
+    /* THE WORKED EXAMPLE IS NO LONGER THE ANSWER. It used to be returned
+       for any photo at all, so a plate of pasta read back as chicken,
+       rice and broccoli with a caption underneath admitting it. That
+       caption was honest and the rows still were not: three foods
+       nobody ate, priced to the gram, one tap from the day's log.
+
+       With a server the rows are what came back. Without one there are
+       no rows, and the sheet says which. */
+    if (S.camState === 'example') {
+      if (!S.camItems) S.camItems = CAM_ITEMS.map(function (x) { return x; });
+      return S.camItems;
+    }
+    return S.camItems || [];
+  }
+
+  /* Downscaled before it goes anywhere: a phone photo is several
+     megabytes, the read does not need them, and the smaller it is the
+     less of somebody's data allowance a plate costs. */
+  function shrink(file, cb) {
+    try {
+      var img = new Image();
+      var url = URL.createObjectURL(file);
+      img.onload = function () {
+        try {
+          var max = 1024;
+          var w = img.width, h = img.height;
+          var f = Math.min(1, max / Math.max(w, h));
+          var cv = document.createElement('canvas');
+          cv.width = Math.round(w * f); cv.height = Math.round(h * f);
+          cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+          cb(cv.toDataURL('image/jpeg', 0.82));
+        } catch (e) { cb(null); }
+        try { URL.revokeObjectURL(url); } catch (e) {}
+      };
+      img.onerror = function () { try { URL.revokeObjectURL(url); } catch (e) {} cb(null); };
+      img.src = url;
+    } catch (e) { cb(null); }
+  }
+
+  function readPlate(file) {
+    var C = window.LKCloud;
+    if (!C || !C.ready() || !C.vision) {
+      S.camState = 'nosrv';
+      S.camWhy = 'Reading a plate needs a model behind a server, and this build reaches none. ' +
+                 'The photo has not left this phone.';
+      render();
+      return;
+    }
+    S.camState = 'reading'; S.camWhy = null; S.camItems = null; render();
+    shrink(file, function (dataUrl) {
+      if (!dataUrl) {
+        S.camState = 'error';
+        S.camWhy = 'That photo could not be read on this phone, so nothing was sent.';
+        render();
+        return;
+      }
+      C.vision('meal', dataUrl).then(function (r) {
+        if (S.sheet !== 'cam') return;
+        if (!r || !r.ok) {
+          S.camState = r && r.gated ? 'gated' : 'error';
+          S.camWhy = (r && r.message) || 'The read did not come back. Nothing was logged.';
+          render();
+          return;
+        }
+        /* Each row is a food and a figure, and every figure is an
+           estimate -- src stays 'photo' all the way to the log so the
+           diary can draw it apart from a looked-up food. */
+        S.camItems = r.data.slice(0, 12).map(function (it) {
+          return {
+            name: String(it.name || it.food || 'Item').slice(0, 60),
+            icon: '\u{1F37D}\u{FE0F}',
+            kcal: Math.max(0, Math.round(Number(it.cal != null ? it.cal : it.kcal) || 0)),
+            pro: Math.max(0, Math.round((Number(it.pro) || 0) * 10) / 10),
+            carb: Math.max(0, Math.round((Number(it.carb) || 0) * 10) / 10),
+            fat: Math.max(0, Math.round((Number(it.fat) || 0) * 10) / 10),
+            src: 'photo'
+          };
+        }).filter(function (x) { return x.kcal > 0; });
+        S.camState = S.camItems.length ? 'done' : 'empty';
+        if (!S.camItems.length) S.camWhy = 'Nothing on that photo read as food.';
+        render();
+      }, function () {
+        if (S.sheet !== 'cam') return;
+        S.camState = 'error';
+        S.camWhy = 'The read could not be reached. Nothing was logged.';
+        render();
+      });
+    });
   }
 
   /* The oil sits on the plate, not on any one item, so it is added once to
@@ -6518,7 +6624,7 @@
          base64 in a re-rendered attribute is a stall you can feel. */
       S.camShot = URL.createObjectURL(file);
       S.camItems = null; S.camOil = null;
-      render();
+      readPlate(file);
       return;
     }
     if (e.target.id === 'sp-q') {
@@ -6584,6 +6690,11 @@
        not in the demo, and not for the crossing check, which reads every
        declared state looking for the control a crossing names. */
     ['stack-on', 'Stack tracking on'],
+    /* The shape of a plate reading, without a photo and without a server.
+       It is the only way the worked example is reachable now: it used to
+       be what any photo came back as, which put three foods nobody ate
+       one tap from the day's log. */
+    ['plate', 'A plate, read'],
     ['hidden', 'Numbers hidden'], ['empty', 'Empty'],
     ['loading', 'Loading'], ['error', 'Error']
   ];
@@ -6603,10 +6714,24 @@
     if (b.dataset.state === 'stack-on') {
       try { localStorage.setItem('lk_perfTracking', 'true'); } catch (e) {}
       S.state = 'populated';
+    } else if (b.dataset.state === 'plate') {
+      /* The camera sheet, open, holding the worked example: the shape of
+         a reading, reachable without a photo and without a server. */
+      S.state = 'populated';
+      S.sheet = 'cam';
+      S.camState = 'example';
+      S.camItems = null;
+      S.camWhy = null;
+      S.camShot = null;
+      DAY = day(); OFTEN = frequent();
+      render();
+      return;
     } else {
       S.state = b.dataset.state;
     }
     S.sheet = null;
+    S.camState = 'idle';
+    S.camWhy = null;
     S.camOil = null;
     S.toast = null;
     S.undo = null;

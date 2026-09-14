@@ -513,6 +513,61 @@
         }, function () { return { ok: true, data: [] }; });
     },
 
+    /* ---- reading a photo ---------------------------------------------
+       Four endpoints, one shape: a data URL goes up, a JSON array comes
+       back inside the same { content: [{ text }] } envelope the coach
+       uses. Nothing here decides what to do with the answer -- every
+       screen that calls this draws the result as an ESTIMATE, distinct
+       from a looked-up figure, because the difference between the two is
+       the difference between a number and a guess.
+
+       A PHOTO IS THE MOST SENSITIVE THING THIS APP SENDS. Every caller
+       asks first, on a sheet that names what leaves the device, and none
+       of them sends anything without that. This function is the last
+       place in the chain and deliberately not the one that decides. */
+    vision: function (kind, base64, opts) {
+      var PATHS = { meal: '/analyze-meal', physique: '/analyze-physique',
+                    receipt: '/parse-receipt', pantry: '/scan-pantry' };
+      var path = PATHS[kind];
+      var c = cfg();
+      if (!path) return Promise.resolve({ ok: false, error: 'unknown', message: 'No such read.' });
+      if (!c || !c.apiUrl) {
+        return Promise.resolve({ ok: false, error: 'not_configured',
+          message: 'Reading a photo needs a server, and this build has none.' });
+      }
+      if (!base64 && !(opts && opts.description)) {
+        return Promise.resolve({ ok: false, error: 'empty', message: 'Nothing to read.' });
+      }
+      var body = {};
+      if (base64) body.base64 = base64;
+      if (opts && opts.description) body.description = opts.description;
+      return post(c.apiUrl.replace(/\/$/, '') + path, body).then(function (r) {
+        if (!r.ok) return r;
+        var d = r.data || {};
+        /* A spent free allowance comes back as a success with gated set,
+           exactly as the coach's does. */
+        if (d.gated) {
+          return { ok: false, error: 'gated', gated: true,
+                   message: d.error || 'You have used what Free includes of this.' };
+        }
+        if (d.error) return { ok: false, error: 'server', message: d.error };
+        var text = (d.content && d.content[0] && d.content[0].text) || '';
+        var items = null;
+        try {
+          var a = text.indexOf('['), b = text.lastIndexOf(']');
+          items = JSON.parse(a >= 0 && b > a ? text.slice(a, b + 1) : text);
+        } catch (e) { items = null; }
+        if (!Array.isArray(items)) {
+          /* The answer did not parse. Saying so beats showing a guess at
+             what it might have meant. */
+          return { ok: false, error: 'unreadable',
+                   message: 'The reading came back in a shape this screen could not use.',
+                   raw: text };
+        }
+        return { ok: true, data: items, raw: text };
+      });
+    },
+
     /* ---- reminders --------------------------------------------------
        The notification switches in Settings were preferences with nothing
        behind them: turning one on changed a stored value and nothing ever
