@@ -16,7 +16,23 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { chromium } = await import(path.join(ROOT, 'tests/node_modules/playwright/index.mjs'));
-const APP = 'file://' + path.join(ROOT, '10-final/locked-app.html');
+/* OVER HTTP, NOT file://. Chromium hands a file:// document a fresh
+   localStorage on some reloads -- the whole day's work came back wiped and
+   re-seeded about two runs in five, which is indistinguishable from the app
+   losing it. The product is served over https anyway, so a one-file static
+   server is both the stable harness and the honest one. */
+const APP_FILE = path.join(ROOT, '10-final/locked-app.html');
+const { createServer } = await import('node:http');
+const { readFile } = await import('node:fs/promises');
+const server = createServer(async (req, res) => {
+  try {
+    const body = await readFile(APP_FILE);
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(body);
+  } catch (e) { res.writeHead(500); res.end(String(e)); }
+});
+await new Promise((r) => server.listen(0, '127.0.0.1', r));
+const APP = 'http://127.0.0.1:' + server.address().port + '/';
 
 let fails = 0, checks = 0;
 const ok = (pass, name, detail) => {
@@ -139,8 +155,9 @@ errs.length = 0;
 ok((await tap('btn-finish')) === 'ok', 'the session finishes');
 await page.waitForTimeout(1000);
 ok((await shown()) === 'review', 'review opens with it', await shown());
-let saved = await tap('action-save');
-if (saved !== 'ok') saved = await tap('action-done');
+/* action-save only. Accepting action-done as a fallback hid the fact that
+   the bar was still showing the PREVIOUS session's "Saved to history". */
+const saved = await tap('action-save');
 ok(saved === 'ok', 'and it saves', saved);
 await page.waitForTimeout(1000);
 
@@ -235,6 +252,88 @@ if (mic === 'ok') {
 }
 ok(!errs.length, 'nothing throws on sentence entry', errs[0] || '');
 
+/* MANUAL ENTRY. The packet in your hand is the case the food table cannot
+   cover, and it is the fallback every other route offers. */
+errs.length = 0;
+/* The sentence sheet is still up from the step above. Escape closes
+   whatever is open, which is what a reader does too. */
+await page.keyboard.press('Escape');
+await page.waitForTimeout(500);
+let man = await tap('log-search');
+if (man === 'ok') { await page.waitForTimeout(500); man = await tap('search-manual'); }
+ok(man === 'ok', 'the manual sheet opens', man);
+await page.waitForTimeout(500);
+const filled = await page.evaluate(() => {
+  const rec = window.DEMO.screens['fuel'];
+  const root = rec && (rec.root || (rec.host && rec.host.shadowRoot));
+  const set = (id, v) => {
+    const e = root && root.querySelector('[data-testid="' + id + '"]');
+    if (!e) return false;
+    e.focus(); e.value = v;
+    e.dispatchEvent(new Event('input', { bubbles: true }));
+    e.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  };
+  const names = ['mn-name', 'mn-kcal', 'mn-pro', 'mn-carb', 'mn-fat'];
+  const vals = ['Protein bar', '210', '20', '21', '7'];
+  return names.map((n, i) => set(n, vals[i]) ? n : 'missing:' + n).join(',');
+});
+ok(!/missing:mn-name/.test(filled), 'its fields take values', filled);
+await page.waitForTimeout(300);
+const added = await tap('mn-add');
+ok(added === 'ok', 'and it logs', added);
+await page.waitForTimeout(700);
+const d2 = await raw('lk_fuelLog');
+ok(/Protein bar/.test(JSON.stringify(d2 || {})), 'the hand-typed food reaches the diary');
+ok(!errs.length, 'nothing throws on manual entry', errs[0] || '');
+
+console.log('\n=== a longer workout ===\n');
+
+/* MORE THAN ONE SET AND MORE THAN ONE LIFT. One set proves the pad; a
+   workout is several, and the totals have to add up across both. */
+errs.length = 0;
+await page.evaluate(() => window.DEMO.go('train'));
+await page.waitForTimeout(500);
+ok((await tap('start-today')) === 'ok', 'a session starts for the longer run');
+await page.waitForTimeout(900);
+const pad = async (cell, digits) => {
+  await tap(cell); await page.waitForTimeout(250);
+  for (const d of digits) { await tap('pad-' + d); await page.waitForTimeout(90); }
+  await tap('pad-done'); await page.waitForTimeout(250);
+};
+await pad('cell-0-0-weight', ['7', '0']);
+await pad('cell-0-0-reps', ['1', '0']);
+await tap('done-0-0'); await page.waitForTimeout(300);
+await pad('cell-0-1-weight', ['7', '5']);
+await pad('cell-0-1-reps', ['8']);
+await tap('done-0-1'); await page.waitForTimeout(300);
+await pad('cell-1-0-weight', ['1', '2']);
+await pad('cell-1-0-reps', ['1', '5']);
+await tap('done-1-0'); await page.waitForTimeout(400);
+const rows2 = await raw('lk_liveSessionRows');
+const e0 = rows2 && rows2.exercises && rows2.exercises[0];
+const e1 = rows2 && rows2.exercises && rows2.exercises[1];
+ok(!!e0 && e0.sets[0].kg === 70 && e0.sets[0].reps === 10 &&
+   e0.sets[1].kg === 75 && e0.sets[1].reps === 8,
+   'two sets on the first lift are held separately',
+   JSON.stringify(e0 ? e0.sets.slice(0, 2) : null));
+ok(!!e1 && e1.sets[0].kg === 12 && e1.sets[0].reps === 15,
+   'and the second lift keeps its own', JSON.stringify(e1 ? e1.sets[0] : null));
+ok(!errs.length, 'nothing throws across two lifts', errs[0] || '');
+
+ok((await tap('btn-finish')) === 'ok', 'it finishes');
+await page.waitForTimeout(1200);
+ok((await shown()) === 'review', 'review opens on the longer session', await shown());
+const sv2 = await tap('action-save');
+ok(sv2 === 'ok', 'and Save is offered for it, not the last one\u2019s "Saved"', sv2);
+await page.waitForTimeout(1000);
+const h2 = await raw('lk_history');
+const top = (h2 || [])[0] || {};
+/* 70x10 + 75x8 + 12x15 = 700 + 600 + 180 = 1480 */
+ok(top.kg === 1480, 'the volume adds up across both lifts', String(top.kg));
+ok(top.sets === 3, 'and all three working sets are counted', String(top.sets));
+ok(!errs.length, 'nothing throws saving the longer session', errs[0] || '');
+
 console.log('\n=== the rest of the day ===\n');
 
 /* THE WEIGHT SHEET, COLD. The row is on Progress whether or not you have
@@ -278,19 +377,8 @@ await page.reload();
 await page.waitForFunction(() => window.DEMO && Object.keys(window.DEMO.screens).length > 0, null, { timeout: 9000 });
 await page.waitForTimeout(900);
 const back = await raw('lk_history');
-ok(Array.isArray(back) && back.length === 2, 'the history is still there after a reload',
+ok(Array.isArray(back) && back.length === 3, 'both sessions are still there after a reload',
    (back || []).length + ' rows');
-if ((back || []).length !== 2) {
-  console.log('DIAG', JSON.stringify(await page.evaluate(() => ({
-    seeded: localStorage.getItem('lk_seeded'),
-    changed: localStorage.getItem('lk_changedAt'),
-    removed: localStorage.getItem('lk_removedKeys'),
-    schema: localStorage.getItem('lk_schema'),
-    hist: localStorage.getItem('lk_history'),
-    keys: Object.keys(localStorage).sort().join(','),
-    fuel: localStorage.getItem('lk_fuelLog')
-  })), null, 1));
-}
 ok(!errs.length, 'and nothing throws on the way back in', errs[0] || '');
 
 /* THE RELOAD THAT MATTERS: mid-session. A phone that reloads during a
@@ -332,6 +420,7 @@ ok(/PPL - Push/.test(shelf) && /Resume/.test(shelf),
 ok(!errs.length, 'nothing throws coming back mid-session', errs[0] || '');
 
 await br.close();
+server.close();
 console.log('');
 console.log(`${checks} checks, ${fails} failed`);
 process.exit(fails ? 1 : 0);
