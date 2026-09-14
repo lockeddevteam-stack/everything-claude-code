@@ -5395,6 +5395,49 @@ button.shelf:active { background: var(--fill-press); }
         if (!top || st.kg > top[0] || (st.kg === top[0] && st.reps > top[1])) top = [st.kg, st.reps];
       });
       return { vol: Math.round(vol), top: top };
+    },
+
+    /* EVERY SESSION NEEDS AN ID, NOT JUST THE ONES REVIEW HAS SEEN.
+       Sessions written before ids existed, and every session a v6 phone
+       brings across, carry none. Train builds its row testid out of one,
+       so a history full of unstamped sessions rendered a list of buttons
+       all called `history-undefined` -- indistinguishable to anything
+       addressing them, and the same string for every row.
+
+       Review stamped them, but only on the way past, so a reader who
+       never opened Review never got ids at all. Stamping belongs where
+       history is read, which is here. The id is built from the session's
+       own date, so the same session gets the same id on every device
+       rather than a fresh random one per phone. */
+    withIds: function (list) {
+      var out = Array.isArray(list) ? list : [];
+      var seen = {}, stamped = 0;
+      out.forEach(function (w, i) {
+        if (!w) return;
+        if (w.id) { seen[w.id] = true; return; }
+        var t = Date.parse(String(w.date || ''));
+        var base = 'w_' + (isNaN(t) ? 'x' : t);
+        var id = base + '_' + i;
+        /* Two sessions on one date, imported in the same order on two
+           phones, must not collide into one id. */
+        var k = 0;
+        while (seen[id]) { k++; id = base + '_' + i + '_' + k; }
+        seen[id] = true;
+        w.id = id;
+        stamped++;
+      });
+      return { list: out, stamped: stamped };
+    },
+
+    /* The stored list with ids, written back when any were missing so the
+       stamping happens once rather than on every paint. */
+    all: function () {
+      var h = history();
+      var r = this.withIds(h);
+      if (r.stamped && g.LKStore) {
+        try { g.LKStore.set('lk_history', r.list); } catch (e) {}
+      }
+      return r.list;
     }
   };
 }(typeof window !== 'undefined' ? window : this));
@@ -20983,6 +21026,17 @@ DEMO.define("train", function (document, window, location, fetch) {
      it was not. */
   function loadHistory(fresh) {
     var raw = rd('lk_history', [], fresh) || [];
+    /* Every row needs an id before one is written into a testid, or the
+       whole list renders as `history-undefined`. Stamped in place and
+       written back once, unless this is the dev switcher showing a state
+       it built itself -- that must not touch stored sessions. */
+    if (window.LKHistory) {
+      var st = LKHistory.withIds(raw);
+      if (st.stamped && !fresh && window.LKStore) {
+        try { LKStore.set('lk_history', st.list); } catch (e) {}
+      }
+      raw = st.list;
+    }
     HISTORY = raw.map(function (w) {
       var row = { id: w.id, kind: w.kind === 'cardio' ? 'cardio' : 'lift',
                   name: String(w.name || '').replace(/ - /g, ' &middot; '),
@@ -26523,7 +26577,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       if (x.staple && x.intervalDays) {
         if (age < x.intervalDays) return null;
         return { name: x.name, age: age,
-                 why: 'a restock: you replace it about every ' + x.intervalDays + ' days and it ' +
+                 why: 'a restock: you replace it about every ' + x.intervalDays + ' ' + LKPlural(x.intervalDays, 'day') + ' and it ' +
                       'went in ' + age + ' days ago' };
       }
       if (x.category === 'other' && age >= FRESH_DAYS) {
@@ -31490,7 +31544,7 @@ DEMO.define("coach", function (document, window, location, fetch) {
               '<span class="row__sub">' + n(d.exercises.length) +
               (d.exercises.length === 1 ? ' lift' : ' lifts') + '</span></span></div>' +
             d.exercises.map(function (e) {
-              return lineRow(esc(e.name), n(e.sets) + ' sets &middot; ' + esc(e.muscle || e.group || ''));
+              return lineRow(esc(e.name), n(e.sets) + ' ' + LKPlural(e.sets, 'set') + ' &middot; ' + esc(e.muscle || e.group || ''));
             }).join('') +
           '</div>';
         }).join('') +
@@ -32090,7 +32144,7 @@ DEMO.define("coach", function (document, window, location, fetch) {
             '<button class="row" data-act="open-split" data-testid="plan-open-split">' +
               '<span class="ico-well">' + ico('lift') + '</span>' +
               '<span class="row__main"><span class="row__title">Runs on ' + esc(split.name) + '</span>' +
-              '<span class="row__sub">' + n(split.days.length) + ' days &middot; next is ' + esc(p.nextDay) + '</span></span>' +
+              '<span class="row__sub">' + n(split.days.length) + ' ' + LKPlural(split.days.length, 'day') + ' &middot; next is ' + esc(p.nextDay) + '</span></span>' +
               '<span class="row__chev">' + ico('chev') + '</span></button>' +
           '</div>' +
           '<button class="btn btn--primary btn--block mt-3" data-act="start" data-testid="plan-start">' +
@@ -32450,7 +32504,7 @@ DEMO.define("coach", function (document, window, location, fetch) {
             return '<button class="opt" role="radio" aria-checked="false" data-act="bind-pick" data-split="' + sp.id + '" data-testid="bind-split-' + i + '">' +
               '<span class="opt__mark">' + ico('check') + '</span>' +
               '<span class="opt__main"><span class="opt__title">' + sp.name + '</span>' +
-              '<span class="opt__sub">' + sp.days.length + ' days &middot; ' + sp.days.join(', ') + '</span></span></button>';
+              '<span class="opt__sub">' + sp.days.length + ' ' + LKPlural(sp.days.length, 'day') + ' &middot; ' + sp.days.join(', ') + '</span></span></button>';
           }).join('') +
         '</div></div>' +
       '</div>';
@@ -35984,6 +36038,13 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
       id: S.manual.id || ('s' + Date.now()),
       name: S.manual.name.trim(),
       created: S.manual.created || new Date().toLocaleDateString('en-US'),
+      /* WHEN IT WAS LAST TOUCHED, which is not when it was made. Train
+         prints "edited <date>" under every split from `updated`, and
+         nothing ever wrote one -- so it fell back to `created` and a
+         split reworked five times still claimed to have been edited on
+         the day it was first saved. Written on every save, because
+         every save IS an edit. */
+      updated: new Date().toISOString().slice(0, 10),
       days: S.manual.days.map(function (d) {
         return {
           name: d.name,
@@ -36780,7 +36841,7 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
   function when(daysAgo, iso) {
     if (daysAgo === 0) return 'today';
     if (daysAgo === 1) return 'yesterday';
-    if (daysAgo < 7) return n(daysAgo) + ' days ago';
+    if (daysAgo < 7) return n(daysAgo) + ' ' + LKPlural(daysAgo, 'day') + ' ago';
     var d = iso.split('-');
     return MONTHS[Number(d[1]) - 1] + ' ' + n(String(Number(d[2])));
   }
@@ -37732,7 +37793,7 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
        heading and the hint travel with the figure instead. */
     if (S.browse === 'map') return '';
     var short = shortfallNote();
-    return head('Muscle groups', n(total) + ' exercises') +
+    return head('Muscle groups', n(total) + ' ' + LKPlural(total, 'exercise')) +
       listCard(GROUP_INDEX.map(function (g) { return groupRow(g[0]); })) +
       '<p class="t-detail quiet mt-4 gutter">Search finds a lift by name, muscle, region or equipment. Browsing is two taps: a group, then the lift.</p>' +
       (short ? '<p class="t-detail quiet mt-3 gutter" data-testid="catalogue-short">' + esc(short) + '</p>' : '');
@@ -38073,7 +38134,7 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
           '<div class="card card--flush">' + SPLIT_DAYS.map(function (d) {
             return '<button class="row" type="button" data-action="add-day" data-day="' + d.id + '" data-id="' + it.id + '" data-testid="row-day-' + d.id + '">' +
               '<span class="row__main stack"><span class="row__title">' + esc(d.name) + '</span>' +
-              '<span class="row__sub">' + esc(d.split) + ' &middot; ' + n(d.count) + ' exercises</span></span>' +
+              '<span class="row__sub">' + esc(d.split) + ' &middot; ' + n(d.count) + ' ' + LKPlural(d.count, 'exercise') + '</span></span>' +
               '<span class="row__chev">' + ico('chev') + '</span></button>';
           }).join('') + '</div>' +
         '</div>' +
@@ -38185,7 +38246,7 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
      --------------------------------------------------------------- */
   function renderHdr() {
     var title, meta;
-    if (S.gid) { title = GNAME[S.gid]; meta = n(inGroup(S.gid).length) + ' exercises'; }
+    if (S.gid) { title = GNAME[S.gid]; meta = n(inGroup(S.gid).length) + ' ' + LKPlural(inGroup(S.gid).length, 'exercise'); }
     else if (S.filter === 'custom') { title = 'Custom'; meta = n(pool().length) + ' of your own'; }
     else if (S.status === 'error') { title = 'Exercises'; meta = 'List unavailable'; }
     else if (S.status === 'loading') { title = 'Exercises'; meta = 'Loading'; }
@@ -38292,7 +38353,7 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
        find it framed, not snapped back to the whole body. */
     try { if (FIG.zoomTo) FIG.zoomTo(S.gid || null, S.bodyView); } catch (e) {}
     var count = document.getElementById('libmap-count');
-    if (count) count.textContent = pool().length + ' exercises';
+    if (count) count.textContent = pool().length + ' ' + LKPlural(pool().length, 'exercise');
     var note = document.getElementById('libmap-note');
     if (note) {
       var short = shortfallNote();
@@ -38328,7 +38389,7 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
        offered 227 over a list of 867. */
     input.placeholder = S.status !== 'ready' ? 'Search'
       : (S.gid && !S.q ? 'Search all ' + S.items.length + ', not just ' + GNAME[S.gid]
-                       : 'Search ' + S.items.length + ' exercises');
+                       : 'Search ' + S.items.length + ' ' + LKPlural(S.items.length, 'exercise'));
     syncMap();
     mountSheetFigures();
     screen.setAttribute('data-state', stateName());
@@ -44965,7 +45026,8 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     return '<div class="scrim" data-act="close" data-testid="discard-scrim" role="presentation"></div>' +
       '<div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dc-t" data-testid="discard-dialog">' +
         '<h2 class="t-section" id="dc-t">Throw this workout away?</h2>' +
-        '<p class="t-detail muted mt-2">' + n(doneSets()) + ' logged sets will be lost. This cannot be undone.</p>' +
+        '<p class="t-detail muted mt-2">' + n(doneSets()) + ' logged ' +
+          LKPlural(doneSets(), 'set') + ' will be lost. This cannot be undone.</p>' +
         '<div class="addrow">' +
           '<button class="btn btn--secondary" type="button" data-act="close" data-testid="discard-cancel">Keep training</button>' +
           '<button class="btn btn--danger-solid" type="button" data-act="discard-confirm" data-testid="discard-confirm">Discard</button>' +
@@ -52291,7 +52353,7 @@ DEMO.define("cycle", function (document, window, location, fetch) {
 
     out += '<div class="section mt-5"><div class="section__head">' +
       '<h2 class="t-label">What the arithmetic says</h2>' +
-      '<span class="t-meta">&plusmn;' + b.days + ' days</span></div>';
+      '<span class="t-meta">&plusmn;' + b.days + ' ' + LKPlural(b.days, 'day') + '</span></div>';
 
     if (over > 0) {
       /* The overdue variant. It says the estimate has passed and it says

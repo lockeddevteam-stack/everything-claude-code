@@ -799,6 +799,49 @@
         if (!top || st.kg > top[0] || (st.kg === top[0] && st.reps > top[1])) top = [st.kg, st.reps];
       });
       return { vol: Math.round(vol), top: top };
+    },
+
+    /* EVERY SESSION NEEDS AN ID, NOT JUST THE ONES REVIEW HAS SEEN.
+       Sessions written before ids existed, and every session a v6 phone
+       brings across, carry none. Train builds its row testid out of one,
+       so a history full of unstamped sessions rendered a list of buttons
+       all called `history-undefined` -- indistinguishable to anything
+       addressing them, and the same string for every row.
+
+       Review stamped them, but only on the way past, so a reader who
+       never opened Review never got ids at all. Stamping belongs where
+       history is read, which is here. The id is built from the session's
+       own date, so the same session gets the same id on every device
+       rather than a fresh random one per phone. */
+    withIds: function (list) {
+      var out = Array.isArray(list) ? list : [];
+      var seen = {}, stamped = 0;
+      out.forEach(function (w, i) {
+        if (!w) return;
+        if (w.id) { seen[w.id] = true; return; }
+        var t = Date.parse(String(w.date || ''));
+        var base = 'w_' + (isNaN(t) ? 'x' : t);
+        var id = base + '_' + i;
+        /* Two sessions on one date, imported in the same order on two
+           phones, must not collide into one id. */
+        var k = 0;
+        while (seen[id]) { k++; id = base + '_' + i + '_' + k; }
+        seen[id] = true;
+        w.id = id;
+        stamped++;
+      });
+      return { list: out, stamped: stamped };
+    },
+
+    /* The stored list with ids, written back when any were missing so the
+       stamping happens once rather than on every paint. */
+    all: function () {
+      var h = history();
+      var r = this.withIds(h);
+      if (r.stamped && g.LKStore) {
+        try { g.LKStore.set('lk_history', r.list); } catch (e) {}
+      }
+      return r.list;
     }
   };
 }(typeof window !== 'undefined' ? window : this));
