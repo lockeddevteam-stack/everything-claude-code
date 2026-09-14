@@ -981,8 +981,17 @@
   }
 
   function moreSection() {
-    var w = WEIGHT_LOG[WEIGHT_LOG.length - 1], w0 = WEIGHT_LOG[0];
-    var d = w[1] - w0[1];
+    /* NOBODY HAS TO HAVE WEIGHED THEMSELVES. With an empty lk_weightLog
+       this read WEIGHT_LOG[-1] and asked an undefined row for its weight,
+       which threw and took the whole Progress screen down -- for every
+       reader who trains but does not weigh in, which is a lot of them,
+       and on the very screen that is supposed to invite the first
+       reading. The row is still here, still opens the weigh-in sheet, and
+       says what it has instead of a change it cannot compute. */
+    var has = WEIGHT_LOG.length > 0;
+    var w = has ? WEIGHT_LOG[WEIGHT_LOG.length - 1] : null;
+    var w0 = has ? WEIGHT_LOG[0] : null;
+    var d = has ? w[1] - w0[1] : 0;
     return '' +
       '<div class="section">' +
         '<div class="section__head"><h2 class="t-label">Also tracked</h2></div>' +
@@ -991,9 +1000,11 @@
             '<span class="ico-well">' + ICO.scale + '</span>' +
             '<span class="row__main stack">' +
               '<span class="row__title">Body weight</span>' +
-              '<span class="row__sub">' + signedKg(d) + ' since ' + dayLabel(w0[0]) + '</span>' +
+              '<span class="row__sub">' + (has
+                ? signedKg(d) + ' since ' + dayLabel(w0[0])
+                : 'No weigh-ins yet. Add one to see it move.') + '</span>' +
             '</span>' +
-            '<span class="row__value">' + kg(w[1]) + '</span>' +
+            '<span class="row__value">' + (has ? kg(w[1]) : '\u2014') + '</span>' +
             '<span class="row__chev">' + ICO.chev + '</span>' +
           '</button>' +
           /* The body-fat log. lk_bfLog ships in the seed with two readings
@@ -1114,14 +1125,20 @@
      reading it was drawn from, because a trend nobody can check is a claim. */
   function weightSheet() {
     var log = WEIGHT_LOG.slice().reverse();
-    var first = WEIGHT_LOG[0], last = WEIGHT_LOG[WEIGHT_LOG.length - 1];
-    var d = last[1] - first[1];
+    /* The sheet opens from a row that is there whether or not you have ever
+       weighed in, so it has to hold an empty log. It read row [-1] and asked
+       an undefined row for its weight, which threw and took the whole screen
+       down for anyone who trains but does not weigh. */
+    var has = WEIGHT_LOG.length > 0;
+    var first = has ? WEIGHT_LOG[0] : null;
+    var last = has ? WEIGHT_LOG[WEIGHT_LOG.length - 1] : null;
+    var d = has ? last[1] - first[1] : 0;
     /* Weeks between the first and last reading, not the number of readings.
        Counting entries made a second weigh-in in the same week add a week to
        the span, so the per-week figure -- the one this card says is "the only
        one worth reading" -- moved because you stepped on the scale twice. */
     var wkMs = 7 * 86400000;
-    var spanMs = Math.max(0, ms(WEIGHT_LOG[WEIGHT_LOG.length - 1][0]) - ms(WEIGHT_LOG[0][0]));
+    var spanMs = has ? Math.max(0, ms(last[0]) - ms(first[0])) : 0;
     var weeks = Math.max(1, Math.round(spanMs / wkMs));
     return '' +
       '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
@@ -1133,10 +1150,16 @@
             ICO.close + '</button></div>' +
         '<div class="sheet__body">' +
           weightChartSVG(320) +
-          '<p class="t-detail mt-3">' + signedKg(d) + ' over ' + weeks + ' weeks, or ' +
-            signedKg(d / weeks) + ' a week. A weekly figure is the only one worth reading: ' +
-            'a single morning moves a kilo on water alone.</p>' +
-          '<div class="card card--flush mt-4">' + log.map(function (r, i) {
+          (has
+            ? '<p class="t-detail mt-3">' + signedKg(d) + ' over ' + weeks + ' weeks, or ' +
+              signedKg(d / weeks) + ' a week. A weekly figure is the only one worth reading: ' +
+              'a single morning moves a kilo on water alone.</p>'
+            : '<div class="empty" data-testid="weight-empty">' +
+              '<span class="empty__ico">' + ICO.scale + '</span>' +
+              '<h3 class="empty__title">No weigh-ins yet</h3>' +
+              '<p class="empty__body">Put today&rsquo;s weight in below. Two readings draw ' +
+                'a trend, and the trend is the number worth reading.</p></div>') +
+          (has ? '<div class="card card--flush mt-4">' : '<div hidden>') + log.map(function (r, i) {
             var prev = log[i + 1];
             var step = prev ? r[1] - prev[1] : null;
             return '<div class="row row--static" data-testid="w-' + r[0] + '">' +

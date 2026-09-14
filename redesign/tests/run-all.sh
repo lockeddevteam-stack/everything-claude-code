@@ -50,6 +50,8 @@ run "coach — asked, and what the gate lets through" node coach-server.mjs
 run "crossings — every selector names a control"   node nav-selectors.mjs
 run "session — a workout survives leaving"        node session-persist.mjs
 run "product build — no seed, no dev switcher"  node prod-build.mjs
+run "accounts — the shapes the live table holds" node v6-accounts.mjs
+run "a day in the app — a workout and a meal, end to end" node day-to-day.mjs
 run "demo — assembled"                             sh -c 'node ../10-final/assemble.mjs && node ../10-final/verify-demo.mjs'
 
 printf '\n%s\n' "-----------------------------------------"

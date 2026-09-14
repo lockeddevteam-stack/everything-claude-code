@@ -331,6 +331,16 @@
     S.exercises = rec.exercises.map(function (e) {
       return exFromHistory(e.id, e.name, e.muscle || '', '', [], e.sets || 3);
     });
+    /* THE STATE HAS TO FOLLOW THE EXERCISES, NOT THE OTHER WAY ROUND.
+       applyState() seeds from pushDay(), and in the product build there is
+       no seed, so it fell through to its "nothing to be in the middle of"
+       branch and left S.state at 'empty'. The real exercises are assigned
+       right after, and nothing moved the state back -- so record() took the
+       'empty' branch on every paint and ENDED the live session it had just
+       started. A workout run from Train was never on the record: no resume
+       shelf anywhere in the app, and a reload mid-session lost every weight,
+       rep and tick. */
+    if (S.exercises.length) S.state = 'mid-session';
     return true;
   }
 
@@ -361,6 +371,16 @@
     S.exercises = d.exercises.map(function (e) {
       return exFromHistory(e.id, e.name, e.muscle || '', '', [], 3);
     });
+    /* THE STATE HAS TO FOLLOW THE EXERCISES, NOT THE OTHER WAY ROUND.
+       applyState() seeds from pushDay(), and in the product build there is
+       no seed, so it fell through to its "nothing to be in the middle of"
+       branch and left S.state at 'empty'. The real exercises are assigned
+       right after, and nothing moved the state back -- so record() took the
+       'empty' branch on every paint and ENDED the live session it had just
+       started. A workout run from Train was never on the record: no resume
+       shelf anywhere in the app, and a reload mid-session lost every weight,
+       rep and tick. */
+    if (S.exercises.length) S.state = 'mid-session';
     return true;
   }
 
@@ -1745,6 +1765,14 @@
         if (e.id && kept[e.id] !== undefined) e.note = kept[e.id];
       });
     }
+    /* The state has to say a session is running, or the very first paint
+       after the reload ends the record this function just restored from --
+       record() reads S.state, and in the product build there is no seed, so
+       it starts at 'empty'. Restoring the rows and then deleting the record
+       is how a reload mid-workout came back to a blank screen. */
+    S.state = 'mid-session';
+    S.over = false;
+    S.elapsed = Math.max(0, Math.floor((Date.now() - live.startedAt) / 1000));
     return true;
   }
 

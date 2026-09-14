@@ -4392,6 +4392,22 @@ button.shelf:active { background: var(--fill-press); }
 .row--sub .row__sub { color: var(--text-tertiary); }
 
 
+/* --- Zooming to a muscle -------------------------------------------------
+   The camera carries the move so the art underneath never re-renders.
+   Reduced motion gets the cut: the destination is the point, the travel
+   is decoration. */
+.map__svg .cam {
+  transition: transform var(--dur-slow, 320ms) var(--spring-snappy, cubic-bezier(.22,1,.36,1));
+  transform-origin: 0 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .map__svg .cam { transition: none; }
+}
+/* Once the camera is in close, the unselected muscles are scenery rather
+   than targets competing with the one that was chosen. */
+.map__svg .cam[data-zoomed="true"] .mg:not([data-on="true"]) { opacity: .35; }
+
+
 /* THE DEV STATE SWITCHER IS NOT A PRODUCT CONTROL. Every screen carries
    one so a reviewer can jump to its empty, loading and error states. It is
    markup inside the screen rather than something the assembler adds, so
@@ -6507,6 +6523,48 @@ button.shelf:active { background: var(--fill-press); }
          measuring the DOM. */
       measured: MEASURED, thin: THIN, partBox: PART_BOX, figure: FIGURE,
       fitAttr: fitAttr, boxIn: boxIn, fit: FIT, n2: n2, partsOf: partsOf, art: ART
+    };
+
+    /* ---- ZOOMING TO A MUSCLE -------------------------------------------
+       The camera group exists so a screen can frame one group without
+       measuring the DOM, and until now nothing used it: tapping a muscle
+       filtered the list and left the figure at full height, so the part
+       somebody had just chosen was the same thumbnail-sized shape it had
+       been a moment earlier.
+
+       The box is the measured extent of that group, in the frame's own
+       coordinates. It is padded, capped so a small muscle does not fill
+       the screen at absurd magnification, and clamped so the figure never
+       leaves the frame. Passing null returns to the whole body.
+
+       Nothing here is animated in JavaScript: the transform changes and
+       CSS carries it, so a person who has asked for less motion gets the
+       cut rather than the move. */
+    var VB = { x: -16, y: 8, w: 240, h: 402 };
+    api.zoomTo = function (gid, view) {
+      var v = view || api.view;
+      var box = gid && MEASURED[v] && MEASURED[v][gid];
+      if (!box) {
+        cam.setAttribute('transform', 'translate(0 0) scale(1)');
+        cam.setAttribute('data-zoomed', 'false');
+        return false;
+      }
+      var b = boxIn(v, box);
+      var pad = 26;
+      var s = Math.min((VB.w - pad * 2) / b.w, (VB.h - pad * 2) / b.h);
+      s = Math.max(1, Math.min(s, 2.6));
+      var cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+      var tx = (VB.x + VB.w / 2) - s * cx;
+      var ty = (VB.y + VB.h / 2) - s * cy;
+      /* Never show past the figure's own edges. */
+      var minTx = VB.x + VB.w - s * (VB.x + VB.w), maxTx = VB.x - s * VB.x;
+      var minTy = VB.y + VB.h - s * (VB.y + VB.h), maxTy = VB.y - s * VB.y;
+      tx = Math.max(Math.min(tx, maxTx), minTx);
+      ty = Math.max(Math.min(ty, maxTy), minTy);
+      cam.setAttribute('transform',
+        'translate(' + n2(tx) + ' ' + n2(ty) + ') scale(' + (Math.round(s * 1e4) / 1e4) + ')');
+      cam.setAttribute('data-zoomed', 'true');
+      return true;
     };
 
     shadeDefs(api);
@@ -31989,12 +32047,23 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
              second way to the group, not a second flow. */
           S.gid = gid;
           S.scope = 'group';
+          /* AND THE FIGURE GOES WHERE THE FINGER WENT. Tapping a muscle
+             used to filter the list and leave the body at full height, so
+             the part just chosen stayed the same small shape it had been.
+             The camera frames it now, which is the whole reason the map is
+             on this screen rather than a list of group names. */
+          S.zoomed = gid;
+          try { if (FIG && FIG.zoomTo) FIG.zoomTo(gid, S.bodyView); } catch (e) {}
           render({ scrollTop: true });
         }
       });
     }
     FIG.setView(S.bodyView);
-    FIG.select(null);
+    FIG.select(S.gid || null);
+    /* The camera follows the state rather than being reset behind it: a
+       person who comes back to the map with a group still chosen should
+       find it framed, not snapped back to the whole body. */
+    try { if (FIG.zoomTo) FIG.zoomTo(S.gid || null, S.bodyView); } catch (e) {}
     var count = document.getElementById('libmap-count');
     if (count) count.textContent = pool().length + ' exercises';
     var note = document.getElementById('libmap-note');
@@ -37215,6 +37284,16 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     S.exercises = rec.exercises.map(function (e) {
       return exFromHistory(e.id, e.name, e.muscle || '', '', [], e.sets || 3);
     });
+    /* THE STATE HAS TO FOLLOW THE EXERCISES, NOT THE OTHER WAY ROUND.
+       applyState() seeds from pushDay(), and in the product build there is
+       no seed, so it fell through to its "nothing to be in the middle of"
+       branch and left S.state at 'empty'. The real exercises are assigned
+       right after, and nothing moved the state back -- so record() took the
+       'empty' branch on every paint and ENDED the live session it had just
+       started. A workout run from Train was never on the record: no resume
+       shelf anywhere in the app, and a reload mid-session lost every weight,
+       rep and tick. */
+    if (S.exercises.length) S.state = 'mid-session';
     return true;
   }
 
@@ -37245,6 +37324,16 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     S.exercises = d.exercises.map(function (e) {
       return exFromHistory(e.id, e.name, e.muscle || '', '', [], 3);
     });
+    /* THE STATE HAS TO FOLLOW THE EXERCISES, NOT THE OTHER WAY ROUND.
+       applyState() seeds from pushDay(), and in the product build there is
+       no seed, so it fell through to its "nothing to be in the middle of"
+       branch and left S.state at 'empty'. The real exercises are assigned
+       right after, and nothing moved the state back -- so record() took the
+       'empty' branch on every paint and ENDED the live session it had just
+       started. A workout run from Train was never on the record: no resume
+       shelf anywhere in the app, and a reload mid-session lost every weight,
+       rep and tick. */
+    if (S.exercises.length) S.state = 'mid-session';
     return true;
   }
 
@@ -38629,6 +38718,14 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
         if (e.id && kept[e.id] !== undefined) e.note = kept[e.id];
       });
     }
+    /* The state has to say a session is running, or the very first paint
+       after the reload ends the record this function just restored from --
+       record() reads S.state, and in the product build there is no seed, so
+       it starts at 'empty'. Restoring the rows and then deleting the record
+       is how a reload mid-workout came back to a blank screen. */
+    S.state = 'mid-session';
+    S.over = false;
+    S.elapsed = Math.max(0, Math.floor((Date.now() - live.startedAt) / 1000));
     return true;
   }
 
@@ -47756,8 +47853,17 @@ DEMO.define("progress", function (document, window, location, fetch) {
   }
 
   function moreSection() {
-    var w = WEIGHT_LOG[WEIGHT_LOG.length - 1], w0 = WEIGHT_LOG[0];
-    var d = w[1] - w0[1];
+    /* NOBODY HAS TO HAVE WEIGHED THEMSELVES. With an empty lk_weightLog
+       this read WEIGHT_LOG[-1] and asked an undefined row for its weight,
+       which threw and took the whole Progress screen down -- for every
+       reader who trains but does not weigh in, which is a lot of them,
+       and on the very screen that is supposed to invite the first
+       reading. The row is still here, still opens the weigh-in sheet, and
+       says what it has instead of a change it cannot compute. */
+    var has = WEIGHT_LOG.length > 0;
+    var w = has ? WEIGHT_LOG[WEIGHT_LOG.length - 1] : null;
+    var w0 = has ? WEIGHT_LOG[0] : null;
+    var d = has ? w[1] - w0[1] : 0;
     return '' +
       '<div class="section">' +
         '<div class="section__head"><h2 class="t-label">Also tracked</h2></div>' +
@@ -47766,9 +47872,11 @@ DEMO.define("progress", function (document, window, location, fetch) {
             '<span class="ico-well">' + ICO.scale + '</span>' +
             '<span class="row__main stack">' +
               '<span class="row__title">Body weight</span>' +
-              '<span class="row__sub">' + signedKg(d) + ' since ' + dayLabel(w0[0]) + '</span>' +
+              '<span class="row__sub">' + (has
+                ? signedKg(d) + ' since ' + dayLabel(w0[0])
+                : 'No weigh-ins yet. Add one to see it move.') + '</span>' +
             '</span>' +
-            '<span class="row__value">' + kg(w[1]) + '</span>' +
+            '<span class="row__value">' + (has ? kg(w[1]) : '\u2014') + '</span>' +
             '<span class="row__chev">' + ICO.chev + '</span>' +
           '</button>' +
           /* The body-fat log. lk_bfLog ships in the seed with two readings
@@ -47889,14 +47997,20 @@ DEMO.define("progress", function (document, window, location, fetch) {
      reading it was drawn from, because a trend nobody can check is a claim. */
   function weightSheet() {
     var log = WEIGHT_LOG.slice().reverse();
-    var first = WEIGHT_LOG[0], last = WEIGHT_LOG[WEIGHT_LOG.length - 1];
-    var d = last[1] - first[1];
+    /* The sheet opens from a row that is there whether or not you have ever
+       weighed in, so it has to hold an empty log. It read row [-1] and asked
+       an undefined row for its weight, which threw and took the whole screen
+       down for anyone who trains but does not weigh. */
+    var has = WEIGHT_LOG.length > 0;
+    var first = has ? WEIGHT_LOG[0] : null;
+    var last = has ? WEIGHT_LOG[WEIGHT_LOG.length - 1] : null;
+    var d = has ? last[1] - first[1] : 0;
     /* Weeks between the first and last reading, not the number of readings.
        Counting entries made a second weigh-in in the same week add a week to
        the span, so the per-week figure -- the one this card says is "the only
        one worth reading" -- moved because you stepped on the scale twice. */
     var wkMs = 7 * 86400000;
-    var spanMs = Math.max(0, ms(WEIGHT_LOG[WEIGHT_LOG.length - 1][0]) - ms(WEIGHT_LOG[0][0]));
+    var spanMs = has ? Math.max(0, ms(last[0]) - ms(first[0])) : 0;
     var weeks = Math.max(1, Math.round(spanMs / wkMs));
     return '' +
       '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
@@ -47908,10 +48022,16 @@ DEMO.define("progress", function (document, window, location, fetch) {
             ICO.close + '</button></div>' +
         '<div class="sheet__body">' +
           weightChartSVG(320) +
-          '<p class="t-detail mt-3">' + signedKg(d) + ' over ' + weeks + ' weeks, or ' +
-            signedKg(d / weeks) + ' a week. A weekly figure is the only one worth reading: ' +
-            'a single morning moves a kilo on water alone.</p>' +
-          '<div class="card card--flush mt-4">' + log.map(function (r, i) {
+          (has
+            ? '<p class="t-detail mt-3">' + signedKg(d) + ' over ' + weeks + ' weeks, or ' +
+              signedKg(d / weeks) + ' a week. A weekly figure is the only one worth reading: ' +
+              'a single morning moves a kilo on water alone.</p>'
+            : '<div class="empty" data-testid="weight-empty">' +
+              '<span class="empty__ico">' + ICO.scale + '</span>' +
+              '<h3 class="empty__title">No weigh-ins yet</h3>' +
+              '<p class="empty__body">Put today&rsquo;s weight in below. Two readings draw ' +
+                'a trend, and the trend is the number worth reading.</p></div>') +
+          (has ? '<div class="card card--flush mt-4">' : '<div hidden>') + log.map(function (r, i) {
             var prev = log[i + 1];
             var step = prev ? r[1] - prev[1] : null;
             return '<div class="row row--static" data-testid="w-' + r[0] + '">' +

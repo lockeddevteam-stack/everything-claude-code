@@ -365,6 +365,48 @@
       fitAttr: fitAttr, boxIn: boxIn, fit: FIT, n2: n2, partsOf: partsOf, art: ART
     };
 
+    /* ---- ZOOMING TO A MUSCLE -------------------------------------------
+       The camera group exists so a screen can frame one group without
+       measuring the DOM, and until now nothing used it: tapping a muscle
+       filtered the list and left the figure at full height, so the part
+       somebody had just chosen was the same thumbnail-sized shape it had
+       been a moment earlier.
+
+       The box is the measured extent of that group, in the frame's own
+       coordinates. It is padded, capped so a small muscle does not fill
+       the screen at absurd magnification, and clamped so the figure never
+       leaves the frame. Passing null returns to the whole body.
+
+       Nothing here is animated in JavaScript: the transform changes and
+       CSS carries it, so a person who has asked for less motion gets the
+       cut rather than the move. */
+    var VB = { x: -16, y: 8, w: 240, h: 402 };
+    api.zoomTo = function (gid, view) {
+      var v = view || api.view;
+      var box = gid && MEASURED[v] && MEASURED[v][gid];
+      if (!box) {
+        cam.setAttribute('transform', 'translate(0 0) scale(1)');
+        cam.setAttribute('data-zoomed', 'false');
+        return false;
+      }
+      var b = boxIn(v, box);
+      var pad = 26;
+      var s = Math.min((VB.w - pad * 2) / b.w, (VB.h - pad * 2) / b.h);
+      s = Math.max(1, Math.min(s, 2.6));
+      var cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+      var tx = (VB.x + VB.w / 2) - s * cx;
+      var ty = (VB.y + VB.h / 2) - s * cy;
+      /* Never show past the figure's own edges. */
+      var minTx = VB.x + VB.w - s * (VB.x + VB.w), maxTx = VB.x - s * VB.x;
+      var minTy = VB.y + VB.h - s * (VB.y + VB.h), maxTy = VB.y - s * VB.y;
+      tx = Math.max(Math.min(tx, maxTx), minTx);
+      ty = Math.max(Math.min(ty, maxTy), minTy);
+      cam.setAttribute('transform',
+        'translate(' + n2(tx) + ' ' + n2(ty) + ') scale(' + (Math.round(s * 1e4) / 1e4) + ')');
+      cam.setAttribute('data-zoomed', 'true');
+      return true;
+    };
+
     shadeDefs(api);
     buildView(api, 'front');
     buildView(api, 'back');
