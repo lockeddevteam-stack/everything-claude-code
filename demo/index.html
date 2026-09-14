@@ -27997,6 +27997,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     if (a === 'mic-eg') {
       S.micText = act.getAttribute('data-t');
       S.micItems = parseMeal(S.micText);
+      lookupMissing();
       render(); return;
     }
     if (a === 'mic-drop') {
@@ -28416,6 +28417,67 @@ DEMO.define("fuel", function (document, window, location, fetch) {
      src 'estimate' into the log, which is what the diary reads to draw it
      apart from a looked-up food. A figure somebody cannot tell from a
      measured one is worse than no figure. */
+  /* WHAT THE TABLE DOES NOT KNOW, THE FOOD DATABASE USUALLY DOES.
+
+     The sentence reader matches against the shipped table, and anything
+     it cannot place was shown as "nothing in the table matches this, so
+     it is not counted" with the primary button reading "Nothing to log
+     yet". For "coconut water" -- an ordinary thing, in every food
+     database -- that is the screen refusing to do the one job it was
+     opened for.
+
+     So a miss is looked up before it is written off. A hit comes back
+     per 100 g with real figures and is marked as a lookup, not an
+     estimate; only what the database has never heard of is left for the
+     estimate button, which is where a guess belongs.
+
+     Quiet on failure: no server, no network, nothing found -- the row
+     stays exactly as it was and the estimate button still offers. */
+  function lookupMissing() {
+    var C = window.LKCloud;
+    if (!C || !C.ready || !C.ready() || !C.foodSearch) return;
+    var cur = S.micItems || [];
+    var misses = [];
+    cur.forEach(function (it, i) {
+      if (!it.key && it.raw && String(it.raw).trim().length > 2) misses.push({ i: i, q: it.raw });
+    });
+    if (!misses.length) return;
+    var token = (S.micLookupToken = (S.micLookupToken || 0) + 1);
+    S.micLookingUp = true;
+    Promise.all(misses.map(function (m) {
+      return C.foodSearch(m.q).then(function (r) {
+        return { i: m.i, q: m.q, hit: (r && r.ok && r.data && r.data[0]) || null };
+      }, function () { return { i: m.i, q: m.q, hit: null }; });
+    })).then(function (rows) {
+      /* A later edit of the sentence wins: this answer is about text
+         nobody is looking at any more. */
+      if (token !== S.micLookupToken) return;
+      S.micLookingUp = false;
+      var list = (S.micItems || []).slice();
+      var changed = false;
+      rows.forEach(function (row) {
+        if (!row.hit || !list[row.i] || list[row.i].key) return;
+        var g = Number(list[row.i].grams) > 0 ? Number(list[row.i].grams) : 100;
+        var f = g / 100;
+        list[row.i] = {
+          key: '@db' + row.i + '-' + Date.now(),
+          name: row.hit.name || row.q,
+          icon: '\u{1F37D}\u{FE0F}',
+          grams: g,
+          kcal: Math.round((row.hit.kcal || 0) * f),
+          pro: Math.round((row.hit.pro || 0) * f * 10) / 10,
+          carb: Math.round((row.hit.carb || 0) * f * 10) / 10,
+          fat: Math.round((row.hit.fat || 0) * f * 10) / 10,
+          src: 'lookup',
+          from: row.hit.from || 'Food database'
+        };
+        changed = true;
+      });
+      if (changed) { S.micItems = list; render(); }
+      else if (S.micLookingUp === false) render();
+    });
+  }
+
   function estimateRest() {
     var C = window.LKCloud;
     if (!C || !C.ready() || !C.vision) return;
@@ -29148,6 +29210,11 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     if (e.target.id === 'mic-text') {
       S.micText = e.target.value;
       S.micItems = S.micText.trim() ? parseMeal(S.micText) : null;
+      /* Looked up when the typing stops, not on every keystroke: "coconut
+         water" is fourteen characters and fourteen requests would be a
+         denial of service aimed at ourselves. */
+      if (S.micLookupTimer) clearTimeout(S.micLookupTimer);
+      S.micLookupTimer = setTimeout(function () { lookupMissing(); }, 600);
       render();
       var mf = document.getElementById('mic-text');
       if (mf) { mf.focus(); try { mf.setSelectionRange(mf.value.length, mf.value.length); } catch (err) {} }
