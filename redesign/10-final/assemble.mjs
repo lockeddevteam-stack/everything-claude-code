@@ -723,7 +723,9 @@ const RUNTIME = String.raw`
     } else {
       bar.hidden = true;
     }
-    document.title = 'LOCKED demo — ' + ((screens[id] || {}).label || id);
+    /* The product is not called "LOCKED demo". The tab, the installed app's
+       name and anything that shares a link all read this. */
+    document.title = CFG.appTitle + ' — ' + ((screens[id] || {}).label || id);
     prevRoute = route;
   }
 
@@ -1178,6 +1180,9 @@ function build() {
       screen: t.screen || (MANIFEST.placeholders[t.id] ? t.id + '-placeholder' : null) })),
     pushed: MANIFEST.pushed,
     nav: MANIFEST.nav,
+    /* Not a template string: this object is JSON.stringify'd into the
+       page, so it has to carry the resolved value, not the expression. */
+    appTitle: PROD ? 'LOCKED' : 'LOCKED demo',
     devStateSelector: MANIFEST.devStateSelector,
     devToggleSelector: MANIFEST.devToggleSelector,
     assets,
@@ -1210,7 +1215,7 @@ function build() {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>LOCKED demo</title>
+<title>${PROD ? 'LOCKED' : 'LOCKED demo'}</title>
 <!-- Installable, and it says what it is on the home screen. None of this
      existed: a web app with no manifest and no apple metas installs as a
      browser bookmark with a screenshot for an icon and a browser chrome
