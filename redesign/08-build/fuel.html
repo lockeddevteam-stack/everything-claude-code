@@ -939,16 +939,31 @@
   /* The series, with every day the store knows about laid over the seed and
      today's running total on the end. Read at render time, never stored, so
      it cannot drift from the diary above it. */
+  /* EVERY DAY THAT WAS LOGGED, not only the days the seed happened to
+     name. This started from DAY.series and overwrote dates already in it
+     -- `if (byDate[iso] !== undefined)` -- so on a build with no seed the
+     list began empty and no real day could ever enter it. Trends read
+     "Nothing logged in these 14 days" however much had been logged, on
+     every range, forever; and measuredTDEE(), which needs seven days of
+     it, could never use a measurement either. The seed still contributes
+     where there is one, so the demo is unchanged. */
   function series(n) {
-    var out = (DAY.series || []).map(function (e) { return { date: e.date, kcal: e.kcal }; });
     var byDate = {};
-    out.forEach(function (e, i) { byDate[e.date] = i; });
-    Object.keys(FUELLOG).forEach(function (iso) {
-      var rec = FUELLOG[iso];
-      var k = (rec.meals || []).reduce(function (a, m) { return a + (m.kcal || 0); }, 0);
-      if (byDate[iso] !== undefined) out[byDate[iso]].kcal = Math.round(k);
+    (DAY.series || []).forEach(function (e) {
+      if (e && e.date) byDate[e.date] = Math.round(e.kcal || 0);
     });
-    if (byDate[DAY.iso] !== undefined) out[byDate[DAY.iso]].kcal = DAY.eaten;
+    Object.keys(FUELLOG || {}).forEach(function (iso) {
+      var rec = FUELLOG[iso];
+      if (!rec) return;
+      var k = (rec.meals || []).reduce(function (a, m) { return a + (m.kcal || 0); }, 0);
+      byDate[iso] = Math.round(k);
+    });
+    /* Today is read off the screen rather than the log: it is the one day
+       still being edited. */
+    if (DAY.iso) byDate[DAY.iso] = DAY.eaten;
+    var out = Object.keys(byDate).sort().map(function (iso) {
+      return { date: iso, kcal: byDate[iso] };
+    });
     return out.slice(-n);
   }
 

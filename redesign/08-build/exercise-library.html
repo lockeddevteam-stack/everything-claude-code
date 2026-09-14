@@ -926,6 +926,7 @@
     scope: 'group',       /* group | all, while a group is open */
     filter: 'all',        /* all | custom */
     sheet: null,          /* exercise id */
+    delArmed: null,       /* a custom lift asked about, awaiting the second tap */
     media: 'none',        /* none | loading | error | image */
     entry: 'tab',         /* tab | active | picker */
     days: false,          /* split-day chooser open */
@@ -1413,6 +1414,25 @@
         ? '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="choose-day" data-id="' + it.id + '" data-testid="sheet-secondary">' +
             '<span class="btn__label">' + secondary + '</span></button>'
         : '') +
+      /* A LIFT YOU MADE IS A LIFT YOU CAN UNMAKE. Creating a custom
+         exercise worked and nothing could be done to it afterwards: a
+         typo in the name was permanent and the list could only ever grow.
+         Only your own -- the catalogue is not yours to delete from.
+         Tap once to arm, tap again to remove, the pattern the split list
+         and the goal list already use; anything already logged against it
+         is untouched, and a split that names it keeps working. */
+      (it.custom
+        ? '<button class="btn btn--block mt-2 ' +
+            (S.delArmed === it.id ? 'btn--danger-solid' : 'btn--danger') + '" type="button" ' +
+            'data-action="del-custom" data-id="' + it.id + '" data-testid="sheet-delete">' +
+            '<span class="btn__label">' +
+            (S.delArmed === it.id ? 'Tap again to delete it' : 'Delete this exercise') +
+            '</span></button>' +
+          (S.delArmed === it.id
+            ? '<p class="t-detail quiet mt-2" data-testid="sheet-delete-note">Sessions you have ' +
+              'already logged with it keep it, and a split that names it goes on working.</p>'
+            : '')
+        : '') +
     '</div>';
   }
 
@@ -1774,11 +1794,25 @@
       render({ focus: 'sheet-primary' });
     },
     'close-sheet': function () {
-      var back = S.restore; S.sheet = null; S.days = false; S.restore = null;
+      var back = S.restore; S.sheet = null; S.days = false; S.restore = null; S.delArmed = null;
       render({ focus: back });
     },
     'choose-day': function () { S.days = true; render({ focus: SPLIT_DAYS.length ? 'row-day-' + SPLIT_DAYS[0].id : 'days-close' }); },
     'close-days': function () { S.days = false; render({ focus: 'sheet-secondary' }); },
+    'del-custom': function (el) {
+      var id = Number(el.getAttribute('data-id'));
+      if (S.delArmed !== id) { S.delArmed = id; render({ focus: 'sheet-delete' }); return; }
+      S.delArmed = null;
+      var all = (window.LKStore ? LKStore.get('lk_customEx', null) : null) || [];
+      if (Array.isArray(all)) {
+        var kept = all.filter(function (c) { return c && c.id !== id; });
+        if (window.LKStore) LKStore.set('lk_customEx', kept);
+      }
+      S.sheet = null;
+      reread();
+      render();
+      toast('Deleted. Your logged sessions keep it.');
+    },
     'add-day': function (el) {
       var it = byId(Number(el.getAttribute('data-id')));
       /* The sheet's own primary carries no day, so it means the first one --

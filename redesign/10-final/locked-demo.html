@@ -23836,16 +23836,31 @@ DEMO.define("fuel", function (document, window, location, fetch) {
   /* The series, with every day the store knows about laid over the seed and
      today's running total on the end. Read at render time, never stored, so
      it cannot drift from the diary above it. */
+  /* EVERY DAY THAT WAS LOGGED, not only the days the seed happened to
+     name. This started from DAY.series and overwrote dates already in it
+     -- `if (byDate[iso] !== undefined)` -- so on a build with no seed the
+     list began empty and no real day could ever enter it. Trends read
+     "Nothing logged in these 14 days" however much had been logged, on
+     every range, forever; and measuredTDEE(), which needs seven days of
+     it, could never use a measurement either. The seed still contributes
+     where there is one, so the demo is unchanged. */
   function series(n) {
-    var out = (DAY.series || []).map(function (e) { return { date: e.date, kcal: e.kcal }; });
     var byDate = {};
-    out.forEach(function (e, i) { byDate[e.date] = i; });
-    Object.keys(FUELLOG).forEach(function (iso) {
-      var rec = FUELLOG[iso];
-      var k = (rec.meals || []).reduce(function (a, m) { return a + (m.kcal || 0); }, 0);
-      if (byDate[iso] !== undefined) out[byDate[iso]].kcal = Math.round(k);
+    (DAY.series || []).forEach(function (e) {
+      if (e && e.date) byDate[e.date] = Math.round(e.kcal || 0);
     });
-    if (byDate[DAY.iso] !== undefined) out[byDate[DAY.iso]].kcal = DAY.eaten;
+    Object.keys(FUELLOG || {}).forEach(function (iso) {
+      var rec = FUELLOG[iso];
+      if (!rec) return;
+      var k = (rec.meals || []).reduce(function (a, m) { return a + (m.kcal || 0); }, 0);
+      byDate[iso] = Math.round(k);
+    });
+    /* Today is read off the screen rather than the log: it is the one day
+       still being edited. */
+    if (DAY.iso) byDate[DAY.iso] = DAY.eaten;
+    var out = Object.keys(byDate).sort().map(function (iso) {
+      return { date: iso, kcal: byDate[iso] };
+    });
     return out.slice(-n);
   }
 
@@ -31957,7 +31972,13 @@ DEMO.define("coach", function (document, window, location, fetch) {
       (s.memory.length
         ? '<div class="card card--flush mt-2' + (memOn ? '' : ' is-quiet') + '">' + s.memory.map(function (m, i) {
             return '<div class="row"><span class="row__main"><span class="row__title">' + esc(m.text) + '</span>' +
-              '<span class="row__sub">' + esc(m.src) + '</span></span>' +
+              /* A memory saved by an older build is a plain string, so it
+                 has no source to name. The migration normalises those to
+                 { text }, which leaves src undefined -- and this printed
+                 the literal word "undefined" under every one of them.
+                 Where it came from is worth saying when it is known and
+                 worth nothing when it is not. */
+              (m.src ? '<span class="row__sub">' + esc(m.src) + '</span>' : '') + '</span>' +
               '<button class="iconbtn iconbtn--danger-quiet" data-act="forget" data-i="' + i + '" aria-label="Forget: ' + esc(m.text) + '" data-testid="setup-forget-' + i + '">' + ico('trash') + '</button></div>';
           }).join('') + '</div>'
         : '<div class="card mt-2"><p class="t-detail">Nothing remembered yet. Facts you add here go into every reply.</p></div>') +
@@ -37216,6 +37237,7 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
     scope: 'group',       /* group | all, while a group is open */
     filter: 'all',        /* all | custom */
     sheet: null,          /* exercise id */
+    delArmed: null,       /* a custom lift asked about, awaiting the second tap */
     media: 'none',        /* none | loading | error | image */
     entry: 'tab',         /* tab | active | picker */
     days: false,          /* split-day chooser open */
@@ -37703,6 +37725,25 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
         ? '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="choose-day" data-id="' + it.id + '" data-testid="sheet-secondary">' +
             '<span class="btn__label">' + secondary + '</span></button>'
         : '') +
+      /* A LIFT YOU MADE IS A LIFT YOU CAN UNMAKE. Creating a custom
+         exercise worked and nothing could be done to it afterwards: a
+         typo in the name was permanent and the list could only ever grow.
+         Only your own -- the catalogue is not yours to delete from.
+         Tap once to arm, tap again to remove, the pattern the split list
+         and the goal list already use; anything already logged against it
+         is untouched, and a split that names it keeps working. */
+      (it.custom
+        ? '<button class="btn btn--block mt-2 ' +
+            (S.delArmed === it.id ? 'btn--danger-solid' : 'btn--danger') + '" type="button" ' +
+            'data-action="del-custom" data-id="' + it.id + '" data-testid="sheet-delete">' +
+            '<span class="btn__label">' +
+            (S.delArmed === it.id ? 'Tap again to delete it' : 'Delete this exercise') +
+            '</span></button>' +
+          (S.delArmed === it.id
+            ? '<p class="t-detail quiet mt-2" data-testid="sheet-delete-note">Sessions you have ' +
+              'already logged with it keep it, and a split that names it goes on working.</p>'
+            : '')
+        : '') +
     '</div>';
   }
 
@@ -38064,11 +38105,25 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
       render({ focus: 'sheet-primary' });
     },
     'close-sheet': function () {
-      var back = S.restore; S.sheet = null; S.days = false; S.restore = null;
+      var back = S.restore; S.sheet = null; S.days = false; S.restore = null; S.delArmed = null;
       render({ focus: back });
     },
     'choose-day': function () { S.days = true; render({ focus: SPLIT_DAYS.length ? 'row-day-' + SPLIT_DAYS[0].id : 'days-close' }); },
     'close-days': function () { S.days = false; render({ focus: 'sheet-secondary' }); },
+    'del-custom': function (el) {
+      var id = Number(el.getAttribute('data-id'));
+      if (S.delArmed !== id) { S.delArmed = id; render({ focus: 'sheet-delete' }); return; }
+      S.delArmed = null;
+      var all = (window.LKStore ? LKStore.get('lk_customEx', null) : null) || [];
+      if (Array.isArray(all)) {
+        var kept = all.filter(function (c) { return c && c.id !== id; });
+        if (window.LKStore) LKStore.set('lk_customEx', kept);
+      }
+      S.sheet = null;
+      reread();
+      render();
+      toast('Deleted. Your logged sessions keep it.');
+    },
     'add-day': function (el) {
       var it = byId(Number(el.getAttribute('data-id')));
       /* The sheet's own primary carries no day, so it means the first one --
