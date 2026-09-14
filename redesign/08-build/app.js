@@ -802,3 +802,21 @@
     }
   };
 }(typeof window !== 'undefined' ? window : this));
+
+/* ONE SET IS NOT "1 SETS". Counts were concatenated with a hard-coded
+   plural all over the build, so a first session read "1 working sets",
+   a one-day split read "1 days", the log's own toast said "1 sets this
+   session" beside a header that correctly said "1 working set", and a
+   new account's profile read "1 lift · 1 records". Every one of those is
+   the first thing a new reader sees, which is the worst place for it. */
+(function (g) {
+  g.LKPlural = function (count, one, many) {
+    var n = Number(count);
+    return (n === 1 || n === -1) ? one : (many || (one + 's'));
+  };
+  /* "3 sets", "1 set" -- the count and its noun together, which is how
+     nearly every call site wants it. */
+  g.LKCount = function (count, one, many) {
+    return count + ' ' + g.LKPlural(count, one, many);
+  };
+}(typeof window !== 'undefined' ? window : this));

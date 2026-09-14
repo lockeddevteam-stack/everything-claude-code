@@ -193,9 +193,16 @@
     var m = Math.floor(s / 60), r = s % 60;
     return m + ':' + (r < 10 ? '0' : '') + r;
   }
+  /* HOURS, ONCE THERE ARE HOURS. This printed minutes without limit, so a
+     session picked up five hours later read "300:02" in the header while
+     the shelf on Home formatted the same record as "5:00:00". The shelf's
+     form is the right one. */
   function hhmm(s) {
-    var m = Math.floor(s / 60), r = s % 60;
-    return (m < 10 ? '0' : '') + m + ':' + (r < 10 ? '0' : '') + r;
+    var t = Math.max(0, Math.floor(s));
+    var h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, r = t % 60;
+    var mm = (m < 10 ? '0' : '') + m;
+    var ss = (r < 10 ? '0' : '') + r;
+    return h ? h + ':' + mm + ':' + ss : mm + ':' + ss;
   }
 
   /* =============================================================
@@ -1514,7 +1521,7 @@
           '<label class="vis-hidden" for="addex-q">Search all exercises</label>' +
           '<input class="input" id="addex-q" data-act="addex-q" data-testid="addex-search" ' +
             'value="' + esc(S.addexQ || '') + '" autocomplete="off" placeholder="Search all exercises"></div>' +
-        '<p class="t-meta mt-2" data-testid="addex-count">' + n(LIBRARY.length) + ' exercises' +
+        '<p class="t-meta mt-2" data-testid="addex-count">' + n(LIBRARY.length) + ' ' + LKPlural(LIBRARY.length, 'exercise') +
           (LIBRARY_FULL ? '' : ', which is all this build could read from here') + '</p>' +
         '<div class="sheet__body mt-3">' + addExList() +
         '</div>' +
@@ -1717,8 +1724,21 @@
       });
       return;
     }
-    LKSession.update({ name: S.name, done: doneSets(), total: totalSets() });
+    /* ONLY WHEN SOMETHING CHANGED. update() stamps updatedAt, and this ran
+       on every paint -- so merely opening the app refreshed a session left
+       running five hours ago, and the three-hour stale guard could never
+       fire. Home offered an ordinary Resume for an abandoned workout, and
+       finishing it wrote 300 minutes into history. updatedAt is meant to
+       say when work last happened, not when the screen last drew. */
+    var nowName = S.name, nowDone = doneSets(), nowTotal = totalSets();
+    if (lastWrote && lastWrote.name === nowName &&
+        lastWrote.done === nowDone && lastWrote.total === nowTotal) return;
+    lastWrote = { name: nowName, done: nowDone, total: nowTotal };
+    LKSession.update({ name: nowName, done: nowDone, total: nowTotal });
   }
+  var lastWrote = null;
+  /* Set when Finish hands this session to Review; see lk:enter. */
+  var handedOff = false;
 
   /* THE SETS, NOT ONLY THE CLOCK. LKSession's record carries the name, the
      start, and how many sets of how many are done -- it is the shelf's
@@ -1975,7 +1995,7 @@
             toast('All-time PR. ' + pr, 'info');
             say(S.exercises[e].name + ', personal best. ' + pr);
           } else {
-            say('Set ' + (i + 1) + ' logged. ' + doneSets() + ' sets this session.');
+            say('Set ' + (i + 1) + ' logged. ' + LKCount(doneSets(), 'set') + ' this session.');
           }
         } else {
           S.restRunning = false;
@@ -2257,6 +2277,7 @@
          app on a shelf that says Resume. */
       case 'finish':
         S.over = true;
+        handedOff = true;
         handOff();
         if (window.LKSession) LKSession.end();
         LKGo('review');
@@ -2859,6 +2880,7 @@
     var d = e.detail || {};
     if (d.selector === '[data-testid="btn-finish"]') {
       S.over = true;
+      handedOff = true;
       handOff();
       return;
     }
@@ -2905,7 +2927,16 @@
        holds it) but the screen said it was, which is worse than losing it
        quietly. There is no workout here any more; Train is where one
        starts, and it is this screen's declared parent. */
-    if (!(window.LKSession && LKSession.get())) { LKGo('train'); return; }
+    /* ONLY STRAIGHT BACK OFF REVIEW. Bouncing on any entry with no live
+       session also bounced somebody who opened the log deliberately, so
+       the route could never be shown at all. handedOff is set by Finish
+       and cleared here, so this fires exactly once: on the way back from
+       the Review the finish opened. */
+    if (handedOff && !(window.LKSession && LKSession.get())) {
+      handedOff = false;
+      LKGo('train');
+      return;
+    }
     applyState('mid-session');
     paint();
   });

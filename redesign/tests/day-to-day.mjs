@@ -489,6 +489,31 @@ for (const t of ['action-back-to-workout', 'action-done', 'action-back']) {
 ok(left !== 'none', 'review has a way out that actually leaves', left);
 ok(!errs.length, 'nothing throws discarding or finishing empty', errs[0] || '');
 
+/* BACK OFF REVIEW DOES NOT SHOW A PHANTOM EMPTY LOG. On iOS the edge
+   swipe is the likeliest input in the second after finishing, and it
+   landed on the log the session had just left -- which, with the record
+   ended, painted "Quick Workout, 0 working sets, Nothing logged yet" over
+   a session that was perfectly fine. */
+errs.length = 0;
+await page.evaluate(() => window.DEMO.go('train'));
+await page.waitForTimeout(500);
+ok((await tap('start-today')) === 'ok', 'a session starts, to be finished and backed out of');
+await page.waitForTimeout(900);
+await pad('cell-0-0-weight', ['5', '0']);
+await pad('cell-0-0-reps', ['5']);
+await tap('done-0-0'); await page.waitForTimeout(400);
+ok((await tap('btn-finish')) === 'ok', 'it finishes');
+await page.waitForTimeout(1200);
+ok((await shown()) === 'review', 'review opens', await shown());
+await page.goBack();
+await page.waitForTimeout(1200);
+const backTo = await shown();
+ok(backTo !== 'workout-log', 'going back does not strand you on an emptied log', backTo);
+const backText = await text(backTo);
+ok(!/Nothing logged yet/.test(backText),
+   'and does not claim the session was never done', backText.slice(0, 90));
+ok(!errs.length, 'nothing throws going back off review', errs[0] || '');
+
 /* AND IT SURVIVES A RELOAD. Everything above is in localStorage; a phone
    that reloads must come back to the same account, not a blank one. */
 errs.length = 0;

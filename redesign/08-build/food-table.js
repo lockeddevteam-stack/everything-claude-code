@@ -14,18 +14,16 @@
    bare unit out of "200 g chicken" -- it strips digits and looks the unit
    up here -- so three foods became one row called "g chicken g rice".
 
+   NO TARGETS HERE. Calories and macros are worked out from the person's
+   own weight, height, age, sex, goal and activity. Shipping the demo's
+   2,980 kcal as reference data made every reader inherit a stranger's
+   target and skipped the calculation entirely.
+
    Eight foods is a demo table and the screens say so. The unit map is the
    part that matters most: it is what turns what somebody typed into grams.
 */
 (function (g) {
   g.LKFoodTable = {
-  "targets": {
-    "kcal": 2980,
-    "pro": 160,
-    "carb": 380,
-    "fat": 80,
-    "waterMl": 3000
-  },
   "microRef": {
     "fibre": 30,
     "sugar": 90,

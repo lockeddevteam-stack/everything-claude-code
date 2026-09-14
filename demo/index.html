@@ -5389,6 +5389,24 @@ button.shelf:active { background: var(--fill-press); }
   };
 }(typeof window !== 'undefined' ? window : this));
 
+/* ONE SET IS NOT "1 SETS". Counts were concatenated with a hard-coded
+   plural all over the build, so a first session read "1 working sets",
+   a one-day split read "1 days", the log's own toast said "1 sets this
+   session" beside a header that correctly said "1 working set", and a
+   new account's profile read "1 lift · 1 records". Every one of those is
+   the first thing a new reader sees, which is the worst place for it. */
+(function (g) {
+  g.LKPlural = function (count, one, many) {
+    var n = Number(count);
+    return (n === 1 || n === -1) ? one : (many || (one + 's'));
+  };
+  /* "3 sets", "1 set" -- the count and its noun together, which is how
+     nearly every call site wants it. */
+  g.LKCount = function (count, one, many) {
+    return count + ' ' + g.LKPlural(count, one, many);
+  };
+}(typeof window !== 'undefined' ? window : this));
+
 </script>
 <script>
 /* chrome.js — inlined verbatim from 08-build/chrome.js */
@@ -12306,18 +12324,16 @@ button.shelf:active { background: var(--fill-press); }
    bare unit out of "200 g chicken" -- it strips digits and looks the unit
    up here -- so three foods became one row called "g chicken g rice".
 
+   NO TARGETS HERE. Calories and macros are worked out from the person's
+   own weight, height, age, sex, goal and activity. Shipping the demo's
+   2,980 kcal as reference data made every reader inherit a stranger's
+   target and skipped the calculation entirely.
+
    Eight foods is a demo table and the screens say so. The unit map is the
    part that matters most: it is what turns what somebody typed into grams.
 */
 (function (g) {
   g.LKFoodTable = {
-  "targets": {
-    "kcal": 2980,
-    "pro": 160,
-    "carb": 380,
-    "fat": 80,
-    "waterMl": 3000
-  },
   "microRef": {
     "fibre": 30,
     "sugar": 90,
@@ -18649,7 +18665,21 @@ window.__DEMO_CFG__ = {"tabs":[{"id":"home","label":"Home","screen":"home"},{"id
       var p = PUSHED[rec.id];
       if (p && p.backSelector && hit(p.backSelector) && parseHash().top === rec.id) {
         e.preventDefault(); e.stopPropagation();
-        back();
+        /* THE SCREEN CAN SAY NOT YET. This called back() immediately, so a
+           screen with unsaved work never got to ask about it: the split
+           builder's "Save this split first?" dialog exists, is wired, and
+           could not fire, because the router had already left. A screen
+           that wants the question preventDefault()s this and shows its
+           own; anything that does not is unaffected. */
+        var veto = false;
+        try {
+          var ev = new CustomEvent('lk:beforeback', {
+            cancelable: true, detail: { from: rec.id, to: p.parent }
+          });
+          rec.root.dispatchEvent(ev);
+          veto = ev.defaultPrevented;
+        } catch (err) {}
+        if (!veto) back();
       }
     }, true);
   }
@@ -21109,7 +21139,7 @@ DEMO.define("train", function (document, window, location, fetch) {
        three-part line printed "undefined km, undefined cal" for it. An
        absent figure is absent, not zero and not a word. */
     var parts = w.kind === 'lift'
-      ? [n(w.min) + ' min', n(w.sets) + ' sets', n(LKUnits.fmtTotal(w.kg))]
+      ? [n(w.min) + ' min', n(w.sets) + ' ' + LKPlural(w.sets, 'set'), n(LKUnits.fmtTotal(w.kg))]
       : [n(w.min) + ' min',
          w.km != null ? n(distV(w.km)) + ' ' + distUnit() : null,
          w.cal != null ? n(w.cal) + ' kcal' : null];
@@ -22270,7 +22300,7 @@ DEMO.define("train", function (document, window, location, fetch) {
           '<span class="row__main stack">' +
             '<span class="row__title">' + esc(d.name) +
               (d.next ? ' <span class="badge badge--accent">Next</span>' : '') + '</span>' +
-            '<span class="row__sub">' + n(d.exercises) + ' exercises' +
+            '<span class="row__sub">' + n(d.exercises) + ' ' + LKPlural(d.exercises, 'exercise') +
               /* A day can hold blocks now -- a warm-up, some mobility, a
                  finisher -- and they are part of what that day is. */
               (d.blocks ? ' &middot; ' + n(d.blocks) + (d.blocks === 1 ? ' block' : ' blocks') : '') +
@@ -23084,7 +23114,15 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       var m = calcMacros({ weightKg: p.weightKg, heightCm: p.heightCm, age: p.age,
                            sex: p.sex === 'male' ? 'male' : 'female',
                            goal: goalKey(), activity: activityKey() });
-      return { kcal: m.kcal, pro: m.pro, carb: m.carb, fat: m.fat, waterMl: 0, computed: true };
+      var out = { kcal: m.kcal, pro: m.pro, carb: m.carb, fat: m.fat, waterMl: 0, computed: true };
+      /* WRITTEN DOWN, so the rest of the app can read the same number.
+         This was computed here and kept here, and lk_fuelTargets was only
+         ever written by the profile sheet's Save -- so Recap, which reads
+         that key, printed "350 of undefined kcal" and "NaN kcal over" for
+         anybody who had not been through that sheet. A target the app
+         computed for you is still your target. */
+      try { if (ST && ST.set) ST.set('lk_fuelTargets', out); } catch (e) {}
+      return out;
     }
     return { kcal: null, pro: null, carb: null, fat: null, waterMl: 0, unset: true };
   })();
@@ -35698,7 +35736,7 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
   function noteWithRead(note, read) {
     if (!read) return note;
     var extra = [];
-    if (read.days) extra.push(read.days + ' days');
+    if (read.days) extra.push(LKCount(read.days, 'day'));
     read.equipment.forEach(function (e) { extra.push(e); });
     read.emphasis.forEach(function (e) { extra.push(e); });
     read.avoid.forEach(function (a) { extra.push('no ' + a); });
@@ -35771,7 +35809,7 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
         }
       }
       plan.title = plan.days.map(function (d) { return d.name; }).join(', ') +
-        ' \u2014 ' + plan.days.length + ' days';
+        ' \u2014 ' + LKCount(plan.days.length, 'day');
     }
 
     /* A named piece of equipment moves each slot to the alternative that
@@ -35866,6 +35904,13 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
       if (S.manual.dirty) { S.modal = { type: 'leave' }; render(); return; }
       LKGo('train');
     },
+    /* THE SAME QUESTION, WHEN THE SHELL IS DRIVING. In the assembled build
+       the router claims the back tap in the capture phase and navigates
+       before the handler above can run, so a half-built split was thrown
+       away in silence: no dialog, nothing in lk_splits, and nothing left
+       after a reload. The dialog was written and wired the whole time and
+       simply never got the chance. Vetoing the crossing gives it one. */
+    '__beforeback': function () { return S.manual.dirty; },
     'close-modal': function () { S.modal = null; render(); },
     'edit-toggle': function () {
       S.manual.edit = !S.manual.edit;
@@ -36287,6 +36332,13 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
   /* In the demo this screen is mounted once, at boot, and Train's Edit and
      New both landed on whatever it had opened then. The route announces
      itself; open what was asked for, unless there are unsaved edits to lose. */
+  document.addEventListener('lk:beforeback', function (e) {
+    if (!S.manual || !S.manual.dirty) return;
+    e.preventDefault();
+    S.modal = { type: 'leave' };
+    render();
+  });
+
   document.addEventListener('lk:enter', function () {
     if (S.manual.dirty) return;
     openRequested();
@@ -42931,9 +42983,16 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     var m = Math.floor(s / 60), r = s % 60;
     return m + ':' + (r < 10 ? '0' : '') + r;
   }
+  /* HOURS, ONCE THERE ARE HOURS. This printed minutes without limit, so a
+     session picked up five hours later read "300:02" in the header while
+     the shelf on Home formatted the same record as "5:00:00". The shelf's
+     form is the right one. */
   function hhmm(s) {
-    var m = Math.floor(s / 60), r = s % 60;
-    return (m < 10 ? '0' : '') + m + ':' + (r < 10 ? '0' : '') + r;
+    var t = Math.max(0, Math.floor(s));
+    var h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, r = t % 60;
+    var mm = (m < 10 ? '0' : '') + m;
+    var ss = (r < 10 ? '0' : '') + r;
+    return h ? h + ':' + mm + ':' + ss : mm + ':' + ss;
   }
 
   /* =============================================================
@@ -44252,7 +44311,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
           '<label class="vis-hidden" for="addex-q">Search all exercises</label>' +
           '<input class="input" id="addex-q" data-act="addex-q" data-testid="addex-search" ' +
             'value="' + esc(S.addexQ || '') + '" autocomplete="off" placeholder="Search all exercises"></div>' +
-        '<p class="t-meta mt-2" data-testid="addex-count">' + n(LIBRARY.length) + ' exercises' +
+        '<p class="t-meta mt-2" data-testid="addex-count">' + n(LIBRARY.length) + ' ' + LKPlural(LIBRARY.length, 'exercise') +
           (LIBRARY_FULL ? '' : ', which is all this build could read from here') + '</p>' +
         '<div class="sheet__body mt-3">' + addExList() +
         '</div>' +
@@ -44455,8 +44514,21 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       });
       return;
     }
-    LKSession.update({ name: S.name, done: doneSets(), total: totalSets() });
+    /* ONLY WHEN SOMETHING CHANGED. update() stamps updatedAt, and this ran
+       on every paint -- so merely opening the app refreshed a session left
+       running five hours ago, and the three-hour stale guard could never
+       fire. Home offered an ordinary Resume for an abandoned workout, and
+       finishing it wrote 300 minutes into history. updatedAt is meant to
+       say when work last happened, not when the screen last drew. */
+    var nowName = S.name, nowDone = doneSets(), nowTotal = totalSets();
+    if (lastWrote && lastWrote.name === nowName &&
+        lastWrote.done === nowDone && lastWrote.total === nowTotal) return;
+    lastWrote = { name: nowName, done: nowDone, total: nowTotal };
+    LKSession.update({ name: nowName, done: nowDone, total: nowTotal });
   }
+  var lastWrote = null;
+  /* Set when Finish hands this session to Review; see lk:enter. */
+  var handedOff = false;
 
   /* THE SETS, NOT ONLY THE CLOCK. LKSession's record carries the name, the
      start, and how many sets of how many are done -- it is the shelf's
@@ -44713,7 +44785,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
             toast('All-time PR. ' + pr, 'info');
             say(S.exercises[e].name + ', personal best. ' + pr);
           } else {
-            say('Set ' + (i + 1) + ' logged. ' + doneSets() + ' sets this session.');
+            say('Set ' + (i + 1) + ' logged. ' + LKCount(doneSets(), 'set') + ' this session.');
           }
         } else {
           S.restRunning = false;
@@ -44995,6 +45067,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
          app on a shelf that says Resume. */
       case 'finish':
         S.over = true;
+        handedOff = true;
         handOff();
         if (window.LKSession) LKSession.end();
         LKGo('review');
@@ -45597,6 +45670,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     var d = e.detail || {};
     if (d.selector === '[data-testid="btn-finish"]') {
       S.over = true;
+      handedOff = true;
       handOff();
       return;
     }
@@ -45643,7 +45717,16 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
        holds it) but the screen said it was, which is worse than losing it
        quietly. There is no workout here any more; Train is where one
        starts, and it is this screen's declared parent. */
-    if (!(window.LKSession && LKSession.get())) { LKGo('train'); return; }
+    /* ONLY STRAIGHT BACK OFF REVIEW. Bouncing on any entry with no live
+       session also bounced somebody who opened the log deliberately, so
+       the route could never be shown at all. handedOff is set by Finish
+       and cleared here, so this fires exactly once: on the way back from
+       the Review the finish opened. */
+    if (handedOff && !(window.LKSession && LKSession.get())) {
+      handedOff = false;
+      LKGo('train');
+      return;
+    }
     applyState('mid-session');
     paint();
   });
@@ -45951,9 +46034,21 @@ DEMO.define("shopping", function (document, window, location, fetch) {
      totals no other screen could reproduce. */
   var FXS = window.LKFixtures || {};
 
-  /* This build has a fixed today, so the same seed renders the same figures
-     on every run. Everything that asks what day it is asks NOW. */
-  var TODAY_MS = Date.UTC(2026, 8, 9);
+  /* THE REAL TODAY, with the fixture's only where there is a fixture. A
+     fixed date keeps a seeded screenshot stable, and the product build
+     ships no seed -- so every real reader got a list and a budget frozen
+     at 9 September 2026: items were stamped with that date, a purchase
+     saved today was filed under it and labelled "Today", and the weekly
+     budget never rolled over however long the app was used. */
+  var TODAY_MS = (function () {
+    if (window.LKFixtures && window.LKFixtures.today) {
+      var f = String(window.LKFixtures.today).split('-');
+      return Date.UTC(+f[0], +f[1] - 1, +f[2]);
+    }
+    var iso = window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10);
+    var p = String(iso).split('-');
+    return Date.UTC(+p[0], +p[1] - 1, +p[2]);
+  }());
   var NOW = TODAY_MS;
   var NOW_ISO = new Date(NOW).toISOString();
 
@@ -48561,7 +48656,7 @@ DEMO.define("review", function (document, window, location, fetch) {
      lifter watched accumulate, so they confirm, they do not lead. */
   function receipt(d) {
     return '<p class="t-detail mt-2" data-testid="session-totals">' +
-      n(d.sets) + ' working sets · ' + kg(d.volumeKg) + ' · ' + n(d.minutes) + ' min' +
+      n(d.sets) + ' working ' + LKPlural(d.sets, 'set') + ' · ' + kg(d.volumeKg) + ' · ' + n(d.minutes) + ' min' +
       '</p>';
   }
 
@@ -49945,7 +50040,7 @@ DEMO.define("workout-detail", function (document, window, location, fetch) {
   function totals() {
     var w = S.w;
     var parts = w.kind === 'lift'
-      ? [n(workingSets(w)) + ' working sets', n(LKUnits.fmtTotal(volume(w))), mins(w.min)]
+      ? [n(workingSets(w)) + ' working ' + LKPlural(workingSets(w), 'set'), n(LKUnits.fmtTotal(volume(w))), mins(w.min)]
       : [mins(w.min), w.km != null ? n(w.km) + ' km' : null, w.cal != null ? n(w.cal) + ' kcal' : null];
     return '<p class="t-detail mt-3" data-testid="detail-totals">' +
       parts.filter(Boolean).join(' &middot; ') + ' &middot; ' + relDate(w.date) + '</p>';
@@ -50124,7 +50219,7 @@ DEMO.define("workout-detail", function (document, window, location, fetch) {
         '<label class="field"><span class="field__label t-label">Session name</span>' +
           '<input class="input" id="ed-name" data-act="ed-name" data-testid="ed-name" ' +
             'value="' + esc(d.name) + '"></label>' +
-        '<p class="t-detail mt-3" data-testid="ed-totals">' + n(t.sets) + ' working sets &middot; ' +
+        '<p class="t-detail mt-3" data-testid="ed-totals">' + n(t.sets) + ' working ' + LKPlural(t.sets, 'set') + ' &middot; ' +
           n(LKUnits.fmtTotal(t.vol)) + '</p>' +
         d.exercises.map(function (e, i) {
           return '<div class="exc mt-3" data-testid="ed-ex-' + i + '">' +
@@ -50441,7 +50536,7 @@ DEMO.define("workout-detail", function (document, window, location, fetch) {
     else st.rir = v === null ? null : Math.round(v);
     var tot = draftTotals(S.edit);
     var el = document.querySelector('[data-testid="ed-totals"]');
-    if (el) LKPatch(el, n(tot.sets) + ' working sets &middot; ' + n(LKUnits.fmtTotal(tot.vol)));
+    if (el) LKPatch(el, n(tot.sets) + ' working ' + LKPlural(tot.sets, 'set') + ' &middot; ' + n(LKUnits.fmtTotal(tot.vol)));
   });
 
   /* ---- dev states -------------------------------------------------- */
@@ -53683,7 +53778,7 @@ DEMO.define("progress", function (document, window, location, fetch) {
       '<div class="section">' +
         '<div class="section__head">' +
           '<h2 class="t-label">Estimated 1 rep max</h2>' +
-          '<span class="t-meta">' + n(pts.length) + ' sessions</span>' +
+          '<span class="t-meta">' + n(pts.length) + ' ' + LKPlural(pts.length, 'session') + '</span>' +
         '</div>' +
         featuredStrip() +
         '<div class="card" data-testid="card-trend" data-lift="' + lift.id + '">' +
@@ -54398,7 +54493,7 @@ DEMO.define("progress", function (document, window, location, fetch) {
                 '<span class="ico-well">' + ICO.lift + '</span>' +
                 '<span class="row__main stack">' +
                   '<span class="row__title">' + esc(l.name) + '</span>' +
-                  '<span class="row__sub">' + esc(l.muscle) + ' &middot; ' + n(p.length) + ' sessions</span>' +
+                  '<span class="row__sub">' + esc(l.muscle) + ' &middot; ' + n(p.length) + ' ' + LKPlural(p.length, 'session') + '</span>' +
                 '</span>' +
                 /* Said, not implied. This is the latest estimated one-rep max
                    from the trend; the Records list two taps away shows the

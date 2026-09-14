@@ -1333,7 +1333,7 @@
   function noteWithRead(note, read) {
     if (!read) return note;
     var extra = [];
-    if (read.days) extra.push(read.days + ' days');
+    if (read.days) extra.push(LKCount(read.days, 'day'));
     read.equipment.forEach(function (e) { extra.push(e); });
     read.emphasis.forEach(function (e) { extra.push(e); });
     read.avoid.forEach(function (a) { extra.push('no ' + a); });
@@ -1406,7 +1406,7 @@
         }
       }
       plan.title = plan.days.map(function (d) { return d.name; }).join(', ') +
-        ' \u2014 ' + plan.days.length + ' days';
+        ' \u2014 ' + LKCount(plan.days.length, 'day');
     }
 
     /* A named piece of equipment moves each slot to the alternative that
@@ -1501,6 +1501,13 @@
       if (S.manual.dirty) { S.modal = { type: 'leave' }; render(); return; }
       LKGo('train');
     },
+    /* THE SAME QUESTION, WHEN THE SHELL IS DRIVING. In the assembled build
+       the router claims the back tap in the capture phase and navigates
+       before the handler above can run, so a half-built split was thrown
+       away in silence: no dialog, nothing in lk_splits, and nothing left
+       after a reload. The dialog was written and wired the whole time and
+       simply never got the chance. Vetoing the crossing gives it one. */
+    '__beforeback': function () { return S.manual.dirty; },
     'close-modal': function () { S.modal = null; render(); },
     'edit-toggle': function () {
       S.manual.edit = !S.manual.edit;
@@ -1922,6 +1929,13 @@
   /* In the demo this screen is mounted once, at boot, and Train's Edit and
      New both landed on whatever it had opened then. The route announces
      itself; open what was asked for, unless there are unsaved edits to lose. */
+  document.addEventListener('lk:beforeback', function (e) {
+    if (!S.manual || !S.manual.dirty) return;
+    e.preventDefault();
+    S.modal = { type: 'leave' };
+    render();
+  });
+
   document.addEventListener('lk:enter', function () {
     if (S.manual.dirty) return;
     openRequested();

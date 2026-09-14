@@ -830,7 +830,21 @@ const RUNTIME = String.raw`
       var p = PUSHED[rec.id];
       if (p && p.backSelector && hit(p.backSelector) && parseHash().top === rec.id) {
         e.preventDefault(); e.stopPropagation();
-        back();
+        /* THE SCREEN CAN SAY NOT YET. This called back() immediately, so a
+           screen with unsaved work never got to ask about it: the split
+           builder's "Save this split first?" dialog exists, is wired, and
+           could not fire, because the router had already left. A screen
+           that wants the question preventDefault()s this and shows its
+           own; anything that does not is unaffected. */
+        var veto = false;
+        try {
+          var ev = new CustomEvent('lk:beforeback', {
+            cancelable: true, detail: { from: rec.id, to: p.parent }
+          });
+          rec.root.dispatchEvent(ev);
+          veto = ev.defaultPrevented;
+        } catch (err) {}
+        if (!veto) back();
       }
     }, true);
   }
