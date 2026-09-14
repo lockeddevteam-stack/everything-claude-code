@@ -14165,6 +14165,97 @@ window.LK_CLOUD = {
 
   g.LKCloud = API;
 
+  /* ---- SYNC, WITHOUT BEING ASKED -----------------------------------
+     NOTHING SYNCED UNLESS SOMEBODY FOUND THE BUTTON. sync() existed and
+     was correct, and exactly one thing in the build called it: "Sync now"
+     in Settings. A first run proved the cost -- signing up, answering
+     setup and saving a workout made ZERO calls to store_push -- so a
+     signed-in reader's profile, split and history sat on the one phone
+     that wrote them. Reinstall, open a second device, or clear the site
+     data, and an account that looked like it had been syncing all along
+     had nothing in it.
+
+     Signing in is the reader saying "keep this". This keeps it, at the
+     moments a person would expect and none they would not:
+
+       on becoming signed in   what is already on the phone belongs to
+                               the account, so it goes up at once
+       after a change settles  a debounce, not a write-through: logging a
+                               set writes several keys in a second and
+                               that is one push, not six
+       when the page goes away pagehide and the hidden half of
+                               visibilitychange, which on a phone is what
+                               closing the app actually looks like
+
+     Never on a timer, so a phone on a bench is silent. Never signed out,
+     where push already refuses. Failures are swallowed on purpose: this
+     runs behind whatever the reader is doing, and a push that could not
+     reach the server is what the next one is for. Settings' button is
+     unchanged -- it is this same one path, said out loud.
+
+     trace() is kept because this is the subsystem whose failure mode is
+     silence: when it does nothing, there is otherwise nothing to read. */
+  var IDLE_MS = 3000;
+  var idleTimer = null, inFlight = false, again = false, wasIn = null;
+  var trace = [];
+  function note(x) { if (trace.length < 40) trace.push(x); }
+
+  function pushQuietly(why) {
+    note('try:' + why + ':ready=' + API.ready() + ':in=' + !!session());
+    if (!API.ready() || !session()) return;
+    if (inFlight) { again = true; return; }
+    inFlight = true;
+    var done = function (r) {
+      inFlight = false;
+      note('done:' + (r && r.ok ? 'ok' : 'no') + ':' + JSON.stringify(r && (r.data || r.error)));
+      if (again) { again = false; schedule(); }
+    };
+    try { API.push().then(done, function (e) { note('threw:' + e); done(null); }); }
+    catch (e) { note('sync-threw:' + e); done(null); }
+  }
+  function schedule() {
+    if (!API.ready() || !session()) return;
+    if (idleTimer) { try { g.clearTimeout(idleTimer); } catch (e) {} }
+    idleTimer = g.setTimeout(function () { idleTimer = null; pushQuietly('idle'); }, IDLE_MS);
+  }
+  function pushNow(why) {
+    if (idleTimer) { try { g.clearTimeout(idleTimer); } catch (e) {} idleTimer = null; }
+    pushQuietly(why || 'now');
+  }
+  function watchAuth() {
+    var now = !!session();
+    if (now === wasIn) return;
+    wasIn = now;
+    note('auth:' + now);
+    if (now) pushNow('signed-in');
+  }
+  function start() {
+    note('start:store=' + !!g.LKStore + ':ready=' + API.ready());
+    if (!g.LKStore || !API.ready()) return;
+    wasIn = !!session();
+    try {
+      g.LKStore.onChange(function (v, key) {
+        if (key === 'lk_lastSync' || key === 'lk_session' || key === 'lk_changedAt') return;
+        schedule();
+      });
+    } catch (e) { note('hook-threw:' + e); }
+    try {
+      g.addEventListener('pagehide', function () { pushNow('pagehide'); });
+      g.document.addEventListener('visibilitychange', function () {
+        if (g.document.visibilityState === 'hidden') pushNow('hidden');
+      });
+    } catch (e) {}
+    try { g.setInterval(watchAuth, 1000); } catch (e) { note('interval-threw:' + e); }
+    if (wasIn) pushNow('boot');
+  }
+
+  API.autoSync = { start: start, now: pushNow, schedule: schedule,
+                   trace: function () { return trace.slice(); } };
+
+  if (typeof g.document !== 'undefined') {
+    if (g.document.readyState === 'loading') g.document.addEventListener('DOMContentLoaded', start);
+    else start();
+  }
 })(typeof window !== 'undefined' ? window : this);
 
 </script>

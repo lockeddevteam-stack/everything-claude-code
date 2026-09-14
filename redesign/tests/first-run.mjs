@@ -285,26 +285,29 @@ ok(onb && onb.answers && onb.answers.name === 'Cesco',
 
 console.log('\n=== it reached the server ===\n');
 
-/* KNOWN GAP, STATED RATHER THAN ASSERTED. sync() works and is correct,
-   and exactly one thing in the build calls it: "Sync now" in Settings.
-   Nothing syncs on sign-in, on a change, or on the way out -- so a
-   signed-in reader's data sits on the one phone that wrote it until they
-   press that button. This run proves it: zero calls to store_push across
-   a sign-up, a full setup and a saved workout.
-
-   It is reported here, not failed on, because it is a missing feature
-   rather than a regression -- the shipped build has always behaved this
-   way -- and a red suite over a known gap costs more signal than it
-   buys. Fixing it means an automatic push on sign-in, on an idle
-   debounce after a change, and on pagehide. That is a change to when the
-   app touches the network, so it ships on its own and with its own
-   proof, not folded into a crash fix. */
-await page.waitForTimeout(1200);
+/* IT REACHES THE SERVER ON ITS OWN. Written on the device is half the
+   job: a first run that never pushes is a first run a second device
+   cannot see. The wait is the sync's own idle debounce -- several keys
+   are written in the second it takes to finish setup, and that is meant
+   to be one push rather than six. */
+await page.waitForTimeout(5000);
 const pushes = seen.filter((s) => s.path === '/rest/v1/rpc/store_push');
-console.log('NOTE nothing syncs on its own: ' + pushes.length +
-            ' pushes across the whole first run. Settings > Sync now is the ' +
-            'only thing that sends anything. The data is on the device and ' +
-            'survives a reload, which the checks below prove.');
+ok(pushes.length > 0, 'the new account pushes its data without being asked',
+   pushes.length + ' pushes');
+ok(pushes.every((p) => p.auth === 'Bearer ' + TOKEN),
+   'every push signed in as the account that was just made');
+const keys = table.map((r) => r.key);
+ok(keys.indexOf('lk_profile') >= 0, 'the profile is on the server', keys.join(', ').slice(0, 160));
+ok(keys.indexOf('lk_splits') >= 0, 'and so is the split');
+const serverSplit = (table.find((r) => r.key === 'lk_splits') || {}).value;
+ok(Array.isArray(serverSplit) && serverSplit[0] && (serverSplit[0].days || []).length === 3,
+   'and the split on the server is the one on the phone',
+   JSON.stringify(serverSplit || null).slice(0, 110));
+const unknown = seen.filter((s) => s.path !== '/auth/v1/signup' &&
+  s.path !== '/rest/v1/rpc/store_push' && s.path !== '/rest/v1/user_data' &&
+  s.path !== '/rest/v1/profiles' && s.path.indexOf('/push/') !== 0);
+ok(unknown.length === 0, 'and it calls nothing the contract does not name',
+   unknown.map((u) => u.path).join(', '));
 
 console.log('\n=== the first workout ===\n');
 
@@ -357,8 +360,12 @@ ok(hist && hist[0] && hist[0].kg === 480, 'with 40 x 12 = 480 kg', String(hist &
 ok(!(await raw('lk_liveSession')), 'and nothing is left running');
 ok(!errs.length, 'nothing throws saving the first workout', errs[0] || '');
 
-/* Same known gap as above: the workout is on the phone, not on the
-   server, because nothing pushes without being asked. */
+/* The workout too, on the same debounce. */
+await page.waitForTimeout(5000);
+const histOnServer = table.find((r) => r.key === 'lk_history');
+ok(!!histOnServer && Array.isArray(histOnServer.value) && histOnServer.value.length === 1,
+   'and the first workout reaches the server on its own',
+   JSON.stringify(histOnServer ? histOnServer.value : null).slice(0, 90));
 
 console.log('\n=== and the app it left behind ===\n');
 
