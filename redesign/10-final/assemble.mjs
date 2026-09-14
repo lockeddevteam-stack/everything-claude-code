@@ -254,8 +254,17 @@ const MANIFEST = {
     { from: 'coach', selector: '[data-act="target"]', to: 'progress', mode: 'push' },
     { from: 'train', selector: '[data-action="start-day"]', to: 'workout-log', mode: 'push' },
     { from: 'train', selector: '[data-action="open-session"]', to: 'workout-detail', mode: 'push' },
+    /* Repeat crosses; the screen writes lk_repeatWorkout on the lk:handoff
+       announcement first, the way Finish already hands its session over.
+       Without that the router left before the handler ran and the log
+       opened as an empty "Quick Workout" with nothing carried across. */
     { from: 'workout-detail', selector: '[data-testid="detail-repeat"]', to: 'workout-log', mode: 'push' },
-    { from: 'workout-detail', selector: '[data-testid="detail-edit"]', to: 'workout-log', mode: 'push' },
+    /* EDIT DOES NOT CROSS. The editor is on this screen -- ed-name,
+       ed-kg-*, ed-delset-*, ed-delex-*, ed-save, all built and all
+       unreachable, because this crossing navigated to the workout log
+       before the handler could render it. "Edit the sets" therefore threw
+       the session away and opened an empty new one, and there was no way
+       for anybody to correct a logged workout at all. */
     { from: 'home', selector: '[data-testid="row-cycle"]', to: 'cycle', mode: 'push' },
     { from: 'cycle', selector: '[data-testid="cycle-open-settings"]', to: 'settings', mode: 'push' }
   ],
