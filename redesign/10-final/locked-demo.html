@@ -14164,6 +14164,7 @@ window.LK_CLOUD = {
   };
 
   g.LKCloud = API;
+
 })(typeof window !== 'undefined' ? window : this);
 
 </script>
@@ -19903,8 +19904,38 @@ DEMO.define("home", function (document, window, location, fetch) {
      "on your list" about something this mount has just put there. */
   autoAddDueStaples();
 
+  /* THE FILE NAVIGATION LOOPED THE APP FOREVER ON A REAL INSTALL. In the
+     shipped build there is no onboarding.html: everything is one document,
+     and the host rewrites any stray path back to it. So a phone with
+     nothing on it went / -> #/onboarding -> onboarding.html -> the host
+     hands back the app -> Home boots, still not onboarded -> replace
+     again, round and round, with nothing ever on screen. It never showed
+     up because every test that reaches this gate either seeds the phone
+     (so the gate does not fire) or opens the standalone page (where the
+     file really is there).
+
+     The router owns the crossing where there is a router, and the file is
+     only for the standalone pages. Screens mount lazily, so onboarding may
+     not be registered yet at this line -- hence the retry on the next
+     turn of the loop rather than an immediate fall back to the file. If it
+     is somehow never there, Home stays up: a front door showing the wrong
+     thing beats a page that reloads itself forever. */
+  function toOnboarding() {
+    var D = window.DEMO;
+    if (!D || !D.screens || !D.screens.onboarding) return false;
+    try {
+      var rec = D.screens.onboarding;
+      if (rec.tab && typeof D.go === 'function') { D.go(rec.tab); return true; }
+      if (typeof D.push === 'function') { D.push('onboarding'); return true; }
+    } catch (e) {}
+    return false;
+  }
+
   if (needsOnboarding()) {
-    location.replace('onboarding.html');
+    if (!toOnboarding()) {
+      if (window.DEMO) setTimeout(toOnboarding, 0);
+      else location.replace('onboarding.html');
+    }
   } else {
     render(new URLSearchParams(location.search).get('state') || 'auto');
   }
@@ -52636,6 +52667,14 @@ DEMO.define("progress", function (document, window, location, fetch) {
   function windowStart(days) { return ms(TODAY) - days * 86400000; }
 
   function ptsIn(lift, days) {
+    /* NO LIFT IS AN ANSWER, NOT A CRASH. drawChart() hands this whatever
+       liftById(S.liftId) returned, and on an account with nothing logged
+       against the chosen id that is null -- so Progress threw on the first
+       paint of a brand new account and took Coach and Profile down with it
+       on the way past. The card above already treats "no lift" as a state
+       with copy of its own; this is the same answer, one level down, so
+       every caller gets it rather than only the one that remembered. */
+    if (!lift || !lift.pts) return [];
     var from = windowStart(days);
     return lift.pts.filter(function (p) { return ms(p[0]) >= from; });
   }
@@ -53728,6 +53767,12 @@ DEMO.define("progress", function (document, window, location, fetch) {
     if (!holder) return;
     var lift = liftById(S.liftId);
     var pts = ptsIn(lift, rangeDays());
+    /* A chart of nothing is not a chart. chartSVG reads pts[0] for its
+       first date, so an account with no lift chosen and nothing in range
+       threw here on every redraw -- a resize, a range change, the first
+       paint of a new account. The card that owns this holder already
+       prints the "nothing logged yet" copy; this just leaves it alone. */
+    if (!lift || !pts.length) { LKPatch(holder, ''); return; }
     var w = holder.clientWidth || 329;
     LKPatch(holder, chartSVG(lift, pts, rangeDays(), w));
   }

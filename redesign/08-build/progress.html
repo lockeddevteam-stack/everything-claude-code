@@ -499,6 +499,14 @@
   function windowStart(days) { return ms(TODAY) - days * 86400000; }
 
   function ptsIn(lift, days) {
+    /* NO LIFT IS AN ANSWER, NOT A CRASH. drawChart() hands this whatever
+       liftById(S.liftId) returned, and on an account with nothing logged
+       against the chosen id that is null -- so Progress threw on the first
+       paint of a brand new account and took Coach and Profile down with it
+       on the way past. The card above already treats "no lift" as a state
+       with copy of its own; this is the same answer, one level down, so
+       every caller gets it rather than only the one that remembered. */
+    if (!lift || !lift.pts) return [];
     var from = windowStart(days);
     return lift.pts.filter(function (p) { return ms(p[0]) >= from; });
   }
@@ -1591,6 +1599,12 @@
     if (!holder) return;
     var lift = liftById(S.liftId);
     var pts = ptsIn(lift, rangeDays());
+    /* A chart of nothing is not a chart. chartSVG reads pts[0] for its
+       first date, so an account with no lift chosen and nothing in range
+       threw here on every redraw -- a resize, a range change, the first
+       paint of a new account. The card that owns this holder already
+       prints the "nothing logged yet" copy; this just leaves it alone. */
+    if (!lift || !pts.length) { LKPatch(holder, ''); return; }
     var w = holder.clientWidth || 329;
     LKPatch(holder, chartSVG(lift, pts, rangeDays(), w));
   }
