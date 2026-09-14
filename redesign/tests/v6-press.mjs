@@ -184,6 +184,12 @@ srv.kill();
 
 console.log('');
 console.log(`${pressed} presses and ${filled} fields filled across ${Object.keys(ALL).length} accounts x ${files.length} screens`);
+/* The same floor as v6-demo: a sweep that pressed nothing and filled
+   nothing has not proved anything, and must not report success. */
+if (pressed < 100 || filled < 100) {
+  console.log('too little was actually exercised for this to mean anything');
+  process.exit(1);
+}
 if (fails) {
   console.log(`${fails} failed — an upgrading reader does this by tapping`);
   process.exit(1);

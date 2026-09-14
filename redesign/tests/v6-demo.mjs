@@ -23,7 +23,7 @@ const ALL = Object.assign({ 'the fullest account': V6 }, ACCOUNTS);
 
 const HOLES = /(undefined|NaN|\[object Object\]|Infinity|Invalid Date)/;
 
-let fails = 0;
+let fails = 0, checked = 0;
 const ok = (pass, name, detail) => {
   if (!pass) fails++;
   console.log((pass ? 'PASS ' : 'FAIL ') + name + (detail ? ' — ' + detail : ''));
@@ -93,6 +93,14 @@ for (const [who, data] of Object.entries(ALL)) {
       return root ? (root.textContent || '').trim() : '';
     }, r);
     ok(!errs.length, `${who} · ${r} — nothing throws`, errs[0] || '');
+    /* A CHECK THAT READ NOTHING MUST FAIL, NOT PASS. The hole check below
+       is a match against text, and an empty string matches nothing -- so
+       when this suite was reading the wrong object it reported every
+       route clean without ever seeing a word of the screen. The floor is
+       what makes the pass mean something. */
+    ok(text.length > 40, `${who} · ${r} — the screen actually rendered`,
+       text.length + ' chars');
+    checked++;
     const h = text.match(HOLES);
     ok(!h, `${who} · ${r} — prints no hole`, h ? `found "${h[0]}"` : '');
   }
@@ -101,6 +109,11 @@ for (const [who, data] of Object.entries(ALL)) {
 
 await br.close();
 console.log('');
+console.log(`${checked} routes read across ${Object.keys(ALL).length} account shapes`);
+if (!checked) {
+  console.log('nothing was checked at all — that is a failure, not a pass');
+  process.exit(1);
+}
 if (fails) {
   console.log(`${fails} checks failed — the delivered build does this`);
   process.exit(1);
