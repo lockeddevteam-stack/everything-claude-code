@@ -85,12 +85,23 @@
 
   /* Armed when a session starts, cancelled when it ends. Every call is
      best effort and silent: a reminder that could not be scheduled is not
-     a reason to interrupt somebody who is about to train. */
+     a reason to interrupt somebody who is about to train.
+
+     ONLY FOR SOMEBODY WHO ASKED FOR REMINDERS. The first version armed on
+     every session start, which meant a request on behalf of a person who
+     had never turned notifications on -- one the server answers "not
+     subscribed" to, every workout, for nothing. lk_notifOn has to be
+     explicitly on: absent is not consent, and this is the one call in the
+     app that a session makes on its own without anybody pressing
+     anything. */
   var IDLE_AFTER = 40 * 60;
+  function wantsReminders() {
+    try { return window.localStorage.getItem('lk_notifOn') === 'true'; } catch (e) { return false; }
+  }
   function idle(on) {
     try {
       var C = window.LKCloud;
-      if (!C || !C.reminders || !C.ready()) return;
+      if (!C || !C.reminders || !C.ready() || !wantsReminders()) return;
       if (on) C.reminders.armIdle(IDLE_AFTER);
       else C.reminders.cancelIdle();
     } catch (e) {}
