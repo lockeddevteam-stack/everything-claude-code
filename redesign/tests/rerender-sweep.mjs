@@ -33,6 +33,9 @@ const EXPECTED = {
 const browser = await chromium.launch();
 const rows = [];
 
+/* A run-to-run clock inside an id is noise, not identity. */
+const stable = (v) => (v === null || v === undefined) ? v : String(v).replace(/_\d{10,}/g, '_<t>');
+
 const snap = page => page.evaluate(() => ({
   focus: (document.activeElement && (document.activeElement.getAttribute('data-testid') ||
           document.activeElement.id || document.activeElement.tagName)) || null,
@@ -192,7 +195,14 @@ for (const theme of ['dark', 'light']) {
       theme, file, clicked,
       scrollBefore: before.doc + '|' + before.inner.join(','),
       scrollAfter: after.doc + '|' + after.inner.join(','),
-      focus: before.focus + '->' + after.focus + (ctrlGone ? ' (control removed itself)' : ''),
+      /* THE RECORD HAS TO BE STABLE TO BE WORTH KEEPING. Some testids
+         carry the clock -- a favourite is "quick-fav_1789399205640" --
+         so this file changed on every run, dirtied the tree, and gave
+         two lines of diff that said nothing about behaviour. The digits
+         are not information here; what the comparisons above use is the
+         control's identity, and that is what survives masking. */
+      focus: stable(before.focus) + '->' + stable(after.focus) +
+             (ctrlGone ? ' (control removed itself)' : ''),
       caret: hadInput ? JSON.stringify(caretBefore) + '->' + JSON.stringify(caretAfter) : 'n/a',
       scrollOK: before.doc === after.doc && before.inner.join(',') === after.inner.join(','),
       focusOK: (EXPECTED[file] && EXPECTED[file].focus) ||
