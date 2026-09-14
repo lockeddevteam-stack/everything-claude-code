@@ -450,7 +450,6 @@
     overlay: null,           /* tools | plates | rest | sheet | detail | block | addex | discard */
     overlayEx: 0,
     plate: { total: 20, bar: 20, added: [], perSide: true },
-    aiBusyEx: -1,
     liftedEx: -1,
     dragEx: -1,               /* the card under a finger, mid-drag */
     toast: null,
@@ -475,7 +474,7 @@
     S.exercises = pushDay();
     S.blocks = [];
     S.pad = null; S.overlay = null; S.toast = null; S.swapAt = null;
-    S.restRunning = false; S.restLeft = 0; S.aiBusyEx = -1; S.liftedEx = -1; S.dragEx = -1;
+    S.restRunning = false; S.restLeft = 0; S.liftedEx = -1; S.dragEx = -1;
     S.tapCount = 0;
     S.over = false;
     S.elapsed = 1261;
@@ -500,7 +499,10 @@
       S.overlay = 'plates';
       S.plate = { total: 20, bar: 20, added: [], perSide: true, solveNote: null };
     } else if (name === 'loading') {
-      S.aiBusyEx = 0;
+      /* The screen's one genuine wait: a session still reading its own
+         history. The suggestion button no longer has a loading state
+         because it no longer waits for anything. */
+      S.loading = true;
     } else if (name === 'error') {
       /* Through toast(), so it expires. Set directly it bypassed the timer
          and stayed up for the life of the screen. */
@@ -802,11 +804,16 @@
     return d >= STALE_AFTER ? d : 0;
   }
 
+  /* IT IS A RULE, SO IT SAYS SO AND IT IS INSTANT. This was labelled
+     "AI Rec" and showed a spinner reading "Thinking..." for nine hundred
+     milliseconds over arithmetic: last session's top set plus 2.5 kg.
+     Nothing was thinking. A picture of a model deliberating, over a
+     figure this phone already knew, is the exact theatre the build brief
+     forbids -- and mid-set it costs somebody a second of their rest for
+     a number that was ready before they pressed it. */
   function aiBtn(e, label) {
-    return '<button class="btn btn--sm btn--secondary" type="button" data-act="airec" data-ex="' + e + '" data-testid="btn-ai-rec-' + e + '"' +
-      (S.aiBusyEx === e ? ' aria-busy="true"' : '') + '>' +
-      (S.aiBusyEx === e ? '<span class="spinner" aria-hidden="true"></span><span>Thinking…</span>'
-        : ICO.spark + '<span class="btn__label">AI Rec' + (label ? ' ' + label : '') + '</span>') +
+    return '<button class="btn btn--sm btn--secondary" type="button" data-act="airec" data-ex="' + e + '" data-testid="btn-ai-rec-' + e + '">' +
+      ICO.spark + '<span class="btn__label">Suggest' + (label ? ' ' + label : '') + '</span>' +
       '</button>';
   }
 
@@ -1957,12 +1964,8 @@
         break;
       }
       case 'airec': {
-        if (S.aiBusyEx === e) break;
-        S.aiBusyEx = e;
         S.toast = null;
-        paint();
-        setTimeout(function () {
-          S.aiBusyEx = -1;
+        {
           var target = null;
           for (var k = 0; k < S.exercises[e].sets.length; k++) { if (!S.exercises[e].sets[k].done) { target = k; break; } }
           if (target === null) { toast('Every set in this exercise is logged.'); paint(); return; }
@@ -1985,9 +1988,8 @@
                   paint();
                   say('Set ' + (target + 1) + ' set to the suggestion.');
                 });
-          say('Recommendation ready');
           paint();
-        }, 900);
+        }
         return;
       }
 

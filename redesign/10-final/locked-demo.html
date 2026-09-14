@@ -41386,7 +41386,6 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     overlay: null,           /* tools | plates | rest | sheet | detail | block | addex | discard */
     overlayEx: 0,
     plate: { total: 20, bar: 20, added: [], perSide: true },
-    aiBusyEx: -1,
     liftedEx: -1,
     dragEx: -1,               /* the card under a finger, mid-drag */
     toast: null,
@@ -41411,7 +41410,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     S.exercises = pushDay();
     S.blocks = [];
     S.pad = null; S.overlay = null; S.toast = null; S.swapAt = null;
-    S.restRunning = false; S.restLeft = 0; S.aiBusyEx = -1; S.liftedEx = -1; S.dragEx = -1;
+    S.restRunning = false; S.restLeft = 0; S.liftedEx = -1; S.dragEx = -1;
     S.tapCount = 0;
     S.over = false;
     S.elapsed = 1261;
@@ -41436,7 +41435,10 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       S.overlay = 'plates';
       S.plate = { total: 20, bar: 20, added: [], perSide: true, solveNote: null };
     } else if (name === 'loading') {
-      S.aiBusyEx = 0;
+      /* The screen's one genuine wait: a session still reading its own
+         history. The suggestion button no longer has a loading state
+         because it no longer waits for anything. */
+      S.loading = true;
     } else if (name === 'error') {
       /* Through toast(), so it expires. Set directly it bypassed the timer
          and stayed up for the life of the screen. */
@@ -41738,11 +41740,16 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     return d >= STALE_AFTER ? d : 0;
   }
 
+  /* IT IS A RULE, SO IT SAYS SO AND IT IS INSTANT. This was labelled
+     "AI Rec" and showed a spinner reading "Thinking..." for nine hundred
+     milliseconds over arithmetic: last session's top set plus 2.5 kg.
+     Nothing was thinking. A picture of a model deliberating, over a
+     figure this phone already knew, is the exact theatre the build brief
+     forbids -- and mid-set it costs somebody a second of their rest for
+     a number that was ready before they pressed it. */
   function aiBtn(e, label) {
-    return '<button class="btn btn--sm btn--secondary" type="button" data-act="airec" data-ex="' + e + '" data-testid="btn-ai-rec-' + e + '"' +
-      (S.aiBusyEx === e ? ' aria-busy="true"' : '') + '>' +
-      (S.aiBusyEx === e ? '<span class="spinner" aria-hidden="true"></span><span>Thinking…</span>'
-        : ICO.spark + '<span class="btn__label">AI Rec' + (label ? ' ' + label : '') + '</span>') +
+    return '<button class="btn btn--sm btn--secondary" type="button" data-act="airec" data-ex="' + e + '" data-testid="btn-ai-rec-' + e + '">' +
+      ICO.spark + '<span class="btn__label">Suggest' + (label ? ' ' + label : '') + '</span>' +
       '</button>';
   }
 
@@ -42893,12 +42900,8 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
         break;
       }
       case 'airec': {
-        if (S.aiBusyEx === e) break;
-        S.aiBusyEx = e;
         S.toast = null;
-        paint();
-        setTimeout(function () {
-          S.aiBusyEx = -1;
+        {
           var target = null;
           for (var k = 0; k < S.exercises[e].sets.length; k++) { if (!S.exercises[e].sets[k].done) { target = k; break; } }
           if (target === null) { toast('Every set in this exercise is logged.'); paint(); return; }
@@ -42921,9 +42924,8 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
                   paint();
                   say('Set ' + (target + 1) + ' set to the suggestion.');
                 });
-          say('Recommendation ready');
           paint();
-        }, 900);
+        }
         return;
       }
 
@@ -46807,6 +46809,65 @@ DEMO.define("review", function (document, window, location, fetch) {
       '</div>';
   }
 
+  /* THE READ IS ASKED FOR, NOT INVENTED. This used to be a 900 ms timer
+     that set done or error from whichever dev state was showing, and the
+     text under it came from the fixture -- which is the one thing a card
+     labelled "Generated, not measured" must never be, because a reader
+     has no way to tell a written read from a fabricated one.
+
+     It sends the session's own figures and nothing else: the totals this
+     screen computed, the sets, and how they compare to last time. A
+     failure stays a failure, and saving never waits for it. */
+  function sessionForCoach(d) {
+    d = d || {};
+    var out = {
+      name: d.name || (d.session && d.session.name) || 'this session',
+      volumeKg: d.volume || (d.totals && d.totals.volume) || null,
+      sets: d.sets || (d.totals && d.totals.sets) || null,
+      minutes: d.minutes || (d.totals && d.totals.minutes) || null
+    };
+    if (Array.isArray(d.lifts)) {
+      out.lifts = d.lifts.slice(0, 10).map(function (l) {
+        return { name: l.name, best: l.best || l.top || null, last: l.last || null };
+      });
+    }
+    return out;
+  }
+
+  function askCoach() {
+    var C = window.LKCloud;
+    var d = DATA[S.view] || {};
+    if (!C || !C.coachReady()) {
+      /* No endpoint, so no read, and the card says which rather than
+         spinning at somebody. */
+      S.ai = 'error';
+      S.aiWhy = 'There is no coach endpoint in this build, so nothing was asked and ' +
+                'nothing was written. Your session is untouched.';
+      paint(true);
+      return;
+    }
+    S.ai = 'loading'; S.aiWhy = null; paint(true);
+    C.ask([{ role: 'user',
+             content: 'Write one short paragraph about the session below. Use only the ' +
+                      'numbers given. Do not state a total that is not there, and do not ' +
+                      'invent a lift. ' + JSON.stringify(sessionForCoach(d)) }],
+           { })
+      .then(function (r) {
+        if (S.view !== 'record' && S.view !== 'populated') return;
+        if (!r || !r.ok || !r.data || !String(r.data.reply || '').trim()) {
+          S.ai = 'error';
+          S.aiWhy = (r && r.message) || null;
+          paint(true);
+          return;
+        }
+        S.aiText = String(r.data.reply).trim().slice(0, 900);
+        S.ai = 'done';
+        paint(true);
+      }, function () {
+        S.ai = 'error'; S.aiWhy = null; paint(true);
+      });
+  }
+
   /* The one thing on the screen that is not measured. Dashed, labelled,
      never fetched unless asked, and a failure stays a failure. */
   function aiCard(d) {
@@ -46825,13 +46886,18 @@ DEMO.define("review", function (document, window, location, fetch) {
     } else if (S.ai === 'error') {
       inner = '<div class="banner banner--error" role="alert" data-testid="ai-error">' +
                 ICO.alert +
-                '<span><strong>Coach did not answer</strong>The request timed out. Your session is ' +
-                'untouched and the comparison above is unaffected.</span>' +
+                '<span><strong>Coach did not answer</strong>' + esc(S.aiWhy ||
+                  'The request did not come back. Your session is untouched and the ' +
+                  'comparison above is unaffected.') + '</span>' +
               '</div>' +
               '<button class="btn btn--secondary btn--block mt-3" data-testid="ai-retry">' +
                 '<span class="btn__label">Try again</span></button>';
     } else {
-      inner = d.insight
+      /* What came back, when something did. d.insight is the fixture's own
+         line and only shows on a dev state nobody asked the coach from. */
+      inner = S.aiText
+        ? '<p class="t-detail" data-testid="ai-text">' + esc(S.aiText) + '</p>'
+        : d.insight
         ? '<p class="t-detail" data-testid="ai-text">' + d.insight + '</p>'
         : '<p class="t-detail" data-testid="ai-text">Nothing was written about this session. ' +
           'The figures above are yours and are computed on this phone. Nothing wrote a ' +
@@ -47372,12 +47438,7 @@ DEMO.define("review", function (document, window, location, fetch) {
         S.discardArmed = false; paint(true); toast('Session discarded. Nothing was written.'); return;
       case 'ai-ask':
       case 'ai-retry':
-        S.ai = 'loading'; paint(true);
-        setTimeout(function () {
-          if (S.view !== 'record' && S.view !== 'populated') return;
-          S.ai = S.view === 'populated' ? 'error' : 'done';
-          paint(true);
-        }, 900);
+        askCoach();
         return;
       /* Hidden for three days, on the shipped app's own key, so it is the
          same suppression every other surface honours. */
@@ -51899,9 +51960,24 @@ DEMO.define("progress", function (document, window, location, fetch) {
           'placeholder="How it is going, what to change">' + esc(g.notes || '') + '</textarea>' +
         '<p class="t-caption-1 quiet mt-1">Saved as you type, on this device.</p>' +
       '</div>' +
-      /* Server-gated, and it says so before it is pressed rather than after. */
-      '<button class="btn btn--secondary btn--block mt-4" type="button" data-action="goal-analyse" ' +
-        'data-testid="goal-analyse"><span class="btn__label">Analyse my progress</span></button>' +
+      /* The read, when one has been asked for. It is drawn as unverified
+         and says so, because it is the one thing on this sheet that was
+         not measured off the log. */
+      (S.goalRead
+        ? '<div class="card card--unverified mt-4" data-testid="goal-read">' +
+            '<div class="spread"><span class="t-label">Coach read</span>' +
+              '<span class="badge">Generated, not measured</span></div>' +
+            '<p class="t-detail mt-2">' + esc(S.goalRead) + '</p></div>'
+        : '') +
+      (S.goalReadErr
+        ? '<div class="banner banner--error mt-4" role="alert" data-testid="goal-read-error">' +
+            '<span>' + esc(S.goalReadErr) + '</span></div>'
+        : '') +
+      '<button class="btn btn--secondary btn--block mt-4" type="button" data-action="goal-analyse"' +
+        (S.goalReadBusy ? ' aria-busy="true" disabled' : '') +
+        ' data-testid="goal-analyse"><span class="btn__label">' +
+        (S.goalReadBusy ? 'Asking' : S.goalRead ? 'Ask again' : 'Analyse my progress') +
+        '</span></button>' +
       '<button class="btn btn--' + (done ? 'secondary' : 'primary') + ' btn--block mt-3" type="button" ' +
         'data-action="goal-done" data-testid="goal-complete"><span class="btn__label">' +
         (done ? 'Reopen this goal' : 'Mark it complete') + '</span></button>' +
@@ -51911,6 +51987,45 @@ DEMO.define("progress", function (document, window, location, fetch) {
         'data-testid="goal-delete"><span class="btn__label">' +
         (S.goalDelArmed ? 'Tap again to delete' : 'Delete') + '</span></button>' +
       '<p class="t-detail muted mt-2">Deleting takes the goal and its notes with it, and asks twice.</p>');
+  }
+
+  /* THE ONE THING ON THIS SCREEN THAT IS NOT MEASURED. It is asked for,
+     never fetched on open, and what goes out is this goal and nothing
+     else: its type, its target, where it stands, and by when. Not the
+     log, not the profile, not the other goals. */
+  function goalAnalyse() {
+    var g = GOALS[S.goalIdx];
+    var C = window.LKCloud;
+    if (!g) { S.sheet = 'goal'; render(); return; }
+    if (!C || !C.coachReady()) {
+      S.sheet = 'goal'; S.goalReadErr =
+        'There is no coach endpoint in this build, so nothing was asked and nothing ' +
+        'about this goal has left the device.';
+      render();
+      return;
+    }
+    S.sheet = 'goal'; S.goalReadBusy = true; S.goalReadErr = null; render();
+    C.ask([{ role: 'user',
+             content: 'One short paragraph on whether this goal is on track, and the single ' +
+                      'next thing to change. Use only the numbers given; state no total that ' +
+                      'is not here. ' + JSON.stringify({
+                        type: g.type, title: g.name || g.title, target: g.target,
+                        unit: g.unit, by: g.targetDate || null,
+                        percent: goalPct(g) }) }], {})
+      .then(function (r) {
+        S.goalReadBusy = false;
+        if (!r || !r.ok || !r.data || !String(r.data.reply || '').trim()) {
+          S.goalReadErr = (r && r.message) || 'The coach did not answer. The goal is untouched.';
+          render();
+          return;
+        }
+        S.goalRead = String(r.data.reply).trim().slice(0, 700);
+        render();
+      }, function () {
+        S.goalReadBusy = false;
+        S.goalReadErr = 'The coach could not be reached. The goal is untouched.';
+        render();
+      });
   }
 
   function goalEditSheet(g) {
@@ -52719,9 +52834,7 @@ DEMO.define("progress", function (document, window, location, fetch) {
     } else if (a === 'goal-analyse-no') {
       openSheet('goal');
     } else if (a === 'goal-analyse-go') {
-      S.sheet = 'goal'; render();
-      S.toast = 'Not in this build. Nothing about this goal has left the device.';
-      render();
+      goalAnalyse();
       return;
     } else if (a === 'goal-type') {
       S.goalType = t.getAttribute('data-v'); S.goalError = null; render(); return;

@@ -1285,9 +1285,24 @@
           'placeholder="How it is going, what to change">' + esc(g.notes || '') + '</textarea>' +
         '<p class="t-caption-1 quiet mt-1">Saved as you type, on this device.</p>' +
       '</div>' +
-      /* Server-gated, and it says so before it is pressed rather than after. */
-      '<button class="btn btn--secondary btn--block mt-4" type="button" data-action="goal-analyse" ' +
-        'data-testid="goal-analyse"><span class="btn__label">Analyse my progress</span></button>' +
+      /* The read, when one has been asked for. It is drawn as unverified
+         and says so, because it is the one thing on this sheet that was
+         not measured off the log. */
+      (S.goalRead
+        ? '<div class="card card--unverified mt-4" data-testid="goal-read">' +
+            '<div class="spread"><span class="t-label">Coach read</span>' +
+              '<span class="badge">Generated, not measured</span></div>' +
+            '<p class="t-detail mt-2">' + esc(S.goalRead) + '</p></div>'
+        : '') +
+      (S.goalReadErr
+        ? '<div class="banner banner--error mt-4" role="alert" data-testid="goal-read-error">' +
+            '<span>' + esc(S.goalReadErr) + '</span></div>'
+        : '') +
+      '<button class="btn btn--secondary btn--block mt-4" type="button" data-action="goal-analyse"' +
+        (S.goalReadBusy ? ' aria-busy="true" disabled' : '') +
+        ' data-testid="goal-analyse"><span class="btn__label">' +
+        (S.goalReadBusy ? 'Asking' : S.goalRead ? 'Ask again' : 'Analyse my progress') +
+        '</span></button>' +
       '<button class="btn btn--' + (done ? 'secondary' : 'primary') + ' btn--block mt-3" type="button" ' +
         'data-action="goal-done" data-testid="goal-complete"><span class="btn__label">' +
         (done ? 'Reopen this goal' : 'Mark it complete') + '</span></button>' +
@@ -1297,6 +1312,45 @@
         'data-testid="goal-delete"><span class="btn__label">' +
         (S.goalDelArmed ? 'Tap again to delete' : 'Delete') + '</span></button>' +
       '<p class="t-detail muted mt-2">Deleting takes the goal and its notes with it, and asks twice.</p>');
+  }
+
+  /* THE ONE THING ON THIS SCREEN THAT IS NOT MEASURED. It is asked for,
+     never fetched on open, and what goes out is this goal and nothing
+     else: its type, its target, where it stands, and by when. Not the
+     log, not the profile, not the other goals. */
+  function goalAnalyse() {
+    var g = GOALS[S.goalIdx];
+    var C = window.LKCloud;
+    if (!g) { S.sheet = 'goal'; render(); return; }
+    if (!C || !C.coachReady()) {
+      S.sheet = 'goal'; S.goalReadErr =
+        'There is no coach endpoint in this build, so nothing was asked and nothing ' +
+        'about this goal has left the device.';
+      render();
+      return;
+    }
+    S.sheet = 'goal'; S.goalReadBusy = true; S.goalReadErr = null; render();
+    C.ask([{ role: 'user',
+             content: 'One short paragraph on whether this goal is on track, and the single ' +
+                      'next thing to change. Use only the numbers given; state no total that ' +
+                      'is not here. ' + JSON.stringify({
+                        type: g.type, title: g.name || g.title, target: g.target,
+                        unit: g.unit, by: g.targetDate || null,
+                        percent: goalPct(g) }) }], {})
+      .then(function (r) {
+        S.goalReadBusy = false;
+        if (!r || !r.ok || !r.data || !String(r.data.reply || '').trim()) {
+          S.goalReadErr = (r && r.message) || 'The coach did not answer. The goal is untouched.';
+          render();
+          return;
+        }
+        S.goalRead = String(r.data.reply).trim().slice(0, 700);
+        render();
+      }, function () {
+        S.goalReadBusy = false;
+        S.goalReadErr = 'The coach could not be reached. The goal is untouched.';
+        render();
+      });
   }
 
   function goalEditSheet(g) {
@@ -2105,9 +2159,7 @@
     } else if (a === 'goal-analyse-no') {
       openSheet('goal');
     } else if (a === 'goal-analyse-go') {
-      S.sheet = 'goal'; render();
-      S.toast = 'Not in this build. Nothing about this goal has left the device.';
-      render();
+      goalAnalyse();
       return;
     } else if (a === 'goal-type') {
       S.goalType = t.getAttribute('data-v'); S.goalError = null; render(); return;

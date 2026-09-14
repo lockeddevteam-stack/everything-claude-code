@@ -842,6 +842,65 @@
       '</div>';
   }
 
+  /* THE READ IS ASKED FOR, NOT INVENTED. This used to be a 900 ms timer
+     that set done or error from whichever dev state was showing, and the
+     text under it came from the fixture -- which is the one thing a card
+     labelled "Generated, not measured" must never be, because a reader
+     has no way to tell a written read from a fabricated one.
+
+     It sends the session's own figures and nothing else: the totals this
+     screen computed, the sets, and how they compare to last time. A
+     failure stays a failure, and saving never waits for it. */
+  function sessionForCoach(d) {
+    d = d || {};
+    var out = {
+      name: d.name || (d.session && d.session.name) || 'this session',
+      volumeKg: d.volume || (d.totals && d.totals.volume) || null,
+      sets: d.sets || (d.totals && d.totals.sets) || null,
+      minutes: d.minutes || (d.totals && d.totals.minutes) || null
+    };
+    if (Array.isArray(d.lifts)) {
+      out.lifts = d.lifts.slice(0, 10).map(function (l) {
+        return { name: l.name, best: l.best || l.top || null, last: l.last || null };
+      });
+    }
+    return out;
+  }
+
+  function askCoach() {
+    var C = window.LKCloud;
+    var d = DATA[S.view] || {};
+    if (!C || !C.coachReady()) {
+      /* No endpoint, so no read, and the card says which rather than
+         spinning at somebody. */
+      S.ai = 'error';
+      S.aiWhy = 'There is no coach endpoint in this build, so nothing was asked and ' +
+                'nothing was written. Your session is untouched.';
+      paint(true);
+      return;
+    }
+    S.ai = 'loading'; S.aiWhy = null; paint(true);
+    C.ask([{ role: 'user',
+             content: 'Write one short paragraph about the session below. Use only the ' +
+                      'numbers given. Do not state a total that is not there, and do not ' +
+                      'invent a lift. ' + JSON.stringify(sessionForCoach(d)) }],
+           { })
+      .then(function (r) {
+        if (S.view !== 'record' && S.view !== 'populated') return;
+        if (!r || !r.ok || !r.data || !String(r.data.reply || '').trim()) {
+          S.ai = 'error';
+          S.aiWhy = (r && r.message) || null;
+          paint(true);
+          return;
+        }
+        S.aiText = String(r.data.reply).trim().slice(0, 900);
+        S.ai = 'done';
+        paint(true);
+      }, function () {
+        S.ai = 'error'; S.aiWhy = null; paint(true);
+      });
+  }
+
   /* The one thing on the screen that is not measured. Dashed, labelled,
      never fetched unless asked, and a failure stays a failure. */
   function aiCard(d) {
@@ -860,13 +919,18 @@
     } else if (S.ai === 'error') {
       inner = '<div class="banner banner--error" role="alert" data-testid="ai-error">' +
                 ICO.alert +
-                '<span><strong>Coach did not answer</strong>The request timed out. Your session is ' +
-                'untouched and the comparison above is unaffected.</span>' +
+                '<span><strong>Coach did not answer</strong>' + esc(S.aiWhy ||
+                  'The request did not come back. Your session is untouched and the ' +
+                  'comparison above is unaffected.') + '</span>' +
               '</div>' +
               '<button class="btn btn--secondary btn--block mt-3" data-testid="ai-retry">' +
                 '<span class="btn__label">Try again</span></button>';
     } else {
-      inner = d.insight
+      /* What came back, when something did. d.insight is the fixture's own
+         line and only shows on a dev state nobody asked the coach from. */
+      inner = S.aiText
+        ? '<p class="t-detail" data-testid="ai-text">' + esc(S.aiText) + '</p>'
+        : d.insight
         ? '<p class="t-detail" data-testid="ai-text">' + d.insight + '</p>'
         : '<p class="t-detail" data-testid="ai-text">Nothing was written about this session. ' +
           'The figures above are yours and are computed on this phone. Nothing wrote a ' +
@@ -1407,12 +1471,7 @@
         S.discardArmed = false; paint(true); toast('Session discarded. Nothing was written.'); return;
       case 'ai-ask':
       case 'ai-retry':
-        S.ai = 'loading'; paint(true);
-        setTimeout(function () {
-          if (S.view !== 'record' && S.view !== 'populated') return;
-          S.ai = S.view === 'populated' ? 'error' : 'done';
-          paint(true);
-        }, 900);
+        askCoach();
         return;
       /* Hidden for three days, on the shipped app's own key, so it is the
          same suppression every other surface honours. */
