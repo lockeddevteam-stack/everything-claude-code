@@ -53,6 +53,7 @@ run "product build — no seed, no dev switcher"  node prod-build.mjs
 run "accounts — the shapes the live table holds" node v6-accounts.mjs
 run "a day in the app — a workout and a meal, end to end" node day-to-day.mjs
 run "first run — signup to first set, against a server" node first-run.mjs
+run "no dead ends — every pushed screen can be left" node no-dead-ends.mjs
 run "demo — assembled"                             sh -c 'node ../10-final/assemble.mjs && node ../10-final/verify-demo.mjs'
 
 printf '\n%s\n' "-----------------------------------------"
