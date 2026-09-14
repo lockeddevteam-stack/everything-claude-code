@@ -23753,6 +23753,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
             camOil: null, toast: null, undo: null, targetError: null, searchQ: '',
             remote: null, remoteQ: '', remoteBusy: false,
             camState: 'idle', camWhy: null,
+            brAsking: false, brWhy: null,
             /* Which recipe is open inside the recipes sheet. The list and the
                detail are one sheet with two faces rather than two sheets, so
                Back returns to the list without closing and losing the place. */
@@ -26435,6 +26436,20 @@ DEMO.define("fuel", function (document, window, location, fetch) {
               '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
             '</button></div>' +
           '<div class="sheet__body">' +
+            /* ASK FOR ONE. Everything below is a form somebody fills in by
+               hand, and that stays the way a recipe is made: this puts a
+               draft IN the form, where every quantity can be changed and
+               nothing is saved until Save is pressed. */
+            ((window.LKCloud && LKCloud.coachReady())
+              ? '<button class="btn btn--secondary btn--block" type="button" data-action="br-ask"' +
+                  (S.brAsking ? ' aria-busy="true" disabled' : '') +
+                  ' data-testid="br-ask"><span class="btn__label">' +
+                  (S.brAsking ? 'Asking the coach' : 'Ask the coach for one') + '</span></button>' +
+                (S.brWhy ? '<p class="t-caption-1 quiet mt-2" data-testid="br-ask-why">' +
+                  esc(S.brWhy) + '</p>' : '') +
+                '<p class="t-caption-1 quiet mt-2 mb-3">It fills this form. Nothing is saved ' +
+                  'until you press Save, and every quantity is yours to change.</p>'
+              : '') +
             '<label class="t-label field__label" for="br-name">What is it called</label>' +
             '<input class="input" id="br-name" type="text" autocomplete="off" ' +
               'placeholder="Chilli, big batch" value="' + esc(d.name) + '" data-testid="br-name">' +
@@ -27147,6 +27162,10 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       S.gen.preview = null;
       render(); return;
     }
+    if (a === 'br-ask') {
+      askRecipe();
+      return;
+    }
     if (a === 'gp-build') {
       readGen();
       var built = buildPlan(S.gen.days, S.gen.perDay, S.gen.avoid);
@@ -27783,6 +27802,63 @@ DEMO.define("fuel", function (document, window, location, fetch) {
      read back before a re-render throws it away. Every control on this sheet
      re-renders, and without this a name typed before adding an ingredient was
      gone the moment the ingredient landed. */
+  /* THE RECIPE GOES THROUGH THE SAME GATE EVERY COACH ACTION DOES. What
+     comes back is a proposal, checked before it is drawn: LKCoachActions
+     bounds every field and refuses a total the model states rather than
+     one computed from the items, which is the whole reason that gate
+     exists. What lands here is the form, filled in. */
+  function askRecipe() {
+    var C = window.LKCloud;
+    if (!C || !C.coachReady()) return;
+    if (!S.draft) S.draft = { name: '', servings: 4, items: [], notes: [], error: null };
+    readDraft();
+    S.brAsking = true; S.brWhy = null; render();
+    var want = (S.draft.name || '').trim();
+    C.ask([{ role: 'user',
+             content: 'Give me one recipe' + (want ? ' for ' + want : '') +
+                      ' as a recipe action. Real ingredients with weights in grams. ' +
+                      'Do not state a calorie total: the app computes it.' }], {})
+      .then(function (r) {
+        S.brAsking = false;
+        var acts = (r && r.ok && r.data && r.data.actions) || [];
+        var rec = null;
+        if (window.LKCoachActions) {
+          LKCoachActions.checkAll(acts).forEach(function (v) {
+            if (!rec && v.ok && v.kind === 'recipe') rec = v.action;
+          });
+        }
+        if (!rec) {
+          S.brWhy = !r || !r.ok
+            ? ((r && r.message) || 'The coach could not be reached. Nothing was changed.')
+            : 'Nothing usable came back, so the form is as you left it.';
+          render();
+          return;
+        }
+        var src = rec.recipe || rec;
+        S.draft.name = String(src.name || want || 'Recipe').slice(0, 40);
+        S.draft.servings = Math.max(1, Math.min(24, parseInt(src.servings, 10) || 4));
+        /* Only items with a weight. A line with no grams cannot be
+           costed, cannot be scaled and cannot be checked. */
+        S.draft.items = (src.items || []).slice(0, 40).map(function (it) {
+          var g = Math.round(Number(it.grams != null ? it.grams : it.g) || 0);
+          if (!(g > 0)) return null;
+          return { name: String(it.name || '').slice(0, 40), g: g, cooked: false, yieldPct: 100,
+                   per100: null, fromCoach: true };
+        }).filter(Boolean);
+        S.draft.error = null;
+        S.brWhy = S.draft.items.length
+          ? 'Filled in. Every line is yours to change, and the calories are computed from ' +
+            'the weights rather than taken from the reply.'
+          : 'It named no ingredient with a weight, so there was nothing to fill in.';
+        render();
+        say('The coach filled the form.');
+      }, function () {
+        S.brAsking = false;
+        S.brWhy = 'The coach could not be reached. Nothing was changed.';
+        render();
+      });
+  }
+
   function readDraft() {
     if (!S.draft) S.draft = { name: '', servings: 4, items: [], notes: [], error: null };
     var nEl = document.getElementById('br-name');
@@ -53042,6 +53118,57 @@ DEMO.define("progress", function (document, window, location, fetch) {
     ['How much to trust it', 'Lighting, angle and pump move an estimate more than a month ' +
       'of training does. The qualifier says by how much.']
   ];
+  /* AN ESTIMATE IS OFFERED, NEVER LOGGED. The same reading the physique
+     panel uses carries a body-composition sentence with a rough range in
+     it. That is a number read off a photograph, and lighting and pose
+     move it more than a month of training does -- so it goes into the
+     field for somebody to accept, change or ignore, and it is never
+     written to the log on its own. */
+  function estimateBF() {
+    var ph = PHOTOS[0];
+    var C = window.LKCloud;
+    S.sheet = 'bf';
+    if (!ph || !ph.thumb) {
+      S.toast = 'There is no progress photo on this device to read.'; render(); return;
+    }
+    if (!C || !C.ready() || !C.vision) {
+      S.toast = 'Estimating from a photo needs a server, and this build reaches none. ' +
+                'No photo has left this device.';
+      render();
+      return;
+    }
+    S.bfBusy = true; render();
+    C.vision('physique', ph.thumb).then(function (r) {
+      S.bfBusy = false;
+      if (!r || !r.ok || !r.data || !r.data.bodyComposition) {
+        S.toast = (r && r.message) || 'No reading came back. Nothing was logged.';
+        render();
+        return;
+      }
+      /* The first plausible percentage in the sentence. A range gives its
+         lower bound, because an estimate that rounds itself upward is the
+         wrong way for this number to be wrong. */
+      var m = String(r.data.bodyComposition).match(/(\d{1,2}(?:\.\d)?)\s*%/);
+      if (!m) {
+        S.toast = 'The reading did not name a percentage, so there is nothing to put in the field.';
+        render();
+        return;
+      }
+      var pct = Math.max(1, Math.min(70, parseFloat(m[1])));
+      S.bfSuggest = pct;
+      render();
+      var f = document.getElementById('bf-pct');
+      if (f) { f.value = String(pct); f.focus(); }
+      S.toast = 'Read as about ' + pct + ' per cent. Check it before you save it \u2014 ' +
+                'lighting and pose move this more than a month of training does.';
+      render();
+    }, function () {
+      S.bfBusy = false;
+      S.toast = 'The reading could not be reached. Nothing was logged.';
+      render();
+    });
+  }
+
   /* THE MOST SENSITIVE THING THIS APP SENDS. The consent sheet before it
      names the photo in those words, and nothing is sent until it is
      pressed. The photo already lives as a downscaled thumbnail, so what
@@ -53359,8 +53486,7 @@ DEMO.define("progress", function (document, window, location, fetch) {
     } else if (a === 'bf-est-no') {
       openSheet('bf');
     } else if (a === 'bf-est-go') {
-      S.sheet = 'bf'; render();
-      S.toast = 'Not in this build. No photo and no reading has left this device.'; render();
+      estimateBF();
       return;
     } else if (a === 'open-bf') {
       openSheet('bf');

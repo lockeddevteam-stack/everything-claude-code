@@ -1960,6 +1960,57 @@
     ['How much to trust it', 'Lighting, angle and pump move an estimate more than a month ' +
       'of training does. The qualifier says by how much.']
   ];
+  /* AN ESTIMATE IS OFFERED, NEVER LOGGED. The same reading the physique
+     panel uses carries a body-composition sentence with a rough range in
+     it. That is a number read off a photograph, and lighting and pose
+     move it more than a month of training does -- so it goes into the
+     field for somebody to accept, change or ignore, and it is never
+     written to the log on its own. */
+  function estimateBF() {
+    var ph = PHOTOS[0];
+    var C = window.LKCloud;
+    S.sheet = 'bf';
+    if (!ph || !ph.thumb) {
+      S.toast = 'There is no progress photo on this device to read.'; render(); return;
+    }
+    if (!C || !C.ready() || !C.vision) {
+      S.toast = 'Estimating from a photo needs a server, and this build reaches none. ' +
+                'No photo has left this device.';
+      render();
+      return;
+    }
+    S.bfBusy = true; render();
+    C.vision('physique', ph.thumb).then(function (r) {
+      S.bfBusy = false;
+      if (!r || !r.ok || !r.data || !r.data.bodyComposition) {
+        S.toast = (r && r.message) || 'No reading came back. Nothing was logged.';
+        render();
+        return;
+      }
+      /* The first plausible percentage in the sentence. A range gives its
+         lower bound, because an estimate that rounds itself upward is the
+         wrong way for this number to be wrong. */
+      var m = String(r.data.bodyComposition).match(/(\d{1,2}(?:\.\d)?)\s*%/);
+      if (!m) {
+        S.toast = 'The reading did not name a percentage, so there is nothing to put in the field.';
+        render();
+        return;
+      }
+      var pct = Math.max(1, Math.min(70, parseFloat(m[1])));
+      S.bfSuggest = pct;
+      render();
+      var f = document.getElementById('bf-pct');
+      if (f) { f.value = String(pct); f.focus(); }
+      S.toast = 'Read as about ' + pct + ' per cent. Check it before you save it \u2014 ' +
+                'lighting and pose move this more than a month of training does.';
+      render();
+    }, function () {
+      S.bfBusy = false;
+      S.toast = 'The reading could not be reached. Nothing was logged.';
+      render();
+    });
+  }
+
   /* THE MOST SENSITIVE THING THIS APP SENDS. The consent sheet before it
      names the photo in those words, and nothing is sent until it is
      pressed. The photo already lives as a downscaled thumbnail, so what
@@ -2277,8 +2328,7 @@
     } else if (a === 'bf-est-no') {
       openSheet('bf');
     } else if (a === 'bf-est-go') {
-      S.sheet = 'bf'; render();
-      S.toast = 'Not in this build. No photo and no reading has left this device.'; render();
+      estimateBF();
       return;
     } else if (a === 'open-bf') {
       openSheet('bf');

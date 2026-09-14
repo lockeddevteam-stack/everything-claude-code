@@ -12,6 +12,10 @@
 <script src="units.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
+<script src="exercises.js"></script>
+<script src="cloud-config.js"></script>
+<script src="cloud.js"></script>
+<script src="coach-actions.js"></script>
 <script src="session.js"></script>
 </head>
 <body>
@@ -1993,6 +1997,7 @@
             camOil: null, toast: null, undo: null, targetError: null, searchQ: '',
             remote: null, remoteQ: '', remoteBusy: false,
             camState: 'idle', camWhy: null,
+            brAsking: false, brWhy: null,
             /* Which recipe is open inside the recipes sheet. The list and the
                detail are one sheet with two faces rather than two sheets, so
                Back returns to the list without closing and losing the place. */
@@ -4675,6 +4680,20 @@
               '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
             '</button></div>' +
           '<div class="sheet__body">' +
+            /* ASK FOR ONE. Everything below is a form somebody fills in by
+               hand, and that stays the way a recipe is made: this puts a
+               draft IN the form, where every quantity can be changed and
+               nothing is saved until Save is pressed. */
+            ((window.LKCloud && LKCloud.coachReady())
+              ? '<button class="btn btn--secondary btn--block" type="button" data-action="br-ask"' +
+                  (S.brAsking ? ' aria-busy="true" disabled' : '') +
+                  ' data-testid="br-ask"><span class="btn__label">' +
+                  (S.brAsking ? 'Asking the coach' : 'Ask the coach for one') + '</span></button>' +
+                (S.brWhy ? '<p class="t-caption-1 quiet mt-2" data-testid="br-ask-why">' +
+                  esc(S.brWhy) + '</p>' : '') +
+                '<p class="t-caption-1 quiet mt-2 mb-3">It fills this form. Nothing is saved ' +
+                  'until you press Save, and every quantity is yours to change.</p>'
+              : '') +
             '<label class="t-label field__label" for="br-name">What is it called</label>' +
             '<input class="input" id="br-name" type="text" autocomplete="off" ' +
               'placeholder="Chilli, big batch" value="' + esc(d.name) + '" data-testid="br-name">' +
@@ -5387,6 +5406,10 @@
       S.gen.preview = null;
       render(); return;
     }
+    if (a === 'br-ask') {
+      askRecipe();
+      return;
+    }
     if (a === 'gp-build') {
       readGen();
       var built = buildPlan(S.gen.days, S.gen.perDay, S.gen.avoid);
@@ -6023,6 +6046,63 @@
      read back before a re-render throws it away. Every control on this sheet
      re-renders, and without this a name typed before adding an ingredient was
      gone the moment the ingredient landed. */
+  /* THE RECIPE GOES THROUGH THE SAME GATE EVERY COACH ACTION DOES. What
+     comes back is a proposal, checked before it is drawn: LKCoachActions
+     bounds every field and refuses a total the model states rather than
+     one computed from the items, which is the whole reason that gate
+     exists. What lands here is the form, filled in. */
+  function askRecipe() {
+    var C = window.LKCloud;
+    if (!C || !C.coachReady()) return;
+    if (!S.draft) S.draft = { name: '', servings: 4, items: [], notes: [], error: null };
+    readDraft();
+    S.brAsking = true; S.brWhy = null; render();
+    var want = (S.draft.name || '').trim();
+    C.ask([{ role: 'user',
+             content: 'Give me one recipe' + (want ? ' for ' + want : '') +
+                      ' as a recipe action. Real ingredients with weights in grams. ' +
+                      'Do not state a calorie total: the app computes it.' }], {})
+      .then(function (r) {
+        S.brAsking = false;
+        var acts = (r && r.ok && r.data && r.data.actions) || [];
+        var rec = null;
+        if (window.LKCoachActions) {
+          LKCoachActions.checkAll(acts).forEach(function (v) {
+            if (!rec && v.ok && v.kind === 'recipe') rec = v.action;
+          });
+        }
+        if (!rec) {
+          S.brWhy = !r || !r.ok
+            ? ((r && r.message) || 'The coach could not be reached. Nothing was changed.')
+            : 'Nothing usable came back, so the form is as you left it.';
+          render();
+          return;
+        }
+        var src = rec.recipe || rec;
+        S.draft.name = String(src.name || want || 'Recipe').slice(0, 40);
+        S.draft.servings = Math.max(1, Math.min(24, parseInt(src.servings, 10) || 4));
+        /* Only items with a weight. A line with no grams cannot be
+           costed, cannot be scaled and cannot be checked. */
+        S.draft.items = (src.items || []).slice(0, 40).map(function (it) {
+          var g = Math.round(Number(it.grams != null ? it.grams : it.g) || 0);
+          if (!(g > 0)) return null;
+          return { name: String(it.name || '').slice(0, 40), g: g, cooked: false, yieldPct: 100,
+                   per100: null, fromCoach: true };
+        }).filter(Boolean);
+        S.draft.error = null;
+        S.brWhy = S.draft.items.length
+          ? 'Filled in. Every line is yours to change, and the calories are computed from ' +
+            'the weights rather than taken from the reply.'
+          : 'It named no ingredient with a weight, so there was nothing to fill in.';
+        render();
+        say('The coach filled the form.');
+      }, function () {
+        S.brAsking = false;
+        S.brWhy = 'The coach could not be reached. Nothing was changed.';
+        render();
+      });
+  }
+
   function readDraft() {
     if (!S.draft) S.draft = { name: '', servings: 4, items: [], notes: [], error: null };
     var nEl = document.getElementById('br-name');
