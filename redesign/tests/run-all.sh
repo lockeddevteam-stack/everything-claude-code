@@ -43,6 +43,7 @@ run "cloud — the seam against the real contract"  node cloud-contract.mjs
 run "v6 data — the screens an upgrading reader opens" node v6-render.mjs
 run "v6 data — every route in the assembled build" node v6-demo.mjs
 run "v6 data — pressing every control on it" node v6-press.mjs
+run "v6 data — a whole session logged on it" node v6-journey.mjs
 run "walkthrough — six tracks, on the real screens" node tutor-copy.mjs
 run "coach — asked, and what the gate lets through" node coach-server.mjs
 run "crossings — every selector names a control"   node nav-selectors.mjs

@@ -65,23 +65,31 @@ for (const [who, data] of Object.entries(ALL)) {
        checks it actually came up rather than assuming either. */
     await page.evaluate((name) => { window.DEMO.go(name); }, r);
     await page.waitForTimeout(260);
-    let up = await page.evaluate((name) => {
-      const h = window.DEMO.screens[name];
-      return !!(h && h.offsetParent !== null);
-    }, r);
+    /* DEMO.screens[name] is a RECORD -- { host, root, globals } -- not the
+       element. Reading it as one made offsetParent undefined, which is
+       not null, so every route "opened"; and its textContent was
+       undefined, so every route printed no hole. The whole sweep passed
+       without looking at anything. It asks the host and the shadow root
+       by name now. */
+    const isUp = (name) => page.evaluate((n) => {
+      const rec = window.DEMO.screens[n];
+      const host = rec && rec.host;
+      if (!host || !host.getBoundingClientRect) return false;
+      const box = host.getBoundingClientRect();
+      return getComputedStyle(host).display !== 'none' && box.width > 0 && box.height > 0;
+    }, name);
+
+    let up = await isUp(r);
     if (!up) {
       await page.evaluate((name) => { window.DEMO.push(name); }, r);
       await page.waitForTimeout(260);
-      up = await page.evaluate((name) => {
-        const h = window.DEMO.screens[name];
-        return !!(h && h.offsetParent !== null);
-      }, r);
+      up = await isUp(r);
     }
     ok(up, `${who} · ${r} — the route opens`, up ? '' : 'never became visible');
     if (!up) continue;
     const text = await page.evaluate((name) => {
-      const host = window.DEMO.screens[name];
-      const root = host && (host.shadowRoot || host);
+      const rec = window.DEMO.screens[name];
+      const root = rec && (rec.root || (rec.host && rec.host.shadowRoot));
       return root ? (root.textContent || '').trim() : '';
     }, r);
     ok(!errs.length, `${who} · ${r} — nothing throws`, errs[0] || '');
