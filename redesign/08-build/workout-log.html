@@ -232,11 +232,20 @@
      a person decides today's load from have to be the rows they actually
      lifted. */
   function lastSetsFor(exId) {
-    var FX = window.LKFixtures;
-    if (!FX || !FX.lastTime) return null;
-    var last = FX.lastTime(exId, window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10));
-    if (!last) return null;
-    return last.exercise.sets.filter(function (st) { return st.done; });
+    /* OUT OF THE HISTORY ON THE DEVICE, not out of the fixture. This read
+       LKFixtures.lastTime, and the product build ships no fixtures, so on
+       every real account it returned null every time: the pad opened at 0
+       with no "last session" hint on a lift logged four times, every set
+       row read ----, the exercise info sheet said "No earlier session with
+       this lift" about a lift in four of your sessions, and Suggest
+       proposed 22.5 kg to somebody whose top set is 80. LKHistory keeps the
+       fixture's exact contract and prefers real history, so the demo is
+       unchanged and the shipped app finally reads its own. */
+    var H = window.LKHistory;
+    if (!H || !H.lastTime) return null;
+    var last = H.lastTime(exId, window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10));
+    if (!last || !last.exercise || !Array.isArray(last.exercise.sets)) return null;
+    return last.exercise.sets.filter(function (st) { return st && st.done; });
   }
 
   /* One exercise, with `todaysSets` of its own and the rest filled from the
@@ -1935,7 +1944,21 @@
              else, and the record only appeared days later on another
              screen. */
           var pr = prBeaten(S.exercises[e], st);
-          if (pr) {
+          /* THE FIRST TIME IS ALSO A RECORD. prBeaten returns null when
+             there is nothing to beat, which is right for the banner -- you
+             cannot go "past" a mark that does not exist -- but it was also
+             what decided whether to WRITE one. So on a new account the
+             first set of every lift was never stored, lk_prs stayed empty,
+             Profile read "0 Records" forever, and a record only ever
+             appeared once you beat one that was never set. Announcing and
+             recording are different questions. */
+          if (!pr && !st.warm && st.kg !== null && st.reps !== null &&
+              S.exercises[e].id && !bestFor(S.exercises[e].id)) {
+            recordPR(S.exercises[e], st);
+            st.pr = true;
+            st.prText = '';
+            say(S.exercises[e].name + ', first set logged for this lift.');
+          } else if (pr) {
             /* WHAT IT BEAT, read BEFORE the new row is written -- once
                recordPR has run, the best stored for this lift is this set.
                Review needs it to name the mark, and without it Review could
@@ -2697,6 +2720,32 @@
     LKStore.set('lk_prs', rows);
   }
 
+  /* Every record row this session wrote, taken back out. Matched on the
+     lift, the load, the reps and today's date, so a record set on an
+     earlier day -- or by another session today that was saved -- is left
+     exactly where it is. */
+  function rollbackRecords() {
+    if (!window.LKStore) return;
+    var today = LKStore.today();
+    var raw = LKStore.get('lk_prs', null);
+    if (!Array.isArray(raw)) return;
+    var mine = [];
+    S.exercises.forEach(function (ex) {
+      if (!ex || !ex.id) return;
+      (ex.sets || []).forEach(function (st) {
+        if (st && st.pr && st.kg != null && st.reps != null) {
+          mine.push(ex.id + '|' + st.kg + '|' + st.reps);
+        }
+      });
+    });
+    if (!mine.length) return;
+    var kept = raw.filter(function (r) {
+      if (!r || String(r.date) !== String(today)) return true;
+      return mine.indexOf(r.exId + '|' + r.kg + '|' + r.reps) < 0;
+    });
+    if (kept.length !== raw.length) LKStore.set('lk_prs', kept);
+  }
+
   document.addEventListener('keydown', function (ev) {
     if (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown') return;
     var grip = ev.target.closest ? ev.target.closest('[data-act="grip"]') : null;
@@ -2819,6 +2868,11 @@
        on offering to Resume it. The emptying happens here instead, on the
        announcement, the way the hand-over does. */
     if (d.selector === '[data-testid="discard-confirm"]') {
+      /* AND THE RECORDS THIS SESSION CLAIMED GO WITH IT. Records are
+         written the moment a set is ticked, so a workout you threw away
+         left its personal bests behind -- a 120 kg mark from a session
+         that, by the reader's own decision, never happened. */
+      rollbackRecords();
       S.over = true;
       S.overlay = null;
       S.exercises = [];
@@ -2842,6 +2896,16 @@
     /* A day asked for from Train wins: it is a new session, not this one. */
     if (startRequested()) { paintMenu(); paint(); return; }
     if (!S.over) return;
+    /* COMING BACK TO A WORKOUT THAT IS OVER. Finishing ends the record and
+       hands the session to Review, so arriving here again -- the iOS
+       edge-swipe back from Review, which is the likeliest input in the
+       second after finishing -- found no session and painted the empty
+       state: "Quick Workout, 0 working sets, 0 kg, Nothing logged yet".
+       The work was not lost (it is in lk_lastSession, and Review still
+       holds it) but the screen said it was, which is worse than losing it
+       quietly. There is no workout here any more; Train is where one
+       starts, and it is this screen's declared parent. */
+    if (!(window.LKSession && LKSession.get())) { LKGo('train'); return; }
     applyState('mid-session');
     paint();
   });

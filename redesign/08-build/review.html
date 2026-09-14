@@ -237,7 +237,17 @@
      makes the fixture's own "4266 kg" reproduce.)
      ------------------------------------------------------------------ */
 
-  var PRIOR = { name: 'Push', dateLabel: 'Sep 3', volumeKg: 4266 };
+  /* NO INVENTED PRIOR SESSION. This was a literal -- "Push, Sep 3, 4,266 kg"
+     -- and it is only replaced when the lifts carry a prior volume, which
+     needs the history read above. On the shipped build that read was dead,
+     so every reader saw a comparison against a workout nobody had done:
+     a first-ever session claimed "-3,786 kg, -88.7% against Push, Sep 3",
+     and a screen announcing a record beaten on Sep 7 sat directly above a
+     card denying the Sep 7 session existed.
+
+     Null means "nothing to compare against", and the card says that rather
+     than inventing a number. */
+  var PRIOR = null;
 
   function lift(name, tw, tr, tvol, pw, pr, pvol) {
     /* Rounded away from zero, so the five row deltas always sum to the
@@ -284,7 +294,12 @@
       try { r = JSON.parse(raw); } catch (e) { return null; }
     }
     if (!r || !r.lifts || !r.lifts.length) return null;
-    var FX = window.LKFixtures;
+    /* The device's own history, not the fixture's. The product build ships
+       no fixtures, so FX was undefined on every real account and every lift
+       took the "no prior session" branch -- which left the comparison card
+       falling through to the hardcoded demo constant below and printing a
+       session that does not exist. */
+    var FX = window.LKHistory;
 
     var lifts = r.lifts.map(function (l) {
       /* The prior column is the last session that actually contains this
@@ -624,6 +639,20 @@
   /* The comparison. The reason this screen exists: it is computed on
      the device from lk_history and needs no network. */
   function compare(d) {
+    /* Nothing to compare against is an answer. Without this the card
+       divided by a prior volume that no longer exists, and before PRIOR
+       was emptied it printed a fixture's session as the reader's own. */
+    if (!PRIOR || !PRIOR.volumeKg) {
+      return '' +
+        '<div class="section" data-testid="section-compare">' +
+          '<div class="section__head"><h2 class="t-label">Against last time</h2></div>' +
+          '<div class="card">' +
+            '<p class="t-body">This is the first time these lifts have been logged, so there is ' +
+              'nothing to measure today against yet.</p>' +
+            '<p class="t-detail quiet mt-2">Log them again and this card compares the two.</p>' +
+          '</div>' +
+        '</div>';
+    }
     var delta = d.volumeKg - PRIOR.volumeKg;
     var pct = (delta / PRIOR.volumeKg) * 100;
     var pctText = (delta >= 0 ? '+' : '−') + Math.abs(pct).toFixed(1) + '%';

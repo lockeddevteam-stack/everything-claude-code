@@ -737,3 +737,68 @@
     try { g.location.href = id + '.html'; } catch (e) {}
   };
 }(typeof window !== 'undefined' ? window : this));
+
+/* ===================================================================
+   THE LAST TIME YOU DID THIS LIFT, out of the history on the device.
+
+   This existed only on LKFixtures, and the product build deliberately
+   ships no fixtures -- so on every real account LKFixtures.lastTime was
+   undefined and every caller took its "no earlier session" branch. Silently,
+   and everywhere it mattered:
+
+     - the number pad opened at 0 with no "last session" hint, on a lift
+       logged four times
+     - every set row rendered ---- instead of the load to beat
+     - the exercise info sheet said "No earlier session with this lift"
+       about a lift in four of your sessions
+     - Suggest proposed 22.5 kg to somebody whose top set is 80
+     - Review's comparison fell through to a hardcoded demo constant and
+       printed a session that does not exist
+
+   One implementation, reading lk_history, with the fixture's exact
+   contract so the demo behaves as it always did. History is newest first,
+   which is the order every screen already writes and reads it in.
+   =================================================================== */
+(function (g) {
+  function history() {
+    if (g.LKStore) {
+      var h = g.LKStore.get('lk_history', null);
+      if (Array.isArray(h)) return h;
+    }
+    if (g.LKFixtures && Array.isArray(g.LKFixtures.history)) return g.LKFixtures.history;
+    return [];
+  }
+
+  g.LKHistory = {
+    /* The most recent lift session BEFORE `before` that contains exId.
+       Same shape the fixture returned: { date, exercise }. */
+    lastTime: function (exId, before) {
+      var h = history();
+      for (var i = 0; i < h.length; i++) {
+        var w = h[i];
+        if (!w || w.kind !== 'lift' || !Array.isArray(w.exercises)) continue;
+        if (before && String(w.date) >= String(before)) continue;
+        for (var j = 0; j < w.exercises.length; j++) {
+          var ex = w.exercises[j];
+          if (ex && ex.id === exId && Array.isArray(ex.sets)) {
+            return { date: w.date, exercise: ex };
+          }
+        }
+      }
+      return null;
+    },
+
+    /* Working volume and top set of one exercise as it was logged.
+       Warm-ups excluded, which is what every other count in the app does. */
+    liftStats: function (ex) {
+      var vol = 0, top = null;
+      if (!ex || !Array.isArray(ex.sets)) return { vol: 0, top: null };
+      ex.sets.forEach(function (st) {
+        if (!st || !st.done || st.warm || st.kg == null || st.reps == null) return;
+        vol += st.kg * st.reps;
+        if (!top || st.kg > top[0] || (st.kg === top[0] && st.reps > top[1])) top = [st.kg, st.reps];
+      });
+      return { vol: Math.round(vol), top: top };
+    }
+  };
+}(typeof window !== 'undefined' ? window : this));

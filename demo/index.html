@@ -1640,7 +1640,16 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
 
 .toast {
   position: absolute; left: var(--sp-4); right: var(--sp-4);
-  bottom: calc(var(--nav-h) + var(--sp-4) + var(--safe-bottom));
+  /* ABOVE THE ACCESSORY, NOT ON TOP OF IT. The toast sat at the nav bar's
+     height, and on any screen with a floating accessory above that bar --
+     Coach's composer, chiefly -- it landed exactly on the send button:
+     same 44x44 rect, and the toast is the one thing in it that does take
+     taps. Starting a new chat therefore put "New chat. Undo" under the
+     reader's thumb for six seconds, and pressing Send in that window hit
+     Undo instead: the new chat was thrown away and the typed message was
+     never sent. --accessory-h is already measured by chrome.js for exactly
+     this stack and is 0 on screens without one. */
+  bottom: calc(var(--nav-h) + var(--accessory-h, 0px) + var(--sp-4) + var(--safe-bottom));
   z-index: 12;
   display: flex; align-items: flex-start; gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4);
@@ -5312,6 +5321,71 @@ button.shelf:active { background: var(--fill-press); }
       } catch (e) { /* fall through to the file */ }
     }
     try { g.location.href = id + '.html'; } catch (e) {}
+  };
+}(typeof window !== 'undefined' ? window : this));
+
+/* ===================================================================
+   THE LAST TIME YOU DID THIS LIFT, out of the history on the device.
+
+   This existed only on LKFixtures, and the product build deliberately
+   ships no fixtures -- so on every real account LKFixtures.lastTime was
+   undefined and every caller took its "no earlier session" branch. Silently,
+   and everywhere it mattered:
+
+     - the number pad opened at 0 with no "last session" hint, on a lift
+       logged four times
+     - every set row rendered ---- instead of the load to beat
+     - the exercise info sheet said "No earlier session with this lift"
+       about a lift in four of your sessions
+     - Suggest proposed 22.5 kg to somebody whose top set is 80
+     - Review's comparison fell through to a hardcoded demo constant and
+       printed a session that does not exist
+
+   One implementation, reading lk_history, with the fixture's exact
+   contract so the demo behaves as it always did. History is newest first,
+   which is the order every screen already writes and reads it in.
+   =================================================================== */
+(function (g) {
+  function history() {
+    if (g.LKStore) {
+      var h = g.LKStore.get('lk_history', null);
+      if (Array.isArray(h)) return h;
+    }
+    if (g.LKFixtures && Array.isArray(g.LKFixtures.history)) return g.LKFixtures.history;
+    return [];
+  }
+
+  g.LKHistory = {
+    /* The most recent lift session BEFORE `before` that contains exId.
+       Same shape the fixture returned: { date, exercise }. */
+    lastTime: function (exId, before) {
+      var h = history();
+      for (var i = 0; i < h.length; i++) {
+        var w = h[i];
+        if (!w || w.kind !== 'lift' || !Array.isArray(w.exercises)) continue;
+        if (before && String(w.date) >= String(before)) continue;
+        for (var j = 0; j < w.exercises.length; j++) {
+          var ex = w.exercises[j];
+          if (ex && ex.id === exId && Array.isArray(ex.sets)) {
+            return { date: w.date, exercise: ex };
+          }
+        }
+      }
+      return null;
+    },
+
+    /* Working volume and top set of one exercise as it was logged.
+       Warm-ups excluded, which is what every other count in the app does. */
+    liftStats: function (ex) {
+      var vol = 0, top = null;
+      if (!ex || !Array.isArray(ex.sets)) return { vol: 0, top: null };
+      ex.sets.forEach(function (st) {
+        if (!st || !st.done || st.warm || st.kg == null || st.reps == null) return;
+        vol += st.kg * st.reps;
+        if (!top || st.kg > top[0] || (st.kg === top[0] && st.reps > top[1])) top = [st.kg, st.reps];
+      });
+      return { vol: Math.round(vol), top: top };
+    }
   };
 }(typeof window !== 'undefined' ? window : this));
 
@@ -12212,6 +12286,260 @@ button.shelf:active { background: var(--fill-press); }
     count: function () { return ROWS.length; }
   };
 })(typeof window !== 'undefined' ? window : this);
+
+</script>
+<script>
+/* food-table.js — inlined verbatim from 08-build/food-table.js */
+/* THE FOOD TABLE, AND THE UNITS IT IS MEASURED IN.
+
+   Reference data: what a gram of each thing carries, what "a slice" and
+   "a glass" weigh, and three barcodes. Not one person's meals -- those are
+   in fixtures.js with the rest of the seed, and the shipped build is right
+   to drop them.
+
+   IT WAS DROPPED WITH THEM, and everything that reads a table died quietly
+   on every real account: searching "chicken" returned nothing and the sheet
+   said "0 foods across this build's table"; every barcode read Not found;
+   the portion sheet could not be opened at all, because the control that
+   opens it is gated on a key only a table row has, so a food could only
+   ever be logged at its default serving; and the sentence reader kept the
+   bare unit out of "200 g chicken" -- it strips digits and looks the unit
+   up here -- so three foods became one row called "g chicken g rice".
+
+   Eight foods is a demo table and the screens say so. The unit map is the
+   part that matters most: it is what turns what somebody typed into grams.
+*/
+(function (g) {
+  g.LKFoodTable = {
+  "targets": {
+    "kcal": 2980,
+    "pro": 160,
+    "carb": 380,
+    "fat": 80,
+    "waterMl": 3000
+  },
+  "microRef": {
+    "fibre": 30,
+    "sugar": 90,
+    "satfat": 20,
+    "sodium": 2400
+  },
+  "unitG": {
+    "g": 1,
+    "gram": 1,
+    "grams": 1,
+    "kg": 1000,
+    "kilo": 1000,
+    "kilos": 1000,
+    "ml": 1,
+    "l": 1000,
+    "litre": 1000,
+    "litres": 1000,
+    "oz": 28.35,
+    "lb": 453.6,
+    "tbsp": 15,
+    "tablespoon": 15,
+    "tablespoons": 15,
+    "tsp": 5,
+    "teaspoon": 5,
+    "teaspoons": 5,
+    "cup": 240,
+    "cups": 240,
+    "scoop": 30,
+    "scoops": 30,
+    "slice": 35,
+    "slices": 35,
+    "serving": 0,
+    "servings": 0,
+    "plate": 0,
+    "plates": 0,
+    "portion": 0,
+    "portions": 0
+  },
+  "barcodes": {
+    "5060123456789": "skyr",
+    "5012345678900": "shake",
+    "5000112345678": "pancakes"
+  },
+  "foods": {
+    "eggs": {
+      "icon": "🍳",
+      "name": "Eggs, toast, butter",
+      "kcal": 540,
+      "pro": 38,
+      "carb": 46,
+      "fat": 24,
+      "g": 260,
+      "fibre": 4,
+      "sugar": 5,
+      "satfat": 9,
+      "sodium": 720,
+      "alias": [
+        "egg",
+        "eggs",
+        "toast",
+        "eggs and toast",
+        "eggs on toast",
+        "fry up"
+      ],
+      "parts": [
+        "egg",
+        "eggs",
+        "toast"
+      ]
+    },
+    "bowl": {
+      "icon": "🥗",
+      "name": "Chicken rice bowl",
+      "kcal": 720,
+      "pro": 52,
+      "carb": 84,
+      "fat": 16,
+      "g": 450,
+      "fibre": 6,
+      "sugar": 8,
+      "satfat": 4,
+      "sodium": 980,
+      "alias": [
+        "rice bowl",
+        "chicken bowl",
+        "chicken rice bowl",
+        "burrito bowl",
+        "bowl"
+      ],
+      "parts": []
+    },
+    "shake": {
+      "icon": "🥤",
+      "name": "Whey shake, banana",
+      "kcal": 310,
+      "pro": 31,
+      "carb": 38,
+      "fat": 4,
+      "g": 400,
+      "fibre": 3,
+      "sugar": 24,
+      "satfat": 1.5,
+      "sodium": 210,
+      "alias": [
+        "shake",
+        "whey",
+        "protein shake",
+        "whey shake",
+        "smoothie"
+      ],
+      "parts": [
+        "whey"
+      ],
+      "barcode": "5012345678900"
+    },
+    "pasta": {
+      "icon": "🍝",
+      "name": "Beef mince and pasta",
+      "kcal": 810,
+      "pro": 48,
+      "carb": 92,
+      "fat": 26,
+      "g": 520,
+      "fibre": 7,
+      "sugar": 11,
+      "satfat": 10,
+      "sodium": 890,
+      "alias": [
+        "pasta",
+        "spaghetti",
+        "bolognese",
+        "mince and pasta",
+        "beef pasta"
+      ],
+      "parts": []
+    },
+    "chilli": {
+      "icon": "🍲",
+      "name": "Chilli",
+      "kcal": 530,
+      "pro": 41,
+      "carb": 38,
+      "fat": 18,
+      "g": 400,
+      "fibre": 11,
+      "sugar": 9,
+      "satfat": 6,
+      "sodium": 760,
+      "alias": [
+        "chilli",
+        "chili",
+        "chilli con carne"
+      ],
+      "parts": []
+    },
+    "cnr": {
+      "icon": "🍚",
+      "name": "Chicken and rice",
+      "kcal": 690,
+      "pro": 61,
+      "carb": 74,
+      "fat": 13,
+      "g": 480,
+      "fibre": 3,
+      "sugar": 3,
+      "satfat": 3.5,
+      "sodium": 640,
+      "alias": [
+        "chicken and rice",
+        "chicken rice",
+        "chicken n rice"
+      ],
+      "parts": []
+    },
+    "pancakes": {
+      "icon": "🥞",
+      "name": "Protein pancakes",
+      "kcal": 360,
+      "pro": 31,
+      "carb": 37,
+      "fat": 8,
+      "g": 220,
+      "fibre": 5,
+      "sugar": 7,
+      "satfat": 2,
+      "sodium": 380,
+      "alias": [
+        "pancakes",
+        "pancake",
+        "protein pancakes"
+      ],
+      "parts": [
+        "pancake",
+        "pancakes"
+      ],
+      "barcode": "5000112345678"
+    },
+    "skyr": {
+      "icon": "🥫",
+      "name": "Skyr, plain",
+      "kcal": 96,
+      "pro": 17,
+      "carb": 6,
+      "fat": 0.3,
+      "g": 170,
+      "fibre": 0,
+      "sugar": 6,
+      "satfat": 0.1,
+      "sodium": 65,
+      "alias": [
+        "skyr",
+        "yoghurt",
+        "yogurt",
+        "greek yoghurt",
+        "quark"
+      ],
+      "parts": [],
+      "barcode": "5060123456789"
+    }
+  }
+};
+}(typeof window !== 'undefined' ? window : this));
 
 </script>
 <script>
@@ -20714,9 +21042,33 @@ DEMO.define("train", function (document, window, location, fetch) {
   /* Counted from the catalogue and the history. It was { total: 227,
      logged: 46 } -- neither figure appears anywhere else in the app, and the
      library screen the row leads to says 867. */
-  var LIBRARY = (window.LKFixtures && LKFixtures.library)
-    ? { total: LKFixtures.library.total, logged: LKFixtures.library.logged }
-    : { total: 0, logged: 0 };
+  /* COUNTED, NOT SEEDED. The fallback was { total: 0, logged: 0 } and the
+     product build ships no fixtures, so every real account read
+     "Exercise library - 0 of 0 logged" while the screen the row leads to
+     said 866. Both halves are countable here: the catalogue knows its own
+     size, and history knows which lifts have been done. */
+  var LIBRARY = (function () {
+    var total = 0, logged = 0;
+    try {
+      if (window.LKExercises && LKExercises.count) total = LKExercises.count();
+      var mine = (window.LKStore ? LKStore.get('lk_customEx', null) : null) || [];
+      if (Array.isArray(mine)) total += mine.length;
+    } catch (e) {}
+    try {
+      var seen = {}, h = (window.LKStore ? LKStore.get('lk_history', null) : null) || [];
+      if (Array.isArray(h)) {
+        h.forEach(function (w) {
+          if (!w || !Array.isArray(w.exercises)) return;
+          w.exercises.forEach(function (ex) { if (ex && ex.id != null) seen[ex.id] = true; });
+        });
+      }
+      logged = Object.keys(seen).length;
+    } catch (e) {}
+    if (!total && window.LKFixtures && LKFixtures.library) {
+      total = LKFixtures.library.total; logged = LKFixtures.library.logged;
+    }
+    return { total: total, logged: logged };
+  }());
 
   /* =============================================================
      State
@@ -22654,7 +23006,28 @@ DEMO.define("fuel", function (document, window, location, fetch) {
      and macro bars carrying 10 g of carbs and 14 g of fat that belonged to
      no meal on the list. */
   var FX = window.LKFixtures || {};
-  var NUT = FX.nutrition || { targets: {}, foods: {}, days: {}, trend: [] };
+  /* THE TABLE SHIPS; THE SEED DOES NOT. FX.nutrition carries both the
+     lookup table and one person's logged days, and the product build drops
+     the whole fixture -- correctly for the days, disastrously for the
+     table. Search returned nothing, every barcode read Not found, the
+     portion sheet could not be opened at all, and the sentence reader lost
+     the unit out of "200 g chicken". food-table.js is the reference half,
+     always shipped; the fixture still wins where it exists so the demo is
+     unchanged. */
+  var REF = window.LKFoodTable || {};
+  var FXN = FX.nutrition || {};
+  var NUT = {
+    targets:  FXN.targets  || REF.targets  || {},
+    microRef: FXN.microRef || REF.microRef || {},
+    unitG:    FXN.unitG    || REF.unitG    || {},
+    barcodes: FXN.barcodes || REF.barcodes || {},
+    foods:    FXN.foods    || REF.foods    || {},
+    /* Seed only. A build with none has no days and no trend, which is what
+       a person who has logged nothing actually has. */
+    days:        FXN.days || {},
+    trend:       FXN.trend || [],
+    trendSeries: FXN.trendSeries || []
+  };
   var FOODS = NUT.foods;
 
   /* The store is the truth once a person has touched anything; the fixture is
@@ -22753,19 +23126,30 @@ DEMO.define("fuel", function (document, window, location, fetch) {
        own -- so one tick here silently deleted the data Home's
        "supplements due" windows are computed from. Only `taken` is this
        screen's to change. */
+    /* AND THE SHELF IS NOT REBUILT FROM THE DAY. This mapped DAY.supps
+       into lk_supplements, and DAY.supps is built from today's day record
+       -- so a supplement ADDED today was not in it, the map produced [],
+       and the whole shelf was deleted. Ticking one supplement, logging any
+       food, or adding a glass of water each wiped every supplement the
+       reader had, permanently. The day says which are TAKEN; it has no
+       opinion on which exist. */
     var kept = stored('lk_supplements', []) || [];
-    ST.set('lk_supplements', DAY.supps.map(function (sp, i) {
-      var was = kept[i] && kept[i].name === sp.name ? kept[i] : null;
-      if (!was) {
-        for (var j = 0; j < kept.length; j++) {
-          if (kept[j] && kept[j].name === sp.name) { was = kept[j]; break; }
-        }
+    if (!Array.isArray(kept)) kept = [];
+    var out = kept.map(function (k) {
+      var copy = {};
+      if (k) Object.keys(k).forEach(function (f) { copy[f] = k[f]; });
+      return copy;
+    });
+    (DAY.supps || []).forEach(function (sp) {
+      if (!sp || !sp.name) return;
+      var hit = null;
+      for (var j = 0; j < out.length; j++) {
+        if (out[j] && out[j].name === sp.name) { hit = out[j]; break; }
       }
-      var out = {};
-      if (was) Object.keys(was).forEach(function (k) { out[k] = was[k]; });
-      out.name = sp.name; out.dose = sp.dose; out.timeOf = sp.when; out.taken = sp.taken;
-      return out;
-    }));
+      if (!hit) { hit = { name: sp.name }; out.push(hit); }
+      hit.dose = sp.dose; hit.timeOf = sp.when; hit.taken = sp.taken;
+    });
+    ST.set('lk_supplements', out);
   }
 
   function saveTargetsTo(t) {
@@ -29202,12 +29586,20 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       /* An estimated row has no entry in the food table, so it carries no
          gram weight and must not be looked up in FOODS -- which is how a
          row read off a sentence used to throw on its own name. */
-      var meal = { key: it.est ? null : it.key, icon: it.icon,
-                   name: it.est
-                     ? it.name
-                     : it.name + (it.grams === FOODS[it.key].g ? '' : ', ' + n(it.grams) + ' g'),
+      /* THE TABLE ROW, IF THERE IS ONE. The guard was `it.est`, and a row
+         filled by the database lookup carries a key of its own that is not
+         in FOODS and no est flag -- so this read FOODS[key].g on nothing
+         and threw "Cannot read properties of undefined (reading 'g')".
+         Nothing was logged, the diary stayed empty and the hero did not
+         move, on the route a person takes by default: type what you ate,
+         press Log. */
+      var row = (!it.est && it.key) ? FOODS[it.key] : null;
+      var meal = { key: row ? it.key : null, icon: it.icon,
+                   name: row && it.grams !== row.g
+                     ? it.name + ', ' + n(it.grams) + ' g'
+                     : it.name,
                    kcal: it.kcal, pro: it.pro, carb: it.carb, fat: it.fat,
-                   src: 'estimate', slot: slot };
+                   src: it.est ? 'estimate' : (row ? 'table' : 'lookup'), slot: slot };
       MICROS.forEach(function (mi) {
         if (typeof it[mi.key] === 'number') meal[mi.key] = it[mi.key];
       });
@@ -29611,7 +30003,22 @@ DEMO.define("coach", function (document, window, location, fetch) {
      Seed. fixtures/seed-data.json (guest, kg) and
      fixtures/coach-replies.json reply 4 (the plan-bearing reply).
      --------------------------------------------------------------- */
-  var TODAY = new Date(2026, 8, 9); /* Wed 9 Sep 2026 */
+  /* THE REAL TODAY. This was frozen at the fixture's Wednesday, and the
+     product build ships it, so every check-in a person saved was stamped
+     9 September -- five days in the past on the day this was found. The
+     screen said "Saved, 1 of 1 for today" and the reading then vanished:
+     Home showed no check-in for today and Recap said "Nothing logged this
+     week", because it had been filed into a week already gone. Memories
+     were dated the same way, and the plan's week number counted from it. */
+  var TODAY = (function () {
+    var iso = window.LKStore ? LKStore.today() : null;
+    if (iso) {
+      var p = String(iso).split('-');
+      return new Date(+p[0], +p[1] - 1, +p[2]);
+    }
+    var n = new Date();
+    return new Date(n.getFullYear(), n.getMonth(), n.getDate());
+  }());
   var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   /* lk_prs, read rather than restated. A copy of four lifts used to sit
@@ -33624,7 +34031,11 @@ DEMO.define("profile", function (document, window, location, fetch) {
      TODAY is the fixture's date, not the wall clock: every other figure on
      this screen is measured against the seed, and a streak measured against
      a real clock would report zero the day this build is next opened. */
-  var TODAY = FXP.today || '2026-09-09';
+  /* The store's today, then the fixture's, then the clock -- never a
+     literal as the last word, which is how a shipped build ends up
+     measuring a real person's dates against a date in the past. */
+  var TODAY = (window.LKStore ? LKStore.today() : null) || FXP.today ||
+              new Date().toISOString().slice(0, 10);
   function dayMs(iso) {
     var p = String(iso).slice(0, 10).split('-');
     return Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
@@ -42559,11 +42970,20 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
      a person decides today's load from have to be the rows they actually
      lifted. */
   function lastSetsFor(exId) {
-    var FX = window.LKFixtures;
-    if (!FX || !FX.lastTime) return null;
-    var last = FX.lastTime(exId, window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10));
-    if (!last) return null;
-    return last.exercise.sets.filter(function (st) { return st.done; });
+    /* OUT OF THE HISTORY ON THE DEVICE, not out of the fixture. This read
+       LKFixtures.lastTime, and the product build ships no fixtures, so on
+       every real account it returned null every time: the pad opened at 0
+       with no "last session" hint on a lift logged four times, every set
+       row read ----, the exercise info sheet said "No earlier session with
+       this lift" about a lift in four of your sessions, and Suggest
+       proposed 22.5 kg to somebody whose top set is 80. LKHistory keeps the
+       fixture's exact contract and prefers real history, so the demo is
+       unchanged and the shipped app finally reads its own. */
+    var H = window.LKHistory;
+    if (!H || !H.lastTime) return null;
+    var last = H.lastTime(exId, window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10));
+    if (!last || !last.exercise || !Array.isArray(last.exercise.sets)) return null;
+    return last.exercise.sets.filter(function (st) { return st && st.done; });
   }
 
   /* One exercise, with `todaysSets` of its own and the rest filled from the
@@ -44262,7 +44682,21 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
              else, and the record only appeared days later on another
              screen. */
           var pr = prBeaten(S.exercises[e], st);
-          if (pr) {
+          /* THE FIRST TIME IS ALSO A RECORD. prBeaten returns null when
+             there is nothing to beat, which is right for the banner -- you
+             cannot go "past" a mark that does not exist -- but it was also
+             what decided whether to WRITE one. So on a new account the
+             first set of every lift was never stored, lk_prs stayed empty,
+             Profile read "0 Records" forever, and a record only ever
+             appeared once you beat one that was never set. Announcing and
+             recording are different questions. */
+          if (!pr && !st.warm && st.kg !== null && st.reps !== null &&
+              S.exercises[e].id && !bestFor(S.exercises[e].id)) {
+            recordPR(S.exercises[e], st);
+            st.pr = true;
+            st.prText = '';
+            say(S.exercises[e].name + ', first set logged for this lift.');
+          } else if (pr) {
             /* WHAT IT BEAT, read BEFORE the new row is written -- once
                recordPR has run, the best stored for this lift is this set.
                Review needs it to name the mark, and without it Review could
@@ -45024,6 +45458,32 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     LKStore.set('lk_prs', rows);
   }
 
+  /* Every record row this session wrote, taken back out. Matched on the
+     lift, the load, the reps and today's date, so a record set on an
+     earlier day -- or by another session today that was saved -- is left
+     exactly where it is. */
+  function rollbackRecords() {
+    if (!window.LKStore) return;
+    var today = LKStore.today();
+    var raw = LKStore.get('lk_prs', null);
+    if (!Array.isArray(raw)) return;
+    var mine = [];
+    S.exercises.forEach(function (ex) {
+      if (!ex || !ex.id) return;
+      (ex.sets || []).forEach(function (st) {
+        if (st && st.pr && st.kg != null && st.reps != null) {
+          mine.push(ex.id + '|' + st.kg + '|' + st.reps);
+        }
+      });
+    });
+    if (!mine.length) return;
+    var kept = raw.filter(function (r) {
+      if (!r || String(r.date) !== String(today)) return true;
+      return mine.indexOf(r.exId + '|' + r.kg + '|' + r.reps) < 0;
+    });
+    if (kept.length !== raw.length) LKStore.set('lk_prs', kept);
+  }
+
   document.addEventListener('keydown', function (ev) {
     if (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown') return;
     var grip = ev.target.closest ? ev.target.closest('[data-act="grip"]') : null;
@@ -45146,6 +45606,11 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
        on offering to Resume it. The emptying happens here instead, on the
        announcement, the way the hand-over does. */
     if (d.selector === '[data-testid="discard-confirm"]') {
+      /* AND THE RECORDS THIS SESSION CLAIMED GO WITH IT. Records are
+         written the moment a set is ticked, so a workout you threw away
+         left its personal bests behind -- a 120 kg mark from a session
+         that, by the reader's own decision, never happened. */
+      rollbackRecords();
       S.over = true;
       S.overlay = null;
       S.exercises = [];
@@ -45169,6 +45634,16 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     /* A day asked for from Train wins: it is a new session, not this one. */
     if (startRequested()) { paintMenu(); paint(); return; }
     if (!S.over) return;
+    /* COMING BACK TO A WORKOUT THAT IS OVER. Finishing ends the record and
+       hands the session to Review, so arriving here again -- the iOS
+       edge-swipe back from Review, which is the likeliest input in the
+       second after finishing -- found no session and painted the empty
+       state: "Quick Workout, 0 working sets, 0 kg, Nothing logged yet".
+       The work was not lost (it is in lk_lastSession, and Review still
+       holds it) but the screen said it was, which is worse than losing it
+       quietly. There is no workout here any more; Train is where one
+       starts, and it is this screen's declared parent. */
+    if (!(window.LKSession && LKSession.get())) { LKGo('train'); return; }
     applyState('mid-session');
     paint();
   });
@@ -47813,7 +48288,17 @@ DEMO.define("review", function (document, window, location, fetch) {
      makes the fixture's own "4266 kg" reproduce.)
      ------------------------------------------------------------------ */
 
-  var PRIOR = { name: 'Push', dateLabel: 'Sep 3', volumeKg: 4266 };
+  /* NO INVENTED PRIOR SESSION. This was a literal -- "Push, Sep 3, 4,266 kg"
+     -- and it is only replaced when the lifts carry a prior volume, which
+     needs the history read above. On the shipped build that read was dead,
+     so every reader saw a comparison against a workout nobody had done:
+     a first-ever session claimed "-3,786 kg, -88.7% against Push, Sep 3",
+     and a screen announcing a record beaten on Sep 7 sat directly above a
+     card denying the Sep 7 session existed.
+
+     Null means "nothing to compare against", and the card says that rather
+     than inventing a number. */
+  var PRIOR = null;
 
   function lift(name, tw, tr, tvol, pw, pr, pvol) {
     /* Rounded away from zero, so the five row deltas always sum to the
@@ -47860,7 +48345,12 @@ DEMO.define("review", function (document, window, location, fetch) {
       try { r = JSON.parse(raw); } catch (e) { return null; }
     }
     if (!r || !r.lifts || !r.lifts.length) return null;
-    var FX = window.LKFixtures;
+    /* The device's own history, not the fixture's. The product build ships
+       no fixtures, so FX was undefined on every real account and every lift
+       took the "no prior session" branch -- which left the comparison card
+       falling through to the hardcoded demo constant below and printing a
+       session that does not exist. */
+    var FX = window.LKHistory;
 
     var lifts = r.lifts.map(function (l) {
       /* The prior column is the last session that actually contains this
@@ -48200,6 +48690,20 @@ DEMO.define("review", function (document, window, location, fetch) {
   /* The comparison. The reason this screen exists: it is computed on
      the device from lk_history and needs no network. */
   function compare(d) {
+    /* Nothing to compare against is an answer. Without this the card
+       divided by a prior volume that no longer exists, and before PRIOR
+       was emptied it printed a fixture's session as the reader's own. */
+    if (!PRIOR || !PRIOR.volumeKg) {
+      return '' +
+        '<div class="section" data-testid="section-compare">' +
+          '<div class="section__head"><h2 class="t-label">Against last time</h2></div>' +
+          '<div class="card">' +
+            '<p class="t-body">This is the first time these lifts have been logged, so there is ' +
+              'nothing to measure today against yet.</p>' +
+            '<p class="t-detail quiet mt-2">Log them again and this card compares the two.</p>' +
+          '</div>' +
+        '</div>';
+    }
     var delta = d.volumeKg - PRIOR.volumeKg;
     var pct = (delta / PRIOR.volumeKg) * 100;
     var pctText = (delta >= 0 ? '+' : '−') + Math.abs(pct).toFixed(1) + '%';
@@ -49229,7 +49733,13 @@ DEMO.define("workout-detail", function (document, window, location, fetch) {
   function n(v) { return '<span class="num">' + v + '</span>'; }
   function group(v) { return v.toLocaleString('en-US'); }
 
-  var TODAY = '2026-09-09';
+  /* THE REAL TODAY. This was frozen at the fixture's date, so every
+     relative date on this screen was computed against 9 September 2026:
+     a session saved today read "-5 days ago" in its own header, and one
+     from a week back read "2 days ago". Train prints the same dates
+     correctly from its own clock, so the two screens disagreed about the
+     same session. Every other screen already reads the store's today. */
+  var TODAY = window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10);
   var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   function ms(iso) { var p = iso.split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]); }
   function daysAgo(iso) { return Math.round((ms(TODAY) - ms(iso)) / 86400000); }
@@ -50125,7 +50635,7 @@ DEMO.define("cycle", function (document, window, location, fetch) {
      so a build with no seed showed a reader in a different month "today" on
      the ring, and the bridge below stamped a date Fuel would read as stale
      on the day it was written. */
-  var TODAY = window.LKStore ? LKStore.today() : '2026-09-09';
+  var TODAY = window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10);
   var MON =['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var MONL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   var DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -53180,7 +53690,11 @@ DEMO.define("progress", function (document, window, location, fetch) {
           '<div class="spread">' +
             '<div class="stack stack--1 grow">' +
               '<span class="t-section">' + esc(lift.name) + '</span>' +
-              '<span class="t-meta">' + esc(lift.muscle) + '</span>' +
+              /* A history row that carries no muscle -- an imported one, or
+                 an older shape -- printed the literal word "undefined" on
+                 the first card of the screen. No muscle is not a muscle
+                 called undefined; the line is simply left out. */
+              (lift.muscle ? '<span class="t-meta">' + esc(lift.muscle) + '</span>' : '') +
             '</div>' +
             '<div class="stack stack--1" style="text-align: right">' +
               '<span class="stat__value" data-testid="trend-current">' + kg(cur[1]) + '</span>' +
@@ -55029,7 +55543,7 @@ DEMO.define("recap", function (document, window, location, fetch) {
   /* The wall clock, or the seed's date while a seed is loaded -- the same
      answer Home and Fuel get. Pinned to the seed's own day, a build with no
      seed opened this screen on a week in somebody else's September. */
-  var TODAY = window.LKStore ? LKStore.today() : '2026-09-09';
+  var TODAY = window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10);
   var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
@@ -55781,7 +56295,13 @@ DEMO.define("stack", function (document, window, location, fetch) {
 (function () {
   'use strict';
 
-  var TODAY = '2026-09-09';
+  /* THE REAL TODAY. This was frozen at the fixture's date, so every
+     relative date on this screen was computed against 9 September 2026:
+     a session saved today read "-5 days ago" in its own header, and one
+     from a week back read "2 days ago". Train prints the same dates
+     correctly from its own clock, so the two screens disagreed about the
+     same session. Every other screen already reads the store's today. */
+  var TODAY = window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10);
   var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   var ICO = {

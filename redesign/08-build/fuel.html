@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="components.css">
 <script src="theme.js"></script>
 <script src="fixtures.js"></script>
+<script src="food-table.js"></script>
 <script src="exercises.js"></script>
 <script src="store.js"></script>
 <script src="units.js"></script>
@@ -179,7 +180,28 @@
      and macro bars carrying 10 g of carbs and 14 g of fat that belonged to
      no meal on the list. */
   var FX = window.LKFixtures || {};
-  var NUT = FX.nutrition || { targets: {}, foods: {}, days: {}, trend: [] };
+  /* THE TABLE SHIPS; THE SEED DOES NOT. FX.nutrition carries both the
+     lookup table and one person's logged days, and the product build drops
+     the whole fixture -- correctly for the days, disastrously for the
+     table. Search returned nothing, every barcode read Not found, the
+     portion sheet could not be opened at all, and the sentence reader lost
+     the unit out of "200 g chicken". food-table.js is the reference half,
+     always shipped; the fixture still wins where it exists so the demo is
+     unchanged. */
+  var REF = window.LKFoodTable || {};
+  var FXN = FX.nutrition || {};
+  var NUT = {
+    targets:  FXN.targets  || REF.targets  || {},
+    microRef: FXN.microRef || REF.microRef || {},
+    unitG:    FXN.unitG    || REF.unitG    || {},
+    barcodes: FXN.barcodes || REF.barcodes || {},
+    foods:    FXN.foods    || REF.foods    || {},
+    /* Seed only. A build with none has no days and no trend, which is what
+       a person who has logged nothing actually has. */
+    days:        FXN.days || {},
+    trend:       FXN.trend || [],
+    trendSeries: FXN.trendSeries || []
+  };
   var FOODS = NUT.foods;
 
   /* The store is the truth once a person has touched anything; the fixture is
@@ -278,19 +300,30 @@
        own -- so one tick here silently deleted the data Home's
        "supplements due" windows are computed from. Only `taken` is this
        screen's to change. */
+    /* AND THE SHELF IS NOT REBUILT FROM THE DAY. This mapped DAY.supps
+       into lk_supplements, and DAY.supps is built from today's day record
+       -- so a supplement ADDED today was not in it, the map produced [],
+       and the whole shelf was deleted. Ticking one supplement, logging any
+       food, or adding a glass of water each wiped every supplement the
+       reader had, permanently. The day says which are TAKEN; it has no
+       opinion on which exist. */
     var kept = stored('lk_supplements', []) || [];
-    ST.set('lk_supplements', DAY.supps.map(function (sp, i) {
-      var was = kept[i] && kept[i].name === sp.name ? kept[i] : null;
-      if (!was) {
-        for (var j = 0; j < kept.length; j++) {
-          if (kept[j] && kept[j].name === sp.name) { was = kept[j]; break; }
-        }
+    if (!Array.isArray(kept)) kept = [];
+    var out = kept.map(function (k) {
+      var copy = {};
+      if (k) Object.keys(k).forEach(function (f) { copy[f] = k[f]; });
+      return copy;
+    });
+    (DAY.supps || []).forEach(function (sp) {
+      if (!sp || !sp.name) return;
+      var hit = null;
+      for (var j = 0; j < out.length; j++) {
+        if (out[j] && out[j].name === sp.name) { hit = out[j]; break; }
       }
-      var out = {};
-      if (was) Object.keys(was).forEach(function (k) { out[k] = was[k]; });
-      out.name = sp.name; out.dose = sp.dose; out.timeOf = sp.when; out.taken = sp.taken;
-      return out;
-    }));
+      if (!hit) { hit = { name: sp.name }; out.push(hit); }
+      hit.dose = sp.dose; hit.timeOf = sp.when; hit.taken = sp.taken;
+    });
+    ST.set('lk_supplements', out);
   }
 
   function saveTargetsTo(t) {
@@ -6727,12 +6760,20 @@
       /* An estimated row has no entry in the food table, so it carries no
          gram weight and must not be looked up in FOODS -- which is how a
          row read off a sentence used to throw on its own name. */
-      var meal = { key: it.est ? null : it.key, icon: it.icon,
-                   name: it.est
-                     ? it.name
-                     : it.name + (it.grams === FOODS[it.key].g ? '' : ', ' + n(it.grams) + ' g'),
+      /* THE TABLE ROW, IF THERE IS ONE. The guard was `it.est`, and a row
+         filled by the database lookup carries a key of its own that is not
+         in FOODS and no est flag -- so this read FOODS[key].g on nothing
+         and threw "Cannot read properties of undefined (reading 'g')".
+         Nothing was logged, the diary stayed empty and the hero did not
+         move, on the route a person takes by default: type what you ate,
+         press Log. */
+      var row = (!it.est && it.key) ? FOODS[it.key] : null;
+      var meal = { key: row ? it.key : null, icon: it.icon,
+                   name: row && it.grams !== row.g
+                     ? it.name + ', ' + n(it.grams) + ' g'
+                     : it.name,
                    kcal: it.kcal, pro: it.pro, carb: it.carb, fat: it.fat,
-                   src: 'estimate', slot: slot };
+                   src: it.est ? 'estimate' : (row ? 'table' : 'lookup'), slot: slot };
       MICROS.forEach(function (mi) {
         if (typeof it[mi.key] === 'number') meal[mi.key] = it[mi.key];
       });

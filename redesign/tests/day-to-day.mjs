@@ -128,6 +128,18 @@ ok(started === 'ok', "today's session starts", started);
 await page.waitForTimeout(900);
 ok((await shown()) === 'workout-log', 'the log opens', await shown());
 
+/* LAST SESSION'S NUMBERS ARE THERE TO BEAT. lastSetsFor read LKFixtures,
+   and the product build ships none, so on every real account the pad
+   opened at 0, every row read ----, the info sheet denied the lift had
+   ever been done, and Suggest proposed a beginner's load to somebody with
+   a standing record. The fixture's history seeds a prior Push. */
+const planned = await raw('lk_liveSessionRows');
+const firstSet = planned && planned.exercises && planned.exercises[0] &&
+                 planned.exercises[0].sets && planned.exercises[0].sets[0];
+ok(!!firstSet && firstSet.prevKg === 60 && firstSet.prevReps === 8,
+   "the first set carries last session's load to beat",
+   JSON.stringify(firstSet ? { prevKg: firstSet.prevKg, prevReps: firstSet.prevReps } : null));
+
 const cell = await tap('cell-0-0-weight');
 ok(cell === 'ok', 'a weight cell opens', cell);
 await page.waitForTimeout(350);
@@ -155,6 +167,13 @@ errs.length = 0;
 ok((await tap('btn-finish')) === 'ok', 'the session finishes');
 await page.waitForTimeout(1000);
 ok((await shown()) === 'review', 'review opens with it', await shown());
+/* AND IT COMPARES AGAINST A SESSION THAT HAPPENED. The card fell through
+   to a hardcoded "Push, Sep 3, 4,266 kg" -- a workout in no history --
+   and printed it as the reader's own, directly under a record card
+   correctly naming the real previous session. */
+const reviewText = await text('review');
+ok(!/Sep 3|4,266/.test(reviewText),
+   'and compares against no invented session', reviewText.slice(0, 120));
 /* action-save only. Accepting action-done as a fallback hid the fact that
    the bar was still showing the PREVIOUS session's "Saved to history". */
 const saved = await tap('action-save');

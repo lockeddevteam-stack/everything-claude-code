@@ -808,9 +808,33 @@
   /* Counted from the catalogue and the history. It was { total: 227,
      logged: 46 } -- neither figure appears anywhere else in the app, and the
      library screen the row leads to says 867. */
-  var LIBRARY = (window.LKFixtures && LKFixtures.library)
-    ? { total: LKFixtures.library.total, logged: LKFixtures.library.logged }
-    : { total: 0, logged: 0 };
+  /* COUNTED, NOT SEEDED. The fallback was { total: 0, logged: 0 } and the
+     product build ships no fixtures, so every real account read
+     "Exercise library - 0 of 0 logged" while the screen the row leads to
+     said 866. Both halves are countable here: the catalogue knows its own
+     size, and history knows which lifts have been done. */
+  var LIBRARY = (function () {
+    var total = 0, logged = 0;
+    try {
+      if (window.LKExercises && LKExercises.count) total = LKExercises.count();
+      var mine = (window.LKStore ? LKStore.get('lk_customEx', null) : null) || [];
+      if (Array.isArray(mine)) total += mine.length;
+    } catch (e) {}
+    try {
+      var seen = {}, h = (window.LKStore ? LKStore.get('lk_history', null) : null) || [];
+      if (Array.isArray(h)) {
+        h.forEach(function (w) {
+          if (!w || !Array.isArray(w.exercises)) return;
+          w.exercises.forEach(function (ex) { if (ex && ex.id != null) seen[ex.id] = true; });
+        });
+      }
+      logged = Object.keys(seen).length;
+    } catch (e) {}
+    if (!total && window.LKFixtures && LKFixtures.library) {
+      total = LKFixtures.library.total; logged = LKFixtures.library.logged;
+    }
+    return { total: total, logged: logged };
+  }());
 
   /* =============================================================
      State

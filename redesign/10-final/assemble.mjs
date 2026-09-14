@@ -79,7 +79,7 @@ const MANIFEST = {
        'session.js',
        /* the seed, and only in the demo */
        ...(PROD ? [] : ['fixtures.js']),
-       'exercises.js', 'store.js', 'units.js',
+       'exercises.js', 'food-table.js', 'store.js', 'units.js',
        'cloud-config.js', 'cloud.js', 'coach-actions.js',
        'tutor-steps.js', 'tutor.js'],
 
