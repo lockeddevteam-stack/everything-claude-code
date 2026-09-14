@@ -245,6 +245,15 @@
       if (!API.ready()) return Promise.resolve(NOT_READY);
       return post(cfg().supabaseUrl + '/auth/v1/recover', { email: email });
     },
+    /* A confirmation email that never arrived is the one thing between
+       somebody and an account they have already made, and the only way
+       back in. It is its own endpoint, not a second sign-up: signing up
+       again with the same address is an error, not a resend. */
+    resend: function (email) {
+      if (!API.ready()) return Promise.resolve(NOT_READY);
+      return post(cfg().supabaseUrl + '/auth/v1/resend', { type: 'signup', email: email });
+    },
+
     signOut: function () {
       /* Local first, always. A sign-out that fails on the network and
          leaves somebody signed in on a shared phone is the wrong way

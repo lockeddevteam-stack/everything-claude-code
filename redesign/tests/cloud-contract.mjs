@@ -68,6 +68,10 @@ const server = http.createServer(async (req, res) => {
                        user: { id: UID, email: json.email } });
   }
   if (url.pathname === '/auth/v1/logout') return send(204, {});
+  if (url.pathname === '/auth/v1/resend') {
+    if (json.type !== 'signup' || !json.email) return send(422, { msg: 'Bad resend' });
+    return send(200, {});
+  }
   if (url.pathname === '/auth/v1/user' && req.method === 'PUT') {
     if (!signedIn) return send(401, { msg: 'not signed in' });
     if (String(json.password || '').length < 8) return send(422, { msg: 'Password too short' });
@@ -171,6 +175,12 @@ r = await C.signIn('ada@example.com', 'right');
 ok(r.ok && C.signedIn(), 'a right password signs in');
 ok(C.user() && C.user().email === 'ada@example.com', 'the signed-in person is readable');
 const authed = seen.filter(s => s.path === '/rest/v1/user_data' || s.path === '/rest/v1/rpc/store_push');
+
+/* ---- 3a. the confirmation that never arrived ------------------------- */
+let rs = await C.resend('ada@example.com');
+ok(rs.ok, 'a confirmation can be sent again', rs.message);
+const rsSent = seen.filter(function (x) { return x.path === '/auth/v1/resend'; }).pop();
+ok(rsSent.body.type === 'signup', 'as a resend, not as a second sign-up', rsSent.body.type);
 
 /* ---- 3b. changing a password is the account's business --------------- */
 let cp = await C.changePassword('wrong', 'a-good-long-one');

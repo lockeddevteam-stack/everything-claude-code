@@ -2199,21 +2199,41 @@
     });
   }
 
-  /* BOOT SELF-HEAL (F-SYS-010). If notifications are allowed and the push
-     subscription is gone, it needs resubscribing -- and resubscribing needs
-     a VAPID key and a subscriptions table, neither of which exists. So this
-     finds out and says so once, where the person can act on it, rather than
-     silently doing nothing or silently claiming a reminder will arrive. */
+  /* BOOT SELF-HEAL (F-SYS-010). A push subscription can be dropped by the
+     browser without telling anybody -- storage cleared, the worker
+     replaced, the vendor rotating endpoints -- and the app goes on showing
+     switches that are on while nothing will ever arrive.
+
+     So: if notifications are allowed and the subscription is gone, this
+     puts it back. It only heals what the person already asked for --
+     lk_notifOn off means they turned reminders off, and re-subscribing
+     them would be the app overruling that. When there is no endpoint to
+     subscribe to, or the attempt fails, it says so once where the person
+     can act on it rather than silently claiming a reminder will arrive. */
   function healPush() {
     try {
       if (!('Notification' in window) || Notification.permission !== 'granted') return;
       if (!navigator.serviceWorker || !navigator.serviceWorker.getRegistration) return;
+      var wanted = true;
+      try { wanted = localStorage.getItem('lk_notifOn') !== 'false'; } catch (e) {}
       navigator.serviceWorker.getRegistration().then(function (reg) {
         if (!reg || !reg.pushManager) return;
         reg.pushManager.getSubscription().then(function (sub) {
           if (sub) return;
-          S.pushLost = true;
-          if (S.screen === 'overview') renderOverview();
+          var C = CLOUD();
+          if (!wanted || !C || !C.reminders || !C.reminders.supported() || !serverReady()) {
+            S.pushLost = true;
+            if (S.screen === 'overview') renderOverview();
+            return;
+          }
+          C.reminders.subscribe().then(function (r) {
+            if (r && r.ok) return;          /* healed, and quietly: nothing was broken for them */
+            S.pushLost = true;
+            if (S.screen === 'overview') renderOverview();
+          }, function () {
+            S.pushLost = true;
+            if (S.screen === 'overview') renderOverview();
+          });
         }, function () {});
       }, function () {});
     } catch (e) {}

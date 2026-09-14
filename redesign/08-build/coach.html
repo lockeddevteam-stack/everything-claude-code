@@ -2780,6 +2780,13 @@
       var pr = store() ? store().get("lk_profile", null) : null;
       if (pr) ctx.profile = { name: pr.name, unit: pr.unit };
     }
+    /* THE PERSONA HAS TO REACH THE MODEL OR IT IS A RADIO GROUP. Seven
+       styles were pickable, described and stored, and none of them
+       changed a word of any answer, because nothing carried them past
+       this screen. Each style's fourth field is the sentence written for
+       exactly this. */
+    var st = styleRow(S.setup.style);
+    if (st && st[3]) ctx.style = st[3];
     if (S.setup.instructions && S.setup.instructions.trim()) ctx.instructions = S.setup.instructions;
     if (S.setup.memoryOn && S.setup.memory && S.setup.memory.length) {
       ctx.memory = S.setup.memory.map(function (m) { return m.text || m; }).join('\n');
@@ -3487,25 +3494,58 @@
       render();
     },
     'iv-close': function () { closeInterview(); },
+    /* WRITTEN, NOT FILLED IN. This walked a four-step progress list at
+       nine hundred milliseconds a step -- "Reading your answers",
+       "Choosing a tone" -- while nothing read and nothing was chosen: the
+       result was a template with the six answers dropped into it. The
+       model writes it now when there is one, and the template is the
+       fallback rather than the whole thing. Either way the preview is
+       shown before anything is saved, and either way it can be edited. */
     'write': function () {
       S.interview.open = false;
       S.setup.status = 'loading';
       S.interview.writeStep = 0;
+      S.interview.wroteBy = null;
       render();
-      var i = 0;
-      function tick() {
+
+      function finish(text, by) {
         if (S.setup.status !== 'loading') return;
-        i += 1;
-        if (i < WRITE_STEPS.length) { S.interview.writeStep = i; render(); later(tick, 900); return; }
         S.setup.status = 'ready';
-        /* From the six answers, here, so the preview cannot contradict the
-           review step that produced it. */
-        S.interview.draft = draftInstructions(S.interview.answers);
+        S.interview.draft = text;
+        S.interview.wroteBy = by;
         S.interview.open = true;
         S.interview.phase = 'preview';
         render();
       }
-      later(tick, 900);
+
+      var C = window.LKCloud;
+      if (C && C.coachReady()) {
+        /* A real wait, so the progress list steps with the request rather
+           than on a timer that knows nothing about it. */
+        var beat = setInterval(function () {
+          if (S.setup.status !== 'loading') { clearInterval(beat); return; }
+          S.interview.writeStep = Math.min(S.interview.writeStep + 1, WRITE_STEPS.length - 1);
+          render();
+        }, 1100);
+        C.ask([{ role: 'user',
+                 content: 'Turn these answers into standing instructions for a training ' +
+                          'coach, written in the second person, at most 120 words, as plain ' +
+                          'sentences with no headings and no list. Say nothing the answers ' +
+                          'do not support. ' + JSON.stringify(S.interview.answers) }], {})
+          .then(function (r) {
+            clearInterval(beat);
+            var text = r && r.ok && r.data && String(r.data.reply || '').trim();
+            finish(text ? text.slice(0, 1200) : draftInstructions(S.interview.answers),
+                   text ? 'coach' : 'device');
+          }, function () {
+            clearInterval(beat);
+            finish(draftInstructions(S.interview.answers), 'device');
+          });
+        return;
+      }
+
+      /* No endpoint: the template, at once, with no pretence of thinking. */
+      finish(draftInstructions(S.interview.answers), 'device');
     },
     'write-again': function () { ACTS['write'](); },
     'iv-use': function () {
