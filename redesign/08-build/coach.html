@@ -448,8 +448,24 @@
     if (!Array.isArray(log)) log = clone(SEED_CHECKINS);
     log = log.map(normCheckin).filter(Boolean)
       .sort(function (a, b) { return (b.iso || '') < (a.iso || '') ? -1 : 1; });
+    /* A MEMORY THE SHIPPED APP SAVED IS A STRING, NOT A ROW. Live data
+       holds ["prefer beef over chicken...", "no fish"]; this screen reads
+       {text}. Unnormalised, S.setup.memory[0].text was undefined and
+       .replace threw while the opening suggestions were being built --
+       which aborted the render, so the dev toggle was never inserted
+       either and the next line failed on that instead. One crash, two
+       messages, and Coach would not open at all.
+
+       Anything that is not a usable row is dropped rather than guessed
+       at; a string becomes the row it was always meant to be. */
     var mem = rd('lk_coachMemory', null);
     if (!Array.isArray(mem)) mem = clone(SEED_MEMORY);
+    mem = mem.map(function (m) {
+      if (typeof m === 'string') return { text: m };
+      if (m && typeof m === 'object' && typeof m.text === 'string') return m;
+      if (m && typeof m === 'object' && typeof m.note === 'string') return { text: m.note };
+      return null;
+    }).filter(Boolean);
     var plan = normPlan(rd('lk_coachPlan', null));
     if (!plan) plan = clone(SEED_PLAN);
 
@@ -3220,10 +3236,10 @@
     /* These leave the screen. They used to toast "Opening this lift in
        Progress." and stay put. In the demo the router takes them first, by
        the same selectors; each destination is declared in MANIFEST.nav. */
-    'target': function () { location.href = 'progress.html'; },
-    'open-split': function () { location.href = 'split-builder.html'; },
+    'target': function () { LKGo('progress'); },
+    'open-split': function () { LKGo('split-builder'); },
     'start': function () {
-      location.href = 'train.html';
+      LKGo('train');
       return;
     },
     'bind': function () { S.modal = 'bind'; render(); },
@@ -3242,7 +3258,7 @@
          was undeclared and the raw location.href left for a file that is not
          beside locked-demo.html: the whole demo gone in one tap. */
       toast(S.plan.data.name + ' runs on ' + sp.name + '. ' + sp.days[0] + ' is next.', 'Open in Train', function () {
-        location.href = 'train.html';
+        LKGo('train');
       }, 'toast-open-train');
     },
     'delete': function () { S.modal = 'delete'; render(); },
@@ -3993,7 +4009,7 @@
     }, 1000);
     document.addEventListener('click', function (e) {
       var el = e.target.closest ? e.target.closest('[data-testid="shelf-resume"]') : null;
-      if (el) { e.preventDefault(); location.href = 'workout-log.html'; }
+      if (el) { e.preventDefault(); LKGo('workout-log'); }
     });
   }
 

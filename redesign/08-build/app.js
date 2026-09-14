@@ -706,3 +706,34 @@
 
   global.LKSpring = { to: to, rubberBand: rubberBand, presets: PRESETS };
 })(typeof window !== 'undefined' ? window : this);
+
+/* ===================================================================
+   LEAVING A SCREEN, FROM CODE RATHER THAN FROM A TAP.
+
+   The demo shell intercepts CLICKS on declared crossings, so a button
+   that navigates never reaches its own handler and the router moves the
+   route instead. Anything that navigates without a click escapes that:
+   sign-in finishes asynchronously and then ran
+   `location.href = 'home.html'`, which in the single-file build is a
+   real navigation to a file that is not there. The host answered 404 and
+   the app was gone -- immediately after signing in, which is the worst
+   possible moment.
+
+   LKGo asks the shell first and only falls back to the file when there
+   is no shell, which is how the standalone screens still work when
+   opened straight from disk.
+   =================================================================== */
+(function (g) {
+  g.LKGo = function (id) {
+    if (!id) return;
+    var D = g.DEMO;
+    if (D && D.screens && D.screens[id]) {
+      try {
+        var rec = D.screens[id];
+        if (rec.tab && typeof D.go === 'function') { D.go(rec.tab); return; }
+        if (typeof D.push === 'function') { D.push(id); return; }
+      } catch (e) { /* fall through to the file */ }
+    }
+    try { g.location.href = id + '.html'; } catch (e) {}
+  };
+}(typeof window !== 'undefined' ? window : this));

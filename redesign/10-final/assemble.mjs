@@ -1156,10 +1156,13 @@ function build() {
      nothing declared to look at. This one reads the screens themselves. */
   for (const s of screens) {
     const src = s.scripts.join('\n');
-    const re = /location\.href\s*=\s*['"]([A-Za-z0-9_-]+)\.html['"]/g;
+    /* Both spellings: the old direct navigation, and LKGo, which is what
+       a programmatic crossing uses now. The check is about whether the
+       crossing is declared, not about how it is spelled. */
+    const re = /(?:location\.href\s*=\s*['"]([A-Za-z0-9_-]+)\.html['"]|LKGo\(\s*['"]([A-Za-z0-9_-]+)['"]\s*\))/g;
     let m;
     while ((m = re.exec(src))) {
-      const to = m[1];
+      const to = m[1] || m[2];
       if (!screenIds.has(to)) continue;          /* leaves the build entirely */
       const pushed = MANIFEST.pushed[s.id];
       /* A pushed screen going back to its parent is claimed by its
@@ -1214,7 +1217,7 @@ function build() {
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>${PROD ? 'LOCKED' : 'LOCKED demo'}</title>
 <!-- Installable, and it says what it is on the home screen. None of this
      existed: a web app with no manifest and no apple metas installs as a

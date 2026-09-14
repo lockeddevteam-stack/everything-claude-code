@@ -429,6 +429,19 @@
        written to be a no-op against data it has already converted, which
        is a property they needed anyway because a half-finished boot runs
        them twice. */
+    /* The corrective passes, by number: 5 names records and split days,
+       8 flattens a fuel day's buckets, 10 turns a saved memory string
+       into the row Coach reads. Each returns quietly when there is
+       nothing to do. */
+    repair: function () {
+      var ran = [];
+      [4, 7, 9].forEach(function (i) {
+        try { if (MIGRATIONS[i] && MIGRATIONS[i](API) === true) ran.push(i + 1); }
+        catch (e) {}
+      });
+      return ran;
+    },
+
     remigrate: function () {
       var r = runFrom(0);
       API.set(SCHEMA_KEY, r.mark);
@@ -718,6 +731,23 @@
       var byId = {};
       cat.forEach(function (e) { byId[e.id] = e; });
 
+      /* THE LIFTS SOMEBODY INVENTED ARE STILL THEIR LIFTS. A custom
+         exercise lives in lk_customEx under an id of its own -- 96029,
+         96914, nothing near the catalogue's range -- so naming from the
+         catalogue alone left every record on a custom lift blank. On a
+         real account that was four of the top six personal records
+         showing a weight and no name at all.
+
+         Read second, so the catalogue wins a collision. */
+      var mine = ST.get('lk_customEx', null);
+      if (Array.isArray(mine)) {
+        mine.forEach(function (e) {
+          if (!e || e.id == null || byId[e.id]) return;
+          byId[e.id] = { id: e.id, name: e.name || '', group: e.group || '',
+                         muscle: e.muscle || '' };
+        });
+      }
+
       function isoDate(d) {
         var t = String(d || '');
         if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
@@ -874,7 +904,39 @@
       if (!did) return false;
       ST.set('lk_fuelLog', log);
       return true;
+    },
+
+    /* 9 — THE NAMING PASS, AGAIN, NOW THAT IT KNOWS ABOUT CUSTOM LIFTS.
+
+       Migration 5 resolves names, and on devices that had already run it
+       the marker said done -- so the fix above, which teaches it to read
+       lk_customEx, would never reach the accounts that needed it. A
+       shipped migration is not rewritten; a new one runs the corrected
+       pass. It is the same function, and it is idempotent, so a device
+       that is already named pays nothing. */
+    function (ST) { return MIGRATIONS[4](ST); },
+
+    /* 10 — A SAVED MEMORY IS A ROW, NOT A STRING.
+
+       The shipped app stores lk_coachMemory as plain strings. Coach reads
+       {text}, so the first one it tried to quote threw and the screen
+       would not open. Normalised here as well as on the read, so the
+       stored shape stops being wrong rather than being worked around
+       forever. Idempotent: a row already shaped right is untouched. */
+    function (ST) {
+      if (!ST.touched('lk_coachMemory')) return false;
+      var mem = ST.get('lk_coachMemory', null);
+      if (!Array.isArray(mem) || !mem.length) return false;
+      var did = false;
+      var out = mem.map(function (m) {
+        if (typeof m === 'string') { did = true; return { text: m }; }
+        return m;
+      }).filter(function (m) { return m && typeof m.text === 'string'; });
+      if (!did) return false;
+      ST.set('lk_coachMemory', out);
+      return true;
     }
+
   ];
 
   function clone(v) {
@@ -898,4 +960,19 @@
      screen to remember to call it is a migration that does not run on the
      screen that forgot. */
   try { API.migrate(); } catch (e) {}
+  /* AND THE REPAIRS, WHICH ARE NOT GATED ON THE MARKER.
+
+     A numbered migration is a one-time structural conversion, and the
+     marker is right to stop it running twice. Three of these are not
+     that: they are corrections, and a phone can arrive already past
+     their number and still holding the shape they fix -- which is
+     exactly what happened. A build shipped a naming pass that did not
+     know about custom exercises, stamped the marker, and every later
+     build was then forbidden from repairing what it had left blank.
+
+     These three are cheap, idempotent, and read nothing they do not
+     already own, so running them on every boot costs a few milliseconds
+     and closes that trap for good. Anything structural still belongs in
+     MIGRATIONS. */
+  try { API.repair(); } catch (e) {}
 })(typeof window !== 'undefined' ? window : this);

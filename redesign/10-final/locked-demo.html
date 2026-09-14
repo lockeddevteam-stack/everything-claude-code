@@ -2,7 +2,7 @@
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>LOCKED demo</title>
 <!-- Installable, and it says what it is on the home screen. None of this
      existed: a web app with no manifest and no apple metas installs as a
@@ -664,7 +664,27 @@ button:disabled, [aria-disabled="true"] {
 
 /* Nothing on any screen scrolls sideways. Wide content scrolls inside its
    own container, which sets that for itself. */
-body { overflow-x: hidden; }
+/* IT SHOULD FEEL LIKE AN APP, NOT A PAGE. Three things gave it away on
+   a real phone: pinch-zoom, sideways drift when a row was a pixel too
+   wide, and the rubber-band bounce past the top and bottom. The viewport
+   tag turns off the first; these turn off the other two.
+
+   Scrolling inside the app is untouched -- the panes, the sheets and the
+   few deliberately horizontal strips still scroll. This stops the
+   DOCUMENT moving, which is the part that reads as a web page. */
+html, body {
+  overflow-x: hidden;
+  overscroll-behavior: none;
+}
+body {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  /* a double-tap should not zoom, and a tap should not wait 300ms to
+     find out whether it was one */
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -3243,10 +3263,27 @@ button.card:active { background: var(--fill-press); }
   letter-spacing: var(--tr-large-title);
   font-weight: var(--w-bold);
   font-variant-numeric: tabular-nums;
+  /* A NUMBER IS ONE WORD. On a 393pt phone the side column's "needs two
+     weigh-ins five days apart" was long, the side was flex:none so it
+     never gave any width back, and the hero squeezed until 2,170 broke
+     across two lines as "2,1 / 70". A figure split mid-digit is not a
+     figure. */
+  white-space: nowrap;
 }
 /* Weight sits right-aligned so its digits line up with the screen
    edge rather than with a number of a different size beside them. */
-.fuel-hero__side { flex: none; text-align: right; align-items: flex-end; }
+/* The side gives width back rather than taking it. flex:none meant the
+   longest sentence on the screen set the column width and the number
+   paid for it. */
+.fuel-hero__side {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 46%;
+  text-align: right;
+  align-items: flex-end;
+}
+/* and the number's own column may shrink its caption instead of pushing */
+.fuel-hero > .stack { min-width: 0; flex: 1 1 auto; }
 
 /* --- The log control -----------------------------------------------------
    One accent, two halves. Voice and camera are the same job done two ways,
@@ -5214,6 +5251,37 @@ button.shelf:active { background: var(--fill-press); }
 
   global.LKSpring = { to: to, rubberBand: rubberBand, presets: PRESETS };
 })(typeof window !== 'undefined' ? window : this);
+
+/* ===================================================================
+   LEAVING A SCREEN, FROM CODE RATHER THAN FROM A TAP.
+
+   The demo shell intercepts CLICKS on declared crossings, so a button
+   that navigates never reaches its own handler and the router moves the
+   route instead. Anything that navigates without a click escapes that:
+   sign-in finishes asynchronously and then ran
+   `location.href = 'home.html'`, which in the single-file build is a
+   real navigation to a file that is not there. The host answered 404 and
+   the app was gone -- immediately after signing in, which is the worst
+   possible moment.
+
+   LKGo asks the shell first and only falls back to the file when there
+   is no shell, which is how the standalone screens still work when
+   opened straight from disk.
+   =================================================================== */
+(function (g) {
+  g.LKGo = function (id) {
+    if (!id) return;
+    var D = g.DEMO;
+    if (D && D.screens && D.screens[id]) {
+      try {
+        var rec = D.screens[id];
+        if (rec.tab && typeof D.go === 'function') { D.go(rec.tab); return; }
+        if (typeof D.push === 'function') { D.push(id); return; }
+      } catch (e) { /* fall through to the file */ }
+    }
+    try { g.location.href = id + '.html'; } catch (e) {}
+  };
+}(typeof window !== 'undefined' ? window : this));
 
 </script>
 <script>
@@ -12505,6 +12573,19 @@ button.shelf:active { background: var(--fill-press); }
        written to be a no-op against data it has already converted, which
        is a property they needed anyway because a half-finished boot runs
        them twice. */
+    /* The corrective passes, by number: 5 names records and split days,
+       8 flattens a fuel day's buckets, 10 turns a saved memory string
+       into the row Coach reads. Each returns quietly when there is
+       nothing to do. */
+    repair: function () {
+      var ran = [];
+      [4, 7, 9].forEach(function (i) {
+        try { if (MIGRATIONS[i] && MIGRATIONS[i](API) === true) ran.push(i + 1); }
+        catch (e) {}
+      });
+      return ran;
+    },
+
     remigrate: function () {
       var r = runFrom(0);
       API.set(SCHEMA_KEY, r.mark);
@@ -12794,6 +12875,23 @@ button.shelf:active { background: var(--fill-press); }
       var byId = {};
       cat.forEach(function (e) { byId[e.id] = e; });
 
+      /* THE LIFTS SOMEBODY INVENTED ARE STILL THEIR LIFTS. A custom
+         exercise lives in lk_customEx under an id of its own -- 96029,
+         96914, nothing near the catalogue's range -- so naming from the
+         catalogue alone left every record on a custom lift blank. On a
+         real account that was four of the top six personal records
+         showing a weight and no name at all.
+
+         Read second, so the catalogue wins a collision. */
+      var mine = ST.get('lk_customEx', null);
+      if (Array.isArray(mine)) {
+        mine.forEach(function (e) {
+          if (!e || e.id == null || byId[e.id]) return;
+          byId[e.id] = { id: e.id, name: e.name || '', group: e.group || '',
+                         muscle: e.muscle || '' };
+        });
+      }
+
       function isoDate(d) {
         var t = String(d || '');
         if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
@@ -12950,7 +13048,39 @@ button.shelf:active { background: var(--fill-press); }
       if (!did) return false;
       ST.set('lk_fuelLog', log);
       return true;
+    },
+
+    /* 9 — THE NAMING PASS, AGAIN, NOW THAT IT KNOWS ABOUT CUSTOM LIFTS.
+
+       Migration 5 resolves names, and on devices that had already run it
+       the marker said done -- so the fix above, which teaches it to read
+       lk_customEx, would never reach the accounts that needed it. A
+       shipped migration is not rewritten; a new one runs the corrected
+       pass. It is the same function, and it is idempotent, so a device
+       that is already named pays nothing. */
+    function (ST) { return MIGRATIONS[4](ST); },
+
+    /* 10 — A SAVED MEMORY IS A ROW, NOT A STRING.
+
+       The shipped app stores lk_coachMemory as plain strings. Coach reads
+       {text}, so the first one it tried to quote threw and the screen
+       would not open. Normalised here as well as on the read, so the
+       stored shape stops being wrong rather than being worked around
+       forever. Idempotent: a row already shaped right is untouched. */
+    function (ST) {
+      if (!ST.touched('lk_coachMemory')) return false;
+      var mem = ST.get('lk_coachMemory', null);
+      if (!Array.isArray(mem) || !mem.length) return false;
+      var did = false;
+      var out = mem.map(function (m) {
+        if (typeof m === 'string') { did = true; return { text: m }; }
+        return m;
+      }).filter(function (m) { return m && typeof m.text === 'string'; });
+      if (!did) return false;
+      ST.set('lk_coachMemory', out);
+      return true;
     }
+
   ];
 
   function clone(v) {
@@ -12974,6 +13104,21 @@ button.shelf:active { background: var(--fill-press); }
      screen to remember to call it is a migration that does not run on the
      screen that forgot. */
   try { API.migrate(); } catch (e) {}
+  /* AND THE REPAIRS, WHICH ARE NOT GATED ON THE MARKER.
+
+     A numbered migration is a one-time structural conversion, and the
+     marker is right to stop it running twice. Three of these are not
+     that: they are corrections, and a phone can arrive already past
+     their number and still holding the shape they fix -- which is
+     exactly what happened. A build shipped a naming pass that did not
+     know about custom exercises, stamped the marker, and every later
+     build was then forbidden from repairing what it had left blank.
+
+     These three are cheap, idempotent, and read nothing they do not
+     already own, so running them on every boot costs a few milliseconds
+     and closes that trap for good. Anything structural still belongs in
+     MIGRATIONS. */
+  try { API.repair(); } catch (e) {}
 })(typeof window !== 'undefined' ? window : this);
 
 </script>
@@ -22082,8 +22227,8 @@ DEMO.define("train", function (document, window, location, fetch) {
     /* WHICH day. The log opened its own seeded Push session whatever was
        pressed, so "Start Upper A" landed in a PPL - Push already 21 minutes
        in with 1,088 kg on it. The day is handed over by id. */
-    if (a === 'start-today') { handStartDay(todayDayKey()); location.href = 'workout-log.html'; return; }
-    if (a === 'start-day') { handStartDay(t.getAttribute('data-id') || ''); closeSheet(); location.href = 'workout-log.html'; return; }
+    if (a === 'start-today') { handStartDay(todayDayKey()); LKGo('workout-log'); return; }
+    if (a === 'start-day') { handStartDay(t.getAttribute('data-id') || ''); closeSheet(); LKGo('workout-log'); return; }
     /* WHICH split. Both of these opened the builder with no idea which split
        was meant, so "Edit split" and "New split" landed on the same thing. */
     if (a === 'del-split') {
@@ -22102,21 +22247,21 @@ DEMO.define("train", function (document, window, location, fetch) {
     }
     if (a === 'edit-split') {
       try { localStorage.setItem('lk_openSplit', t.getAttribute('data-id') || ''); } catch (err) {}
-      location.href = 'split-builder.html'; return;
+      LKGo('split-builder'); return;
     }
     if (a === 'new-split') {
       try {
         localStorage.setItem('lk_openSplit', t.getAttribute('data-mode') === 'draft' ? '__draft__' : '__new__');
       } catch (err) {}
-      location.href = 'split-builder.html'; return;
+      LKGo('split-builder'); return;
     }
-    if (a === 'open-library') { location.href = 'exercise-library.html'; return; }
+    if (a === 'open-library') { LKGo('exercise-library'); return; }
     if (a === 'open-session') {
       /* WHICH session. Every history row used to open the same hand-written
          workout-detail, so tapping any of the eighteen sessions showed one
          fixed Sep 5 Pull -- with lifts that appear in no session at all. */
       try { localStorage.setItem('lk_openWorkout', t.getAttribute('data-id') || ''); } catch (err) {}
-      location.href = 'workout-detail.html';
+      LKGo('workout-detail');
       return;
     }
   });
@@ -22247,7 +22392,7 @@ DEMO.define("train", function (document, window, location, fetch) {
       typeof LKPatch === 'function' ? LKPatch : null);
     document.addEventListener('click', function (e) {
       var el = e.target.closest ? e.target.closest('[data-testid="shelf-resume"]') : null;
-      if (el) { e.preventDefault(); location.href = 'workout-log.html'; }
+      if (el) { e.preventDefault(); LKGo('workout-log'); }
     });
   }
 
@@ -22756,7 +22901,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
      differently for that reason: 6 g of 30 is a shortfall, 4,100 mg of 2,400
      is an excess, and one bar style for both would say neither. */
   var MICROS = [
-    { key: 'fibre',  name: 'Fibre',         unit: 'g',  aim: 'more' },
+    { key: 'fibre',  name: 'Fiber',         unit: 'g',  aim: 'more' },
     { key: 'sugar',  name: 'Sugar',         unit: 'g',  aim: 'less' },
     { key: 'satfat', name: 'Saturated fat', unit: 'g',  aim: 'less' },
     { key: 'sodium', name: 'Sodium',        unit: 'mg', aim: 'less' }
@@ -24803,7 +24948,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     if (!S.microOpen) {
       return '<button class="btn btn--tertiary btn--block mt-2" type="button" data-action="micros" ' +
         'aria-expanded="false" data-testid="micros-toggle">' +
-        '<span class="btn__label">Fibre, sugar, saturated fat, sodium</span></button>';
+        '<span class="btn__label">Fiber, sugar, saturated fat, sodium</span></button>';
     }
     return '<button class="btn btn--tertiary btn--block mt-2" type="button" data-action="micros" ' +
         'aria-expanded="true" data-testid="micros-toggle">' +
@@ -24832,7 +24977,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
           '</div>';
         }).join('') +
         '<p class="t-caption-1 quiet mt-3" data-testid="micros-ref">' + (REF.scaled
-          ? 'Fibre at 14 g per 1,000 kcal, sugar and saturated fat at a tenth of the calories ' +
+          ? 'Fiber at 14 g per 1,000 kcal, sugar and saturated fat at a tenth of the calories ' +
             'each \u2014 so all three move with your ' + n(TARGETS.kcal) + ' kcal target. Sodium is ' +
             'a ceiling for a body rather than a share of a diet, so it does not.'
           : 'These are the stored references. With no calorie target set there is nothing to ' +
@@ -25968,7 +26113,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
               var tiles = [
                 ['Calories', n(av.kcal), 'kcal'], ['Protein', n(av.pro), 'g'],
                 ['Carbs', n(av.carb), 'g'], ['Fat', n(av.fat), 'g'],
-                ['Fibre', n(av.fibre), 'g'], ['Sodium', n(av.sodium), 'mg']
+                ['Fiber', n(av.fibre), 'g'], ['Sodium', n(av.sodium), 'mg']
               ];
               return '<h3 class="t-label mt-5">An average day</h3>' +
                 '<div class="card mt-2" data-testid="trend-averages">' +
@@ -27910,9 +28055,9 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     if (a === 'resume') {
       /* The shelf exists so a running session is not lost, and it was the one
          control on this screen that did nothing at all. */
-      location.href = 'workout-log.html'; return;
+      LKGo('workout-log'); return;
     }
-    if (a === 'stack') { location.href = 'stack.html'; return; }
+    if (a === 'stack') { LKGo('stack'); return; }
     if (a === 'recipes') { S.sheet = 'recipes'; S.recipeOpen = null; render(); return; }
     if (a === 'plan') { S.sheet = 'plan'; render(); return; }
     if (a === 'open-recipe') {
@@ -28084,7 +28229,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     if (a === 'more') {
       /* Standalone this is a page; in the demo the router takes the click
          first. It had no branch at all and was the screen's dead end. */
-      location.href = 'shopping.html'; return;
+      LKGo('shopping'); return;
     }
     if (a === 'close') { S.sheet = null; S.camOil = null; render(); return; }
     if (a === 'retry') { S.state = 'loading'; render(); setTimeout(function () { S.state = 'populated'; render(); }, 700); return; }
@@ -29512,8 +29657,24 @@ DEMO.define("coach", function (document, window, location, fetch) {
     if (!Array.isArray(log)) log = clone(SEED_CHECKINS);
     log = log.map(normCheckin).filter(Boolean)
       .sort(function (a, b) { return (b.iso || '') < (a.iso || '') ? -1 : 1; });
+    /* A MEMORY THE SHIPPED APP SAVED IS A STRING, NOT A ROW. Live data
+       holds ["prefer beef over chicken...", "no fish"]; this screen reads
+       {text}. Unnormalised, S.setup.memory[0].text was undefined and
+       .replace threw while the opening suggestions were being built --
+       which aborted the render, so the dev toggle was never inserted
+       either and the next line failed on that instead. One crash, two
+       messages, and Coach would not open at all.
+
+       Anything that is not a usable row is dropped rather than guessed
+       at; a string becomes the row it was always meant to be. */
     var mem = rd('lk_coachMemory', null);
     if (!Array.isArray(mem)) mem = clone(SEED_MEMORY);
+    mem = mem.map(function (m) {
+      if (typeof m === 'string') return { text: m };
+      if (m && typeof m === 'object' && typeof m.text === 'string') return m;
+      if (m && typeof m === 'object' && typeof m.note === 'string') return { text: m.note };
+      return null;
+    }).filter(Boolean);
     var plan = normPlan(rd('lk_coachPlan', null));
     if (!plan) plan = clone(SEED_PLAN);
 
@@ -32284,10 +32445,10 @@ DEMO.define("coach", function (document, window, location, fetch) {
     /* These leave the screen. They used to toast "Opening this lift in
        Progress." and stay put. In the demo the router takes them first, by
        the same selectors; each destination is declared in MANIFEST.nav. */
-    'target': function () { location.href = 'progress.html'; },
-    'open-split': function () { location.href = 'split-builder.html'; },
+    'target': function () { LKGo('progress'); },
+    'open-split': function () { LKGo('split-builder'); },
     'start': function () {
-      location.href = 'train.html';
+      LKGo('train');
       return;
     },
     'bind': function () { S.modal = 'bind'; render(); },
@@ -32306,7 +32467,7 @@ DEMO.define("coach", function (document, window, location, fetch) {
          was undeclared and the raw location.href left for a file that is not
          beside locked-demo.html: the whole demo gone in one tap. */
       toast(S.plan.data.name + ' runs on ' + sp.name + '. ' + sp.days[0] + ' is next.', 'Open in Train', function () {
-        location.href = 'train.html';
+        LKGo('train');
       }, 'toast-open-train');
     },
     'delete': function () { S.modal = 'delete'; render(); },
@@ -33057,7 +33218,7 @@ DEMO.define("coach", function (document, window, location, fetch) {
     }, 1000);
     document.addEventListener('click', function (e) {
       var el = e.target.closest ? e.target.closest('[data-testid="shelf-resume"]') : null;
-      if (el) { e.preventDefault(); location.href = 'workout-log.html'; }
+      if (el) { e.preventDefault(); LKGo('workout-log'); }
     });
   }
 
@@ -33522,8 +33683,8 @@ DEMO.define("profile", function (document, window, location, fetch) {
        holder, and Settings only worked because the demo's router took the
        click before this handler saw it. Standalone these are pages; in the
        demo the router still takes them first. */
-    if (a === 'settings') { location.href = 'settings.html'; return; }
-    if (a === 'signup' || a === 'start') { location.href = 'onboarding.html'; return; }
+    if (a === 'settings') { LKGo('settings'); return; }
+    if (a === 'signup' || a === 'start') { LKGo('onboarding'); return; }
   });
 
   var STATES = [
@@ -33587,7 +33748,7 @@ DEMO.define("profile", function (document, window, location, fetch) {
       typeof LKPatch === 'function' ? LKPatch : null);
     document.addEventListener('click', function (e) {
       var el = e.target.closest ? e.target.closest('[data-testid="shelf-resume"]') : null;
-      if (el) { e.preventDefault(); location.href = 'workout-log.html'; }
+      if (el) { e.preventDefault(); LKGo('workout-log'); }
     });
   }
 
@@ -34749,7 +34910,7 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
          Standalone the same click reaches this screen's own handler, which is
          now clean and navigates. */
       var b = document.querySelector('[data-testid="manual-back"]');
-      if (b) b.click(); else location.href = 'train.html';
+      if (b) b.click(); else LKGo('train');
     }, 450);
   }
 
@@ -35029,7 +35190,7 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
   var ACTIONS = {
     'manual-back': function () {
       if (S.manual.dirty) { S.modal = { type: 'leave' }; render(); return; }
-      location.href = 'train.html';
+      LKGo('train');
     },
     'close-modal': function () { S.modal = null; render(); },
     'edit-toggle': function () {
@@ -35497,7 +35658,7 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     }, 1000);
     document.addEventListener('click', function (e) {
       var el = e.target.closest ? e.target.closest('[data-testid="shelf-resume"]') : null;
-      if (el) { e.preventDefault(); location.href = 'workout-log.html'; }
+      if (el) { e.preventDefault(); LKGo('workout-log'); }
     });
   }
 
@@ -36214,7 +36375,7 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
     var b = document.querySelector('[data-testid="shelf-resume"]');
     if (b) { b.click(); return true; }
     if (/exercise-library\.html$/i.test(location.pathname)) {
-      location.href = 'workout-log.html';
+      LKGo('workout-log');
       return true;
     }
     return false;
@@ -37070,7 +37231,7 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
        this only at the library's top level; one group deep it steps back
        to the groups instead, which is what the reader expects of the
        same arrow in the same place. */
-    'library-exit': function () { location.href = 'train.html'; },
+    'library-exit': function () { LKGo('train'); },
 
     /* Switching between the list of groups and the body. The choice is
        remembered, because it is a preference about how a person reads
@@ -37488,7 +37649,7 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
       typeof LKPatch === 'function' ? LKPatch : null);
     document.addEventListener('click', function (e) {
       var el = e.target.closest ? e.target.closest('[data-testid="shelf-resume"]') : null;
-      if (el) { e.preventDefault(); location.href = 'workout-log.html'; }
+      if (el) { e.preventDefault(); LKGo('workout-log'); }
     });
   }
 
@@ -38053,7 +38214,7 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
     try { localStorage.removeItem('lk_guestMode'); } catch (e) {}
     loadEntitlement();
     if (C && typeof C.pull === 'function') C.pull();
-    if (hasApp()) { toast('Signed in.'); location.href = 'home.html'; return; }
+    if (hasApp()) { toast('Signed in.'); LKGo('home'); return; }
     S.step = 0;
     go('setup');
     toast('Signed in.');
@@ -39174,9 +39335,9 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
   function routeTarget(target) {
     var t = String(target || '').replace(/^[#/]+/, '').split('?')[0];
     if (PUSH_PANES[t]) { if (t === 'setup') S.step = 0; go(t); return true; }
-    if (t === 'home') { location.href = 'home.html'; return true; }
-    if (t === 'train') { location.href = 'train.html'; return true; }
-    if (t === 'workout' || t === 'workout-log' || t === 'session') { location.href = 'workout-log.html'; return true; }
+    if (t === 'home') { LKGo('home'); return true; }
+    if (t === 'train') { LKGo('train'); return true; }
+    if (t === 'workout' || t === 'workout-log' || t === 'session') { LKGo('workout-log'); return true; }
     toast('A notification asked for "' + t + '", which this screen cannot open.');
     return false;
   }
@@ -39315,7 +39476,7 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
       case 'welcome-signin': go('signin'); break;
       case 'welcome-install': doInstall(); break;
       case 'welcome-guest': go('guest'); break;
-      case 'welcome-back': location.href = 'home.html'; break;
+      case 'welcome-back': LKGo('home'); break;
       case 'welcome-legal': {
         S.legal = true; renderLegal();
         var lt = document.getElementById('lg-title');
@@ -39406,9 +39567,9 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
 
       case 'toast-dismiss': clearToast(); break;
 
-      case 'overview-start': location.href = 'workout-log.html'; break;
-      case 'overview-week': location.href = 'train.html'; break;
-      case 'overview-freestyle': location.href = 'workout-log.html'; break;
+      case 'overview-start': LKGo('workout-log'); break;
+      case 'overview-week': LKGo('train'); break;
+      case 'overview-freestyle': LKGo('workout-log'); break;
       case 'overview-finish-setup': S.step = 0; go('setup'); break;
       case 'overview-retry': go('overview', 'loading'); window.setTimeout(function () { go('overview', 'populated'); }, 1100); break;
 
@@ -41583,7 +41744,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
       /* Standalone this is a page; in the demo the router takes the click
          first. The button carried no data-action at all, so on disk it was
          a visible, enabled control with nothing behind it. */
-      location.href = 'profile.html';
+      LKGo('profile');
 
     } else if (a === 'sheet') {
       openOverlay('sheet', t.dataset.key);
@@ -41726,12 +41887,12 @@ DEMO.define("settings", function (document, window, location, fetch) {
       syncNow();
 
     } else if (a === 'tutorial') {
-      location.href = 'tutorial.html';
+      LKGo('tutorial');
     } else if (a === 'tutorial-tour') {
       /* Straight to the hub rather than through the quick start's intro,
          because somebody who chose the full tour has already decided. */
       try { sessionStorage.setItem('lk_tutorialOpen', 'hub'); } catch (e) {}
-      location.href = 'tutorial.html';
+      LKGo('tutorial');
     } else if (a === 'export') {
       exportBackup();
 
@@ -41747,7 +41908,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
     } else if (a === 'create-account' || a === 'sign-in') {
       /* Both were toasts announcing a screen that exists. Onboarding holds
          sign-in and account creation, so they go there. */
-      location.href = 'onboarding.html';
+      LKGo('onboarding');
 
     } else if (a.indexOf('confirm-') === 0 && a !== 'confirm') {
       openOverlay('dialog', a.slice(8));
@@ -41990,7 +42151,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
       typeof LKPatch === 'function' ? LKPatch : null);
     document.addEventListener('click', function (e) {
       var el = e.target.closest ? e.target.closest('[data-testid="shelf-resume"]') : null;
-      if (el) { e.preventDefault(); location.href = 'workout-log.html'; }
+      if (el) { e.preventDefault(); LKGo('workout-log'); }
     });
   }
 
@@ -44086,7 +44247,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
         S.over = true;
         handOff();
         if (window.LKSession) LKSession.end();
-        location.href = 'review.html';
+        LKGo('review');
         break;
 
       /* ---- rest ---- */
@@ -44234,7 +44395,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
         S.over = true;
         handOff();
         if (window.LKSession) LKSession.end();
-        location.href = 'review.html';
+        LKGo('review');
         return;
       }
       case 'addex-all': { S.addexAll = true; S.addexN = ADDEX_PAGE; break; }
@@ -46969,7 +47130,7 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     /* Standalone the back button is a page navigation; in the demo the router
        takes the click first. It used to be an empty function, so on disk the
        control was visible, enabled and inert. */
-    back:  function () { location.href = 'fuel.html'; },
+    back:  function () { LKGo('fuel'); },
     retry: function () {
       S.state = 'loading'; render();
       setTimeout(function () { S.state = 'populated'; render(); }, 700);
@@ -47248,7 +47409,7 @@ DEMO.define("shopping", function (document, window, location, fetch) {
       typeof LKPatch === 'function' ? LKPatch : null);
     document.addEventListener('click', function (e) {
       var el = e.target.closest ? e.target.closest('[data-testid="shelf-resume"]') : null;
-      if (el) { e.preventDefault(); location.href = 'workout-log.html'; }
+      if (el) { e.preventDefault(); LKGo('workout-log'); }
     });
   }
 
@@ -48564,7 +48725,7 @@ DEMO.define("review", function (document, window, location, fetch) {
         setTimeout(function () { if (S.view === 'loading') show('record'); }, 900);
         return;
       case 'action-done':
-        location.href = 'home.html';
+        LKGo('home');
         return;
 
       case 'action-back':
@@ -48656,7 +48817,7 @@ DEMO.define("review", function (document, window, location, fetch) {
       typeof LKPatch === 'function' ? LKPatch : null);
     document.addEventListener('click', function (e) {
       var el = e.target.closest ? e.target.closest('[data-testid="shelf-resume"]') : null;
-      if (el) { e.preventDefault(); location.href = 'workout-log.html'; }
+      if (el) { e.preventDefault(); LKGo('workout-log'); }
     });
   }
 
@@ -49235,7 +49396,7 @@ DEMO.define("workout-detail", function (document, window, location, fetch) {
 
     /* These leave the screen. In the demo the router takes the click first;
        each destination is declared in MANIFEST.nav. */
-    if (a === 'back') { location.href = 'train.html'; return; }
+    if (a === 'back') { LKGo('train'); return; }
     /* Repeat now HANDS THE SESSION OVER. It opened the workout log, which
        built today's Push day from the split whatever you had been reading,
        so "Do this session again" reliably started a different session. The
@@ -49251,7 +49412,7 @@ DEMO.define("workout-detail", function (document, window, location, fetch) {
           })
         });
       }
-      location.href = 'workout-log.html';
+      LKGo('workout-log');
       return;
     }
     if (a === 'edit') {
@@ -49545,7 +49706,7 @@ DEMO.define("workout-detail", function (document, window, location, fetch) {
       typeof LKPatch === 'function' ? LKPatch : null);
     document.addEventListener('click', function (e) {
       var el = e.target.closest ? e.target.closest('[data-testid="shelf-resume"]') : null;
-      if (el) { e.preventDefault(); location.href = 'workout-log.html'; }
+      if (el) { e.preventDefault(); LKGo('workout-log'); }
     });
   }
 
@@ -51473,9 +51634,9 @@ DEMO.define("cycle", function (document, window, location, fetch) {
     if (!t) return;
     var a = t.getAttribute('data-act');
 
-    if (a === 'back') { location.href = 'home.html'; return; }
-    if (a === 'open-settings') { location.href = 'settings.html'; return; }
-    if (a === 'open-train') { location.href = 'train.html'; return; }
+    if (a === 'back') { LKGo('home'); return; }
+    if (a === 'open-settings') { LKGo('settings'); return; }
+    if (a === 'open-train') { LKGo('train'); return; }
     if (a === 'close') { S.sheet = null; S.draft = null; S.setupError = null; S.reveal = false; render(); return; }
     if (a === 'close-dialog') { S.dialog = null; render(); return; }
     if (a === 'settings') { S.sheet = 'settings'; S.setupError = null; render(); return; }
@@ -51907,7 +52068,7 @@ DEMO.define("cycle", function (document, window, location, fetch) {
       typeof LKPatch === 'function' ? LKPatch : null);
     document.addEventListener('click', function (e) {
       var el = e.target.closest ? e.target.closest('[data-testid="shelf-resume"]') : null;
-      if (el) { e.preventDefault(); location.href = 'workout-log.html'; }
+      if (el) { e.preventDefault(); LKGo('workout-log'); }
     });
   }
 
@@ -54065,7 +54226,7 @@ DEMO.define("progress", function (document, window, location, fetch) {
     var t = e.target.closest('[data-action]');
     if (!t) return;
     var a = t.dataset.action;
-    if (a === 'progress-back') { location.href = 'home.html'; return; }
+    if (a === 'progress-back') { LKGo('home'); return; }
     if (a === 'range') {
       S.range = t.dataset.range;
       render();
@@ -54201,7 +54362,7 @@ DEMO.define("progress", function (document, window, location, fetch) {
       /* Standalone this is a page; in the demo the router takes the click
          before this runs. Either way the empty state's one call to action
          now leads somewhere -- it was rendered with no branch behind it. */
-      location.href = 'train.html';
+      LKGo('train');
     } else if (a === 'dismiss-toast') {
       S.toast = null; render();
     } else if (a === 'retry' || a === 'show-cached') {
@@ -54439,7 +54600,7 @@ DEMO.define("progress", function (document, window, location, fetch) {
       typeof LKPatch === 'function' ? LKPatch : null);
     document.addEventListener('click', function (e) {
       var el = e.target.closest ? e.target.closest('[data-testid="shelf-resume"]') : null;
-      if (el) { e.preventDefault(); location.href = 'workout-log.html'; }
+      if (el) { e.preventDefault(); LKGo('workout-log'); }
     });
   }
 
@@ -55112,7 +55273,7 @@ DEMO.define("recap", function (document, window, location, fetch) {
     if (!t || t.disabled) return;
     var a = t.getAttribute('data-action');
 
-    if (a === 'back') { location.href = 'home.html'; return; }
+    if (a === 'back') { LKGo('home'); return; }
     if (a === 'scale') {
       S.scale = t.getAttribute('data-scale');
       render({ scrollTop: true });
@@ -55140,7 +55301,7 @@ DEMO.define("recap", function (document, window, location, fetch) {
     if (a === 'open-session') {
       /* WHICH session. Every row here opened the same hand-written detail. */
       try { localStorage.setItem('lk_openWorkout', t.getAttribute('data-id') || ''); } catch (err) {}
-      location.href = 'workout-detail.html'; return;
+      LKGo('workout-detail'); return;
     }
     if (a === 'close') { S.sheet = null; render(); return; }
     if (a === 'retry') {
@@ -55187,7 +55348,7 @@ DEMO.define("recap", function (document, window, location, fetch) {
       typeof LKPatch === 'function' ? LKPatch : null);
     document.addEventListener('click', function (e) {
       var el = e.target.closest ? e.target.closest('[data-testid="shelf-resume"]') : null;
-      if (el) { e.preventDefault(); location.href = 'workout-log.html'; }
+      if (el) { e.preventDefault(); LKGo('workout-log'); }
     });
   }
 
@@ -55918,7 +56079,7 @@ DEMO.define("stack", function (document, window, location, fetch) {
     var c = cur();
 
     if (a === 'back') {
-      if (S.view === 'list') { location.href = 'fuel.html'; return; }
+      if (S.view === 'list') { LKGo('fuel'); return; }
       /* Detail goes back to the LIST. It went back to itself, so the only way
          out of a cycle was the browser's own back button, which the demo does
          not give this screen. */
@@ -56162,7 +56323,7 @@ DEMO.define("stack", function (document, window, location, fetch) {
       typeof LKPatch === 'function' ? LKPatch : null);
     document.addEventListener('click', function (e) {
       var el = e.target.closest ? e.target.closest('[data-testid="shelf-resume"]') : null;
-      if (el) { e.preventDefault(); location.href = 'workout-log.html'; }
+      if (el) { e.preventDefault(); LKGo('workout-log'); }
     });
   }
 
@@ -56431,7 +56592,7 @@ DEMO.define("tutorial", function (document, window, location, fetch) {
   function runTrack(id) {
     if (!hasApp()) return;
     LKTutor.start(id, { resume: id !== 'quick', onEnd: function (end) {
-      if (end.why !== 'finished') { location.href = 'home.html'; return; }
+      if (end.why !== 'finished') { LKGo('home'); return; }
       if (id === 'quick') {
         location.hash = '#/tutorial';
         S.phase = 'done'; paint(); say('Ready');
@@ -56464,8 +56625,8 @@ DEMO.define("tutorial", function (document, window, location, fetch) {
     }
     /* Skip writes the gate too. The shipped app wrote it only on completion,
        so anyone who skipped was shown the whole thing again next launch. */
-    if (a === 'skip') { seen(); location.href = 'home.html'; return; }
-    if (a === 'finish') { seen(); location.href = 'home.html'; return; }
+    if (a === 'skip') { seen(); LKGo('home'); return; }
+    if (a === 'finish') { seen(); LKGo('home'); return; }
   });
 
   /* Settings' Full tour row asks for the hub rather than the intro. It is
