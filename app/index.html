@@ -4433,6 +4433,16 @@ button.shelf:active { background: var(--fill-press); }
 .map__svg .cam[data-zoomed="true"] .mg:not([data-on="true"]) { opacity: .35; }
 
 
+/* THE ROW IS THE GESTURE'S, THE PAGE IS THE SCROLLER'S. A set row swipes
+   left to delete and an exercise card lifts on a held grip, and both need
+   the browser to hand over the horizontal axis without taking the vertical
+   one: pan-y keeps the page scrolling under a finger that is going up or
+   down, and stops it stealing a finger that is going sideways. Without it
+   the swipe fights the scroller and neither wins. */
+.setgrid > *,
+.exc__grip { touch-action: pan-y; }
+
+
 /* THE DEV STATE SWITCHER IS NOT A PRODUCT CONTROL. Every screen carries
    one so a reviewer can jump to its empty, loading and error states. It is
    markup inside the screen rather than something the assembler adds, so
@@ -40743,6 +40753,242 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
   if (window.LKSession) {
     LKSession.onChange(function (r) { if (!r) S.over = true; });
   }
+
+  /* =============================================================
+     SWIPE A SET AWAY, AND PICK AN EXERCISE UP.
+
+     Both gestures were in the shipped app and neither survived the
+     rebuild: sets could only be removed through a menu two taps deep, and
+     exercises could only be reordered with the arrow buttons. The buttons
+     stay -- they are how this works with a keyboard and a screen reader,
+     and a gesture nobody can see is not an interface on its own -- but
+     the hand gets its part back.
+
+     The numbers are v6's, because they were tuned on a phone and they
+     were right: a 15px vertical escape so scrolling always wins, an 80px
+     threshold, a velocity projection so a flick counts short of it, 350ms
+     to lift a row, and a 10px escape from that so a scroll never picks
+     anything up.
+
+     The set grid is one flat CSS grid with no per-row element, so a row
+     is moved by moving the cells that belong to it. That keeps a layout
+     every design audit passes exactly as it is.
+     ============================================================= */
+  var SWIPE_OPEN = -80;          /* how far left is "gone" */
+  var SWIPE_ESCAPE = 15;         /* vertical travel that hands it to the scroller */
+  var HOLD_MS = 350;             /* to lift an exercise */
+  var HOLD_ESCAPE = 10;          /* movement that cancels the lift */
+
+  function buzzSafe(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
+
+  /* Every cell of one set row: the number, both figures, the RIR select,
+     the tick, and the partials marker when it is shown. */
+  function rowCells(e, i) {
+    if (!screen) return [];
+    var sel = '[data-ex="' + e + '"][data-set="' + i + '"]';
+    return Array.prototype.slice.call(screen.querySelectorAll(sel));
+  }
+  function moveRow(cells, dx, fade) {
+    cells.forEach(function (c) {
+      c.style.transition = 'none';
+      c.style.transform = dx ? 'translateX(' + dx + 'px)' : '';
+      if (fade !== undefined) c.style.opacity = fade;
+    });
+  }
+  function settleRow(cells) {
+    cells.forEach(function (c) {
+      c.style.transition = 'transform var(--dur-quick, .18s) var(--spring-soft, ease), opacity .18s linear';
+      c.style.transform = '';
+      c.style.opacity = '';
+    });
+  }
+
+  /* Rightward drag gives, but not much: the row is telling you it only
+     goes one way. v6's curve. */
+  function rubber(dx) {
+    if (dx <= 0) return dx;
+    return (1 - 1 / (dx * 0.55 / 80 + 1)) * 80 * 0.35;
+  }
+  /* A flick counts. Projected travel at v6's deceleration. */
+  function projected(dx, v) { return dx + (v || 0) / 1000 * (0.998 / (1 - 0.998)); }
+
+  var SW = null;
+
+  /* Pointer events, not touch: one path for a finger, a pen and a mouse,
+     and the only one a test harness can drive honestly. */
+  screen.addEventListener('pointerdown', function (ev) {
+    if (S.pad || S.overlay || S.liftedEx !== -1) return;
+    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+    var cell = ev.target.closest ? ev.target.closest('[data-ex][data-set]') : null;
+    if (!cell) return;
+    var e = Number(cell.getAttribute('data-ex')), i = Number(cell.getAttribute('data-set'));
+    if (isNaN(e) || isNaN(i) || !S.exercises[e]) return;
+    SW = { e: e, i: i, x: ev.clientX, y: ev.clientY, dx: 0, v: 0, t: 0,
+           on: false, crossed: false, cells: rowCells(e, i), id: ev.pointerId };
+  });
+
+  screen.addEventListener('pointermove', function (ev) {
+    if (!SW || (SW.id !== undefined && ev.pointerId !== SW.id)) return;
+    var dx = ev.clientX - SW.x;
+    var dy = Math.abs(ev.clientY - SW.y);
+    /* Scrolling wins until the swipe has committed. */
+    if (!SW.on && dy > SWIPE_ESCAPE) { settleRow(SW.cells); SW = null; return; }
+    var now = ev.timeStamp || Date.now();
+    if (SW.t) {
+      var dt = Math.max(now - SW.t, 1);
+      SW.v = 0.75 * ((dx - SW.dx) / dt * 1000) + 0.25 * SW.v;
+    }
+    SW.t = now;
+    if (dx < -10) SW.on = true;
+    SW.dx = dx;
+    if (!SW.crossed && dx < SWIPE_OPEN) { SW.crossed = true; buzzSafe(10); }
+    if (SW.on) {
+      ev.preventDefault();               /* the row is ours now, not the scroller's */
+      var shown = dx < 0 ? dx : rubber(dx);
+      moveRow(SW.cells, shown, Math.max(0.35, 1 + shown / 220));
+    }
+  });
+
+  function endSwipe() {
+    if (!SW) return;
+    var s = SW; SW = null;
+    if (!s.on) { settleRow(s.cells); return; }
+    /* A FLICK COUNTS, A TWITCH DOES NOT. v6 projected the throw and
+       deleted on the projection alone, which means a fast 24px nudge --
+       velocity is distance over a very short time, so a twitch projects a
+       long way -- destroyed a set. Deleting is the one thing on this
+       screen that cannot be undone by doing it again, so it asks for real
+       travel first: past the threshold outright, or half of it with
+       enough speed behind it to mean it. */
+    var wentFar = s.dx <= SWIPE_OPEN;
+    var flicked = s.dx <= SWIPE_OPEN / 2 && projected(s.dx, s.v) <= SWIPE_OPEN;
+    if (!wentFar && !flicked) { settleRow(s.cells); return; }
+    var ex = S.exercises[s.e];
+    if (!ex) { settleRow(s.cells); return; }
+    if (ex.sets.length <= 1) {
+      settleRow(s.cells);
+      toast('An exercise keeps at least one set.');
+      return;
+    }
+    var gone = ex.sets.splice(s.i, 1)[0];
+    buzzSafe(12);
+    paint();
+    toast('Set ' + (s.i + 1) + ' removed from ' + ex.name + '.', 'info', 'Undo', function () {
+      ex.sets.splice(s.i, 0, gone);
+      paint();
+      say('Set ' + (s.i + 1) + ' is back.');
+    });
+  }
+  screen.addEventListener('pointerup', endSwipe);
+  screen.addEventListener('pointercancel', function () {
+    if (SW) { settleRow(SW.cells); SW = null; }
+  });
+
+  /* ---- PICKING AN EXERCISE UP -------------------------------------
+     Hold the grip for 350ms and the card lifts; move and the cards below
+     open a gap for it; let go and it lands. A move of more than 10px
+     before the hold completes hands the gesture back to the scroller, so
+     a flick down the page never picks anything up.
+
+     The arrow buttons the grip already carried still work and are still
+     the only way to do this from a keyboard. */
+  var DRAG = null, holdTimer = null, holdWatch = null;
+
+  function cardEls() {
+    return Array.prototype.slice.call(screen.querySelectorAll('[data-testid^="exercise-card-"]'));
+  }
+  function clearHold() {
+    if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+    if (holdWatch) { document.removeEventListener('pointermove', holdWatch); holdWatch = null; }
+  }
+  function endDrag(commit) {
+    if (!DRAG) return;
+    var d = DRAG; DRAG = null;
+    d.cards.forEach(function (c) {
+      c.style.transition = '';
+      c.style.transform = '';
+      c.style.zIndex = '';
+      c.style.opacity = '';
+    });
+    S.dragEx = -1;
+    if (commit && d.to !== null && d.to !== d.from) {
+      var moved = S.exercises.splice(d.from, 1)[0];
+      var to = d.to > d.from ? d.to - 1 : d.to;
+      S.exercises.splice(to, 0, moved);
+      buzzSafe(12);
+      paint();
+      say(moved.name + ' moved to position ' + (to + 1) + '.');
+    } else {
+      paint();
+    }
+  }
+
+  screen.addEventListener('pointerdown', function (ev) {
+    var grip = ev.target.closest ? ev.target.closest('[data-act="grip"]') : null;
+    if (!grip || S.pad || S.overlay) return;
+    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+    var e = Number(grip.getAttribute('data-ex'));
+    if (isNaN(e) || !S.exercises[e]) return;
+    var y0 = ev.clientY;
+    holdWatch = function (m) {
+      if (Math.abs(m.clientY - y0) > HOLD_ESCAPE) clearHold();
+    };
+    document.addEventListener('pointermove', holdWatch);
+    holdTimer = setTimeout(function () {
+      clearHold();
+      var cards = cardEls();
+      var card = cards[e];
+      if (!card) return;
+      var boxes = cards.map(function (c) {
+        var b = c.getBoundingClientRect();
+        return { mid: b.top + b.height / 2, h: b.height };
+      });
+      DRAG = { from: e, to: e, y0: y0, cards: cards, boxes: boxes, h: boxes[e].h };
+      S.dragEx = e;
+      card.style.zIndex = '20';
+      card.style.opacity = '0.96';
+      buzzSafe(30);
+    }, HOLD_MS);
+  });
+
+  document.addEventListener('pointermove', function (ev) {
+    if (!DRAG) return;
+    ev.preventDefault();
+    var dy = ev.clientY - DRAG.y0;
+    var card = DRAG.cards[DRAG.from];
+    card.style.transition = 'none';
+    card.style.transform = 'translateY(' + dy + 'px) scale(1.03)';
+    var y = DRAG.boxes[DRAG.from].mid + dy;
+    var to = DRAG.boxes.length;
+    for (var i = 0; i < DRAG.boxes.length; i++) {
+      if (y < DRAG.boxes[i].mid) { to = i; break; }
+    }
+    if (to === DRAG.from + 1) to = DRAG.from;
+    if (to !== DRAG.to) {
+      if (DRAG.to !== null) buzzSafe(10);
+      DRAG.to = to;
+      DRAG.cards.forEach(function (c, i) {
+        if (i === DRAG.from) return;
+        var shift = 0;
+        if (to <= DRAG.from && i >= to && i < DRAG.from) shift = DRAG.h;
+        if (to > DRAG.from && i > DRAG.from && i < to) shift = -DRAG.h;
+        c.style.transition = 'transform var(--dur-quick, .18s) var(--spring-soft, ease)';
+        c.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
+      });
+    }
+  });
+
+  document.addEventListener('pointerup', function () {
+    clearHold();
+    endDrag(true);
+  });
+  document.addEventListener('pointercancel', function () {
+    clearHold();
+    endDrag(false);
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && DRAG) { ev.preventDefault(); endDrag(false); }
+  });
 
   /* Clocks. One interval, no per-row timers. */
   setInterval(function () {

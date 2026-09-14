@@ -56,6 +56,7 @@ run "first run — signup to first set, against a server" node first-run.mjs
 run "no dead ends — every pushed screen can be left" node no-dead-ends.mjs
 run "a past session — correcting it and doing it again" node past-session.mjs
 run "bad data — shapes that should not exist" node bad-data.mjs
+run "gestures — swipe a set away, pick an exercise up" node gestures.mjs
 run "demo — assembled"                             sh -c 'node ../10-final/assemble.mjs && node ../10-final/verify-demo.mjs'
 
 printf '\n%s\n' "-----------------------------------------"
