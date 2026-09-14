@@ -1,5 +1,12 @@
 # What changed, and why
 
+> **v7** is the release built from this work. What it is, what it replaces,
+> what a v6 reader's data does on first open, what was verified and what
+> could not be: `RELEASE-v7.md`. The product build is `app/`, written by
+> `node 10-final/assemble.mjs --prod` — the demo with the seed and the dev
+> switcher left out.
+
+
 Eleven screens rebuilt as static HTML, CSS and vanilla JavaScript that open from
 disk. Everything below is a change to the built screens in `08-build/`, assembled
 into `locked-demo.html`. Every number is measured, and the script that measured it
