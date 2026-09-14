@@ -820,3 +820,128 @@
     return count + ' ' + g.LKPlural(count, one, many);
   };
 }(typeof window !== 'undefined' ? window : this));
+
+/* A REST TIMER THAT KEEPS TIME WITH THE APP SHUT.
+   It used to be a counter decremented once a second by an interval, which
+   is only true while the tab is awake. Lock the phone for two minutes of a
+   ninety-second rest and you came back to a strip still reading 1:12 and
+   still counting -- the one moment the number has to be right is the moment
+   you pick the phone back up.
+
+   So the rest is a deadline, not a countdown. What is stored is when it
+   ends; what is shown is that minus now. Nothing is lost to a reload, a
+   locked screen, a switched app or a killed tab, because none of those can
+   change a timestamp. The session clock has worked this way since it was
+   written; this brings the rest in line with it.
+
+   The alert is a separate question. A closed PWA runs no JavaScript at all,
+   so the strip cannot buzz on its own -- but a service worker outlives the
+   page for a while, so the deadline is handed to it when the rest starts
+   and it posts the notification. If the worker has been shut down too, the
+   catch-up below fires on the next open instead. That is the honest limit:
+   the CLOCK is always right, the ALERT is best-effort. */
+(function (g) {
+  var KEY = 'lk_rest';
+
+  function read() {
+    var raw = null;
+    try {
+      raw = g.LKStore ? g.LKStore.get(KEY, null)
+                      : JSON.parse(g.localStorage.getItem(KEY) || 'null');
+    } catch (e) { raw = null; }
+    if (!raw || typeof raw !== 'object' || !raw.endsAt) return null;
+    return raw;
+  }
+
+  function write(v) {
+    try {
+      if (v === null) {
+        if (g.LKStore) g.LKStore.remove(KEY); else g.localStorage.removeItem(KEY);
+      } else if (g.LKStore) g.LKStore.set(KEY, v);
+      else g.localStorage.setItem(KEY, JSON.stringify(v));
+    } catch (e) {}
+  }
+
+  /* The worker is told the deadline rather than a duration, for the same
+     reason the page stores one: a duration handed over at the wrong moment
+     is wrong by however long the handover took. */
+  function tellWorker(msg) {
+    try {
+      var sw = g.navigator && g.navigator.serviceWorker;
+      if (!sw) return;
+      if (sw.controller) { sw.controller.postMessage(msg); return; }
+      sw.ready.then(function (reg) {
+        if (reg && reg.active) reg.active.postMessage(msg);
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  g.LKRest = {
+    /* Starts, or restarts, a rest of `secs` seconds. `label` is what the
+       notification says it was for, when there is one. */
+    start: function (secs, label) {
+      var n = Math.max(0, Math.round(Number(secs) || 0));
+      if (!n) { this.stop(); return 0; }
+      var endsAt = Date.now() + n * 1000;
+      write({ endsAt: endsAt, secs: n, label: label || '', fired: false });
+      tellWorker({ type: 'lk-rest-arm', endsAt: endsAt, label: label || '' });
+      return n;
+    },
+
+    /* +30s moves the deadline, so the extension survives the same locked
+       screen the rest does. */
+    add: function (secs) {
+      var r = read();
+      if (!r) return 0;
+      r.endsAt += Math.round(Number(secs) || 0) * 1000;
+      r.fired = false;
+      write(r);
+      tellWorker({ type: 'lk-rest-arm', endsAt: r.endsAt, label: r.label || '' });
+      return this.left();
+    },
+
+    /* Keeps the deadline where it is but changes what a fresh rest will be,
+       used by the length picker while one is already running. */
+    setTo: function (secs) {
+      var r = read();
+      if (!r) return 0;
+      return this.start(secs, r.label);
+    },
+
+    stop: function () {
+      write(null);
+      tellWorker({ type: 'lk-rest-cancel' });
+    },
+
+    running: function () {
+      var r = read();
+      return !!(r && r.endsAt > Date.now());
+    },
+
+    left: function () {
+      var r = read();
+      if (!r) return 0;
+      return Math.max(0, Math.ceil((r.endsAt - Date.now()) / 1000));
+    },
+
+    endsAt: function () {
+      var r = read();
+      return r ? r.endsAt : 0;
+    },
+
+    /* True once, the first time anyone asks after the deadline has passed.
+       This is the catch-up: a rest that ran out while the app was shut is
+       still announced when the app comes back, rather than the strip simply
+       being gone and nothing ever saying so. */
+    justEnded: function () {
+      var r = read();
+      if (!r || r.fired || r.endsAt > Date.now()) return false;
+      r.fired = true;
+      write(r);
+      return true;
+    },
+
+    /* Cleared with the workout it belonged to. */
+    clear: function () { this.stop(); }
+  };
+}(typeof window !== 'undefined' ? window : this));

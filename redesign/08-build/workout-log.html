@@ -375,6 +375,8 @@
        to escape because it clears the flag after this call; repeating did
        not. Clearing it here means neither has to remember. */
     S.over = false;
+    /* A new workout does not inherit the last one's rest. */
+    stopRest();
     touchIdle();
   }
 
@@ -489,8 +491,8 @@
     hidePartials: readFlag('lk_hidePartials', false),
     restEnabled: readFlag('lk_restEnabled', true),
     restSeconds: 90,
-    restLeft: 0,
-    restRunning: false,
+    restLeft: (window.LKRest ? LKRest.left() : 0),
+    restRunning: !!(window.LKRest && LKRest.running()),
     pad: null,               /* { ex, set, field, buffer, replaced } */
     overlay: null,           /* tools | plates | rest | sheet | detail | block | addex | discard */
     overlayEx: 0,
@@ -519,7 +521,7 @@
     S.exercises = pushDay();
     S.blocks = [];
     S.pad = null; S.overlay = null; S.toast = null; S.swapAt = null;
-    S.restRunning = false; S.restLeft = 0; S.liftedEx = -1; S.dragEx = -1;
+    stopRest(); S.liftedEx = -1; S.dragEx = -1;
     S.tapCount = 0;
     S.over = false;
     S.elapsed = 1261;
@@ -534,12 +536,14 @@
     } else if (name === 'keypad') {
       S.pad = openPadFor(0, 3, 'weight');
     } else if (name === 'rest') {
-      S.restRunning = true; S.restLeft = 62;
+      if (window.LKRest) LKRest.start(62, 'Rest');
+      syncRest();
     } else if (name === 'exercise-done') {
       S.exercises[0].sets[3].kg = 72.5;
       S.exercises[0].sets[3].reps = 7;
       S.exercises[0].sets[3].done = true;
-      S.restRunning = true; S.restLeft = 84;
+      if (window.LKRest) LKRest.start(84, 'Rest');
+      syncRest();
     } else if (name === 'plates') {
       S.overlay = 'plates';
       S.plate = { total: 20, bar: 20, added: [], perSide: true, solveNote: null };
@@ -1874,6 +1878,7 @@
 
   function paint() {
     record();
+    syncRest();
     persistRows();
     var hadOverlay = renderedOverlay;
     var opener = document.activeElement && document.activeElement.dataset
@@ -1935,10 +1940,30 @@
   /* =============================================================
      Behaviour
      ============================================================= */
-  function startRest() {
+  /* The rest is a deadline held by LKRest, not a number counted down here,
+     so a locked phone or a killed tab cannot make it wrong. syncRest() is
+     the one place that copies it back into S for rendering. */
+  function startRest(label) {
     if (!S.restEnabled) return;
-    S.restRunning = true;
-    S.restLeft = S.restSeconds;
+    if (window.LKRest) LKRest.start(S.restSeconds, label || S.name || 'Rest');
+    syncRest();
+  }
+
+  function stopRest() {
+    if (window.LKRest) LKRest.stop();
+    S.restRunning = false;
+    S.restLeft = 0;
+  }
+
+  /* Reads the deadline back. Returns true when the rest ran out since the
+     last look -- including while the app was shut, which is the whole
+     point of storing an end time instead of a remainder. */
+  function syncRest() {
+    if (!window.LKRest) return false;
+    var ended = LKRest.justEnded();
+    S.restRunning = LKRest.running();
+    S.restLeft = LKRest.left();
+    return ended;
   }
 
   /* A toast says what happened and gets out of the way; it never sits
@@ -2021,7 +2046,7 @@
         if (st.done) {
           if (st.kg === null) st.kg = st.prevKg;
           if (st.reps === null) st.reps = st.prevReps;
-          startRest();
+          startRest(S.exercises[e] && S.exercises[e].name);
           /* Felt as well as seen. One short pulse for a set, two for a
              record, and the tick pops under the thumb. */
           buzz(12);
@@ -2329,7 +2354,7 @@
         S.exercises = [];
         S.blocks = [];
         S.elapsed = 0;
-        S.restRunning = false; S.restLeft = 0;
+        stopRest();
         if (window.LKSession) LKSession.end();
         if (window.LKStore) LKStore.remove('lk_lastSession');
         toast('Workout discarded.');
@@ -2344,6 +2369,10 @@
          app on a shelf that says Resume. */
       case 'finish':
         S.over = true;
+        /* The rest belonged to the workout. Leaving the deadline behind
+           meant the strip came back on the next session that opened this
+           screen, counting down from a rest nobody is taking. */
+        stopRest();
         handedOff = true;
         handOff();
         if (window.LKSession) LKSession.end();
@@ -2351,10 +2380,21 @@
         break;
 
       /* ---- rest ---- */
-      case 'rest-add': S.restLeft += 30; say('Rest extended to ' + clock(S.restLeft)); break;
-      case 'rest-skip': S.restRunning = false; say('Rest skipped'); break;
-      case 'rest-toggle': S.restEnabled = !S.restEnabled; break;
-      case 'rest-set': S.restSeconds = Number(t.getAttribute('data-secs')); if (S.restRunning) S.restLeft = S.restSeconds; break;
+      case 'rest-add':
+        if (window.LKRest) LKRest.add(30);
+        syncRest();
+        say('Rest extended to ' + clock(S.restLeft));
+        break;
+      case 'rest-skip': stopRest(); say('Rest skipped'); break;
+      case 'rest-toggle':
+        S.restEnabled = !S.restEnabled;
+        if (!S.restEnabled) stopRest();
+        break;
+      case 'rest-set':
+        S.restSeconds = Number(t.getAttribute('data-secs'));
+        if (S.restRunning && window.LKRest) LKRest.setTo(S.restSeconds);
+        syncRest();
+        break;
 
       /* ---- plate calculator ---- */
       case 'plate-add': S.plate.added.push(Number(t.getAttribute('data-plate'))); break;
@@ -2433,7 +2473,8 @@
         /* A rest already running takes the new length too, or the setting
            would only apply from the next set and the sheet would look as
            though it had done nothing. */
-        if (S.restRunning) S.restLeft = secs;
+        if (S.restRunning && window.LKRest) LKRest.setTo(secs);
+        syncRest();
         toast('Rest set to ' + clock(secs) + '.');
         break;
       }
@@ -2967,7 +3008,7 @@
       S.exercises = [];
       S.blocks = [];
       S.elapsed = 0;
-      S.restRunning = false; S.restLeft = 0;
+      stopRest();
       if (window.LKStore) {
         LKStore.remove('lk_lastSession');
         LKStore.remove(ROWS_KEY);
@@ -2981,7 +3022,25 @@
      mounted for the life of the page, so after Finish, Train's "Start today's
      session" dropped the reader back into the workout they had just saved --
      sets still ticked, clock still running past the finish. */
+  /* BACK FROM A LOCKED SCREEN. Nothing ran while the phone was away, so
+     the strip is redrawn from the deadline the moment it is looked at
+     again -- and if the rest ran out in the meantime, that is said now
+     rather than never. */
+  function wakeRest() {
+    if (syncRest()) say('Rest done');
+    paint();
+  }
+  /* On `window`, not on `document`: inside the assembled app `document` is
+     this screen's shadow root, and visibilitychange is fired at the real
+     document. It bubbles, so window hears it either way. */
+  window.addEventListener('focus', wakeRest);
+  window.addEventListener('pageshow', wakeRest);
+  window.addEventListener('visibilitychange', function () {
+    if (!document.hidden) wakeRest();
+  });
+
   document.addEventListener('lk:enter', function () {
+    syncRest();
     /* A day asked for from Train wins: it is a new session, not this one. */
     if (startRequested()) { paintMenu(); paint(); return; }
     if (!S.over) return;
@@ -3260,7 +3319,11 @@
     /* Only the fallback counter ticks. With a record running, elapsed is
        derived from startedAt and incrementing here would double-count. */
     if (!(window.LKSession && LKSession.get())) S.elapsed++;
-    if (S.restRunning && S.restLeft > 0) { S.restLeft--; dirty = true; if (S.restLeft === 0) { S.restRunning = false; say('Rest done'); } }
+    /* Nothing is decremented. The deadline is re-read, so a second spent
+       with the screen off costs exactly one second here too. */
+    var wasRunning = S.restRunning;
+    if (syncRest() || (wasRunning && !S.restRunning)) { say('Rest done'); dirty = true; }
+    else if (wasRunning !== S.restRunning) dirty = true;
     var el = document.querySelector('[data-testid="session-timer"] .num');
     if (el) el.textContent = hhmm(elapsedSec());
     var rl = document.querySelector('[data-testid="rest-remaining"] .num');

@@ -529,7 +529,7 @@
      accept, so none of them is guarded. */
   var MAP_KEYS = asSet([
     'lk_exNotes', 'lk_exEquip', 'lk_changedAt',
-    'lk_fuelTargets', 'lk_suppLog', 'lk_notifPrefs'
+    'lk_fuelTargets', 'lk_suppLog', 'lk_notifPrefs', 'lk_rest'
   ]);
 
   var SYNC_KEYS = [
