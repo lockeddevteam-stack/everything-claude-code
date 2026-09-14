@@ -12,6 +12,8 @@
 <script src="units.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
+<script src="cloud-config.js"></script>
+<script src="cloud.js"></script>
 <script src="session.js"></script>
 <script src="vendor/body-art.js"></script>
 <script src="bodymap.js"></script>
@@ -1313,6 +1315,34 @@
     '</div>';
   }
 
+  /* Asked for, never fetched on open: a clip is a second's curiosity and
+     most of the time somebody opening a lift wants the muscle map and
+     their own history, both of which are already there. */
+  function findClip() {
+    var it = S.sheet ? byId(S.sheet) : null;
+    var C = window.LKCloud;
+    if (!it) return;
+    if (!C || !C.ready() || !C.formVideo) {
+      S.media = 'error';
+      S.mediaWhy = 'There is no clip search in this build';
+      render();
+      return;
+    }
+    S.media = 'loading'; S.mediaWhy = null; S.videoId = null; render();
+    C.formVideo(it.name, it.id).then(function (r) {
+      if (r && r.ok) { S.videoId = r.data; S.media = 'ready'; render(); return; }
+      S.media = 'error';
+      S.mediaWhy = (r && r.error === 'none')
+        ? 'No clip was found for this lift'
+        : 'The clip search could not be reached';
+      render();
+    }, function () {
+      S.media = 'error';
+      S.mediaWhy = 'The clip search could not be reached';
+      render();
+    });
+  }
+
   function mediaBlock(it) {
     if (S.media === 'none') return demoNote();
     var inner;
@@ -1321,7 +1351,8 @@
         '<span class="skel media__art"></span></div>';
     } else if (S.media === 'error') {
       inner = '<div class="banner banner--warn" data-testid="media-error">' + ico('alert') +
-        '<span><strong>The demonstration clip did not load</strong>It is not stored on this device. The muscle map and your history above do not need it.</span></div>' +
+        '<span><strong>' + esc(S.mediaWhy || 'The demonstration clip did not load') +
+        '</strong>It is not stored on this device. The muscle map and your history above do not need it.</span></div>' +
         '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="media-retry" data-testid="media-retry">' +
         '<span class="btn__label">Try again</span></button>';
     } else {
@@ -1334,7 +1365,19 @@
           '<g class="demofig--end"><circle cx="224" cy="60" r="14"/><rect x="198" y="78" width="52" height="54" rx="10"/>' +
             '<rect x="180" y="70" width="16" height="40" rx="8"/><rect x="252" y="70" width="16" height="40" rx="8"/>' +
             '<rect x="206" y="132" width="16" height="34" rx="8"/><rect x="226" y="132" width="16" height="34" rx="8"/></g>' +
-        '</svg></div>';
+        '</svg></div>' +
+        /* A LINK, NOT AN EMBEDDED FRAME. An embed would put a third
+           party's player and its tracking inside a fitness app, on a
+           screen somebody opens mid-set. The clip opens where clips
+           live, and the figure above stays as what it always was: a
+           drawing of the two positions, not a photograph of anybody. */
+        (S.videoId
+          ? '<a class="btn btn--secondary btn--block mt-2" target="_blank" rel="noopener noreferrer" ' +
+              'href="https://www.youtube.com/watch?v=' + esc(S.videoId) + '" data-testid="media-clip">' +
+              '<span class="btn__label">Watch a demonstration</span></a>' +
+            '<p class="t-caption-1 quiet mt-2">Opens outside LOCKED. The drawing above is this ' +
+              'app\u2019s own; the clip is somebody else\u2019s.</p>'
+          : '');
     }
     return '<div class="section"><div class="section__head"><h3 class="t-label">Demonstration</h3></div>' + inner + '</div>';
   }
@@ -1873,10 +1916,7 @@
       render();
     },
     retry: function () { load(); },
-    'media-retry': function () {
-      S.media = 'loading'; render();
-      setTimeout(function () { S.media = 'error'; render(); }, 900);
-    }
+    'media-retry': function () { findClip(); }
   };
 
   var INPUTS = {

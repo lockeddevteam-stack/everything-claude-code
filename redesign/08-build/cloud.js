@@ -377,6 +377,12 @@
             else S.set(row.key, row.value);
             applied++;
           });
+          /* WHAT ARRIVED IS NOT NECESSARILY WHAT THIS BUILD READS. These
+             rows were written by whatever version last held the account,
+             and the shipped one stores several keys differently. The
+             migrations already know how to convert them; they had simply
+             already run, at boot, before any of this existed. */
+          if (applied) { try { S.remigrate(); } catch (e) {} }
           return { ok: true, data: { applied: applied, rows: rows.length } };
         });
     },
@@ -511,6 +517,67 @@
             };
           }).filter(Boolean) };
         }, function () { return { ok: true, data: [] }; });
+    },
+
+    /* ---- three lookups the app cannot do on its own ------------------ */
+
+    /* Product names a shop is likely to carry, for the typeahead. NAMES
+       ONLY: the endpoint returns a price beside each one and that price
+       is a model's guess, not a shelf. Shopping compares what somebody
+       has actually paid and says so, and a guessed price dropped into
+       that would be indistinguishable from a real one. */
+    storeSearch: function (query, store) {
+      var c = cfg();
+      if (!c || !c.apiUrl) return Promise.resolve({ ok: false, error: 'not_configured' });
+      var q = String(query || '').trim();
+      if (q.length < 2) return Promise.resolve({ ok: true, data: [] });
+      return post(c.apiUrl.replace(/\/$/, '') + '/store-search',
+                  { query: q, store: String(store || '').slice(0, 40) })
+        .then(function (r) {
+          var list = (r.ok && r.data && r.data.products) || [];
+          if (!Array.isArray(list)) return { ok: true, data: [] };
+          return { ok: true, data: list.slice(0, 12).map(function (p) {
+            return String((p && p.name) || p || '').slice(0, 60);
+          }).filter(Boolean) };
+        }, function () { return { ok: true, data: [] }; });
+    },
+
+    /* What the catalogue knows about one lift beyond its name. The app
+       ships id, name, group and muscle for all 866; this is the rest,
+       when there is a feed behind it. */
+    exerciseDetail: function (id) {
+      var c = cfg();
+      if (!c || !c.apiUrl) return Promise.resolve({ ok: false, error: 'not_configured' });
+      var n = parseInt(id, 10);
+      if (!(n > 0)) return Promise.resolve({ ok: false, error: 'empty' });
+      return fetch(c.apiUrl.replace(/\/$/, '') + '/exercise-detail/' + n)
+        .then(function (r) { return r.json(); }, fail)
+        .then(function (j) {
+          if (!j || j.error) {
+            return { ok: false, error: 'unavailable',
+                     message: 'No catalogue detail is configured for this build.' };
+          }
+          return { ok: true, data: j };
+        });
+    },
+
+    /* One clip for one lift. A null id is the honest answer when there is
+       no video key behind the endpoint, and the screen says so rather
+       than showing an empty player. */
+    formVideo: function (name, id) {
+      var c = cfg();
+      if (!c || !c.apiUrl) return Promise.resolve({ ok: false, error: 'not_configured' });
+      if (!String(name || '').trim()) return Promise.resolve({ ok: false, error: 'empty' });
+      return post(c.apiUrl.replace(/\/$/, '') + '/yt-search',
+                  { name: String(name).slice(0, 80), exId: parseInt(id, 10) || 0 })
+        .then(function (r) {
+          var vid = r.ok && r.data && r.data.videoId;
+          return vid ? { ok: true, data: String(vid) }
+                     : { ok: false, error: 'none',
+                         message: 'No clip is available for this lift.' };
+        }, function () {
+          return { ok: false, error: 'network', message: 'Could not reach the clip search.' };
+        });
     },
 
     /* ---- reading a photo ---------------------------------------------

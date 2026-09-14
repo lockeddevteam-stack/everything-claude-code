@@ -157,6 +157,9 @@ global.localStorage = {
   key: i => Object.keys(memory)[i],
   get length() { return Object.keys(memory).length; }
 };
+/* The catalogue loads before the store, because migration 5 resolves the
+   names an upgrading reader's records and split days arrive without. */
+eval(fs.readFileSync(path.join(BUILD, 'exercises.js'), 'utf8'));
 eval(fs.readFileSync(path.join(BUILD, 'store.js'), 'utf8'));
 eval(fs.readFileSync(path.join(BUILD, 'cloud.js'), 'utf8'));
 eval(fs.readFileSync(path.join(BUILD, 'coach-actions.js'), 'utf8'));
@@ -284,6 +287,80 @@ res = await fetch(BASE + '/rest/v1/rpc/store_push', {
   body: JSON.stringify({ rows: [{ key: 'lk_theme', value: 'x', changed_at: 9e12 }] })
 });
 ok(res.status === 401, 'signed out, store_push refuses');
+
+/* ---- 6b. WHAT THE SHIPPED APP WROTE, ARRIVING BY SYNC -----------------
+   These are the shapes the live project actually holds, read off it
+   structurally: lk_prs as a map keyed by exercise id, a session whose
+   volume and duration are strings and whose date is US-ordered, a split
+   holding exercise ids rather than exercises. Every one of them has a
+   migration, and every one of them used to arrive AFTER the migrations
+   had run and been marked done -- so the upgrading reader with real
+   history, the only reader these were written for, was the one they
+   missed. */
+S.set('lk_schema', 4);                 /* this device is fully migrated */
+S.set('lk_lastSync', 0);
+const future = Date.now() + 120000;
+table = [
+  /* The live shape: a map of exercise id to an ARRAY of attempts, each
+     { date, r, w }. Read off the project structurally, not guessed. */
+  { key: 'lk_prs', changed_at: future, value: {
+      '104': [{ date: '9/7/2026', r: 5, w: 72.5 }, { date: '8/31/2026', r: 5, w: 70 }],
+      '311': [{ date: '9/1/2026', r: 8, w: 45 }] } },
+  { key: 'lk_history', changed_at: future, value: [
+      /* vol and dur as strings with their units in them, sets as a
+         number, an exercise carrying only name and sets: the live shape. */
+      { name: 'Push', date: '9/7/2026', vol: '14363 kg', dur: '52 min', sets: 18,
+        exercises: [{ name: 'Bench Press', sets: [{ w: 72.5, r: 5, setType: 'warmup' }] }] } ] },
+  { key: 'lk_splits', changed_at: future, value: [
+      { id: 1, name: 'Push Pull Legs', created: 1780000000000,
+        days: [{ name: 'Push', exIds: [104, 311] }] } ] }
+];
+await C.pull();
+
+const prs = S.get('lk_prs', null);
+ok(Array.isArray(prs) && prs.length === 3,
+   'a records map written by the shipped app arrives as the flat array this build reads',
+   Array.isArray(prs) ? prs.length + ' records' : 'still ' + typeof prs);
+ok(Array.isArray(prs) && prs[0] && typeof prs[0].kg === 'number' && prs[0].exId > 0,
+   'each record keeps its lift and its weight as a number',
+   JSON.stringify((prs || [])[0]));
+/* THE DATA IS NO USE IF IT IS NOT LEGIBLE. A migrated record came across
+   as { exId: 104, name: '' } and rendered nameless on every screen that
+   lists records. */
+ok(Array.isArray(prs) && prs.every(function (r) { return !!r.name; }),
+   'and every record has the name the catalogue gives its lift',
+   JSON.stringify((prs || []).map(function (r) { return r.name; })));
+ok(Array.isArray(prs) && prs.every(function (r) { return /^\d{4}-\d{2}-\d{2}$/.test(r.date); }),
+   'and an ISO date, so the records sort in the order they happened',
+   JSON.stringify((prs || []).map(function (r) { return r.date; })));
+
+const hist = S.get('lk_history', []) || [];
+const h0 = hist[0] || {};
+/* The build reads kg, not vol -- so the migration puts the number there
+   and leaves the original string beside it untouched. Asserting on vol
+   would have tested the wrong field, which is how this check was written
+   the first time. */
+ok(h0.kg === 14363,
+   'a volume stored as "14363 kg" reads as the number 14363 on the field the screens use',
+   JSON.stringify({ kg: h0.kg, vol: h0.vol }));
+ok(h0.min === 52, 'and "52 min" reads as 52', JSON.stringify(h0.min));
+ok(!/\//.test(String(h0.date || '')),
+   'and a US-ordered date is an ISO one', String(h0.date));
+const set0 = ((h0.exercises || [])[0] || {}).sets || [];
+ok(set0.length === 0 || (set0[0].kg !== undefined || set0[0].w === undefined),
+   'and a set stored as {w,r} reads as {kg,reps}', JSON.stringify(set0[0] || {}));
+
+const sp = (S.get('lk_splits', []) || [])[0] || {};
+const day0 = (sp.days || [])[0] || {};
+ok(Array.isArray(day0.exercises) && day0.exercises.length > 0,
+   'a split holding exercise ids arrives holding exercises',
+   JSON.stringify((day0.exercises || []).map(function (e) { return e.id; })));
+ok(Array.isArray(day0.exercises) && day0.exercises.every(function (e) { return !!e.name; }),
+   'and every one of them is named, not an id on a blank row',
+   JSON.stringify((day0.exercises || []).map(function (e) { return e.name; })));
+
+ok(S.schemaVersion() >= 4, 'and the version marker is still honest afterwards',
+   String(S.schemaVersion()));
 
 /* ---- 7. entitlements, read off a profile row ------------------------- */
 const DAY = 86400000;

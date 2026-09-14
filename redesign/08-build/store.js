@@ -418,6 +418,31 @@
     },
     schemaVersion: function () { return Number(API.get(SCHEMA_KEY, 0)) || 0; },
 
+    /* EVERY MIGRATION, AGAIN, WHATEVER THE VERSION SAYS.
+
+       migrate() runs once at boot and records how far it got, which is
+       right for data already on the phone and exactly wrong for data that
+       arrives afterwards. A sync pulls rows written by the shipped app --
+       lk_prs as a map keyed by exercise id, a session whose volume is the
+       string "14363 kg", a split holding exercise ids instead of
+       exercises -- and they land AFTER the version marker says there is
+       nothing left to do. So the one case these migrations exist for, an
+       upgrading reader with real history, is the one case they missed.
+
+       This is safe to call as often as it is useful: every migration is
+       written to be a no-op against data it has already converted, which
+       is a property they needed anyway because a half-finished boot runs
+       them twice. */
+    remigrate: function () {
+      var ran = [];
+      for (var i = 0; i < MIGRATIONS.length; i++) {
+        try { if (MIGRATIONS[i](API)) ran.push(i + 1); }
+        catch (e) { /* One bad row must not stop the rest. */ }
+      }
+      API.set(SCHEMA_KEY, MIGRATIONS.length);
+      return ran;
+    },
+
     load: function (obj) {
       var n = 0;
       Object.keys(obj || {}).forEach(function (k) {
@@ -631,6 +656,82 @@
       if (!touched) return false;
       ST.set('lk_splits', all);
       return true;
+    },
+
+    /* 5 — THE NAMES, NOW THAT THE CATALOGUE SHIPS.
+
+       Migrations 1 and 4 do the structural work and both leave a hole
+       they could not fill at the time: a record becomes { exId: 104,
+       name: '' } and a split day becomes a list of ids with blank names,
+       because the only catalogue either had was whatever the fixture
+       happened to carry. The reader who upgrades then finds their records
+       and their split days nameless -- the data is all there and none of
+       it is legible.
+
+       exercises.js ships all 866 rows now, so the names can be resolved.
+       This is additive on purpose rather than a rewrite of 1 or 4: a
+       phone that already ran those has the nameless rows on it, and only
+       a new migration reaches them.
+
+       Idempotent: a row that already has a name is left alone, and with
+       no catalogue loaded it does nothing and stays available for the
+       next boot. */
+    function (ST) {
+      var cat = g.LKExercises && g.LKExercises.all && g.LKExercises.all();
+      if (!cat || !cat.length) return false;
+      var byId = {};
+      cat.forEach(function (e) { byId[e.id] = e; });
+
+      function isoDate(d) {
+        var t = String(d || '');
+        if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
+        var a = t.split('/');
+        if (a.length === 3) return a[2] + '-' + ('0' + a[0]).slice(-2) + '-' + ('0' + a[1]).slice(-2);
+        return t;
+      }
+
+      var did = false;
+
+      var prs = ST.get('lk_prs', null);
+      if (Array.isArray(prs)) {
+        prs.forEach(function (r) {
+          if (!r) return;
+          var hit = byId[r.exId];
+          if (hit && !r.name) {
+            r.name = hit.name; r.group = r.group || hit.group; r.muscle = r.muscle || hit.muscle;
+            did = true;
+          }
+          /* The date came across in the shipped app's US order, which sorts
+             wrongly as a string -- and these are sorted by date. */
+          var iso = isoDate(r.date);
+          if (iso !== r.date) { r.date = iso; did = true; }
+        });
+        if (did) {
+          prs.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+          ST.set('lk_prs', prs);
+        }
+      }
+
+      var splits = ST.get('lk_splits', null);
+      if (Array.isArray(splits)) {
+        var moved = false;
+        splits.forEach(function (sp) {
+          (sp && sp.days || []).forEach(function (d) {
+            (d && d.exercises || []).forEach(function (e) {
+              if (!e || e.name) return;
+              var hit = byId[e.id];
+              if (!hit) return;
+              e.name = hit.name;
+              e.group = e.group || hit.group;
+              e.muscle = e.muscle || hit.muscle;
+              moved = true;
+            });
+          });
+        });
+        if (moved) { ST.set('lk_splits', splits); did = true; }
+      }
+
+      return did;
     }
   ];
 
