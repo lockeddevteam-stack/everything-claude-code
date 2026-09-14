@@ -167,6 +167,24 @@ for (const theme of ['dark', 'light']) {
     await page.waitForTimeout(350);
     const after = await snap(page);
 
+    /* DID THE CONTROL SURVIVE ITS OWN CLICK? A dismiss button removes the
+       card it sits on, so the control that had focus is gone and focus
+       cannot be "kept" on it -- the only question left is whether it went
+       somewhere a finger can carry on from, which the fall-to-body check
+       above already asks. Rather than exempt a whole screen for owning one
+       such control, ask the element.
+
+       Home is why. Which of its cards are showing depends on how long it
+       has been since the last session, so which control this sweep reaches
+       first moves with the calendar: the run that first caught this clicked
+       a card's dismiss, and the sweep called a removed control's lost focus
+       a defect. */
+    let ctrlGone = false;
+    if (ctrl) {
+      try { ctrlGone = !(await ctrl.evaluate(el => el.isConnected)); }
+      catch (e) { ctrlGone = true; }
+    }
+
     let caretAfter = null;
     if (hadInput) { try { caretAfter = await input.evaluate(el => [el.value, el.selectionStart]); } catch (e) {} }
 
@@ -174,10 +192,11 @@ for (const theme of ['dark', 'light']) {
       theme, file, clicked,
       scrollBefore: before.doc + '|' + before.inner.join(','),
       scrollAfter: after.doc + '|' + after.inner.join(','),
-      focus: before.focus + '->' + after.focus,
+      focus: before.focus + '->' + after.focus + (ctrlGone ? ' (control removed itself)' : ''),
       caret: hadInput ? JSON.stringify(caretBefore) + '->' + JSON.stringify(caretAfter) : 'n/a',
       scrollOK: before.doc === after.doc && before.inner.join(',') === after.inner.join(','),
       focusOK: (EXPECTED[file] && EXPECTED[file].focus) ||
+               (ctrlGone && after.focus !== null) ||
                (before.focus !== null && before.focus === after.focus),
       caretOK: (EXPECTED[file] && EXPECTED[file].caret) || !hadInput ||
                JSON.stringify(caretBefore) === JSON.stringify(caretAfter),
