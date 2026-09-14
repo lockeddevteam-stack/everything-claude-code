@@ -250,6 +250,18 @@ for (const step of ANSWERS) {
 }
 ok(!errs.length, 'nothing throws answering setup', errs[0] || '');
 
+/* AND THE ANSWERS SURVIVE THE APP CLOSING. Setup is seven questions and
+   a phone interrupts. Every answer lived in memory only, so a reload put
+   the reader back on Welcome with nothing kept -- on the one flow a
+   person only has the patience for once. */
+errs.length = 0;
+const draft = await raw('lk_setupDraft');
+ok(!!draft && !!draft.answers, 'the answers are written down as they are given',
+   JSON.stringify(draft && draft.answers).slice(0, 110));
+ok(draft && draft.answers && draft.answers.name === 'Cesco',
+   'with what was actually typed, not an empty shell',
+   JSON.stringify(draft && draft.answers && draft.answers.name));
+
 console.log('\n=== what the answers built ===\n');
 
 /* THE ANSWERS HAVE TO BECOME AN APP. The flow used to end on a

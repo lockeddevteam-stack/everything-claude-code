@@ -537,6 +537,50 @@
     pushLost: false
   };
 
+  /* ---------------------------------------------------------------
+     THE DRAFT SURVIVES THE APP CLOSING.
+
+     Setup is seven questions and a phone interrupts: a call, a lock, the
+     browser reclaiming the tab. Every answer lived in memory only, so a
+     reload put the reader back on the Welcome screen with nothing kept --
+     seven questions answered and gone, on the one flow a person only has
+     the patience for once.
+
+     Only the answers and the step, and only while setup is unfinished:
+     lk_onboarded is written at the end and this is cleared with it, so a
+     finished reader carries nothing.
+     --------------------------------------------------------------- */
+  var DRAFT_KEY = 'lk_setupDraft';
+
+  function saveDraft() {
+    try {
+      if (!window.LKStore) return;
+      if (S.screen !== 'setup') return;
+      LKStore.set(DRAFT_KEY, { step: S.step, answers: S.answers, variant: S.variant });
+    } catch (e) {}
+  }
+  function clearDraft() {
+    try { if (window.LKStore) LKStore.remove(DRAFT_KEY); } catch (e) {}
+  }
+  function restoreDraft() {
+    try {
+      if (!window.LKStore) return false;
+      if (LKStore.get('lk_onboarded', null)) { clearDraft(); return false; }
+      var d = LKStore.get(DRAFT_KEY, null);
+      if (!d || !d.answers || typeof d.answers !== 'object') return false;
+      var any = false;
+      Object.keys(d.answers).forEach(function (k) {
+        if (d.answers[k] !== '' && d.answers[k] != null) any = true;
+      });
+      if (!any) return false;
+      S.answers = d.answers;
+      S.step = Number(d.step) || 0;
+      if (d.variant) S.variant = d.variant;
+      S.screen = 'setup';
+      return true;
+    } catch (e) { return false; }
+  }
+
   /* Terms and privacy. The control existed and sent the reader back to the
      screen they were already on, which is the shape of a link that has not
      been written yet. What it says is what this build actually does, and it
@@ -790,6 +834,8 @@
       try { localStorage.setItem(x[1], extras[x[0]] ? 'true' : 'false'); } catch (e) {}
     });
     window.LKStore.set('lk_onboarded', { at: new Date().toISOString(), answers: a });
+    /* Setup is done, so the half-finished copy of it goes. */
+    clearDraft();
     return true;
   }
 
@@ -927,6 +973,10 @@
   }
 
   function render() {
+    /* Written on every paint of setup, which is every answer and every
+       step: there is no separate "save" for a flow that has no save
+       button, and the cost is one small key. */
+    saveDraft();
     $$('[data-screen]').forEach(function (el) { el.hidden = el.dataset.screen !== S.screen; });
     if (S.screen === 'welcome') renderWelcome();
     if (S.screen === 'signin') renderSignin();
@@ -1265,6 +1315,11 @@
 
   /* -------------------------------- Setup ------------------------------ */
   function renderSetup() {
+    /* Here rather than only in render(): setup repaints through this
+       function directly -- the delegated listeners call it, not render --
+       so a draft saved only in render() was written once, empty, and never
+       again. Every answer and every step passes through here. */
+    saveDraft();
     var loading = S.variant === 'loading';
     var n = STEPS.length;
     var i = Math.max(0, Math.min(S.step, n - 1));
@@ -2610,6 +2665,9 @@
   loadCatalogue();
   loadEntitlement();
 
+  /* Before the first paint, so a reader who was mid-setup lands back on
+     the question they were on rather than on Welcome. */
+  restoreDraft();
   if (!openRequested()) render();
   booted = true;
   window.__ready = true;
