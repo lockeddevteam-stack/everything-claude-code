@@ -6595,6 +6595,19 @@ button.shelf:active { background: var(--fill-press); }
   }
 
   var listeners = [];
+
+  /* Armed when a session starts, cancelled when it ends. Every call is
+     best effort and silent: a reminder that could not be scheduled is not
+     a reason to interrupt somebody who is about to train. */
+  var IDLE_AFTER = 40 * 60;
+  function idle(on) {
+    try {
+      var C = window.LKCloud;
+      if (!C || !C.reminders || !C.ready()) return;
+      if (on) C.reminders.armIdle(IDLE_AFTER);
+      else C.reminders.cancelIdle();
+    } catch (e) {}
+  }
   function fire() {
     var r = API.get();
     for (var i = 0; i < listeners.length; i++) {
@@ -6635,6 +6648,12 @@ button.shelf:active { background: var(--fill-press); }
         total: o.total || 0,
         updatedAt: Date.now()
       });
+      /* A WORKOUT LEFT RUNNING IS THE ONE REMINDER A TIMER IN THE PAGE
+         CANNOT SEND: by the time it matters the page is gone. The server
+         holds it from here, and the session ending takes it back. Forty
+         minutes, which is the interval the rest of this build uses for
+         "has this been abandoned". */
+      idle(true);
       return API.get();
     },
 
@@ -6657,6 +6676,9 @@ button.shelf:active { background: var(--fill-press); }
        workout log's business, not this record's. */
     end: function () {
       try { window.localStorage.removeItem(KEY); } catch (e) {}
+      /* Cancelled before anything else: somebody who finished and put the
+         phone down must not be asked whether they are still training. */
+      idle(false);
       fire();
       return null;
     },
@@ -13512,6 +13534,31 @@ window.LK_CLOUD = {
         return post(c.apiUrl.replace(/\/$/, '') + '/push/test', { deviceId: API.reminders.deviceId() });
       },
 
+      /* THE PROMPT THAT ARRIVES WHEN THE APP IS CLOSED. A workout left
+         running is the one reminder that cannot come from a timer in the
+         page: the page is gone. The server holds it, armed when a session
+         starts and cancelled the moment it ends, so nobody who finished
+         and put the phone away is asked whether they are still training. */
+      armIdle: function (seconds) {
+        var c = cfg();
+        if (!c || !c.apiUrl) return Promise.resolve({ ok: false, error: 'not_configured' });
+        var secs = Math.round(Number(seconds) || 0);
+        if (!(secs >= 60 && secs <= 6 * 3600)) {
+          return Promise.resolve({ ok: false, error: 'range',
+            message: 'A prompt has to be between a minute and six hours away.' });
+        }
+        return post(c.apiUrl.replace(/\/$/, '') + '/push/idle',
+                    { deviceId: API.reminders.deviceId(), seconds: secs });
+      },
+
+      cancelIdle: function () {
+        var c = cfg();
+        if (!c || !c.apiUrl) return Promise.resolve({ ok: true });
+        return post(c.apiUrl.replace(/\/$/, '') + '/push/idle/cancel',
+                    { deviceId: API.reminders.deviceId() })
+          .then(function (r) { return r; }, function () { return { ok: true }; });
+      },
+
       unsubscribe: function () {
         var c = cfg();
         if (!c || !c.apiUrl) return Promise.resolve({ ok: true });
@@ -13915,15 +13962,22 @@ window.LK_CLOUD = {
       ST.set('lk_goals', all);
       return { key: 'lk_goals', id: rec.id, what: a.name };
     },
+    /* A RECIPE THE COACH WROTE IS MARKED AS ONE. It went into lk_recipes
+       beside the reader's own with nothing to tell them apart, so a week
+       later there was no way to know which of them anybody had written.
+       lk_coachRecipes is the key Fuel already reads to list them
+       separately, marked, and read-only -- a coach's recipe is theirs to
+       change. */
     recipe: function (a, ST) {
-      var all = (ST.get('lk_recipes', []) || []).slice();
+      var all = (ST.get('lk_coachRecipes', []) || []).slice();
       var rec = { id: 'r' + Date.now(), name: a.name, servings: a.servings,
                   icon: (a.items[0] || {}).icon || '🥗',
                   items: a.items.map(function (it) { return { key: it.key, qty: it.qty, name: it.name }; }),
-                  notes: a.notes, kcal: a.kcal, pro: a.pro, carb: a.carb, fat: a.fat };
+                  notes: a.notes, kcal: a.kcal, pro: a.pro, carb: a.carb, fat: a.fat,
+                  fromCoach: true, at: Date.now() };
       all.unshift(rec);
-      ST.set('lk_recipes', all);
-      return { key: 'lk_recipes', id: rec.id, what: a.name };
+      ST.set('lk_coachRecipes', all);
+      return { key: 'lk_coachRecipes', id: rec.id, what: a.name };
     },
     shopping: function (a, ST) {
       var all = (ST.get('lk_shoppingList', []) || []).slice();

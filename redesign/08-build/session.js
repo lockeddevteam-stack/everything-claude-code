@@ -82,6 +82,19 @@
   }
 
   var listeners = [];
+
+  /* Armed when a session starts, cancelled when it ends. Every call is
+     best effort and silent: a reminder that could not be scheduled is not
+     a reason to interrupt somebody who is about to train. */
+  var IDLE_AFTER = 40 * 60;
+  function idle(on) {
+    try {
+      var C = window.LKCloud;
+      if (!C || !C.reminders || !C.ready()) return;
+      if (on) C.reminders.armIdle(IDLE_AFTER);
+      else C.reminders.cancelIdle();
+    } catch (e) {}
+  }
   function fire() {
     var r = API.get();
     for (var i = 0; i < listeners.length; i++) {
@@ -122,6 +135,12 @@
         total: o.total || 0,
         updatedAt: Date.now()
       });
+      /* A WORKOUT LEFT RUNNING IS THE ONE REMINDER A TIMER IN THE PAGE
+         CANNOT SEND: by the time it matters the page is gone. The server
+         holds it from here, and the session ending takes it back. Forty
+         minutes, which is the interval the rest of this build uses for
+         "has this been abandoned". */
+      idle(true);
       return API.get();
     },
 
@@ -144,6 +163,9 @@
        workout log's business, not this record's. */
     end: function () {
       try { window.localStorage.removeItem(KEY); } catch (e) {}
+      /* Cancelled before anything else: somebody who finished and put the
+         phone down must not be asked whether they are still training. */
+      idle(false);
       fire();
       return null;
     },

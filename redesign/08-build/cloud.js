@@ -689,6 +689,31 @@
         return post(c.apiUrl.replace(/\/$/, '') + '/push/test', { deviceId: API.reminders.deviceId() });
       },
 
+      /* THE PROMPT THAT ARRIVES WHEN THE APP IS CLOSED. A workout left
+         running is the one reminder that cannot come from a timer in the
+         page: the page is gone. The server holds it, armed when a session
+         starts and cancelled the moment it ends, so nobody who finished
+         and put the phone away is asked whether they are still training. */
+      armIdle: function (seconds) {
+        var c = cfg();
+        if (!c || !c.apiUrl) return Promise.resolve({ ok: false, error: 'not_configured' });
+        var secs = Math.round(Number(seconds) || 0);
+        if (!(secs >= 60 && secs <= 6 * 3600)) {
+          return Promise.resolve({ ok: false, error: 'range',
+            message: 'A prompt has to be between a minute and six hours away.' });
+        }
+        return post(c.apiUrl.replace(/\/$/, '') + '/push/idle',
+                    { deviceId: API.reminders.deviceId(), seconds: secs });
+      },
+
+      cancelIdle: function () {
+        var c = cfg();
+        if (!c || !c.apiUrl) return Promise.resolve({ ok: true });
+        return post(c.apiUrl.replace(/\/$/, '') + '/push/idle/cancel',
+                    { deviceId: API.reminders.deviceId() })
+          .then(function (r) { return r; }, function () { return { ok: true }; });
+      },
+
       unsubscribe: function () {
         var c = cfg();
         if (!c || !c.apiUrl) return Promise.resolve({ ok: true });

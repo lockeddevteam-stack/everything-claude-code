@@ -109,6 +109,11 @@ const server = http.createServer(async (req, res) => {
     return send(200, { ok: true, prefs: json.prefs });
   }
   if (url.pathname === '/push/unsubscribe') return send(200, { ok: true });
+  if (url.pathname === '/push/idle') {
+    if (!(json.seconds >= 60 && json.seconds <= 21600)) return send(400, { error: 'Bad duration' });
+    return send(200, { ok: true, at: Date.now() + json.seconds * 1000 });
+  }
+  if (url.pathname === '/push/idle/cancel') return send(200, { ok: true });
   if (url.pathname === '/analyze-meal') {
     return send(200, { content: [{ type: 'text', text: 'Here you go: [{"name":"Rice","cal":310,"pro":6,"carb":68,"fat":2}]' }] });
   }
@@ -403,6 +408,12 @@ ok(sentPrefs.body.prefs.trainingTime === '07:30' && sentPrefs.body.prefs.checkin
    'with the times and switches as shown', JSON.stringify(sentPrefs.body.prefs));
 ok(typeof sentPrefs.body.tz === 'string',
    'and a timezone, because 07:30 means 07:30 where they are');
+
+let ai = await P.armIdle(40 * 60);
+ok(ai.ok, 'a workout left running is held by the server, not by a timer in the page', ai.message);
+ai = await P.armIdle(5);
+ok(!ai.ok && ai.error === 'range', 'and five seconds is not a reminder', ai.message);
+ok((await P.cancelIdle()).ok, 'the session ending takes it back');
 
 const noServer = { supabaseUrl: BASE, supabaseKey: 'anon-key' };
 const had = global.window.LK_CLOUD;

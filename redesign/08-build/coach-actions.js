@@ -332,15 +332,22 @@
       ST.set('lk_goals', all);
       return { key: 'lk_goals', id: rec.id, what: a.name };
     },
+    /* A RECIPE THE COACH WROTE IS MARKED AS ONE. It went into lk_recipes
+       beside the reader's own with nothing to tell them apart, so a week
+       later there was no way to know which of them anybody had written.
+       lk_coachRecipes is the key Fuel already reads to list them
+       separately, marked, and read-only -- a coach's recipe is theirs to
+       change. */
     recipe: function (a, ST) {
-      var all = (ST.get('lk_recipes', []) || []).slice();
+      var all = (ST.get('lk_coachRecipes', []) || []).slice();
       var rec = { id: 'r' + Date.now(), name: a.name, servings: a.servings,
                   icon: (a.items[0] || {}).icon || '🥗',
                   items: a.items.map(function (it) { return { key: it.key, qty: it.qty, name: it.name }; }),
-                  notes: a.notes, kcal: a.kcal, pro: a.pro, carb: a.carb, fat: a.fat };
+                  notes: a.notes, kcal: a.kcal, pro: a.pro, carb: a.carb, fat: a.fat,
+                  fromCoach: true, at: Date.now() };
       all.unshift(rec);
-      ST.set('lk_recipes', all);
-      return { key: 'lk_recipes', id: rec.id, what: a.name };
+      ST.set('lk_coachRecipes', all);
+      return { key: 'lk_coachRecipes', id: rec.id, what: a.name };
     },
     shopping: function (a, ST) {
       var all = (ST.get('lk_shoppingList', []) || []).slice();
