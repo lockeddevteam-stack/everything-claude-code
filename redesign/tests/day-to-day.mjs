@@ -177,7 +177,21 @@ for (const [route, want] of [['home', '480'], ['train', null], ['progress', null
   const t = await text(route);
   ok(!errs.length && t.length > 40, `${route} still opens after the session`, errs[0] || (t.length + ' chars'));
   ok(!/undefined|NaN|\[object Object\]|Invalid Date/.test(t), `${route} shows no hole`);
+  /* "No hole" is not "the right figure". The volume just logged has to
+     appear where the app claims to show it, or every screen can be clean
+     and wrong at the same time. */
+  if (want) ok(t.replace(/,/g, '').indexOf(want) >= 0,
+               `${route} shows the volume just logged`, want);
 }
+
+/* Recap adds the day up. Two sessions on one day is the case that broke
+   above, so the total is checked, not just the absence of a crash. */
+errs.length = 0;
+await page.evaluate(() => window.DEMO.go('recap'));
+await page.waitForTimeout(700);
+const recapT = (await text('recap')).replace(/,/g, '');
+ok(!errs.length, 'Recap opens after the session', errs[0] || '');
+ok(/480/.test(recapT), 'and counts the volume', recapT.slice(0, 140));
 
 console.log('\n=== logging food ===\n');
 errs.length = 0;
