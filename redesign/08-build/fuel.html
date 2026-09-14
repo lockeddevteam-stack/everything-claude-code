@@ -8,11 +8,11 @@
 <link rel="stylesheet" href="components.css">
 <script src="theme.js"></script>
 <script src="fixtures.js"></script>
+<script src="exercises.js"></script>
 <script src="store.js"></script>
 <script src="units.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
-<script src="exercises.js"></script>
 <script src="cloud-config.js"></script>
 <script src="cloud.js"></script>
 <script src="coach-actions.js"></script>
@@ -188,6 +188,32 @@
   var ST = window.LKStore;
   function stored(key, fb) { return ST ? ST.get(key, fb) : fb; }
 
+  /* THESE TWO TABLES ARE READ BEFORE THE SCREEN RENDERS, so they are
+     declared before it. TARGETS below computes from the profile when
+     nothing has been set, and calls goalKey() and activityKey() to do it.
+     Both were declared two hundred lines further down, where `var` leaves
+     them hoisted but undefined -- so the call threw and the whole screen
+     was blank.
+
+     It never showed up with the seed, because a seeded device has targets
+     already and the computing branch is never taken. The reader it broke
+     for is the one upgrading: a profile carried over from the shipped app,
+     no targets yet, and Fuel opens empty. */
+  /* The same three words Settings writes. `lean bulk` was a fourth invented
+     here and printed under every hero, whatever the profile said. */
+  var GOAL_WORD = { cut: 'losing fat', maintain: 'holding steady', build: 'building' };
+  var GOAL_OFFSET = { cut: -400, maintain: 0, build: 250 };
+  /* How hard the week is. Stored, because it is a fact about a person, not
+     about a screen; defaulted to moderate and said out loud where it is used,
+     rather than being an invisible constant inside a formula. */
+  var ACTIVITY = [
+    ['sedentary', 'Desk job, little else', 1.2],
+    ['light', 'On your feet, or training twice a week', 1.375],
+    ['moderate', 'Training three to five days', 1.55],
+    ['hard', 'Training six days, or a physical job', 1.725],
+    ['athlete', 'Twice a day, or manual work plus training', 1.9]
+  ];
+
   var PROFILE = stored('lk_profile', FX.profile || {});
   /* The day log, keyed by date. Untouched it is the fixture's four days; the
      moment anything is logged the stored map wins and the fixture is never
@@ -273,9 +299,6 @@
   }
   var WEIGHTLOG = stored('lk_weightLog', FX.weightLog || []);
 
-  /* The same three words Settings writes. `lean bulk` was a fourth invented
-     here and printed under every hero, whatever the profile said. */
-  var GOAL_WORD = { cut: 'losing fat', maintain: 'holding steady', build: 'building' };
   function goalKey() {
     var g = PROFILE.goal;
     return GOAL_WORD[g] ? g : 'maintain';
@@ -285,16 +308,6 @@
      What the body is actually spending
      --------------------------------------------------------------- */
 
-  /* How hard the week is. Stored, because it is a fact about a person, not
-     about a screen; defaulted to moderate and said out loud where it is used,
-     rather than being an invisible constant inside a formula. */
-  var ACTIVITY = [
-    ['sedentary', 'Desk job, little else', 1.2],
-    ['light', 'On your feet, or training twice a week', 1.375],
-    ['moderate', 'Training three to five days', 1.55],
-    ['hard', 'Training six days, or a physical job', 1.725],
-    ['athlete', 'Twice a day, or manual work plus training', 1.9]
-  ];
   function activityKey() {
     var k = (stored('lk_fuelProfile', {}) || {}).activity;
     for (var i = 0; i < ACTIVITY.length; i++) if (ACTIVITY[i][0] === k) return k;
@@ -334,7 +347,6 @@
     return Math.round(avg - kgPerDay * 7700);
   }
 
-  var GOAL_OFFSET = { cut: -400, maintain: 0, build: 250 };
 
   /* ---------------------------------------------------------------
      The refeed

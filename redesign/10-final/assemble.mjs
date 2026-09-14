@@ -55,10 +55,14 @@ const MANIFEST = {
      and reaches into them, so it cannot live in one of them.
      store.js before cloud.js: the cloud seam reads the session out of the
      store on load. coach-actions.js before any screen that renders a coach
-     card, for the same reason. */
+     card, for the same reason.
+     exercises.js before store.js: store.js runs the migrations as it
+     loads, and the one that puts a name on a record and on a split day
+     reads the catalogue. Loaded after, the catalogue is not there when it
+     is wanted and the migration has to wait for the next boot. */
   js: ['theme.js', 'app.js', 'chrome.js', 'vendor/body-art.js', 'bodymap.js',
-       'session.js', 'fixtures.js', 'store.js', 'units.js',
-       'cloud-config.js', 'cloud.js', 'exercises.js', 'coach-actions.js',
+       'session.js', 'fixtures.js', 'exercises.js', 'store.js', 'units.js',
+       'cloud-config.js', 'cloud.js', 'coach-actions.js',
        'tutor-steps.js', 'tutor.js'],
 
   /* Files in srcDir that are not app screens. */

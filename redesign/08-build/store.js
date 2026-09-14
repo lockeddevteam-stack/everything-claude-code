@@ -408,13 +408,9 @@
        Add to MIGRATIONS; never renumber or rewrite one that has shipped. */
     migrate: function () {
       var at = Number(API.get(SCHEMA_KEY, 0)) || 0;
-      var ran = [];
-      for (var i = at; i < MIGRATIONS.length; i++) {
-        try { if (MIGRATIONS[i](API)) ran.push(i + 1); }
-        catch (e) { /* A migration that throws must not brick the boot. */ }
-      }
-      if (MIGRATIONS.length !== at) API.set(SCHEMA_KEY, MIGRATIONS.length);
-      return { from: at, to: MIGRATIONS.length, ran: ran };
+      var r = runFrom(at);
+      if (r.mark !== at) API.set(SCHEMA_KEY, r.mark);
+      return { from: at, to: r.mark, ran: r.ran };
     },
     schemaVersion: function () { return Number(API.get(SCHEMA_KEY, 0)) || 0; },
 
@@ -434,13 +430,9 @@
        is a property they needed anyway because a half-finished boot runs
        them twice. */
     remigrate: function () {
-      var ran = [];
-      for (var i = 0; i < MIGRATIONS.length; i++) {
-        try { if (MIGRATIONS[i](API)) ran.push(i + 1); }
-        catch (e) { /* One bad row must not stop the rest. */ }
-      }
-      API.set(SCHEMA_KEY, MIGRATIONS.length);
-      return ran;
+      var r = runFrom(0);
+      API.set(SCHEMA_KEY, r.mark);
+      return r.ran;
     },
 
     load: function (obj) {
@@ -459,6 +451,33 @@
      The sync set, and the migrations.
      ------------------------------------------------------------------ */
   var SCHEMA_KEY = 'lk_schema';
+
+  /* A MIGRATION THAT COULD NOT RUN IS NOT A MIGRATION THAT RAN.
+
+     Returning DEFER says "the thing I need is not here yet". The marker is
+     parked at the first migration that said so, and everything after it
+     still runs -- they are independent, and every one of them is a no-op
+     against data it has already converted, so running them again next boot
+     costs nothing and finishing them now is free.
+
+     This exists because migration 5 needs the exercise catalogue, and
+     exercises.js is loaded AFTER store.js on the three screens that carry
+     it and not at all on the other fifteen. It returned false, the old
+     marker advanced regardless, and the migration was recorded as done
+     having resolved nothing -- so an upgrading reader's records and split
+     days stayed nameless on every screen, permanently. */
+  var DEFER = 'defer';
+  function runFrom(at) {
+    var ran = [], stop = -1;
+    for (var i = at; i < MIGRATIONS.length; i++) {
+      var r;
+      try { r = MIGRATIONS[i](API); }
+      catch (e) { r = false; }      /* a bad row must not brick the boot */
+      if (r === DEFER) { if (stop < 0) stop = i; continue; }
+      if (r) ran.push(i + 1);
+    }
+    return { ran: ran, mark: stop < 0 ? MIGRATIONS.length : stop };
+  }
   var SYNC_KEYS = [
     'lk_profile', 'lk_history', 'lk_prs', 'lk_splits', 'lk_customEx', 'lk_exNotes',
     'lk_exEquip', 'lk_featuredLifts', 'lk_weightLog', 'lk_bfLog', 'lk_goals',
@@ -487,6 +506,10 @@
        not want to go hunting for twice. */
     'lk_cycle', 'lk_perfTracking', 'lk_fuelAdaptive', 'lk_fuelRefeed',
     'lk_fuelRefeedNo', 'lk_fuelNumbers', 'lk_hidePartials', 'lk_homeLayout',
+    /* lk_gamingLayer is the shipped app's name for the same switch this
+       build calls lk_badges. It syncs so that migration 6 has something to
+       read; without it the switch arrives off for anybody who turned it on. */
+    'lk_gamingLayer',
 
     /* Preferences. Every one of these is a choice somebody made on purpose,
        and a preference that resets is read as the app forgetting them. */
@@ -673,12 +696,14 @@
        phone that already ran those has the nameless rows on it, and only
        a new migration reaches them.
 
-       Idempotent: a row that already has a name is left alone, and with
-       no catalogue loaded it does nothing and stays available for the
-       next boot. */
+       Idempotent: a row that already has a name is left alone. With no
+       catalogue loaded it returns DEFER, which parks the version marker
+       here so the next boot tries again -- it used to return false, and
+       the marker moved on regardless, recording as done a migration that
+       had resolved nothing. */
     function (ST) {
       var cat = g.LKExercises && g.LKExercises.all && g.LKExercises.all();
-      if (!cat || !cat.length) return false;
+      if (!cat || !cat.length) return DEFER;   /* no catalogue yet: try again */
       var byId = {};
       cat.forEach(function (e) { byId[e.id] = e; });
 
@@ -732,6 +757,26 @@
       }
 
       return did;
+    },
+
+    /* 6 — THE STREAKS SWITCH, UNDER THE NAME IT WAS SAVED AS.
+
+       The shipped app writes lk_gamingLayer; every screen here reads
+       lk_badges. Nobody's stored data carries lk_badges at all, so a
+       person who turned streaks and badges on found them off after the
+       upgrade -- the switch in Settings said off, and it was telling the
+       truth about a key that had never been written.
+
+       Only adopted when lk_badges has not been set here: a choice made in
+       this build is never overwritten by the older key. Idempotent, and it
+       does nothing on a phone that never had the old switch. */
+    function (ST) {
+      if (ST.touched('lk_badges')) return false;
+      if (!ST.touched('lk_gamingLayer')) return false;
+      var on = ST.get('lk_gamingLayer', null);
+      if (typeof on !== 'boolean') return false;
+      ST.set('lk_badges', on);
+      return true;
     }
   ];
 

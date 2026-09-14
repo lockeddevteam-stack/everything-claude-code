@@ -132,3 +132,45 @@ wrong merge loses work in a way a person cannot see.
 - The payment provider and the webhook that writes `entitlements`.
 - Push: a `subscriptions` table and the send path. The client half is built and
   says what is missing.
+
+## What the shipped app syncs that this build does not read
+
+Read off `lockeddevteam-stack/locked` `index.html` (its own sync list) and
+checked against `08-build/store.js`. Every key a live account actually
+holds today is handled: the live table carries 34 distinct keys across 5
+accounts, and all 34 either sync under the same name or have a migration.
+
+These are the rest of the shipped app's sync set. None of them is present
+on any live account, so nothing is being lost today, and the hosted app is
+still running and could write them tomorrow.
+
+Adopted by a migration:
+
+| shipped app | this build | how |
+|---|---|---|
+| `lk_gamingLayer` | `lk_badges` | migration 6, a boolean, same meaning |
+
+Deliberately not adopted, and why. Each of these is real content, and each
+would need its values remapped rather than copied — the shapes differ, and
+the shipped app's food rows carry free text where this build carries a key
+into its own food table. A mapping built on a guess would change what
+somebody's meal is recorded as, which is worse than not importing it.
+
+| shipped app | nearest here | what differs |
+|---|---|---|
+| `lk_favFoods` | `lk_fuelFavourites` | there: food objects. here: food keys |
+| `lk_myGroceries` | `lk_myFoods` | free-text rows against keyed rows |
+| `lk_userRecipes` | `lk_recipes` | `ingredients`/`perServing.cal` against `items`/`kcal`, and the ingredients carry no food key |
+| `lk_mealPlans` | `lk_fuelPlans` | same, through the same ingredients |
+| `lk_cycleLog` | `lk_cycles[].comps[].taken` | there: a map of day to `"cycle::compound"`. here: a date list on the compound. Mechanical, but nobody has either key yet |
+| `lk_textScale` | — | this build sizes from the platform's own text setting |
+
+Device-only, and correctly not synced: `lk_cardioMigrated`,
+`lk_prDatesFixed`, `lk_weightsKgMigrated`, `lk_splitsExpanded`,
+`lk_throwbackDismissed`, `lk_usdaKey`.
+
+`lk_weightStorageUnit` is not a preference to carry: the shipped app
+derives it from `lk_profile.useKg` and the unit-conversion switch. Weights
+are stored in kilograms under both settings — checked against live rows,
+where a profile reading `useKg: false` still stores `kg: 68.946` — and
+`useKg` is the key both builds display from.

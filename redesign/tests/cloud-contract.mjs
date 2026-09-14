@@ -362,6 +362,66 @@ ok(Array.isArray(day0.exercises) && day0.exercises.every(function (e) { return !
 ok(S.schemaVersion() >= 4, 'and the version marker is still honest afterwards',
    String(S.schemaVersion()));
 
+/* ---- 6c. THE REST OF WHAT THE LIVE TABLE HOLDS -----------------------
+   Read off the project row by row rather than imagined. Three things in
+   6b's fixture were tidier than the real data:
+
+     - a set stores its weight and reps as STRINGS ("w": "35", "r": "8"),
+       with rL/rR beside them and no setType at all;
+     - a session carries dateISO next to a US-ordered date, and the two
+       disagree by a day, so the ISO one has to win;
+     - every lk_prs row in the live table is dated with the word "Today",
+       which is what the shipped app showed when it wrote the record.
+
+   The word cannot be turned back into a day -- the row carries nothing
+   else to date it -- so it survives as the word. What must not happen is
+   the screen splitting it on "-" and printing "undefined NaN", which is
+   what Records did for the one account that has these rows. */
+S.set('lk_schema', 6);
+S.set('lk_lastSync', 0);
+const future2 = Date.now() + 180000;
+table = [
+  { key: 'lk_prs', changed_at: future2, value: {
+      '104': [{ date: 'Today', r: 3, w: 58.96707822663317 },
+              { date: 'Today', r: 5, w: 54.43114913227677 }] } },
+  { key: 'lk_history', changed_at: future2, value: [
+      { name: 'Pull Hotel', date: '6/18/2026', dateISO: '2026-06-19',
+        vol: '3608 kg', dur: '39 min', sets: 12, blocks: null, note: '',
+        exercises: [{ name: 'Technogym Low row', sets: [
+          { r: '8', w: '35', rL: '', rR: '', rir: '2', done: true },
+          { r: '9', w: '90', rL: '', rR: '', rir: '0', done: true } ] }] } ] },
+  /* the switch under the name the shipped app saves it as */
+  { key: 'lk_gamingLayer', changed_at: future2, value: true }
+];
+await C.pull();
+
+const live = S.get('lk_prs', null) || [];
+ok(Array.isArray(live) && live.length === 2 && live.every(function (r) { return !!r.name; }),
+   'records dated with a word still arrive named and countable',
+   JSON.stringify(live.map(function (r) { return r.name; })));
+ok(live.every(function (r) { return r.date === 'Today'; }),
+   'and the word is kept rather than turned into a day nobody recorded',
+   JSON.stringify(live.map(function (r) { return r.date; })));
+
+const lh = (S.get('lk_history', []) || [])[0] || {};
+ok(lh.date === '2026-06-19',
+   'where a session carries both dates, the ISO one wins', String(lh.date));
+const ls = ((lh.exercises || [])[0] || {}).sets || [];
+ok(ls.length === 2 && ls.every(function (x) { return typeof x.kg === 'number' && typeof x.reps === 'number'; }),
+   'a set written as strings reads as numbers, or every volume it feeds is text',
+   JSON.stringify(ls));
+ok(lh.kg === 3608 && lh.min === 39,
+   'and the session total is a number too', JSON.stringify({ kg: lh.kg, min: lh.min }));
+ok(S.get('lk_badges', null) === true,
+   'the streaks switch arrives on, under the name this build reads',
+   JSON.stringify({ lk_gamingLayer: S.get('lk_gamingLayer', null), lk_badges: S.get('lk_badges', null) }));
+
+/* and a choice made in THIS build is never undone by the older key */
+S.set('lk_badges', false);
+S.remigrate();
+ok(S.get('lk_badges', null) === false,
+   'and it never overwrites a choice made here');
+
 /* ---- 7. entitlements, read off a profile row ------------------------- */
 const DAY = 86400000;
 const cases = [
