@@ -2453,7 +2453,15 @@
         if (raw.charAt(end) === 's' && /[^a-z]|^$/.test(raw.charAt(end + 1) || ' ')) end += 1;
         var beforeOk = at === 0 || /[^a-z]/.test(raw.charAt(at - 1));
         var afterOk = end >= raw.length || /[^a-z]/.test(raw.charAt(end));
-        if (beforeOk && afterOk && !taken(at, end)) {
+        /* "A BOWL OF OATS" IS NOT A BOWL. A few words are both a food's
+           name and a thing you serve food in -- bowl, plate, portion --
+           and the alias won, so asking for a bowl of oats logged the
+           chicken rice bowl. Followed by "of", such a word is the
+           container and whatever comes after it is the food; readQty
+           picks it up as the unit on the next pass. */
+        var tail = raw.slice(end).replace(/^\s+/, '');
+        var containerOf = UNIT_G[e.a] !== undefined && /^of\b/.test(tail);
+        if (beforeOk && afterOk && !taken(at, end) && !containerOf) {
           claimed.push([at, end]);
           found.push({ key: e.key, alias: e.a, at: at, end: end });
         }
@@ -2516,13 +2524,43 @@
              UNIT_G[w] === undefined && !/^[0-9.]+$/.test(w);
     });
   }
-  function leftoverWords(words, items) {
+  /* ONE ROW PER FOOD, EVEN WHEN NONE OF THEM IS KNOWN. Anything the table
+     did not claim was joined into a single row, so "200 g chicken and
+     100 g rice" became one unrecognised item called "chicken rice" -- and
+     the lookup that could have priced each of them separately was asked
+     one question about a thing that does not exist. Three foods in a
+     sentence became one row of nonsense.
+
+     The sentence is split on the words that separate foods: "and", "plus",
+     "with", "then", and a comma, which the caller has already turned into
+     a space. Each piece keeps its own quantity and unit, so "200 g
+     chicken" stays 200 g of chicken. */
+  var SPLITTER = { and: 1, plus: 1, then: 1, with: 1 };
+
+  function pushLeftover(words, items) {
     var w = keepWords(words || []);
     if (!w.length) return;
-    items.push({ raw: w.join(' '), name: w.join(' '), qty: 1, unit: null, key: null });
+    var q = readQty(w.slice(0, -1).join(' '));
+    var name = w.join(' ');
+    items.push({ raw: name, name: name, qty: 1, unit: null, key: null });
   }
+
+  function leftoverWords(words, items) {
+    var all = (words || []).filter(Boolean);
+    if (!all.length) return;
+    var run = [];
+    all.forEach(function (t) {
+      if (SPLITTER[t]) { pushLeftover(run, items); run = []; return; }
+      run.push(t);
+    });
+    pushLeftover(run, items);
+  }
+
   function leftover(text, items) {
-    var t = String(text || '').replace(/[^a-z0-9 ]/g, ' ').trim();
+    /* Commas separate foods as surely as "and" does, so they become the
+       same boundary rather than being wiped out with the punctuation. */
+    var t = String(text || '').replace(/[,;]/g, ' and ')
+                              .replace(/[^a-z0-9 ]/g, ' ').trim();
     if (!t) return;
     leftoverWords(t.split(/\s+/), items);
   }

@@ -7093,6 +7093,14 @@ button.shelf:active { background: var(--fill-press); }
    2,980 kcal as reference data made every reader inherit a stranger's
    target and skipped the calculation entirely.
 
+   THE UNIT MAP IS THE HALF THAT MATTERS. It is what turns what somebody
+   typed into grams, and a word missing from it is read as part of the
+   food's name instead: "a glass of coconut water" went to the lookup as
+   "glass coconut water", which is not a food. The everyday containers --
+   glass, bowl, mug, can, bottle, pint, handful, piece -- are approximate
+   on purpose. A glass of water is not a laboratory measure, and the
+   alternative is not precision, it is the word ending up in the name.
+
    Eight foods is a demo table and the screens say so. The unit map is the
    part that matters most: it is what turns what somebody typed into grams.
 */
@@ -7134,7 +7142,23 @@ button.shelf:active { background: var(--fill-press); }
     "plate": 0,
     "plates": 0,
     "portion": 0,
-    "portions": 0
+    "portions": 0,
+    "glass": 250,
+    "glasses": 250,
+    "bowl": 350,
+    "bowls": 350,
+    "mug": 300,
+    "mugs": 300,
+    "handful": 30,
+    "handfuls": 30,
+    "piece": 100,
+    "pieces": 100,
+    "can": 330,
+    "cans": 330,
+    "bottle": 500,
+    "bottles": 500,
+    "pint": 568,
+    "pints": 568
   },
   "barcodes": {
     "5060123456789": "skyr",
@@ -20114,7 +20138,15 @@ DEMO.define("fuel", function (document, window, location, fetch) {
         if (raw.charAt(end) === 's' && /[^a-z]|^$/.test(raw.charAt(end + 1) || ' ')) end += 1;
         var beforeOk = at === 0 || /[^a-z]/.test(raw.charAt(at - 1));
         var afterOk = end >= raw.length || /[^a-z]/.test(raw.charAt(end));
-        if (beforeOk && afterOk && !taken(at, end)) {
+        /* "A BOWL OF OATS" IS NOT A BOWL. A few words are both a food's
+           name and a thing you serve food in -- bowl, plate, portion --
+           and the alias won, so asking for a bowl of oats logged the
+           chicken rice bowl. Followed by "of", such a word is the
+           container and whatever comes after it is the food; readQty
+           picks it up as the unit on the next pass. */
+        var tail = raw.slice(end).replace(/^\s+/, '');
+        var containerOf = UNIT_G[e.a] !== undefined && /^of\b/.test(tail);
+        if (beforeOk && afterOk && !taken(at, end) && !containerOf) {
           claimed.push([at, end]);
           found.push({ key: e.key, alias: e.a, at: at, end: end });
         }
@@ -20177,13 +20209,43 @@ DEMO.define("fuel", function (document, window, location, fetch) {
              UNIT_G[w] === undefined && !/^[0-9.]+$/.test(w);
     });
   }
-  function leftoverWords(words, items) {
+  /* ONE ROW PER FOOD, EVEN WHEN NONE OF THEM IS KNOWN. Anything the table
+     did not claim was joined into a single row, so "200 g chicken and
+     100 g rice" became one unrecognised item called "chicken rice" -- and
+     the lookup that could have priced each of them separately was asked
+     one question about a thing that does not exist. Three foods in a
+     sentence became one row of nonsense.
+
+     The sentence is split on the words that separate foods: "and", "plus",
+     "with", "then", and a comma, which the caller has already turned into
+     a space. Each piece keeps its own quantity and unit, so "200 g
+     chicken" stays 200 g of chicken. */
+  var SPLITTER = { and: 1, plus: 1, then: 1, with: 1 };
+
+  function pushLeftover(words, items) {
     var w = keepWords(words || []);
     if (!w.length) return;
-    items.push({ raw: w.join(' '), name: w.join(' '), qty: 1, unit: null, key: null });
+    var q = readQty(w.slice(0, -1).join(' '));
+    var name = w.join(' ');
+    items.push({ raw: name, name: name, qty: 1, unit: null, key: null });
   }
+
+  function leftoverWords(words, items) {
+    var all = (words || []).filter(Boolean);
+    if (!all.length) return;
+    var run = [];
+    all.forEach(function (t) {
+      if (SPLITTER[t]) { pushLeftover(run, items); run = []; return; }
+      run.push(t);
+    });
+    pushLeftover(run, items);
+  }
+
   function leftover(text, items) {
-    var t = String(text || '').replace(/[^a-z0-9 ]/g, ' ').trim();
+    /* Commas separate foods as surely as "and" does, so they become the
+       same boundary rather than being wiped out with the punctuation. */
+    var t = String(text || '').replace(/[,;]/g, ' and ')
+                              .replace(/[^a-z0-9 ]/g, ' ').trim();
     if (!t) return;
     leftoverWords(t.split(/\s+/), items);
   }

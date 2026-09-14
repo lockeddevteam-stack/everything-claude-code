@@ -19,6 +19,14 @@
    2,980 kcal as reference data made every reader inherit a stranger's
    target and skipped the calculation entirely.
 
+   THE UNIT MAP IS THE HALF THAT MATTERS. It is what turns what somebody
+   typed into grams, and a word missing from it is read as part of the
+   food's name instead: "a glass of coconut water" went to the lookup as
+   "glass coconut water", which is not a food. The everyday containers --
+   glass, bowl, mug, can, bottle, pint, handful, piece -- are approximate
+   on purpose. A glass of water is not a laboratory measure, and the
+   alternative is not precision, it is the word ending up in the name.
+
    Eight foods is a demo table and the screens say so. The unit map is the
    part that matters most: it is what turns what somebody typed into grams.
 */
@@ -60,7 +68,23 @@
     "plate": 0,
     "plates": 0,
     "portion": 0,
-    "portions": 0
+    "portions": 0,
+    "glass": 250,
+    "glasses": 250,
+    "bowl": 350,
+    "bowls": 350,
+    "mug": 300,
+    "mugs": 300,
+    "handful": 30,
+    "handfuls": 30,
+    "piece": 100,
+    "pieces": 100,
+    "can": 330,
+    "cans": 330,
+    "bottle": 500,
+    "bottles": 500,
+    "pint": 568,
+    "pints": 568
   },
   "barcodes": {
     "5060123456789": "skyr",
