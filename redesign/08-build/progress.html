@@ -7,8 +7,14 @@
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
 <script src="theme.js"></script>
+<script src="fixtures.js"></script>
+<script src="exercises.js"></script>
+<script src="store.js"></script>
+<script src="units.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
+<script src="cloud-config.js"></script>
+<script src="cloud.js"></script>
 <script src="session.js"></script>
 </head>
 <body>
@@ -73,6 +79,13 @@
     <div class="screen" id="screen" data-testid="screen-progress" data-state="populated">
 
       <header class="hdr hdr--large" data-large-title="#body" data-scroll-edge="#body">
+        <!-- A WAY BACK. Progress is pushed from Home and had no control of
+             its own to leave by, so an installed app -- which has no browser
+             back -- could only get out with a system gesture. The same arrow
+             in the same place as every other pushed screen. -->
+        <button class="hdr__back" type="button" data-action="progress-back" data-testid="back" aria-label="Back to Home">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 5l-7 7 7 7"/></svg>
+        </button>
         <div class="hdr__title stack stack--1">
           <span class="t-meta">STRENGTH</span>
           <h1 class="hdr__title-large" data-title-large>Progress</h1>
@@ -146,72 +159,287 @@
   };
 
   /* =============================================================
-     Seed subset. From tests/fixtures/seed-data.json.
-     pts: [dateISO, estimated 1RM kg, weight kg, reps] — best working
-     set of that session, Epley, one rounding convention (1 decimal).
+     The data. Everything on this screen was a literal in this file:
+     fifteen hand-typed lift series, twelve records, a weight log, a
+     goals list and a photo list. None of it was read from the store
+     and none of it was written to it, so a weight logged here, a
+     record added here, a goal added here and a photo deleted here
+     were all gone on the next load, and no other screen ever saw any
+     of it. Every list below comes out of LKStore under the shipped
+     app's own key, and every write goes back to it.
      ============================================================= */
-  var TODAY = '2026-09-09';
+  var ST = window.LKStore;
+  function get(key, dflt) { return ST ? ST.get(key, dflt) : dflt; }
+  function put(key, v) { if (ST) ST.set(key, v); }
 
-  var LIFTS = [
-    { id: 703, name: "Leg Press", muscle: "Quads", pts: [["2026-08-03",196,140,12], ["2026-08-10",198.2,145,11], ["2026-08-17",210,150,12], ["2026-08-24",217,155,12], ["2026-08-31",224,160,12], ["2026-09-07",231,165,12]] },
-    { id: 221, name: "Barbell Deadlift", muscle: "Lower Back", pts: [["2026-08-01",108,90,6], ["2026-08-08",110.8,95,5], ["2026-08-15",120,100,6], ["2026-08-22",126,105,6], ["2026-08-29",132,110,6], ["2026-09-05",134.2,115,5]] },
-    { id: 701, name: "Barbell Squat", muscle: "Quads", pts: [["2026-08-03",95,75,8], ["2026-08-10",95.6,77.5,7], ["2026-08-17",101.3,80,8], ["2026-08-24",101.8,82.5,7], ["2026-08-31",104.8,85,7], ["2026-09-07",110.8,87.5,8]] },
-    { id: 1101, name: "Standing Calf Raise", muscle: "Calves", pts: [["2026-08-03",90,60,15], ["2026-08-10",93.8,62.5,15], ["2026-08-17",97.5,65,15], ["2026-08-24",101.3,67.5,15], ["2026-08-31",105,70,15], ["2026-09-07",106.3,72.5,14]] },
-    { id: 801, name: "Romanian Deadlift", muscle: "Hamstrings", pts: [["2026-08-03",86.7,65,10], ["2026-08-10",90,67.5,10], ["2026-08-17",91,70,9], ["2026-08-24",96.7,72.5,10], ["2026-08-31",100,75,10], ["2026-09-07",103.3,77.5,10]] },
-    { id: 111, name: "Barbell Bench Press", muscle: "Mid Chest", pts: [["2026-07-30",74,60,7], ["2026-08-06",79.2,62.5,8], ["2026-08-13",80.2,65,7], ["2026-08-20",85.5,67.5,8], ["2026-08-27",86.3,70,7], ["2026-09-03",91.8,72.5,8]] },
-    { id: 202, name: "Lat Pulldown", muscle: "Lats", pts: [["2026-08-01",66.7,50,10], ["2026-08-08",68.3,52.5,9], ["2026-08-15",71.5,55,9], ["2026-08-22",74.8,57.5,9], ["2026-08-29",78,60,9], ["2026-09-05",83.3,62.5,10]] },
-    { id: 213, name: "Seated Cable Row", muscle: "Mid Back", pts: [["2026-08-01",61.5,45,11], ["2026-08-08",66.5,47.5,12], ["2026-08-15",68.3,50,11], ["2026-08-22",71.8,52.5,11], ["2026-08-29",75.2,55,11], ["2026-09-05",80.5,57.5,12]] },
-    { id: 802, name: "Lying Leg Curl", muscle: "Hamstrings", pts: [["2026-08-03",54.7,40,11], ["2026-08-10",58.1,42.5,11], ["2026-08-17",61.5,45,11], ["2026-08-24",66.5,47.5,12], ["2026-08-31",68.3,50,11], ["2026-09-07",73.5,52.5,12]] },
-    { id: 411, name: "Tricep Pushdown", muscle: "Lateral Head", pts: [["2026-07-30",35,25,12], ["2026-08-06",36.4,26,12], ["2026-08-13",37.8,27,12], ["2026-08-20",38.3,28,11], ["2026-08-27",40.6,29,12], ["2026-09-03",42,30,12]] },
-    { id: 503, name: "Barbell Curl", muscle: "Long Head", pts: [["2026-08-01",32.5,25,9], ["2026-08-08",33.8,26,9], ["2026-08-15",35.1,27,9], ["2026-08-22",37.3,28,10], ["2026-08-29",38.7,29,10], ["2026-09-05",40,30,10]] },
-    { id: 302, name: "DB Shoulder Press", muscle: "Front Delt", pts: [["2026-07-30",26.7,20,10], ["2026-08-06",28,21,10], ["2026-08-13",28.6,22,9], ["2026-08-20",29.9,23,9], ["2026-08-27",31.2,24,9], ["2026-09-03",32.5,25,9]] },
-    { id: 321, name: "Face Pull", muscle: "Rear Delt", pts: [["2026-08-01",22.5,15,15], ["2026-08-08",24,16,15], ["2026-08-15",25.5,17,15], ["2026-08-22",27,18,15], ["2026-08-29",28.5,19,15], ["2026-09-05",29.3,20,14]] },
-    { id: 103, name: "Incline Cable Fly", muscle: "Upper Chest", pts: [["2026-07-30",17.5,12.5,12], ["2026-08-06",17.8,13,11], ["2026-08-13",18.9,13.5,12], ["2026-08-20",19.1,14,11], ["2026-08-27",20.3,14.5,12], ["2026-09-03",20.5,15,11]] },
-    { id: 311, name: "Lateral Raise", muscle: "Side Delt", pts: [["2026-07-30",11.7,8,14], ["2026-08-06",12.5,8.5,14], ["2026-08-13",13.2,9,14], ["2026-08-20",14.3,9.5,15], ["2026-08-27",15,10,15], ["2026-09-03",15.8,10.5,15]] }
+  /* The wall clock, or the seed's date while a seed is loaded. Pinned to
+     the fixture, a build with no seed read undefined. */
+  var TODAY = window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10);
+
+  var HISTORY = get('lk_history', []) || [];
+
+  /* The trend, computed from the sessions rather than typed beside them.
+     A point is the best working set of that session for that exercise, by
+     Epley, to one decimal -- which is the convention the rest of the app
+     rounds to. Derived this way the chart moves when a session is logged;
+     the table it replaces could not.
+
+     Checked against the table it replaces: all fifteen series, every point,
+     identical. Warm-up sets are not working sets and do not make a point. */
+  function e1rm(w, r) { return w * (1 + r / 30); }
+  function buildLifts(history) {
+    var by = {};
+    history.forEach(function (h) {
+      if (h.kind === 'cardio' || !h.exercises) return;
+      h.exercises.forEach(function (ex) {
+        var best = null;
+        (ex.sets || []).forEach(function (st) {
+          if (st.warm || !st.done) return;
+          var e = e1rm(st.kg, st.reps);
+          if (!best || e > best.e) best = { e: e, kg: st.kg, reps: st.reps };
+        });
+        if (!best) return;
+        var L = by[ex.id] || (by[ex.id] = { id: ex.id, name: ex.name, muscle: ex.muscle, pts: [] });
+        L.pts.push([String(h.date).slice(0, 10), Math.round(best.e * 10) / 10, best.kg, best.reps]);
+      });
+    });
+    var out = Object.keys(by).map(function (k) { return by[k]; });
+    out.forEach(function (l) { l.pts.sort(function (a, b) { return a[0] < b[0] ? -1 : 1; }); });
+    /* Heaviest lift first, which is the order the picker had. */
+    out.sort(function (a, b) {
+      return (b.pts[b.pts.length - 1][1]) - (a.pts[a.pts.length - 1][1]);
+    });
+    return out;
+  }
+  var LIFTS = buildLifts(HISTORY);
+
+  /* lk_prs: one array of record rows, the shape the fixture seeds and every
+     screen reads. A hand-typed copy of the same twelve rows used to sit here
+     because fixtures.js flattened the key to one row per lift; the generator
+     emits all of them now, so there is nothing to restate. The map shape an
+     older build wrote is still read, so a phone that stored one does not
+     lose its records. */
+  function readRecords() {
+    var raw = ST && ST.touched('lk_prs') ? ST.get('lk_prs', null) : null;
+    if (!raw) raw = (window.LKFixtures && LKFixtures.prs) || [];
+    var out = [];
+    if (Array.isArray(raw)) {
+      raw.forEach(function (r) {
+        out.push({ id: Number(r.exId != null ? r.exId : r.id), reps: r.reps, kg: r.kg,
+                   date: String(r.date || '').slice(0, 10) });
+      });
+    } else if (typeof raw === 'object') {
+      Object.keys(raw).forEach(function (id) {
+        (raw[id] || []).forEach(function (r) {
+          out.push({ id: Number(id), reps: r.r, kg: r.w, date: String(r.date || '').slice(0, 10) });
+        });
+      });
+    }
+    out.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+    return out;
+  }
+  function nameOfLift(id) {
+    var l = liftById(id);
+    if (l) return { name: l.name, group: l.group || '', muscle: l.muscle || '' };
+    var all = (window.LKFixtures && LKFixtures.prs) || [];
+    for (var i = 0; i < all.length; i++) if (Number(all[i].exId) === Number(id)) return all[i];
+    return null;
+  }
+  function saveRecords() {
+    /* Written back as rows, carrying the lift's name and group, so a record
+       set here reads the same on Recap, Profile and the library. */
+    put('lk_prs', RECORDS.map(function (r) {
+      var meta = nameOfLift(r.id) || {};
+      return { exId: r.id, name: meta.name || '', group: meta.group || '',
+               muscle: meta.muscle || '', kg: r.kg, reps: r.reps, date: r.date };
+    }));
+  }
+  var RECORDS = readRecords();
+
+  function sessionDates(history) {
+    var seen = {}, out = [];
+    history.forEach(function (h) {
+      var d = String(h.date).slice(0, 10);
+      if (seen[d]) return;
+      seen[d] = 1;
+      out.push(d);
+    });
+    return out.sort();
+  }
+  var SESSIONS = sessionDates(HISTORY);
+
+  /* lk_weightLog, as [date, kg] pairs on the way in and objects on the way
+     out, because that is the shape every other screen reads. */
+  function readWeightLog() {
+    return (get('lk_weightLog', []) || []).map(function (w) {
+      return [String(w.date).slice(0, 10), w.kg];
+    }).sort(function (a, b) { return a[0] < b[0] ? -1 : 1; });
+  }
+  var WEIGHT_LOG = readWeightLog();
+  function saveWeight() {
+    put('lk_weightLog', WEIGHT_LOG.map(function (w) { return { date: w[0], kg: w[1] }; }));
+    /* The latest weigh-in IS the body weight. Settings reads
+       lk_profile.weightKg and nothing here updated it, so a weigh-in here
+       left Settings showing the weight somebody typed into setup months
+       ago. Fuel's weigh-in already writes both. */
+    var last = WEIGHT_LOG[WEIGHT_LOG.length - 1];
+    if (last && ST && ST.patch) ST.patch('lk_profile', { weightKg: last[1] });
+  }
+
+  /* lk_bfLog. It ships in the seed with two readings and nothing in the
+     build read it: there was no body-fat log anywhere. */
+  function readBF() {
+    return (get('lk_bfLog', []) || []).slice()
+      .sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+  }
+  var BF = readBF();
+  function saveBF() { put('lk_bfLog', BF.slice()); }
+  var BF_METHODS = [
+    ['manual', 'By eye'],
+    ['calipers', 'Calipers'],
+    ['scale', 'Smart scale'],
+    ['dexa', 'DEXA'],
+    ['navy', 'Tape (Navy)']
   ];
+  function bfMethodLabel(id) {
+    var out = id || '';
+    BF_METHODS.forEach(function (m) { if (m[0] === id) out = m[1]; });
+    return out;
+  }
 
-  /* lk_prs: 12 records over 9 lifts. */
-  var RECORDS = [
-    { id: 701, reps: 8, kg: 87.5, date: "2026-09-07" },
-    { id: 701, reps: 5, kg: 82.5, date: "2026-09-07" },
-    { id: 703, reps: 10, kg: 165, date: "2026-09-07" },
-    { id: 801, reps: 8, kg: 77.5, date: "2026-09-07" },
-    { id: 202, reps: 8, kg: 62.5, date: "2026-09-05" },
-    { id: 213, reps: 10, kg: 57.5, date: "2026-09-05" },
-    { id: 221, reps: 4, kg: 115, date: "2026-09-05" },
-    { id: 503, reps: 8, kg: 30, date: "2026-09-05" },
-    { id: 111, reps: 8, kg: 72.5, date: "2026-09-03" },
-    { id: 111, reps: 5, kg: 72.5, date: "2026-09-03" },
-    { id: 302, reps: 8, kg: 25, date: "2026-09-03" },
-    { id: 221, reps: 6, kg: 110, date: "2026-08-29" }
-  ];
+  /* lk_progressPhotos. A photo is a date, a note and a downscaled JPEG;
+     the full-resolution image is never stored, only what the grid and the
+     lightbox draw. The fixture's two entries carry no thumbnail, so they
+     render as the drawn stand-ins they always were, and anything taken on
+     the device carries a real one. */
+  function readPhotos() {
+    return (get('lk_progressPhotos', []) || []).map(function (ph, i) {
+      return { date: String(ph.date).slice(0, 10), note: ph.note || '', thumb: ph.thumb || '', tone: i % 4 };
+    }).sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+  }
+  var PHOTOS = readPhotos();
+  function savePhotos() {
+    put('lk_progressPhotos', PHOTOS.map(function (ph) {
+      return { date: ph.date, note: ph.note, thumb: ph.thumb || '' };
+    }));
+  }
 
-  var SESSIONS = ["2026-07-30","2026-08-01","2026-08-03","2026-08-06","2026-08-08","2026-08-10",
-    "2026-08-13","2026-08-15","2026-08-17","2026-08-20","2026-08-22","2026-08-24",
-    "2026-08-27","2026-08-29","2026-08-31","2026-09-03","2026-09-05","2026-09-07"];
+  /* lk_goals. The percentage is computed, never stored: it is (now - start)
+     / (target - start), clamped, which works the same whether the number is
+     meant to go up or down. `now` is read live, so logging a weight, a body
+     fat reading or a record moves the bar under the goal that watches it. */
+  var GOALS = (get('lk_goals', []) || []).map(function (g) { return normGoal(g); });
+  function normGoal(g) {
+    return {
+      type: g.type || 'custom',
+      name: g.name || '',
+      exId: g.exId === undefined ? null : g.exId,
+      target: g.target === undefined ? null : g.target,
+      start: g.start === undefined ? null : g.start,
+      unit: g.unit || (g.type === 'bodyfat' ? '%' : g.type === 'custom' ? '' : 'kg'),
+      targetDate: g.targetDate || '',
+      notes: g.notes || '',
+      status: g.status === 'done' ? 'done' : 'active',
+      created: g.created || new Date().toISOString(),
+      completed: g.completed || ''
+    };
+  }
+  function saveGoals() { put('lk_goals', GOALS.slice()); }
 
-  var WEIGHT_LOG = [["2026-07-27",65.3],["2026-08-03",65.3],["2026-08-10",64.9],["2026-08-17",64.7],
-    ["2026-08-24",64.6],["2026-08-31",64.5],["2026-09-07",64.2]];
+  function latestWeight() {
+    var w = WEIGHT_LOG[WEIGHT_LOG.length - 1];
+    return w ? w[1] : null;
+  }
+  function latestBF() { return BF.length ? BF[0].pct : null; }
+  function bestFor(exId) {
+    var best = null;
+    RECORDS.forEach(function (r) {
+      if (r.id !== exId) return;
+      if (best === null || r.kg > best) best = r.kg;
+    });
+    return best;
+  }
+  function goalNow(g) {
+    if (g.type === 'weight') return latestWeight();
+    if (g.type === 'bodyfat') return latestBF();
+    if (g.type === 'lift') return bestFor(g.exId);
+    return null;                 /* custom: nothing measures it */
+  }
+  function goalPct(g) {
+    var now = goalNow(g);
+    if (now === null || now === undefined || g.start === null || g.target === null) return null;
+    var span = g.target - g.start;
+    if (!span) return now === g.target ? 100 : 0;
+    return Math.max(0, Math.min(100, Math.round(((now - g.start) / span) * 100)));
+  }
+  function goalUnit(g) { return g.unit || (g.type === 'bodyfat' ? '%' : g.type === 'custom' ? '' : 'kg'); }
+  /* A goal in kilograms prints through LKUnits like every other weight; a
+     body-fat goal is a percentage and is not a weight at all. */
+  function goalVal(g, v) {
+    if (v === null || v === undefined) return null;
+    return goalUnit(g) === 'kg' ? num1(LKUnits.v(v)) + ' ' + LKUnits.label() : num1(v) + (goalUnit(g) ? ' ' + goalUnit(g) : '');
+  }
+  function goalNowText(g) {
+    var now = goalNow(g);
+    if (now === null || now === undefined) {
+      return g.type === 'custom' ? 'You decide' : 'Nothing logged yet';
+    }
+    return goalVal(g, now);
+  }
+  function goalBy(g) {
+    if (!g.targetDate) return 'No deadline';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(g.targetDate)) return g.targetDate;
+    return dayLabel(g.targetDate);
+  }
+  function daysLeft(g) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(g.targetDate || '')) return null;
+    return Math.round((ms(g.targetDate) - ms(TODAY)) / 86400000);
+  }
+  function activeGoals() { return GOALS.filter(function (g) { return g.status !== 'done'; }); }
+  function doneGoals() { return GOALS.filter(function (g) { return g.status === 'done'; }); }
+  /* The soonest deadline among the active goals, rather than a date typed
+     once into the row. */
+  function nextGoalDue() {
+    var dates = activeGoals().map(function (g) { return g.targetDate; })
+      .filter(function (d) { return /^\d{4}-\d{2}-\d{2}$/.test(d || ''); }).sort();
+    return dates.length ? dayLabel(dates[0]) : null;
+  }
 
-  /* Module scope, because the sheet can add one. It was a local const inside
-     the sheet's own render function, which is why "Add a goal" had nowhere to
-     put a goal. */
-  /* lk_progressPhotos. A photo is a date, a note and a thumbnail; the full
-     image never existed in storage, only the downscale.
-
-     Ordering is newest first throughout. The shipped grid reversed the
-     months but left photos inside a month in insertion order, so the list
-     ran new-to-old between headings and old-to-new under them. */
-  var PHOTOS = [
-    { date: '2026-08-26', note: 'Week 5', tone: 3 },
-    { date: '2026-07-29', note: 'Week 1, relaxed', tone: 1 }
-  ];
-
-  var GOALS = [
-    { name: 'Bench press 100 kg for 5', by: 'Nov 7', now: '87.5 kg for 8', pct: 74 },
-    { name: 'Body weight 62 kg', by: 'Dec 1', now: '64.2 kg', pct: 55 },
-    { name: 'Train 4 times a week', by: 'Ongoing', now: '3.4 a week over 8 weeks', pct: 85 }
-  ];
+  /* lk_featuredLifts. The key shipped with three ids in it and this screen
+     read it nowhere: the chart opened on a hard-coded 111 whatever it said,
+     and nothing in the build ever wrote it, so a "featured lift" was a
+     stored preference no surface could set or honour. It is read here, it
+     decides which lift the screen opens on, and both the chart and the
+     picker can add to it and take away from it. */
+  var FEATURED = (function () {
+    var raw = get('lk_featuredLifts', null);
+    if (!Array.isArray(raw)) return [];
+    var out = [];
+    /* Two shapes are real: the shipped key is a list of ids, and the demo
+       seed builds it as a list of {id, name}. Both normalise to ids, and
+       what this screen writes back is the shipped shape. */
+    raw.forEach(function (v) {
+      var id = Number(v && typeof v === 'object' ? v.id : v);
+      if (!isNaN(id) && id && out.indexOf(id) < 0) out.push(id);
+    });
+    return out;
+  })();
+  function saveFeatured() { put('lk_featuredLifts', FEATURED.slice()); }
+  function isFeatured(id) { return FEATURED.indexOf(Number(id)) >= 0; }
+  function toggleFeatured(id) {
+    id = Number(id);
+    var at = FEATURED.indexOf(id);
+    if (at < 0) FEATURED.push(id); else FEATURED.splice(at, 1);
+    saveFeatured();
+    return at < 0;
+  }
+  /* A featured lift that no longer has any history is a name this screen
+     cannot draw; it stays in the list, because the history is what is
+     missing, not the choice. This is only what can be shown. */
+  function featuredShown() {
+    return FEATURED.map(function (id) { return liftById(id); })
+      .filter(function (l) { return !!l; });
+  }
 
   var RANGES = [
     { id: '4w', label: '4 weeks', days: 28 },
@@ -233,8 +461,17 @@
     var p = iso.split('-');
     return Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
   }
+  /* A date that is not ISO is rendered as itself. The shipped app stored
+     some record dates as the word it showed at the time -- lk_prs rows
+     carry "Today" -- and splitting that on "-" gives MONTHS[NaN], so the
+     record read "undefined NaN" instead of the label it had before the
+     upgrade. Nothing is invented: the day that word stood for is not
+     recoverable from the row, so the row keeps the word, which is what
+     Review already does with a mark it cannot date. */
   function dayLabel(iso) {
-    var p = iso.split('-');
+    var t = String(iso == null ? '' : iso);
+    if (!/^\d{4}-\d{2}-\d{2}/.test(t)) return t;
+    var p = t.split('-');
     return MONTHS[Number(p[1]) - 1] + ' ' + Number(p[2]);
   }
   function dayLabelFromMs(t) {
@@ -242,7 +479,9 @@
     return MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate();
   }
   function longDate(iso) {
-    var p = iso.split('-');
+    var t = String(iso == null ? '' : iso);
+    if (!/^\d{4}-\d{2}-\d{2}/.test(t)) return t;
+    var p = t.split('-');
     return MONTHS_LONG[Number(p[1]) - 1] + ' ' + Number(p[2]) + ', ' + p[0];
   }
   /* One convention: at most one decimal, no trailing .0 on whole numbers. */
@@ -250,9 +489,9 @@
     var r = Math.round(v * 10) / 10;
     return (Math.abs(r % 1) < 0.05 ? String(Math.round(r)) : r.toFixed(1));
   }
-  function kg(v) { return n(num1(v)) + ' kg'; }
+  function kg(v) { return n(num1(LKUnits.v(v))) + ' ' + LKUnits.label(); }
   function signed(v) { return (v > 0 ? '+' : v < 0 ? '−' : '') + num1(Math.abs(v)); }
-  function signedKg(v) { return n(signed(v)) + ' kg'; }
+  function signedKg(v) { return n(signed(LKUnits.v(v))) + ' ' + LKUnits.label(); }
 
   /* =============================================================
      Selection maths. Every number on the screen comes from here.
@@ -297,12 +536,47 @@
       if (seen[r.id]) return;
       seen[r.id] = 1;
       var rs = recordsFor(r.id), l = liftById(r.id);
-      out.push({ id: r.id, name: l ? l.name : '', muscle: l ? l.muscle : '', best: rs[0], count: rs.length });
+      /* The list sorts by date, so the date on the row has to be the lift's
+         most recent record. It was the date of its heaviest one, which for
+         the deadlift meant a row dated Aug 29 sorting below three Sep 5 rows
+         when the deadlift's own latest record is Sep 5 as well. The heaviest
+         set is still what the row and the est. 1RM report. */
+      var latest = rs.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; })[0];
+      /* Three figures, not one. A lift's records answer three different
+         questions -- what is the most you have lifted, what is the most you
+         have lifted for a working set of six to eight, and what does that
+         extrapolate to -- and the row showed only the last, which is the one
+         that was never actually lifted. */
+      var heaviest = rs.slice().sort(function (a, b) { return b.kg - a.kg; })[0];
+      var rep68 = rs.filter(function (x) { return x.reps >= 6 && x.reps <= 8; })
+        .sort(function (a, b) { return b.kg - a.kg; })[0] || null;
+      out.push({ id: r.id, name: l ? l.name : '', muscle: l ? l.muscle : '',
+                 best: rs[0], heaviest: heaviest, rep68: rep68,
+                 date: latest.date, count: rs.length });
     });
-    out.sort(function (a, b) { return a.best.date < b.best.date ? 1 : a.best.date > b.best.date ? -1 : 0; });
+    /* Compounds first. A list sorted by date puts whatever you happened to
+       log last at the top, so the lifts a reader actually tracks sink under
+       a lateral raise. Within each group the most recent record still leads. */
+    out.sort(function (a, b) {
+      var ca = isCompound(a.name) ? 0 : 1, cb = isCompound(b.name) ? 0 : 1;
+      if (ca !== cb) return ca - cb;
+      return a.date < b.date ? 1 : a.date > b.date ? -1 : 0;
+    });
     return out;
   }
-  function e1rm(w, r) { return w * (1 + r / 30); }
+
+  /* The lifts a programme is built around. Named rather than inferred: a
+     rule over muscle groups would call a lateral raise a compound the first
+     time somebody logged one under Back. */
+  var COMPOUNDS = ['squat', 'deadlift', 'bench', 'press', 'row', 'pull-up', 'pullup',
+                   'chin-up', 'chinup', 'dip', 'lunge', 'clean', 'snatch'];
+  function isCompound(name) {
+    var nm = String(name).toLowerCase();
+    /* A leg press is a machine, not the press a programme means. */
+    if (nm.indexOf('leg press') >= 0 || nm.indexOf('calf') >= 0) return false;
+    for (var i = 0; i < COMPOUNDS.length; i++) if (nm.indexOf(COMPOUNDS[i]) >= 0) return true;
+    return false;
+  }
 
   /* =============================================================
      The chart.
@@ -343,6 +617,61 @@
     return { lo: lo, hi: ticks[ticks.length - 1], ticks: ticks };
   }
 
+  /* The weigh-ins, drawn. Body weight was a drill-down to a list of dates
+     and deltas with no chart at all, on the screen whose other trend -- a
+     lift's estimated 1RM -- gets a full plot. A column of numbers is the one
+     way to hide a trend from somebody looking for one.
+
+     Same axes, same scale-picking and same description as the lift chart, so
+     the two read alike; a trend line is a trend line. */
+  function weightChartSVG(width) {
+    if (WEIGHT_LOG.length < 2) return '';
+    var W = Math.max(240, Math.round(width));
+    var H = 164;
+    var padL = 42, padR = 10, padT = 12, padB = 26;
+    var plotW = W - padL - padR, plotH = H - padT - padB;
+    var vals = WEIGHT_LOG.map(function (w) { return LKUnits.v(w[1]); });
+    var ys = yScale(vals);
+    var t0 = ms(WEIGHT_LOG[0][0]), t1 = ms(WEIGHT_LOG[WEIGHT_LOG.length - 1][0]);
+    if (t1 === t0) { t0 -= 86400000; t1 += 86400000; }
+    var X = function (t) { return padL + (t - t0) / (t1 - t0) * plotW; };
+    var Y = function (v) { return padT + (1 - (v - ys.lo) / (ys.hi - ys.lo)) * plotH; };
+    var out = [];
+    ys.ticks.forEach(function (t) {
+      var y = Math.round(Y(t)) + 0.5;
+      out.push('<line class="chart__grid" x1="' + padL + '" y1="' + y + '" x2="' + (padL + plotW) + '" y2="' + y + '"/>');
+      /* The tick LABEL converts; the tick's position does not, because the
+         geometry is in kilograms either way. The axis used to print kg
+         numbers under figures reading in pounds on the same card. */
+      out.push('<text class="chart__axis" x="' + (padL - 8) + '" y="' + (y + 4) + '" text-anchor="end">' + num1(LKUnits.v(t)) + '</text>');
+    });
+    var mid = t0 + (t1 - t0) / 2;
+    [[t0, 'start'], [mid, 'middle'], [t1, 'end']].forEach(function (pp) {
+      var x = X(pp[0]);
+      out.push('<line class="chart__grid" x1="' + x.toFixed(1) + '" y1="' + (padT + plotH) + '" x2="' + x.toFixed(1) + '" y2="' + (padT + plotH + 4) + '"/>');
+      out.push('<text class="chart__axis" x="' + x.toFixed(1) + '" y="' + (H - 8) + '" text-anchor="' + pp[1] + '">' + dayLabelFromMs(pp[0]) + '</text>');
+    });
+    var poly = WEIGHT_LOG.map(function (w) {
+      return X(ms(w[0])).toFixed(1) + ',' + Y(LKUnits.v(w[1])).toFixed(1);
+    }).join(' ');
+    out.push('<polyline class="chart__line" points="' + poly + '"/>');
+    WEIGHT_LOG.forEach(function (w, i) {
+      var last = i === WEIGHT_LOG.length - 1;
+      out.push('<circle class="chart__dot' + (last ? ' chart__dot--last' : '') + '" cx="' +
+        X(ms(w[0])).toFixed(1) + '" cy="' + Y(LKUnits.v(w[1])).toFixed(1) + '" r="' + (last ? 4.5 : 3) + '"/>');
+    });
+    var f = WEIGHT_LOG[0], l = WEIGHT_LOG[WEIGHT_LOG.length - 1];
+    var desc = 'Body weight, ' + WEIGHT_LOG.length + ' readings from ' + longDate(f[0]) +
+      ' to ' + longDate(l[0]) + '. ' + num1(LKUnits.v(f[1])) + ' to ' + num1(LKUnits.v(l[1])) +
+      ' ' + LKUnits.label() + ', ' +
+      (l[1] > f[1] ? 'up ' : l[1] < f[1] ? 'down ' : 'unchanged, ') +
+      num1(Math.abs(LKUnits.v(l[1]) - LKUnits.v(f[1]))) + '. Points: ' +
+      WEIGHT_LOG.map(function (w) { return dayLabel(w[0]) + ' ' + num1(LKUnits.v(w[1])); }).join('; ') + '.';
+    return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H +
+      '" role="img" aria-label="' + esc(desc) + '" data-testid="weight-chart" ' +
+      'data-points="' + WEIGHT_LOG.length + '">' + out.join('') + '</svg>';
+  }
+
   function chartSVG(lift, pts, days, width) {
     var W = Math.max(240, Math.round(width));
     var H = 184;
@@ -381,13 +710,15 @@
     });
 
     var first = pts[0], lastp = pts[pts.length - 1];
+    var U = LKUnits.useKg() ? 'kilograms' : 'pounds';
+    var cv = function (v) { return num1(LKUnits.v(v)); };
     var desc = lift.name + ', estimated 1 rep max. ' + pts.length + ' sessions from ' +
       longDate(first[0]) + ' to ' + longDate(lastp[0]) + '. ' +
-      num1(first[1]) + ' to ' + num1(lastp[1]) + ' kilograms, ' +
+      cv(first[1]) + ' to ' + cv(lastp[1]) + ' ' + U + ', ' +
       (lastp[1] > first[1] ? 'up ' : lastp[1] < first[1] ? 'down ' : 'unchanged, ') +
-      num1(Math.abs(lastp[1] - first[1])) + ' kilograms. Vertical axis ' +
-      num1(ys.lo) + ' to ' + num1(ys.hi) + ' kilograms. Points: ' +
-      pts.map(function (p) { return dayLabel(p[0]) + ' ' + num1(p[1]) + ', from ' + num1(p[2]) + ' kilograms for ' + p[3] + ' reps'; }).join('; ') + '.';
+      cv(Math.abs(lastp[1] - first[1])) + ' ' + U + '. Vertical axis ' +
+      cv(ys.lo) + ' to ' + cv(ys.hi) + ' ' + U + '. Points: ' +
+      pts.map(function (p) { return dayLabel(p[0]) + ' ' + cv(p[1]) + ', from ' + cv(p[2]) + ' ' + U + ' for ' + p[3] + ' reps'; }).join('; ') + '.';
 
     return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H +
       '" role="img" aria-label="' + esc(desc) + '" data-testid="trend-chart" data-range="' + days +
@@ -401,7 +732,20 @@
   var S = {
     view: 'populated',
     range: '12w',
-    liftId: 111,      /* lk_featuredLifts[0] */
+    /* What is typed into the records search. */
+    recordQ: '',
+    /* lk_featuredLifts[0], unless a screen said which lift it meant. It
+       said so in a comment and did not do it: the fallback was a literal
+       111, so the stored choice was ignored. */
+    liftId: (function () {
+      var want = null;
+      try { want = localStorage.getItem('lk_openLift'); } catch (e) {}
+      try { localStorage.removeItem('lk_openLift'); } catch (e) {}
+      var id = want ? Number(want) : NaN;
+      if (!isNaN(id)) return id;
+      if (FEATURED.length) return FEATURED[0];
+      return LIFTS.length ? LIFTS[0].id : 111;
+    })(),
     sheet: false,
     photoIdx: null,      /* which photo the lightbox is showing */
     confirmDel: false,   /* a photo cannot be recreated, so delete asks twice */
@@ -410,6 +754,12 @@
     weightError: null,
     goalForm: false,
     goalError: null,
+    /* Which goal is open, which one is being edited, and whether its delete
+       is armed. A goal is a thing with a life: it is opened, read, corrected,
+       finished and thrown away, and none of that existed. */
+    goalIdx: null,
+    goalEdit: null,
+    goalDelArmed: false,
     recordError: null,
     toast: null
   };
@@ -465,7 +815,15 @@
 
   function trendCard() {
     var days = rangeDays();
-    var lift = liftById(S.liftId);
+    var lift = liftById(S.liftId) || LIFTS[0];
+    /* No lifts at all -- a new account -- is not a chart with a hole in it. */
+    if (!lift) {
+      return '<div class="card mt-3" data-testid="card-trend">' +
+        '<div class="t-label">Strength over time</div>' +
+        '<p class="t-detail mt-2">Nothing logged yet. Finish a session and the ' +
+          'lifts in it get a chart here.</p>' +
+      '</div>';
+    }
     var pts = ptsIn(lift, days);
     /* A lift with nothing inside the range is not an error, it is an answer.
        The three routines that read pts[0] and pts[length-1] threw on it,
@@ -491,6 +849,7 @@
           '<h2 class="t-label">Estimated 1 rep max</h2>' +
           '<span class="t-meta">' + n(pts.length) + ' sessions</span>' +
         '</div>' +
+        featuredStrip() +
         '<div class="card" data-testid="card-trend" data-lift="' + lift.id + '">' +
           '<div class="spread">' +
             '<div class="stack stack--1 grow">' +
@@ -503,31 +862,83 @@
             '</div>' +
           '</div>' +
           '<div class="mt-3" id="chart-holder" data-testid="chart-holder"></div>' +
-          '<p class="t-meta mt-2" data-testid="chart-caption">Vertical axis in kilograms, starting at ' +
-            '<span class="num" data-testid="axis-floor">' + num1(chartFloor(pts)) + '</span>, not at zero. ' +
+          '<p class="t-meta mt-2" data-testid="chart-caption">Vertical axis in ' +
+            (LKUnits.useKg() ? 'kilograms' : 'pounds') + ', starting at ' +
+            '<span class="num" data-testid="axis-floor">' + num1(LKUnits.v(chartFloor(pts))) + '</span>, not at zero. ' +
             'Points sit on the day they were lifted.</p>' +
           '<p class="t-detail mt-3">Last set: ' + kg(cur[2]) + ' &times; ' + n(cur[3]) +
             ' on ' + dayLabel(cur[0]) + '.</p>' +
-          '<button class="btn btn--secondary btn--block mt-3" data-action="open-picker" data-testid="choose-lift">' +
-            '<span class="btn__label">Choose another lift</span>' +
-          '</button>' +
+          '<div class="hstack hstack--3 mt-3">' +
+            '<button class="btn btn--secondary grow" data-action="open-picker" data-testid="choose-lift">' +
+              '<span class="btn__label">Choose another lift</span>' +
+            '</button>' +
+            /* Add to, and take away from, lk_featuredLifts. The chart's own
+               lift is the one you are looking at, so this is where the answer
+               to "keep this one to hand" belongs. */
+            '<button class="btn btn--' + (isFeatured(lift.id) ? 'tertiary' : 'secondary') + '" ' +
+              'data-action="feature" data-id="' + lift.id + '" data-testid="feature-lift" ' +
+              'aria-pressed="' + isFeatured(lift.id) + '">' +
+              '<span class="btn__label">' + (isFeatured(lift.id) ? 'Featured' : 'Feature it') + '</span>' +
+            '</button>' +
+          '</div>' +
+          /* Every record this lift holds, three ways, and the sets behind
+             them. The three figures were three columns on a list row with no
+             screen behind them. */
+          '<button class="btn btn--tertiary btn--block mt-2" data-action="open-prs" data-id="' + lift.id + '" ' +
+            'data-testid="open-prs"><span class="btn__label">' +
+            (recordsFor(lift.id).length
+              ? 'Records for this lift (' + recordsFor(lift.id).length + ')'
+              : 'No records for this lift yet') + '</span></button>' +
         '</div>' +
       '</div>';
+  }
+
+  /* The lifts kept to hand. One tap each, above the chart, so the two or
+     three a person actually watches do not have to be found in a picker
+     every time. */
+  function featuredStrip() {
+    var shown = featuredShown();
+    if (!shown.length) return '';
+    return '<div class="chiprow mt-2" role="radiogroup" aria-label="Featured lifts" ' +
+        'data-testid="featured-strip" data-count="' + shown.length + '">' +
+      shown.map(function (l) {
+        var on = l.id === S.liftId;
+        return '<button class="chip' + (on ? ' chip--on' : '') + '" role="radio" aria-checked="' + on + '" ' +
+          'data-action="pick-lift" data-id="' + l.id + '" data-testid="featured-' + l.id + '">' +
+          esc(l.name) + '</button>';
+      }).join('') +
+    '</div>';
   }
   function chartFloor(pts) {
     return yScale(pts.map(function (p) { return p[1]; })).lo;
   }
 
   function recordsSection() {
-    var rows = recordLifts();
+    var all = recordLifts();
+    var q = String(S.recordQ || '').trim().toLowerCase();
+    var rows = q ? all.filter(function (r) {
+      return r.name.toLowerCase().indexOf(q) >= 0 || String(r.muscle).toLowerCase().indexOf(q) >= 0;
+    }) : all;
     return '' +
       '<div class="section">' +
         '<div class="section__head">' +
           '<h2 class="t-label">Records</h2>' +
-          '<span class="t-meta">' + n(RECORDS.length) + ' across ' + n(rows.length) + ' lifts</span>' +
+          '<span class="t-meta">' + n(RECORDS.length) + ' across ' + n(all.length) + ' lifts</span>' +
         '</div>' +
-        '<div class="card card--flush" role="radiogroup" aria-label="Lift plotted on the chart above" data-testid="records-list">' +
-          rows.map(function (r) {
+        /* Nine lifts fit on a screen; thirty do not, and a vault nobody can
+           search is a list to scroll past. */
+        /* Gated on the FULL list, not the filtered one. Gating on `rows`
+           made the box vanish the moment a search matched nothing, so there
+           was no way to correct a typo. */
+        (all.length > 6
+          ? '<input class="input" id="rec-q" type="search" autocomplete="off" ' +
+              'placeholder="Find a lift" value="' + esc(S.recordQ || '') + '" ' +
+              'aria-label="Find a lift in your records" data-testid="records-search">'
+          : '') +
+        '<div class="card card--flush' + (all.length > 6 ? ' mt-2' : '') + '" role="radiogroup" ' +
+            'aria-label="Lift plotted on the chart above" data-testid="records-list">' +
+          (rows.length
+            ? rows.map(function (r) {
             var sel = r.id === S.liftId;
             /* A radio, not a link. Tapping it plots that lift on the chart
                above, which is the same job as the picker sheet's rows and is
@@ -539,15 +950,29 @@
               '" data-testid="record-' + r.id + '">' +
               '<span class="row__main stack">' +
                 '<span class="row__title">' + esc(r.name) + '</span>' +
+                /* The date of the set the row is REPORTING, not the date of
+                   the lift's most recent record: the deadlift row paired a
+                   110 kg x 6 from Aug 29 with Sep 5, the day it set a
+                   different record. The list still sorts by the latest. */
                 '<span class="row__sub">' + dayLabel(r.best.date) + ' &middot; ' + kg(r.best.kg) +
                   ' &times; ' + n(r.best.reps) + (r.count > 1 ? ' &middot; ' + n(r.count) + ' records' : '') + '</span>' +
+              '</span>' +
+              '<span class="row__value stack" style="text-align: right">' +
+                '<span class="num">' + kg(r.heaviest.kg) + '</span>' +
+                '<span class="t-caption-2 quiet">heaviest</span>' +
+              '</span>' +
+              '<span class="row__value stack" style="text-align: right">' +
+                '<span class="num">' + (r.rep68 ? kg(r.rep68.kg) : '\u2014') + '</span>' +
+                '<span class="t-caption-2 quiet">6\u20138 reps</span>' +
               '</span>' +
               '<span class="row__value stack" style="text-align: right">' +
                 '<span class="num">' + kg(e1rm(r.best.kg, r.best.reps)) + '</span>' +
                 '<span class="t-caption-2 quiet">est. 1RM</span>' +
               '</span>' +
             '</button>';
-          }).join('') +
+          }).join('')
+            : '<div class="row row--static"><span class="row__main"><span class="row__title">' +
+              'Nothing matches \u201c' + esc(S.recordQ || '') + '\u201d.</span></span></div>') +
         '</div>' +
         '<button class="btn btn--tertiary btn--block mt-2" data-action="log-record" data-testid="log-record">' +
           ICO.plus + '<span class="btn__label">Log a record without a workout</span>' +
@@ -571,11 +996,30 @@
             '<span class="row__value">' + kg(w[1]) + '</span>' +
             '<span class="row__chev">' + ICO.chev + '</span>' +
           '</button>' +
+          /* The body-fat log. lk_bfLog ships in the seed with two readings
+             and nothing in the build read it, so the one number a body-fat
+             goal is measured against could not be seen or added. */
+          '<button class="row" data-action="open-bf" data-testid="row-body-fat">' +
+            '<span class="ico-well">' + ICO.scale + '</span>' +
+            '<span class="row__main stack">' +
+              '<span class="row__title">Body fat</span>' +
+              '<span class="row__sub">' + (BF.length
+                ? n(BF.length) + (BF.length === 1 ? ' reading since ' : ' readings since ') +
+                  dayLabel(BF[BF.length - 1].date) + ' \u00b7 ' + bfMethodLabel(BF[0].method)
+                : 'Nothing logged') + '</span>' +
+            '</span>' +
+            '<span class="row__value">' + (BF.length ? num1(BF[0].pct) + '%' : '\u2014') + '</span>' +
+            '<span class="row__chev">' + ICO.chev + '</span>' +
+          '</button>' +
           '<button class="row" data-action="open-photos" data-testid="row-photos">' +
             '<span class="ico-well">' + ICO.cam + '</span>' +
             '<span class="row__main stack">' +
               '<span class="row__title">Photos</span>' +
-              '<span class="row__sub">' + n(PHOTOS.length) + ' since ' + dayLabel(PHOTOS[0].date.slice(0, 10)) + '</span>' +
+              /* PHOTOS[0] with no guard threw once the last photo was deleted, and the
+                 throw happened inside render, so Progress went blank and stayed blank. */
+              '<span class="row__sub">' + (PHOTOS.length
+                ? n(PHOTOS.length) + ' since ' + dayLabel(PHOTOS[0].date.slice(0, 10))
+                : 'None yet') + '</span>' +
             '</span>' +
             '<span class="row__chev">' + ICO.chev + '</span>' +
           '</button>' +
@@ -583,7 +1027,13 @@
             '<span class="ico-well">' + ICO.flag + '</span>' +
             '<span class="row__main stack">' +
               '<span class="row__title">Goals</span>' +
-              '<span class="row__sub">' + n(GOALS.length) + ' active, next due Nov 7</span>' +
+              /* The ACTIVE ones. It counted every goal ever set, so finishing
+                 one made the row claim you had more to do than you had. */
+              '<span class="row__sub">' + (GOALS.length
+                ? n(activeGoals().length) + ' active' +
+                  (doneGoals().length ? ', ' + n(doneGoals().length) + ' done' : '') +
+                  (nextGoalDue() ? ', next due ' + nextGoalDue() : '')
+                : 'None set') + '</span>' +
             '</span>' +
             '<span class="row__chev">' + ICO.chev + '</span>' +
           '</button>' +
@@ -597,6 +1047,12 @@
   var VIEWS = {};
 
   VIEWS.populated = function () {
+    /* Gated on the DATA, not on a dev state. A new account with nothing
+       logged was shown the populated screen and its charts read from an
+       empty history. The switcher still wins for looking at the screen. */
+    if (!LIFTS.length && !WEIGHT_LOG.length && !RECORDS.length && S.view === 'populated') {
+      return VIEWS.empty();
+    }
     return rangeControl() + answerCard() + trendCard() + recordsSection() + moreSection();
   };
 
@@ -660,7 +1116,13 @@
     var log = WEIGHT_LOG.slice().reverse();
     var first = WEIGHT_LOG[0], last = WEIGHT_LOG[WEIGHT_LOG.length - 1];
     var d = last[1] - first[1];
-    var weeks = (WEIGHT_LOG.length - 1) || 1;
+    /* Weeks between the first and last reading, not the number of readings.
+       Counting entries made a second weigh-in in the same week add a week to
+       the span, so the per-week figure -- the one this card says is "the only
+       one worth reading" -- moved because you stepped on the scale twice. */
+    var wkMs = 7 * 86400000;
+    var spanMs = Math.max(0, ms(WEIGHT_LOG[WEIGHT_LOG.length - 1][0]) - ms(WEIGHT_LOG[0][0]));
+    var weeks = Math.max(1, Math.round(spanMs / wkMs));
     return '' +
       '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
       '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="wt-title" ' +
@@ -670,7 +1132,8 @@
           '<button class="iconbtn" data-action="close-sheet" data-testid="weight-close" aria-label="Close body weight">' +
             ICO.close + '</button></div>' +
         '<div class="sheet__body">' +
-          '<p class="t-detail">' + signedKg(d) + ' over ' + weeks + ' weeks, or ' +
+          weightChartSVG(320) +
+          '<p class="t-detail mt-3">' + signedKg(d) + ' over ' + weeks + ' weeks, or ' +
             signedKg(d / weeks) + ' a week. A weekly figure is the only one worth reading: ' +
             'a single morning moves a kilo on water alone.</p>' +
           '<div class="card card--flush mt-4">' + log.map(function (r, i) {
@@ -699,9 +1162,61 @@
   }
 
   /* Goals. Each one is a number with a date, and each says what it is
-     measured against, because a goal you cannot check is a wish. */
+     measured against, because a goal you cannot check is a wish.
+
+     THE LIST WAS ONE FLAT RUN OF CARDS. Everything a goal is for after it is
+     typed -- reading it, correcting a number typed wrong, writing down how it
+     is going, calling it done -- had nowhere to happen: the cards were divs,
+     nothing opened, and a goal with a typo in it was permanent. The list
+     splits active from completed, every row opens, and there is somewhere to
+     land when there are none at all. */
+  function goalRow(g, i) {
+    var pct = goalPct(g);
+    var done = g.status === 'done';
+    var left = daysLeft(g);
+    var due = done ? 'Completed ' + (g.completed ? dayLabel(String(g.completed).slice(0, 10)) : '')
+      : (left === null ? 'No deadline'
+         : left < 0 ? Math.abs(left) + (Math.abs(left) === 1 ? ' day past ' : ' days past ') + goalBy(g)
+         : left + (left === 1 ? ' day left' : ' days left'));
+    return '<button class="row row--goal" data-action="open-goal" data-i="' + i + '" ' +
+        'data-testid="goal-' + i + '" aria-label="' + esc(g.name) + ', ' +
+        (pct === null ? 'not measured' : pct + ' per cent') + '. Open it.">' +
+      '<span class="row__main stack">' +
+        '<span class="row__title">' + esc(g.name) + '</span>' +
+        '<span class="row__sub">' + esc(due) + '</span>' +
+        (pct === null ? ''
+          : '<span class="meter mt-1" aria-hidden="true"><span class="meter__fill' +
+            (done ? ' meter__fill--done' : '') + '" style="width:' + pct + '%"></span></span>') +
+      '</span>' +
+      '<span class="row__value num">' + (pct === null ? '&mdash;' : pct + '%') + '</span>' +
+      '<span class="row__chev">' + ICO.chev + '</span>' +
+    '</button>';
+  }
+
   function goalsSheet() {
-    var goals = GOALS;
+    var act = [], dn = [];
+    GOALS.forEach(function (g, i) { (g.status === 'done' ? dn : act).push([g, i]); });
+    var body = '';
+    if (!GOALS.length) {
+      body = '<div class="empty" data-testid="goals-empty">' +
+        '<span class="empty__ico">' + ICO.flag + '</span>' +
+        '<h3 class="empty__title">No goals yet</h3>' +
+        '<p class="empty__body">A goal is a number and a date. Set one and the app measures ' +
+          'it for you against your weigh-ins, your body-fat log or your records.</p></div>';
+    } else {
+      if (act.length) {
+        body += '<p class="t-label">Active</p>' +
+          '<div class="card card--flush mt-2">' +
+            act.map(function (r) { return goalRow(r[0], r[1]); }).join('') + '</div>';
+      } else {
+        body += '<p class="t-detail muted">Nothing active. Every goal you set is finished.</p>';
+      }
+      if (dn.length) {
+        body += '<p class="t-label mt-5" data-testid="goals-done-head">Completed</p>' +
+          '<div class="card card--flush mt-2">' +
+            dn.map(function (r) { return goalRow(r[0], r[1]); }).join('') + '</div>';
+      }
+    }
     return '' +
       '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' +
       '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="gl-title" ' +
@@ -710,33 +1225,245 @@
         '<div class="sheet__head"><h2 class="t-section grow" id="gl-title">Goals</h2>' +
           '<button class="iconbtn" data-action="close-sheet" data-testid="goals-close" aria-label="Close goals">' +
             ICO.close + '</button></div>' +
-        '<div class="sheet__body">' +
-          goals.map(function (g, i) {
-            return '<div class="card' + (i ? ' mt-3' : '') + '" data-testid="goal-' + i + '">' +
-              '<div class="hstack hstack--3"><span class="t-section grow">' + g.name + '</span>' +
-                '<span class="t-meta num">' + g.pct + '%</span></div>' +
-              '<div class="meter mt-2" role="img" aria-label="' + g.pct + ' per cent of the way there">' +
-                '<span class="meter__fill" style="width:' + g.pct + '%"></span></div>' +
-              '<p class="t-detail mt-2">Now ' + g.now + ' &middot; by ' + g.by + '</p>' +
-            '</div>';
-          }).join('') +
-        '</div>' +
+        '<div class="sheet__body">' + body + '</div>' +
         '<div class="sheet__foot">' +
-          (S.goalForm
-            ? '<label class="t-label field__label" for="gl-name">What</label>' +
-              '<input class="input" id="gl-name" type="text" placeholder="e.g. Deadlift 140 kg for 3" ' +
-                'data-testid="gl-name">' +
-              '<label class="t-label field__label mt-3" for="gl-by">By</label>' +
-              '<input class="input" id="gl-by" type="text" placeholder="e.g. Dec 1, or Ongoing" ' +
-                'data-testid="gl-by">' +
-              (S.goalError ? '<p class="field__error" role="alert" data-testid="gl-error">' +
-                esc(S.goalError) + '</p>' : '') +
-              '<button class="btn btn--primary btn--block mt-3" data-action="save-goal" data-testid="goals-save">' +
-                '<span class="btn__label">Add it</span></button>'
+          (S.goalForm ? goalForm()
             : '<button class="btn btn--secondary btn--block" data-action="add-goal" data-testid="goals-add">' +
                 '<span class="btn__label">Add a goal</span></button>') +
         '</div>' +
       '</div>';
+  }
+
+  /* ONE GOAL, OPENED. The ring, the three figures it is made of, the
+     deadline, what measures it, the notes, and the two things you can do to
+     a goal that is no longer right: finish it, or change it. */
+  function ringSVG(pct) {
+    var R = 46, C = 2 * Math.PI * R, on = Math.max(0, Math.min(100, pct || 0)) / 100 * C;
+    return '<svg class="goalring" viewBox="0 0 120 120" width="120" height="120" ' +
+        'role="img" aria-label="' + (pct === null ? 'Not measured' : pct + ' per cent of the way there') + '">' +
+      '<circle class="goalring__track" cx="60" cy="60" r="' + R + '" fill="none" stroke-width="10"/>' +
+      (pct === null ? ''
+        : '<circle class="goalring__fill" cx="60" cy="60" r="' + R + '" fill="none" stroke-width="10" ' +
+          'stroke-linecap="round" stroke-dasharray="' + on.toFixed(1) + ' ' + (C - on).toFixed(1) + '" ' +
+          'transform="rotate(-90 60 60)"/>') +
+      '<text class="goalring__num" x="60" y="60" text-anchor="middle" dominant-baseline="central">' +
+        (pct === null ? '\u2014' : pct + '%') + '</text>' +
+    '</svg>';
+  }
+
+  var GOAL_MEASURED = {
+    weight: 'Measured against your weigh-ins. Logging one on this screen moves it.',
+    bodyfat: 'Measured against your body-fat log. The newest reading is the one it uses.',
+    lift: 'Measured against your records for this lift. A new record moves it.',
+    custom: 'Nothing measures this one, so it carries no percentage. You decide when it is done.'
+  };
+
+  function goalTile(label, v) {
+    return '<div class="stack stack--1 grow">' +
+      '<span class="t-label">' + label + '</span>' +
+      '<span class="stat__value">' + (v === null || v === undefined ? '&mdash;' : v) + '</span>' +
+    '</div>';
+  }
+
+  function goalDetailSheet() {
+    var g = GOALS[S.goalIdx];
+    if (!g) return '';
+    if (S.goalEdit !== null && S.goalEdit !== undefined) return goalEditSheet(g);
+    var pct = goalPct(g);
+    var left = daysLeft(g);
+    var done = g.status === 'done';
+    var lf = g.type === 'lift' ? liftById(g.exId) : null;
+    var deadline = !g.targetDate ? 'No deadline'
+      : done ? 'Was due ' + goalBy(g)
+      : left === null ? goalBy(g)
+      : left < 0 ? Math.abs(left) + (Math.abs(left) === 1 ? ' day past ' : ' days past ') + goalBy(g)
+      : 'By ' + goalBy(g) + ' \u00b7 ' + left + (left === 1 ? ' day left' : ' days left');
+    return sheet('goal', g.name, 'auto',
+      '<div class="center">' + ringSVG(pct) + '</div>' +
+      '<p class="t-detail center mt-2" data-testid="goal-deadline">' +
+        '<span class="chip chip--static">' + esc(deadline) + '</span>' +
+        (done ? ' <span class="chip chip--static">Completed</span>' : '') + '</p>' +
+      '<div class="card mt-4"><div class="hstack hstack--3">' +
+        goalTile('Start', g.start === null ? null : goalVal(g, g.start)) +
+        goalTile('Now', goalNowText(g)) +
+        goalTile('Target', g.target === null ? null : goalVal(g, g.target)) +
+      '</div>' +
+      '<p class="t-detail muted mt-3" data-testid="goal-measured">' +
+        (GOAL_MEASURED[g.type] || GOAL_MEASURED.custom) +
+        (lf ? ' Best so far: ' + (bestFor(g.exId) === null ? 'nothing logged' : kg(bestFor(g.exId))) + '.' : '') +
+      '</p></div>' +
+      /* The notes were in the seed, read by nothing and writable nowhere. */
+      '<div class="card mt-3">' +
+        '<label class="t-label field__label" for="goal-note">Notes</label>' +
+        '<textarea class="input mt-1" id="goal-note" rows="3" data-testid="goal-note" ' +
+          'placeholder="How it is going, what to change">' + esc(g.notes || '') + '</textarea>' +
+        '<p class="t-caption-1 quiet mt-1">Saved as you type, on this device.</p>' +
+      '</div>' +
+      /* The read, when one has been asked for. It is drawn as unverified
+         and says so, because it is the one thing on this sheet that was
+         not measured off the log. */
+      (S.goalRead
+        ? '<div class="card card--unverified mt-4" data-testid="goal-read">' +
+            '<div class="spread"><span class="t-label">Coach read</span>' +
+              '<span class="badge">Generated, not measured</span></div>' +
+            '<p class="t-detail mt-2">' + esc(S.goalRead) + '</p></div>'
+        : '') +
+      (S.goalReadErr
+        ? '<div class="banner banner--error mt-4" role="alert" data-testid="goal-read-error">' +
+            '<span>' + esc(S.goalReadErr) + '</span></div>'
+        : '') +
+      '<button class="btn btn--secondary btn--block mt-4" type="button" data-action="goal-analyse"' +
+        (S.goalReadBusy ? ' aria-busy="true" disabled' : '') +
+        ' data-testid="goal-analyse"><span class="btn__label">' +
+        (S.goalReadBusy ? 'Asking' : S.goalRead ? 'Ask again' : 'Analyse my progress') +
+        '</span></button>' +
+      '<button class="btn btn--' + (done ? 'secondary' : 'primary') + ' btn--block mt-3" type="button" ' +
+        'data-action="goal-done" data-testid="goal-complete"><span class="btn__label">' +
+        (done ? 'Reopen this goal' : 'Mark it complete') + '</span></button>' +
+      '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="goal-edit" ' +
+        'data-testid="goal-edit"><span class="btn__label">Edit it</span></button>' +
+      '<button class="btn btn--danger btn--block mt-2" type="button" data-action="goal-del" ' +
+        'data-testid="goal-delete"><span class="btn__label">' +
+        (S.goalDelArmed ? 'Tap again to delete' : 'Delete') + '</span></button>' +
+      '<p class="t-detail muted mt-2">Deleting takes the goal and its notes with it, and asks twice.</p>');
+  }
+
+  /* THE ONE THING ON THIS SCREEN THAT IS NOT MEASURED. It is asked for,
+     never fetched on open, and what goes out is this goal and nothing
+     else: its type, its target, where it stands, and by when. Not the
+     log, not the profile, not the other goals. */
+  function goalAnalyse() {
+    var g = GOALS[S.goalIdx];
+    var C = window.LKCloud;
+    if (!g) { S.sheet = 'goal'; render(); return; }
+    if (!C || !C.coachReady()) {
+      S.sheet = 'goal'; S.goalReadErr =
+        'There is no coach endpoint in this build, so nothing was asked and nothing ' +
+        'about this goal has left the device.';
+      render();
+      return;
+    }
+    S.sheet = 'goal'; S.goalReadBusy = true; S.goalReadErr = null; render();
+    C.ask([{ role: 'user',
+             content: 'One short paragraph on whether this goal is on track, and the single ' +
+                      'next thing to change. Use only the numbers given; state no total that ' +
+                      'is not here. ' + JSON.stringify({
+                        type: g.type, title: g.name || g.title, target: g.target,
+                        unit: g.unit, by: g.targetDate || null,
+                        percent: goalPct(g) }) }], {})
+      .then(function (r) {
+        S.goalReadBusy = false;
+        if (!r || !r.ok || !r.data || !String(r.data.reply || '').trim()) {
+          S.goalReadErr = (r && r.message) || 'The coach did not answer. The goal is untouched.';
+          render();
+          return;
+        }
+        S.goalRead = String(r.data.reply).trim().slice(0, 700);
+        render();
+      }, function () {
+        S.goalReadBusy = false;
+        S.goalReadErr = 'The coach could not be reached. The goal is untouched.';
+        render();
+      });
+  }
+
+  function goalEditSheet(g) {
+    return sheet('goal-edit', 'Edit goal', 'auto', goalForm(g));
+  }
+
+  /* The type comes first because it decides what the rest of the form asks
+     for AND what number will measure the goal afterwards. A form that takes
+     a sentence and a date can only ever produce a bar that does not move. */
+  var GOAL_TYPES = [
+    ['weight', 'Body weight'], ['bodyfat', 'Body fat'],
+    ['lift', 'A lift'], ['custom', 'Something else']
+  ];
+  /* The chosen lift lives in state. The hint read the select's value while
+     the select was still being built, so exId was 0 and the From hint said
+     "nothing is logged yet" for every lift -- including Leg Press with
+     165 kg x 10 on record -- and changing the lift did not move it. */
+  function goalLiftId() {
+    if (S.goalLift && LIFTS.some(function (l) { return l.id === S.goalLift; })) return S.goalLift;
+    return LIFTS.length ? LIFTS[0].id : 0;
+  }
+  function liftOptions() {
+    var want = goalLiftId();
+    return LIFTS.map(function (l) {
+      return '<option value="' + l.id + '"' + (l.id === want ? ' selected' : '') + '>' + l.name + '</option>';
+    }).join('');
+  }
+  /* One form, for both. A goal typed wrong used to be permanent -- there was
+     no edit anywhere -- so the same fields open again over the goal's own
+     figures, and the type is fixed once it is set: it is the thing that
+     decides which number measures the goal, and changing it would silently
+     re-point a bar at a different log. */
+  function goalForm(edit) {
+    var type = edit ? edit.type : (S.goalType || 'weight');
+    var nowv = goalNow({ type: type, exId: edit ? edit.exId : goalLiftId() });
+    var unit = type === 'bodyfat' ? '%' : 'kg';
+    var val = function (v) { return v === null || v === undefined ? '' : ' value="' + esc(num1(v)) + '"'; };
+    var out = '';
+    if (edit) {
+      out += '<p class="t-detail muted" data-testid="gl-type-fixed">' +
+        (GOAL_MEASURED[type] || GOAL_MEASURED.custom) + '</p>';
+    } else {
+      out += '<div class="seg seg--lg" role="radiogroup" aria-label="What kind of goal" ' +
+          'data-testid="gl-type">' +
+        GOAL_TYPES.map(function (t) {
+          return '<button class="seg__item" type="button" role="radio" ' +
+            'aria-checked="' + (type === t[0]) + '" data-action="goal-type" data-v="' + t[0] + '" ' +
+            'data-testid="gl-type-' + t[0] + '">' + t[1] + '</button>';
+        }).join('') + '</div>';
+      if (type === 'lift') {
+        out += '<label class="t-label field__label mt-3" for="gl-lift">Which lift</label>' +
+          '<select class="input" id="gl-lift" data-testid="gl-lift">' +
+            liftOptions() + '</select>';
+      }
+    }
+    out += '<label class="t-label field__label mt-3" for="gl-name">What to call it</label>' +
+      '<input class="input" id="gl-name" type="text" ' +
+        'placeholder="' + (type === 'lift' ? 'Left blank, the lift names it' : 'e.g. Back to 62 kg') + '" ' +
+        (edit ? ' value="' + esc(edit.name) + '"' : '') +
+        'data-testid="gl-name">';
+    if (type !== 'custom') {
+      out += '<div class="hstack hstack--3 mt-3">' +
+          '<div class="grow"><label class="t-label field__label" for="gl-start">From</label>' +
+            '<input class="input num" id="gl-start" type="number" step="0.1" inputmode="decimal" ' +
+              'placeholder="' + (nowv === null || nowv === undefined ? 'now' : num1(nowv)) + '"' +
+              (edit ? val(edit.start) : '') +
+              ' data-testid="gl-start"></div>' +
+          '<div class="grow"><label class="t-label field__label" for="gl-target">To</label>' +
+            '<input class="input num" id="gl-target" type="number" step="0.1" inputmode="decimal"' +
+              (edit ? val(edit.target) : '') +
+              ' data-testid="gl-target"></div>' +
+        '</div>' +
+        '<p class="t-caption-1 quiet mt-1">' + unit + '. Left blank, From is where you are now' +
+          (nowv === null || nowv === undefined ? ', and nothing is logged yet.' : ': ' + num1(nowv) + ' ' + unit + '.') +
+        '</p>';
+    } else {
+      out += '<p class="t-caption-1 quiet mt-1">Nothing measures this one, so it carries no ' +
+        'percentage. It is a note with a date on it.</p>';
+    }
+    out += '<label class="t-label field__label mt-3" for="gl-date">By when</label>' +
+      '<input class="input" id="gl-date" type="date"' +
+        (edit ? '' : ' min="' + TODAY + '"') +
+        (edit && edit.targetDate ? ' value="' + esc(edit.targetDate) + '"' : '') +
+        ' data-testid="gl-date">' +
+      '<p class="t-caption-1 quiet mt-1">Optional. No date means no deadline, not a failed goal.</p>' +
+      (edit
+        ? '<label class="t-label field__label mt-3" for="gl-notes">Notes</label>' +
+          '<textarea class="input" id="gl-notes" rows="2" data-testid="gl-notes">' +
+            esc(edit.notes || '') + '</textarea>'
+        : '') +
+      (S.goalError ? '<p class="field__error mt-2" role="alert" data-testid="gl-error">' +
+        esc(S.goalError) + '</p>' : '') +
+      '<button class="btn btn--primary btn--block mt-3" data-action="save-goal" data-testid="goals-save">' +
+        '<span class="btn__label">' + (edit ? 'Save changes' : 'Add it') + '</span></button>' +
+      (edit
+        ? '<button class="btn btn--secondary btn--block mt-2" data-action="goal-edit-cancel" ' +
+            'data-testid="goals-edit-cancel"><span class="btn__label">Cancel</span></button>'
+        : '');
+    return out;
   }
 
   /* A record set outside a logged session. It happens, and refusing to
@@ -754,7 +1481,7 @@
             'and your charts; it does not create a session.</p>' +
           '<label class="t-label field__label mt-4" for="rec-lift">Lift</label>' +
           '<select class="input" id="rec-lift" data-testid="rec-lift">' +
-            LIFTS.map(function (l) { return '<option value="' + l.id + '">' + l.name + '</option>'; }).join('') +
+            liftOptions() +
           '</select>' +
           '<div class="hstack hstack--3 mt-3">' +
             '<div class="field grow"><label class="t-label field__label" for="rec-kg">Weight, kg</label>' +
@@ -777,7 +1504,12 @@
   function sheetHTML() {
     if (S.sheet === 'weight') return weightSheet();
     if (S.sheet === 'goals') return goalsSheet();
+    if (S.sheet === 'goal') return goalDetailSheet();
+    if (S.sheet === 'goal-consent') return goalConsentSheet();
+    if (S.sheet === 'prs') return prDetailSheet();
+    if (S.sheet === 'bf-consent') return bfConsentSheet();
     if (S.sheet === 'record') return recordSheet();
+    if (S.sheet === 'bf') return bfSheet();
     if (S.sheet === 'photos') return photosSheet();
     if (S.sheet === 'photo') return photoSheet();
     if (S.sheet === 'analyse-consent') return consentSheet();
@@ -840,6 +1572,37 @@
     LKPatch(holder, chartSVG(lift, pts, rangeDays(), w));
   }
 
+  /* Which lift the chart opens on. In the demo this screen is mounted once,
+     so Home's "climbing lift" row set lk_openLift and Progress never looked
+     at it again. Re-read on entry. */
+  /* EVERY LIST THIS SCREEN DRAWS, RE-READ. In the demo this screen is mounted
+     once, so a weigh-in logged in Fuel, a record set in the workout log and a
+     session saved on Review all reached the store and never reached this
+     screen: it was still drawing the lists it read at boot. Re-read on the way
+     in, from the same keys through the same helpers. */
+  function refresh() {
+    HISTORY = get('lk_history', []) || [];
+    LIFTS = buildLifts(HISTORY);
+    RECORDS = readRecords();
+    SESSIONS = sessionDates(HISTORY);
+    WEIGHT_LOG = readWeightLog();
+    BF = readBF();
+    PHOTOS = readPhotos();
+    GOALS = (get('lk_goals', []) || []).map(function (g) { return normGoal(g); });
+  }
+
+  document.addEventListener('lk:enter', function () {
+    refresh();
+    var want = null;
+    try { want = localStorage.getItem('lk_openLift'); } catch (e) {}
+    if (want) {
+      try { localStorage.removeItem('lk_openLift'); } catch (e) {}
+      var id = Number(want);
+      if (!isNaN(id)) S.liftId = id;
+    }
+    render();
+  });
+
   function render() {
     screen.setAttribute('data-state', S.view);
     LKPatch(body, (VIEWS[S.view] || VIEWS.populated)());
@@ -901,9 +1664,117 @@
     return '<button class="ph" type="button" data-action="open-photo" data-i="' + i +
         '" data-testid="photo-' + i + '" aria-label="' + esc(dayLabel(ph.date)) +
         (ph.note ? ', ' + esc(ph.note) : '') + '">' +
-      '<span class="ph__img" style="background:' + tone + '" aria-hidden="true"></span>' +
+      '<span class="ph__img" style="' + (ph.thumb
+        ? 'background-image:url(' + ph.thumb + ');background-size:cover;background-position:center'
+        : 'background:' + tone) + '" aria-hidden="true"></span>' +
       '<span class="ph__cap">' + esc(dayLabel(ph.date)) + '</span>' +
     '</button>';
+  }
+
+  /* Every reading, with the method beside it, because a caliper number and a
+     DEXA number are not the same measurement and a chart that mixes them
+     without saying so is a chart of two things. */
+  function bfSheet() {
+    var rows = BF.map(function (r, i) {
+      return '<div class="row row--withaside" data-testid="bf-row-' + i + '">' +
+        '<span class="row__main stack">' +
+          '<span class="row__title">' + num1(r.pct) + '%</span>' +
+          '<span class="row__sub">' + dayLabel(r.date) + ' \u00b7 ' + esc(bfMethodLabel(r.method)) + '</span>' +
+        '</span>' +
+        '<button class="iconbtn" type="button" data-action="del-bf" data-i="' + i + '" ' +
+          'aria-label="Remove the ' + esc(dayLabel(r.date)) + ' reading" ' +
+          'data-testid="bf-del-' + i + '">' + ICO.close + '</button>' +
+      '</div>';
+    }).join('');
+    return sheet('bf', 'Body fat', '0.55 0.9',
+      (BF.length
+        ? '<p class="t-detail">' + n(BF.length) + (BF.length === 1 ? ' reading' : ' readings') +
+            ', newest first. A goal set on body fat is measured against the top one.</p>' +
+          '<div class="card card--flush mt-3">' + rows + '</div>'
+        : '<p class="t-body">Nothing logged yet.</p>' +
+          '<p class="t-detail muted mt-1">Any method works as long as you keep using the same one. ' +
+            'The direction is the reading; the absolute number is not.</p>') +
+      '<h3 class="t-label mt-5">Add one</h3>' +
+      '<div class="hstack hstack--3 mt-2">' +
+        '<div class="grow"><label class="t-label field__label" for="bf-pct">Per cent</label>' +
+          '<input class="input num" id="bf-pct" type="number" min="1" max="70" step="0.1" ' +
+            'inputmode="decimal" data-testid="bf-pct"></div>' +
+        '<div class="grow"><label class="t-label field__label" for="bf-method">How</label>' +
+          '<select class="input" id="bf-method" data-testid="bf-method">' +
+            BF_METHODS.map(function (m) {
+              return '<option value="' + m[0] + '">' + m[1] + '</option>';
+            }).join('') + '</select></div>' +
+      '</div>' +
+      (S.bfError ? '<p class="field__error mt-2" role="alert" data-testid="bf-error">' +
+        esc(S.bfError) + '</p>' : '') +
+      '<button class="btn btn--primary btn--block mt-3" type="button" data-action="save-bf" ' +
+        'data-testid="bf-save"><span class="btn__label">Log it</span></button>' +
+      '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="bf-estimate" ' +
+        'data-testid="bf-estimate"><span class="btn__label">Estimate it from a photo</span></button>');
+  }
+
+  /* Downscaled to 480px on the long edge and re-encoded as JPEG. A phone
+     photo is three to six megabytes; localStorage is five, so storing the
+     original would fill it with one picture and throw on the second. */
+  function addPhotoFile(file) {
+    if (!file) return;
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function () {
+      var max = 480;
+      var w = img.width, h = img.height;
+      var k = Math.min(1, max / Math.max(w, h));
+      var c = document.createElement('canvas');
+      c.width = Math.round(w * k); c.height = Math.round(h * k);
+      try {
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        var thumb = c.toDataURL('image/jpeg', 0.72);
+        var iso = todayISO();
+        PHOTOS.unshift({ date: iso, note: '', thumb: thumb, tone: PHOTOS.length % 4 });
+        savePhotos();
+        S.toast = 'Photo added for ' + dayLabel(iso) + '.';
+      } catch (e) {
+        /* A tainted canvas or a quota refusal. Said, not swallowed: a photo
+           the person believes was saved and was not is worse than a failure
+           they can see. */
+        S.toast = 'That photo could not be saved on this device.';
+      }
+      try { URL.revokeObjectURL(url); } catch (e) {}
+      render();
+    };
+    img.onerror = function () {
+      try { URL.revokeObjectURL(url); } catch (e) {}
+      S.toast = 'That file is not an image this browser can read.';
+      render();
+    };
+    img.src = url;
+  }
+
+  document.addEventListener('change', function (e) {
+    if (e.target.id === 'ph-take' || e.target.id === 'ph-pick') {
+      addPhotoFile(e.target.files && e.target.files[0]);
+    }
+    /* Choosing a different lift moves the From hint with it. */
+    if (e.target.id === 'gl-lift') {
+      S.goalLift = Number(e.target.value) || null;
+      render();
+      focusIn('gl-lift');
+    }
+  });
+
+  function logBF() {
+    var el = document.getElementById('bf-pct');
+    var v = el ? parseFloat(el.value) : NaN;
+    if (isNaN(v) || v < 1 || v > 70) { S.bfError = 'A percentage between 1 and 70.'; render(); focusIn('bf-pct'); return; }
+    var m = (document.getElementById('bf-method') || {}).value || 'manual';
+    var iso = todayISO();
+    /* One a day, the same rule the weigh-in follows. */
+    if (BF.length && BF[0].date === iso) { BF[0].pct = v; BF[0].method = m; }
+    else BF.unshift({ date: iso, pct: v, method: m });
+    saveBF();
+    S.bfError = null;
+    S.toast = num1(v) + '% logged.';
+    render();
   }
 
   function photosSheet() {
@@ -924,24 +1795,72 @@
     return sheet('photos', 'Photos', '0.6 0.94',
       (PHOTOS.length
         ? '<p class="t-detail">' + n(PHOTOS.length) + (PHOTOS.length === 1 ? ' photo' : ' photos') +
-            ', stored on this device.</p>' + body
+            ', stored on this device.</p>' +
+          /* The only way to the analysis was a button inside an opened photo,
+             which nothing on the way in mentioned. */
+          '<div class="banner banner--info mt-3" data-testid="analyse-hint">' + ICO.cam +
+            '<span><strong>Tap a photo to open it</strong>From there you can write a note on it, ' +
+            'compare it with the one either side, or ask for an analysis.</span></div>' + body
         : '<p class="t-body">No photos yet.</p>' +
           '<p class="t-detail muted mt-1">A photo every few weeks shows what the scale does not.</p>') +
-      '<button class="btn btn--primary btn--block mt-4" type="button" data-action="add-photo" ' +
-        'data-testid="add-photo"><span class="btn__label">Add a photo</span></button>');
+      /* Real inputs. "Add a photo" toasted, so there was no way to add one
+         at all -- on the screen whose whole point is a picture every few
+         weeks. The camera one opens the camera on a phone; the other opens
+         the library. What is stored is a downscaled JPEG, never the
+         full-resolution original, because the grid and the lightbox are all
+         that is ever drawn from it and a phone photo would fill localStorage
+         in a fortnight. */
+      '<div class="hstack hstack--3 mt-4">' +
+        '<label class="btn btn--primary grow" for="ph-take">' +
+          '<span class="btn__label">Take one</span></label>' +
+        '<input class="vis-hidden" id="ph-take" type="file" accept="image/*" capture="environment" ' +
+          'data-testid="add-photo">' +
+        '<label class="btn btn--secondary grow" for="ph-pick">' +
+          '<span class="btn__label">From the library</span></label>' +
+        '<input class="vis-hidden" id="ph-pick" type="file" accept="image/*" data-testid="pick-photo">' +
+      '</div>' +
+      /* Not uploaded because progress photos are not the app's to hold,
+         which stays true whether or not a server exists. The second half
+         of this used to lean on there being no server at all, and a
+         promise that rests on a missing deploy is not a promise. */
+      '<p class="t-caption-1 muted mt-2">Downscaled and kept on this device. Progress photos are ' +
+        'never uploaded, and the sync does not carry them.</p>');
   }
 
   function photoSheet() {
     var ph = PHOTOS[S.photoIdx];
     if (!ph) return '';
     var tone = ['#2a2f3a', '#333a47', '#3d4553', '#48515f'][ph.tone] || '#333a47';
+    /* PHOTOS runs newest first, so "older" is forward through the array and
+       "newer" is back. Opening one photo used to be a dead end: the only way
+       to the one beside it was out to the grid and back in, which is the
+       opposite of what a person comparing two months wants. */
+    var older = S.photoIdx + 1 < PHOTOS.length ? PHOTOS[S.photoIdx + 1] : null;
+    var newer = S.photoIdx > 0 ? PHOTOS[S.photoIdx - 1] : null;
     return sheet('photo', dayLabel(ph.date), 'auto',
       '<div class="ph__full" style="background:' + tone + '" role="img" aria-label="' +
         esc(ph.note || dayLabel(ph.date)) + '"></div>' +
-      (ph.note ? '<p class="t-body mt-3">' + esc(ph.note) + '</p>' : '') +
+      '<div class="hstack hstack--3 mt-2">' +
+        '<button class="btn btn--tertiary btn--sm" type="button" data-action="photo-older" ' +
+          (older ? '' : 'disabled ') + 'data-testid="photo-older">' +
+          '<span class="btn__label">' + (older ? '&larr; ' + dayLabel(older.date) : 'Oldest') + '</span></button>' +
+        '<span class="grow t-meta" style="text-align:center">' +
+          n(S.photoIdx + 1) + ' of ' + n(PHOTOS.length) + '</span>' +
+        '<button class="btn btn--tertiary btn--sm" type="button" data-action="photo-newer" ' +
+          (newer ? '' : 'disabled ') + 'data-testid="photo-newer">' +
+          '<span class="btn__label">' + (newer ? dayLabel(newer.date) + ' &rarr;' : 'Newest') + '</span></button>' +
+      '</div>' +
+      /* A FIELD, not only a reader. The note was stored on the record and
+         drawn here, and there was nowhere in the build to type one: every
+         photo added carried note:'' for ever. */
+      '<label class="t-label field__label mt-3" for="ph-note">Note</label>' +
+      '<input class="input" id="ph-note" type="text" data-testid="photo-note" ' +
+        'placeholder="Week 5, morning, fasted" value="' + esc(ph.note || '') + '">' +
+      '<p class="t-caption-1 quiet mt-1">Saved as you type, beside the photo, on this device.</p>' +
       /* The analyse path asks first, and says exactly what leaves. The
          shipped screen offered it with no consent step, no opt-out, and the
          words "stored on device" on the same screen. */
+      (S.analysed === S.photoIdx ? analysisPanel() : '') +
       '<button class="btn btn--secondary btn--block mt-4" type="button" data-action="analyse" ' +
         'data-testid="analyse"><span class="btn__label">Analyse this photo</span></button>' +
       '<button class="btn btn--danger btn--block mt-2" type="button" data-action="del-photo" ' +
@@ -950,13 +1869,383 @@
       '<p class="t-detail muted mt-2">A photo cannot be recreated, so deleting asks twice.</p>');
   }
 
+  /* THE GOAL ANALYSIS. There is no model in this build and no server to run
+     one on, so this says what it would send and what would come back, and
+     then says that nothing happens. A button that toasted a verdict would be
+     the app inventing a reading of somebody's training. */
+  function goalConsentSheet() {
+    var g = GOALS[S.goalIdx] || {};
+    return sheet('goal-consent', 'Before it leaves the device', 'auto',
+      '<p class="t-body">Analysing this goal sends its start, target and deadline, ' +
+        'the log it is measured against (' +
+        (g.type === 'weight' ? 'your weigh-ins' : g.type === 'bodyfat' ? 'your body-fat readings'
+          : g.type === 'lift' ? 'your records for this lift' : 'nothing \u2014 this goal is not measured') +
+        ') and the dates of your sessions to LOCKED\u2019s server.</p>' +
+      '<p class="t-detail muted mt-3">What comes back is a rate, whether that rate reaches the ' +
+        'target by the deadline, and what to change if it does not.</p>' +
+      '<p class="t-detail muted mt-2">In this build it is not wired to anything: no request is ' +
+        'made, nothing is sent, and there is no reply. The consent step is here so the shape of ' +
+        'the flow can be read.</p>' +
+      /* The beta build logged what people did with their goals to a server.
+         There is no telemetry layer here at all -- nothing is counted, queued
+         or sent, on this screen or any other -- and that is worth saying on
+         the one screen that talks about what leaves the device. */
+      '<p class="t-detail muted mt-2">Nothing else about your goals leaves this phone either: ' +
+        'this build keeps no activity log and sends no usage data.</p>' +
+      '<button class="btn btn--primary btn--block mt-4" type="button" data-action="goal-analyse-go" ' +
+        'data-testid="goal-analyse-go"><span class="btn__label">Send it and analyse</span></button>' +
+      '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="goal-analyse-no" ' +
+        'data-testid="goal-analyse-no"><span class="btn__label">Keep it on the device</span></button>');
+  }
+
+  /* ONE LIFT'S RECORDS, in full. The vault row carries three figures --
+     heaviest, best working set of six to eight, estimated one-rep max -- and
+     there was nowhere to go behind them: no per-lift screen, and no way to
+     see the sets they were read off. A reader who wants to know what a
+     record actually was has to see the set. */
+  function prDetailSheet() {
+    var id = S.prLiftId, l = liftById(id), meta = nameOfLift(id) || {};
+    var name = l ? l.name : (meta.name || 'This lift');
+    var rs = recordsFor(id);
+    if (!rs.length) {
+      return sheet('prs', name, 'auto',
+        '<p class="t-body">No records for this lift yet.</p>' +
+        '<p class="t-detail muted mt-1">A record is written the moment a set beats the best you ' +
+          'have logged, during a workout or from &ldquo;Log a record&rdquo; below the list.</p>');
+    }
+    var heaviest = rs.slice().sort(function (a, b) { return b.kg - a.kg; })[0];
+    var rep68 = rs.filter(function (x) { return x.reps >= 6 && x.reps <= 8; })
+      .sort(function (a, b) { return b.kg - a.kg; })[0] || null;
+    var best = rs[0];                       /* recordsFor sorts by Epley */
+    function tile(label, v, sub) {
+      return '<div class="card grow" data-testid="pr-card-' + label.toLowerCase().replace(/\W+/g, '-') + '">' +
+        '<span class="t-label">' + label + '</span>' +
+        '<p class="stat__value mt-1">' + v + '</p>' +
+        '<p class="t-caption-1 quiet mt-1">' + sub + '</p></div>';
+    }
+    return sheet('prs', name, '0.55 0.9',
+      '<div class="hstack hstack--2">' +
+        tile('Heaviest', kg(heaviest.kg), n(heaviest.reps) + (heaviest.reps === 1 ? ' rep' : ' reps') +
+             ' \u00b7 ' + dayLabel(heaviest.date)) +
+        tile('Working', rep68 ? kg(rep68.kg) : '\u2014',
+             rep68 ? n(rep68.reps) + ' reps \u00b7 ' + dayLabel(rep68.date) : 'No set at 6\u20138 reps') +
+        tile('Estimated', kg(e1rm(best.kg, best.reps)),
+             'Epley, from ' + kg(best.kg) + ' \u00d7 ' + n(best.reps)) +
+      '</div>' +
+      '<p class="t-detail muted mt-3">Heaviest is what you actually lifted. Working is the most ' +
+        'you have lifted for six to eight reps, which is what a programme is built on. Estimated ' +
+        'is arithmetic from your best set and was never lifted.</p>' +
+      '<h3 class="t-label mt-5">Every record, newest first</h3>' +
+      '<div class="card card--flush mt-2" data-testid="pr-record-list">' +
+        rs.slice().sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; })
+          .map(function (r, i) {
+            return '<div class="row row--static" data-testid="pr-rec-' + i + '">' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + kg(r.kg) + ' &times; ' + n(r.reps) + '</span>' +
+                '<span class="row__sub">' + longDate(r.date) + '</span>' +
+              '</span>' +
+              '<span class="row__value stack" style="text-align:right">' +
+                '<span class="num">' + kg(e1rm(r.kg, r.reps)) + '</span>' +
+                '<span class="t-caption-2 quiet">est. 1RM</span>' +
+              '</span></div>';
+          }).join('') +
+      '</div>');
+  }
+
+  /* WHAT AN ANALYSIS IS, drawn as the thing it would be rather than faked.
+     The shipped screen answered with six panels -- a summary, a composition
+     estimate, observations, strengths, what to focus on, and the qualifier
+     that says how much to trust it -- then a card per weak point with a
+     prescription, and an ADD TO SPLIT on each. None of that can be computed
+     on the device: it is a model reading a photograph. So the panels are
+     named, in order, with nothing invented in them, and the screen says
+     plainly which half is missing. Filling them with plausible sentences
+     would be the worst thing this screen could do. */
+  var ANALYSIS_PANELS = [
+    ['Summary', 'One paragraph on what the photo shows against the last one.'],
+    ['Composition', 'An estimated body-fat range, with the spread it is confident to.'],
+    ['Observations', 'What is visible: posture, symmetry, where the change is.'],
+    ['Strengths', 'The groups that are ahead, named.'],
+    ['Focus', 'The groups that are behind, each with a prescription \u2014 the lifts, ' +
+      'the weekly sets, and an ADD TO SPLIT that writes them into the day they belong in.'],
+    ['How much to trust it', 'Lighting, angle and pump move an estimate more than a month ' +
+      'of training does. The qualifier says by how much.']
+  ];
+  /* AN ESTIMATE IS OFFERED, NEVER LOGGED. The same reading the physique
+     panel uses carries a body-composition sentence with a rough range in
+     it. That is a number read off a photograph, and lighting and pose
+     move it more than a month of training does -- so it goes into the
+     field for somebody to accept, change or ignore, and it is never
+     written to the log on its own. */
+  function estimateBF() {
+    var ph = PHOTOS[0];
+    var C = window.LKCloud;
+    S.sheet = 'bf';
+    if (!ph || !ph.thumb) {
+      S.toast = 'There is no progress photo on this device to read.'; render(); return;
+    }
+    if (!C || !C.ready() || !C.vision) {
+      S.toast = 'Estimating from a photo needs a server, and this build reaches none. ' +
+                'No photo has left this device.';
+      render();
+      return;
+    }
+    S.bfBusy = true; render();
+    C.vision('physique', ph.thumb).then(function (r) {
+      S.bfBusy = false;
+      if (!r || !r.ok || !r.data || !r.data.bodyComposition) {
+        S.toast = (r && r.message) || 'No reading came back. Nothing was logged.';
+        render();
+        return;
+      }
+      /* The first plausible percentage in the sentence. A range gives its
+         lower bound, because an estimate that rounds itself upward is the
+         wrong way for this number to be wrong. */
+      var m = String(r.data.bodyComposition).match(/(\d{1,2}(?:\.\d)?)\s*%/);
+      if (!m) {
+        S.toast = 'The reading did not name a percentage, so there is nothing to put in the field.';
+        render();
+        return;
+      }
+      var pct = Math.max(1, Math.min(70, parseFloat(m[1])));
+      S.bfSuggest = pct;
+      render();
+      var f = document.getElementById('bf-pct');
+      if (f) { f.value = String(pct); f.focus(); }
+      S.toast = 'Read as about ' + pct + ' per cent. Check it before you save it \u2014 ' +
+                'lighting and pose move this more than a month of training does.';
+      render();
+    }, function () {
+      S.bfBusy = false;
+      S.toast = 'The reading could not be reached. Nothing was logged.';
+      render();
+    });
+  }
+
+  /* THE MOST SENSITIVE THING THIS APP SENDS. The consent sheet before it
+     names the photo in those words, and nothing is sent until it is
+     pressed. The photo already lives as a downscaled thumbnail, so what
+     goes up is what the grid shows and not the original off the camera. */
+  function readPhysique() {
+    var ph = PHOTOS[S.photoIdx];
+    var C = window.LKCloud;
+    S.analysed = S.photoIdx;
+    S.sheet = 'photo';
+    S.analysis = null;
+    if (!ph || !ph.thumb) {
+      S.analysisBusy = false;
+      S.analysisWhy = 'This photo has no copy on the device to send, so nothing was sent.';
+      render();
+      return;
+    }
+    if (!C || !C.ready() || !C.vision) {
+      S.analysisBusy = false;
+      S.analysisWhy = 'Reading a photo needs a server, and this build reaches none. ' +
+                      'No photo has left this device.';
+      render();
+      return;
+    }
+    S.analysisBusy = true; S.analysisWhy = null; render();
+    C.vision('physique', ph.thumb).then(function (r) {
+      S.analysisBusy = false;
+      if (!r || !r.ok) {
+        S.analysisWhy = (r && r.message) || 'The reading did not come back. Nothing was stored.';
+        render();
+        return;
+      }
+      var d = r.data;
+      if (Array.isArray(d) || !d || !d.summary) {
+        S.analysisWhy = 'The reading came back in a shape this screen could not use.';
+        render();
+        return;
+      }
+      S.analysis = d;
+      render();
+    }, function () {
+      S.analysisBusy = false;
+      S.analysisWhy = 'The reading could not be reached. Nothing was stored.';
+      render();
+    });
+  }
+
+  /* ADD TO SPLIT. It writes the lifts that survived the catalogue check
+     into the active split's day for that muscle -- and only into a day
+     that already exists, because inventing a training day from a photo is
+     a bigger decision than a button on a card should make. Anything
+     already in the day is left alone. */
+  function addWeakPoint(i) {
+    var a = S.analysis;
+    var w = a && Array.isArray(a.weakPoints) ? a.weakPoints[i] : null;
+    if (!w) return;
+    var r = resolveIds(w.prescription && w.prescription.exercises);
+    if (!r.lifts.length) { S.toast = 'Nothing to add: none of those lifts are in the catalogue.'; render(); return; }
+
+    var splits = get('lk_splits', []) || [];
+    /* The first split is the current one, which is the convention the rest
+       of the build uses and the shape real stored data has -- a split
+       carries id, name, days and created, and no active flag. Looking for
+       one was reading a field nobody writes. */
+    var sp = splits[0];
+    if (!sp || !Array.isArray(sp.days) || !sp.days.length) {
+      S.toast = 'No split to add to yet. Build one first and these will have somewhere to go.';
+      render();
+      return;
+    }
+    /* The day whose name or contents already mention this muscle, so the
+       lifts land where they belong rather than on day one. */
+    var want = String(w.muscle || '').toLowerCase();
+    var day = null;
+    sp.days.forEach(function (d) {
+      if (day) return;
+      var hay = String(d.name || '').toLowerCase() + ' ' +
+        (d.exercises || []).map(function (e) { return (e.muscle || '') + ' ' + (e.group || ''); }).join(' ').toLowerCase();
+      if (want && hay.indexOf(want) !== -1) day = d;
+    });
+    if (!day) day = sp.days[0];
+    day.exercises = day.exercises || [];
+
+    var added = 0;
+    r.lifts.forEach(function (l) {
+      var have = false;
+      day.exercises.forEach(function (e) { if (e.id === l.id) have = true; });
+      if (have) return;
+      day.exercises.push({ id: l.id, name: l.name, group: l.group, muscle: l.muscle, sets: 3, reps: 10 });
+      added++;
+    });
+    put('lk_splits', splits);
+    S.toast = added
+      ? added + (added === 1 ? ' lift' : ' lifts') + ' added to ' + (day.name || 'your split') + '.'
+      : 'Those lifts are already in ' + (day.name || 'that day') + '.';
+    render();
+  }
+
+  /* EVERY EXERCISE THE READING NAMES IS RESOLVED AGAINST THE REAL
+     CATALOGUE. The endpoint asks for bare numeric ids from a short list,
+     and a model asked for ids returns one that does not exist sooner or
+     later. An unresolvable id is dropped and counted rather than drawn as
+     a lift nobody can do -- and ADD TO SPLIT writes only what survived,
+     so nothing invented can reach somebody's training. */
+  function resolveIds(ids) {
+    var out = [], lost = 0;
+    if (!window.LKExercises) return { lifts: [], lost: (ids || []).length, noCatalogue: true };
+    var all = LKExercises.all();
+    (ids || []).forEach(function (raw) {
+      var id = parseInt(raw, 10);
+      var hit = null;
+      for (var i = 0; i < all.length && !hit; i++) if (all[i].id === id) hit = all[i];
+      if (hit) out.push(hit); else lost++;
+    });
+    return { lifts: out, lost: lost, noCatalogue: false };
+  }
+
+  function weakCard(w, i) {
+    var r = resolveIds(w.prescription && w.prescription.exercises);
+    var sets = Math.max(0, Math.min(40, parseInt(w.prescription && w.prescription.setsPerWeek, 10) || 0));
+    return '<div class="card mt-3" data-testid="weak-' + i + '">' +
+      '<div class="spread"><span class="t-label">' + esc(String(w.muscle || 'Focus').slice(0, 40)) + '</span>' +
+        (sets ? '<span class="t-meta num">' + sets + ' sets a week</span>' : '') + '</div>' +
+      (w.evidence ? '<p class="t-detail mt-2">' + esc(String(w.evidence).slice(0, 300)) + '</p>' : '') +
+      (r.lifts.length
+        ? '<div class="card card--flush mt-2">' + r.lifts.map(function (l) {
+            return '<div class="row row--static"><span class="row__main stack">' +
+              '<span class="row__title">' + esc(l.name) + '</span>' +
+              '<span class="row__sub">' + esc(l.muscle || l.group) + '</span></span></div>';
+          }).join('') + '</div>' +
+          '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="weak-add" ' +
+            'data-i="' + i + '" data-testid="weak-add-' + i + '">' +
+            '<span class="btn__label">Add to split</span></button>'
+        : '<p class="t-detail quiet mt-2" data-testid="weak-none-' + i + '">' +
+          (r.noCatalogue
+            ? 'The exercise catalogue has not loaded, so none of these can be checked.'
+            : 'None of the lifts it named are in the catalogue, so there is nothing to add.') +
+          '</p>') +
+      (r.lost && r.lifts.length
+        ? '<p class="t-caption-1 quiet mt-2" data-testid="weak-lost-' + i + '">' + r.lost +
+          (r.lost === 1 ? ' lift it named is' : ' lifts it named are') +
+          ' not in the catalogue and were left out.</p>'
+        : '') +
+    '</div>';
+  }
+
+  function analysisPanel() {
+    var a = S.analysis;
+    if (a) {
+      var rows = [
+        ['Summary', a.summary],
+        ['Composition', a.bodyComposition],
+        ['Observations', Array.isArray(a.observations) ? a.observations.join(' ') : a.observations],
+        ['Strengths', Array.isArray(a.strengths) ? a.strengths.join(' ') : a.strengths],
+        ['Focus', a.focus],
+        ['How much to trust it', a.qualifier]
+      ].filter(function (p) { return p[1]; });
+      return '<div class="card card--unverified mt-4" data-testid="analysis-panel">' +
+        '<div class="spread"><span class="t-label">Analysis</span>' +
+          '<span class="badge">Read from a photo, not measured</span></div>' +
+        '<div class="card card--flush mt-3">' +
+          rows.map(function (pl, i) {
+            return '<div class="row row--static" data-testid="analysis-panel-' + i + '">' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + esc(pl[0]) + '</span>' +
+                '<span class="row__sub">' + esc(String(pl[1]).slice(0, 400)) + '</span>' +
+              '</span></div>';
+          }).join('') +
+        '</div>' +
+        (Array.isArray(a.weakPoints) && a.weakPoints.length
+          ? a.weakPoints.slice(0, 2).map(weakCard).join('')
+          : '') +
+      '</div>';
+    }
+    return '<div class="card card--unverified mt-4" data-testid="analysis-panel">' +
+      '<div class="spread"><span class="t-label">Analysis</span>' +
+        '<span class="badge">' + (S.analysisBusy ? 'Reading' : 'Nothing read yet') + '</span></div>' +
+      (S.analysisBusy
+        ? '<div class="hstack hstack--3 mt-3" role="status" aria-live="polite" data-testid="analysis-reading">' +
+            '<span class="spinner"></span><span class="t-detail">Reading the photo.</span></div>'
+        : S.analysisWhy
+        ? '<p class="t-detail mt-2" data-testid="analysis-why">' + esc(S.analysisWhy) + '</p>'
+        : '<p class="t-detail mt-2">Nothing was sent and nothing came back. This is what the ' +
+          'analysis is made of, so the shape of it can be read:</p>') +
+      '<div class="card card--flush mt-3">' +
+        ANALYSIS_PANELS.map(function (pl, i) {
+          return '<div class="row row--static" data-testid="analysis-panel-' + i + '">' +
+            '<span class="row__main stack">' +
+              '<span class="row__title">' + esc(pl[0]) + '</span>' +
+              '<span class="row__sub">' + esc(pl[1]) + '</span>' +
+            '</span>' +
+            '<span class="row__value quiet">&mdash;</span></div>';
+        }).join('') +
+      '</div>' +
+      '<p class="t-caption-1 quiet mt-2">The weak-point cards and their ADD TO SPLIT are part of ' +
+        'Focus. They write into your split, so they only appear once there is an analysis behind ' +
+        'them to write from.</p>' +
+    '</div>';
+  }
+
+  /* The same honesty, for the estimate a model would make of body fat. */
+  function bfConsentSheet() {
+    return sheet('bf-consent', 'Before it leaves the device', 'auto',
+      '<p class="t-body">An estimate sends your most recent progress photo, your body weight ' +
+        'and your logged readings to LOCKED\u2019s server, and a percentage with a range comes ' +
+        'back. It is an estimate from a picture, not a measurement.</p>' +
+      '<p class="t-detail muted mt-3">Your calipers, your scale and your DEXA are all better ' +
+        'than it. The log above takes any of them.</p>' +
+      '<p class="t-detail muted mt-2">In this build it is not wired to anything: no request is ' +
+        'made, nothing is sent, and there is no reply.</p>' +
+      '<button class="btn btn--primary btn--block mt-4" type="button" data-action="bf-est-go" ' +
+        'data-testid="bf-est-go"><span class="btn__label">Send it and estimate</span></button>' +
+      '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="bf-est-no" ' +
+        'data-testid="bf-est-no"><span class="btn__label">Keep it on the device</span></button>');
+  }
+
   function consentSheet() {
     return sheet('analyse-consent', 'Before it leaves the device', 'auto',
       '<p class="t-body">Analysing sends this photo to LOCKED\u2019s server, along with your ' +
         'goal, your body weight and your weekly set volume. It is processed there and the ' +
         'reply comes back here.</p>' +
       '<p class="t-detail muted mt-3">Everything else on this screen stays on the device. ' +
-        'This one action does not, which is why it asks.</p>' +
+        'This one action would not, which is why it asks.</p>' +
+      '<p class="t-detail muted mt-2">In this build it is not wired to anything: nothing is ' +
+        'sent, and the consent step is here so the shape of the flow can be read.</p>' +
       '<button class="btn btn--primary btn--block mt-4" type="button" data-action="analyse-go" ' +
         'data-testid="analyse-go"><span class="btn__label">Send it and analyse</span></button>' +
       /* Declining goes back to the photo, not out of the stack. Closing
@@ -977,6 +2266,7 @@
     S.goalError = null;
     S.goalForm = false;
     S.recordError = null;
+    if (name !== 'goal' && name !== 'goal-consent') { S.goalEdit = null; S.goalDelArmed = false; }
     render();
   }
   function closeSheet(refocus) {
@@ -992,12 +2282,20 @@
     var t = e.target.closest('[data-action]');
     if (!t) return;
     var a = t.dataset.action;
+    if (a === 'progress-back') { location.href = 'home.html'; return; }
     if (a === 'range') {
       S.range = t.dataset.range;
       render();
     } else if (a === 'open-picker') {
       openSheet('lift');
     } else if (a === 'close-sheet') {
+      /* One step back, not out. A goal opened from the list closes to the
+         list, and a consent step closes to the goal that raised it, because
+         closing everything would make reading a goal cost the whole way in
+         again. */
+      if (S.sheet === 'goal-consent') { openSheet('goal'); return; }
+      if (S.sheet === 'bf-consent') { openSheet('bf'); return; }
+      if (S.sheet === 'goal') { S.goalIdx = null; openSheet('goals'); return; }
       closeSheet(true);
     } else if (a === 'pick-lift') {
       S.liftId = Number(t.dataset.id);
@@ -1015,21 +2313,94 @@
     } else if (a === 'open-photos') {
       openSheet('photos');
     } else if (a === 'open-photo') {
-      S.photoIdx = +t.getAttribute('data-i'); S.confirmDel = false; openSheet('photo');
-    } else if (a === 'add-photo') {
-      S.toast = 'Taking a photo needs a camera, which this build does not have.'; render();
+      S.photoIdx = +t.getAttribute('data-i'); S.confirmDel = false; S.analysed = null; openSheet('photo');
+    } else if (a === 'photo-older') {
+      /* The confirm disarms on the way past: a delete armed on one photo must
+         not fire on the next one. */
+      if (S.photoIdx + 1 < PHOTOS.length) { S.photoIdx += 1; S.confirmDel = false; S.analysed = null; render(); focusIn('photo-older'); }
+    } else if (a === 'photo-newer') {
+      if (S.photoIdx > 0) { S.photoIdx -= 1; S.confirmDel = false; S.analysed = null; render(); focusIn('photo-newer'); }
     } else if (a === 'analyse') {
       openSheet('analyse-consent');
     } else if (a === 'analyse-no') {
       openSheet('photo');
     } else if (a === 'analyse-go') {
-      S.sheet = null; render();
-      S.toast = 'Sent for analysis. The reply comes back here.'; render();
+      readPhysique();
+      return;
+    } else if (a === 'weak-add') {
+      addWeakPoint(Number(t.getAttribute('data-i')));
+      return;
     } else if (a === 'del-photo') {
       if (!S.confirmDel) { S.confirmDel = true; render(); return; }
       var gonePh = PHOTOS.splice(S.photoIdx, 1)[0];
+      savePhotos();
       S.photoIdx = null; S.confirmDel = false; S.sheet = 'photos'; render();
       S.toast = dayLabel(gonePh.date) + ' deleted.'; render();
+    } else if (a === 'bf-estimate') {
+      openSheet('bf-consent');
+    } else if (a === 'bf-est-no') {
+      openSheet('bf');
+    } else if (a === 'bf-est-go') {
+      estimateBF();
+      return;
+    } else if (a === 'open-bf') {
+      openSheet('bf');
+    } else if (a === 'save-bf') {
+      logBF(); return;
+    } else if (a === 'del-bf') {
+      var goneBf = BF.splice(+t.getAttribute('data-i'), 1)[0];
+      saveBF(); render();
+      if (goneBf) { S.toast = dayLabel(goneBf.date) + ' removed.'; render(); }
+      return;
+    } else if (a === 'feature') {
+      var addedF = toggleFeatured(t.dataset.id);
+      var lf2 = liftById(Number(t.dataset.id));
+      render();
+      S.toast = (lf2 ? lf2.name : 'That lift') + (addedF ? ' is featured.' : ' is no longer featured.');
+      render();
+      return;
+    } else if (a === 'open-prs') {
+      S.prLiftId = Number(t.dataset.id);
+      openSheet('prs');
+    } else if (a === 'open-goal') {
+      S.goalIdx = Number(t.getAttribute('data-i'));
+      S.goalEdit = null; S.goalDelArmed = false;
+      openSheet('goal');
+    } else if (a === 'goal-done') {
+      var gd = GOALS[S.goalIdx];
+      if (gd) {
+        if (gd.status === 'done') { gd.status = 'active'; gd.completed = ''; }
+        else { gd.status = 'done'; gd.completed = TODAY; }
+        saveGoals();
+        S.sheet = 'goals'; S.goalDelArmed = false;
+        render();
+        S.toast = gd.status === 'done' ? gd.name + ' marked complete.' : gd.name + ' is active again.';
+        render();
+      }
+      return;
+    } else if (a === 'goal-edit') {
+      S.goalEdit = S.goalIdx; S.goalError = null; S.goalDelArmed = false;
+      render(); focusIn('gl-name'); return;
+    } else if (a === 'goal-edit-cancel') {
+      S.goalEdit = null; S.goalError = null; render(); return;
+    } else if (a === 'goal-del') {
+      if (!S.goalDelArmed) { S.goalDelArmed = true; render(); return; }
+      var goneG = GOALS.splice(S.goalIdx, 1)[0];
+      saveGoals();
+      S.goalIdx = null; S.goalDelArmed = false; S.sheet = 'goals';
+      render();
+      S.toast = (goneG ? goneG.name : 'Goal') + ' deleted.';
+      render();
+      return;
+    } else if (a === 'goal-analyse') {
+      openSheet('goal-consent');
+    } else if (a === 'goal-analyse-no') {
+      openSheet('goal');
+    } else if (a === 'goal-analyse-go') {
+      goalAnalyse();
+      return;
+    } else if (a === 'goal-type') {
+      S.goalType = t.getAttribute('data-v'); S.goalError = null; render(); return;
     } else if (a === 'open-goals') {
       openSheet('goals');
     } else if (a === 'log-record') {
@@ -1037,7 +2408,8 @@
     } else if (a === 'log-weight') {
       logWeight();
     } else if (a === 'add-goal') {
-      S.goalForm = true; S.goalError = null; render(); focusIn('gl-name');
+      S.goalForm = true; S.goalError = null; S.goalType = S.goalType || 'weight';
+      render(); focusIn('gl-name');
     } else if (a === 'save-goal') {
       saveGoal();
     } else if (a === 'save-record') {
@@ -1083,6 +2455,7 @@
        segment in the trend. */
     if (last && last[0] === iso) last[1] = v;
     else WEIGHT_LOG.push([iso, v]);
+    saveWeight();
     S.weightError = null;
     S.sheet = false;
     S.toast = num1(v) + ' kg logged for today.';
@@ -1090,16 +2463,73 @@
     refocus('row-body-weight');
   }
 
+  /* The form writes the shape the screen READS. It used to push
+     `{name, by, now: 'Not started'}` -- three keys, none of which goalPct,
+     goalNow, goalBy, activeGoals or nextGoalDue look at -- so every goal
+     added by hand sat at 0% forever under a bar that could never move, and
+     the whole measured-goal machinery above only ever ran on the seed.
+
+     A goal is a type, a start, a target and a date. The type is what says
+     which number watches it: a weight goal reads the weigh-in log, a body-fat
+     goal reads the body-fat log, a lift goal reads your records. `custom` is
+     kept for the things nothing measures, and it says "You decide" rather
+     than printing a percentage it cannot compute. */
   function saveGoal() {
-    var name = (document.getElementById('gl-name') || {}).value || '';
-    var by = (document.getElementById('gl-by') || {}).value || '';
-    name = name.trim(); by = by.trim();
+    var val = function (id) { var e = document.getElementById(id); return e ? e.value : ''; };
+    var editing = (S.goalEdit !== null && S.goalEdit !== undefined) ? GOALS[S.goalEdit] : null;
+    var type = editing ? editing.type : (S.goalType || 'weight');
+    var name = String(val('gl-name')).trim();
+    var target = parseFloat(val('gl-target'));
+    var start = parseFloat(val('gl-start'));
+    var date = String(val('gl-date')).trim();
+    var exId = type !== 'lift' ? null
+      : editing ? editing.exId : (Number(val('gl-lift')) || goalLiftId());
+
+    if (type === 'lift' && !name) {
+      var lf = liftById(exId);
+      name = lf ? lf.name + ' to ' + num1(target || 0) + ' kg' : '';
+    }
     if (!name) { S.goalError = 'What are you aiming at?'; render(); focusIn('gl-name'); return; }
-    if (!by) { S.goalError = 'By when? "Ongoing" counts.'; render(); focusIn('gl-by'); return; }
-    /* pct 0 and "Not started": a goal added by hand has no measurement
-       behind it yet, and inventing a percentage would be inventing data. */
-    GOALS.push({ name: name, by: by, now: 'Not started', pct: 0 });
-    S.goalForm = false; S.goalError = null;
+    if (type !== 'custom') {
+      if (isNaN(target)) { S.goalError = 'What number are you aiming for?'; render(); focusIn('gl-target'); return; }
+      /* The start defaults to where you are now, which is the honest zero
+         point: a bar measured from nothing is measured from nothing. */
+      if (isNaN(start)) {
+        var nowv = goalNow({ type: type, exId: exId });
+        if (nowv === null || nowv === undefined) {
+          S.goalError = 'Nothing is logged to start from. Log one first, or type a starting figure.';
+          render(); focusIn('gl-start'); return;
+        }
+        start = nowv;
+      }
+      if (start === target) { S.goalError = 'The start and the target are the same number.'; render(); focusIn('gl-target'); return; }
+    }
+    /* AN EDIT KEEPS THE GOAL. Its type, the lift it watches, when it was
+       created and whether it is finished are all untouched: what is being
+       corrected is the figures and the words. */
+    if (editing) {
+      editing.name = name;
+      editing.target = type === 'custom' ? null : target;
+      editing.start = type === 'custom' ? null : start;
+      editing.targetDate = date;
+      editing.notes = String(val('gl-notes'));
+      saveGoals();
+      S.goalEdit = null; S.goalError = null;
+      S.goalIdx = GOALS.indexOf(editing);
+      render();
+      S.toast = 'Goal updated.';
+      render();
+      return;
+    }
+    GOALS.push(normGoal({
+      type: type, name: name, exId: exId,
+      target: type === 'custom' ? null : target,
+      start: type === 'custom' ? null : start,
+      unit: type === 'bodyfat' ? '%' : type === 'custom' ? '' : 'kg',
+      targetDate: date, status: 'active', created: new Date().toISOString()
+    }));
+    saveGoals();
+    S.goalForm = false; S.goalError = null; S.goalType = null;
     S.toast = 'Goal added.';
     render();
   }
@@ -1113,7 +2543,29 @@
     if (isNaN(load) || load <= 0) { S.recordError = 'How much did you lift?'; render(); focusIn('rec-kg'); return; }
     if (isNaN(reps) || reps < 1) { S.recordError = 'At least one rep.'; render(); focusIn('rec-reps'); return; }
     var id = liftSel ? Number(liftSel.value) : 0;
+    /* A record has to beat the record. This accepted 1 kg for 5 as a Leg
+       Press record against a stored best of 165 for 10, and then redated the
+       row to today -- so the screen asserted a personal best that had never
+       been lifted, and buried the real one.
+
+       Beating it means more weight at the same reps or better, or the same
+       weight for more reps. Anything else is a set, and a set belongs in a
+       session rather than in the record book. */
+    var beaten = null;
+    RECORDS.forEach(function (r) {
+      if (r.id !== id) return;
+      if (r.kg > load && r.reps >= reps) { if (!beaten || r.kg > beaten.kg) beaten = r; }
+      else if (r.kg === load && r.reps >= reps) { if (!beaten || r.reps > (beaten.reps || 0)) beaten = r; }
+    });
+    if (beaten) {
+      var lift0 = liftById(id);
+      S.recordError = (lift0 ? lift0.name : 'That lift') + ' already has ' + num1(beaten.kg) +
+        ' kg for ' + beaten.reps + '. A record has to beat the record \u2014 more weight at the ' +
+        'same reps, or the same weight for more. Log it as a set instead.';
+      render(); focusIn('rec-kg'); return;
+    }
     RECORDS.unshift({ id: id, reps: reps, kg: load, date: todayISO() });
+    saveRecords();
     S.recordError = null;
     S.sheet = false;
     var lift = liftById(id);
@@ -1126,6 +2578,26 @@
     var back = document.querySelector('[data-testid="' + testid + '"]');
     if (back) back.focus();
   }
+
+  document.addEventListener('input', function (e) {
+    /* Written straight through, without a re-render: a paint under a caret
+       mid-sentence is how a note gets typed backwards. */
+    if (e.target.id === 'ph-note') {
+      var phN = PHOTOS[S.photoIdx];
+      if (phN) { phN.note = e.target.value; savePhotos(); }
+      return;
+    }
+    if (e.target.id === 'goal-note') {
+      var gN = GOALS[S.goalIdx];
+      if (gN) { gN.notes = e.target.value; saveGoals(); }
+      return;
+    }
+    if (e.target.id !== 'rec-q') return;
+    S.recordQ = e.target.value;
+    render();
+    var back = document.getElementById('rec-q');
+    if (back) { back.focus(); try { back.setSelectionRange(back.value.length, back.value.length); } catch (err) {} }
+  });
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && S.sheet) { e.preventDefault(); closeSheet(true); return; }

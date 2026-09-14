@@ -7,6 +7,9 @@
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
 <script src="theme.js"></script>
+<script src="fixtures.js"></script>
+<script src="store.js"></script>
+<script src="units.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 <script src="session.js"></script>
@@ -33,8 +36,15 @@
      quiet Save without reflection" (rubric, purpose clarity 3). Here
      the single accent fill on every state is Save session, pinned in
      an actionbar so it never scrolls away. Saving is one tap from
-     entry. Feel is four chips in a section below the fold, optional,
-     and it gates nothing.
+     entry. Feel is five one-to-five ratings and a note, in a section
+     below the fold, optional, and it gates nothing.
+
+     AND SAVING SAVES. Save set a flag and wrote nothing: a finished
+     workout never joined lk_history, so the loop from logging a set to
+     reading the session back days later was never closed. The record
+     is written here, through LKStore, in the seed's own field names,
+     with the sets, the note and the five ratings in it -- which is
+     what workout-detail reads when that session is opened again.
 
   2. "Zero-set guard on save(): missing — saves sets:0, exercises:[],
      an empty record joins history and inflates Home's TOTAL WORKOUTS"
@@ -194,16 +204,25 @@
   };
 
   /* ---- formatting ------------------------------------------------ */
+  /* Free text reaches this screen now -- a session name a person typed, a
+     note they wrote -- and it is written into markup, so it is escaped. */
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
   function n(v) { return '<span class="num">' + v + '</span>'; }
-  function kg(v) { return n(Number(v).toLocaleString('en-US')) + ' kg'; }
+  function kg(v) { return n(LKUnits.fmtTotal(Number(v))); }
   /* A signed figure always prints its sign, so the colour is a second
      carrier of direction and never the only one. */
   function signedKg(v) {
-    if (v === 0) return n('0') + ' kg';
-    return n((v > 0 ? '+' : '−') + Math.abs(v).toLocaleString('en-US')) + ' kg';
+    var u = LKUnits.label();
+    if (v === 0) return n('0') + ' ' + u;
+    var x = LKUnits.vRound(Math.abs(v));
+    return n((v > 0 ? '+' : '\u2212') + x.toLocaleString('en-GB')) + ' ' + u;
   }
   function dir(v) { return v > 0 ? 'up' : (v < 0 ? 'down' : 'flat'); }
-  function set(w, r) { return n(w) + ' kg × ' + n(r); }
+  function set(w, r) { return n(LKUnits.v(w)) + ' ' + LKUnits.label() + ' \u00d7 ' + n(r); }
 
   /* ---- seed --------------------------------------------------------
      Prior column is w_1788458700000 in fixtures/seed-data.json:
@@ -245,6 +264,115 @@
      inventing one would compare two different exercises. */
   function liftNew(name, tw, tr, tvol) {
     return { name: name, top: [tw, tr], vol: tvol, priorTop: null, priorVol: 0, delta: null };
+  }
+
+  /* THE SESSION JUST FINISHED, if the workout log handed one over.
+
+     Review used to be a fixture and only a fixture: whatever you logged --
+     seven sets, or none at all after a discard -- it reported 16 working
+     sets, 4,383 kg, 52 min and awarded a bench record of 75 kg x 8 that
+     nobody had set. The log now writes lk_lastSession on Finish and this
+     reads it once. The dev states below are untouched; they are what this
+     screen shows when no session was handed over, which is how it is opened
+     from the index and from a screenshot run. */
+  function handed() {
+    var r = window.LKStore ? LKStore.get('lk_lastSession', null) : null;
+    if (!r) {
+      var raw = null;
+      try { raw = localStorage.getItem('lk_lastSession'); } catch (e) { return null; }
+      if (!raw) return null;
+      try { r = JSON.parse(raw); } catch (e) { return null; }
+    }
+    if (!r || !r.lifts || !r.lifts.length) return null;
+    var FX = window.LKFixtures;
+
+    var lifts = r.lifts.map(function (l) {
+      /* The prior column is the last session that actually contains this
+         lift, found in the shared history. A lift with no prior session gets
+         no delta rather than an invented one. */
+      var last = FX && FX.lastTime ? FX.lastTime(l.id, r.dateISO) : null;
+      /* THE ID TRAVELS WITH THE LIFT. It was dropped here, so everything
+         downstream had only a name to go on and anything that wanted to look
+         the lift up in history -- the throwback below, for one -- could not. */
+      if (!last) return { id: l.id, name: l.name, top: l.top, vol: l.vol, priorTop: null, priorVol: 0,
+                          priorDate: null, delta: null };
+      var st = FX.liftStats(last.exercise);
+      var raw2 = l.vol - st.vol;
+      return { id: l.id, name: l.name, top: l.top, vol: l.vol, priorTop: st.top, priorVol: st.vol,
+               priorDate: last.date,
+               delta: (raw2 < 0 ? -1 : 1) * Math.round(Math.abs(raw2)) };
+    });
+
+    /* A record is claimed only when a top set beats EVERY stored row for that
+       lift. Checked row by row, a 72.5 kg x 8 "beat" the stored 72.5 x 5 and
+       the screen awarded a record for equalling its own standing best.
+       Beaten means no stored row matches or exceeds it on both counts. */
+    /* THE RECORD THE LOG ALREADY KNOWS ABOUT. The workout log marks the set
+       that beat a best and writes the new row to lk_prs the moment it is
+       ticked -- so by the time this screen re-derives records from lk_prs,
+       the standing best for that lift IS the set it is looking at, and the
+       scan below can never find a record in a session that actually set one.
+       The session's own mark wins, and it carries the mark it beat. */
+    var rec = null;
+    (r.exercises || []).forEach(function (ex) {
+      (ex.sets || []).forEach(function (st) {
+        if (rec || !st.pr || !st.prBeat) return;
+        rec = { exId: ex.id, lift: ex.name, w: st.kg, r: st.reps,
+                prevW: st.prBeat.kg, prevR: st.prBeat.reps,
+                prevDate: /^\d{4}-\d{2}-\d{2}$/.test(String(st.prBeat.date || ''))
+                  ? shortDate(String(st.prBeat.date).slice(0, 10)) : st.prBeat.date };
+      });
+    });
+    var rows = (window.LKStore ? window.LKStore.get('lk_prs', null) : null) ||
+               (FX && FX.prs) || [];
+    if (!Array.isArray(rows)) rows = [];
+    r.lifts.forEach(function (l) {
+      if (rec || !l.top) return;
+      var mine = rows.filter(function (p) { return Number(p.exId) === Number(l.id); });
+      if (!mine.length) return;               /* nothing to beat is not a claim */
+      var held = null;
+      for (var i = 0; i < mine.length; i++) {
+        if (mine[i].kg >= l.top[0] && mine[i].reps >= l.top[1]) return;  /* not beaten */
+        if (!held || mine[i].kg > held.kg || (mine[i].kg === held.kg && mine[i].reps > held.reps)) held = mine[i];
+      }
+      rec = { exId: l.id, lift: l.name, w: l.top[0], r: l.top[1],
+              /* THE MARK IT BEAT, as it was actually set. The card printed the
+                 old weight against TODAY's reps -- so a 25 kg x 9 that beat a
+                 standing 25 kg x 8 read "Beat 25 kg x 9", which is the same
+                 set twice and not a record at all. */
+              prevW: held.kg, prevR: held.reps,
+              prevDate: /^\d{4}-\d{2}-\d{2}$/.test(String(held.date || ''))
+                ? shortDate(String(held.date).slice(0, 10)) : held.date };
+    });
+
+    return {
+      title: r.title || 'Workout',
+      dateISO: r.dateISO,
+      date: r.dateISO ? longDate(r.dateISO) : '',
+      sets: r.sets, volumeKg: r.volumeKg, minutes: r.minutes,
+      lifts: lifts,
+      /* The rows, so the screen can show what was actually done and the
+         record it saves has sets in it. */
+      exercises: r.exercises || [],
+      record: rec,
+      /* No insight. The insight lines below are written about the fixture's
+         own sessions; generating one about a session this screen has only
+         totals for would be the screen inventing a reading of your training. */
+      insight: null
+    };
+  }
+
+  var MONTHS_SHORT = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  var DOW_SHORT = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  function longDate(iso) {
+    var a = iso.split('-');
+    var d = new Date(Date.UTC(+a[0], +a[1] - 1, +a[2]));
+    return DOW_SHORT[d.getUTCDay()] + ', ' + MONTHS_SHORT[+a[1] - 1] + ' ' + (+a[2]);
+  }
+  function shortDate(iso) {
+    var a = iso.split('-');
+    return MONTHS_SHORT[+a[1] - 1].charAt(0) + MONTHS_SHORT[+a[1] - 1].slice(1).toLowerCase() +
+      ' ' + (+a[2]);
   }
 
   var DATA = {
@@ -334,19 +462,32 @@
   };
   DATA['diff-updated'] = DATA['diff-swap'];
 
-  var FEELINGS = [
-    ['easy',   'Easy'],
-    ['steady', 'Steady'],
-    ['hard',   'Hard'],
-    ['max',    'All out']
+  /* HOW IT FELT. One four-chip question -- easy, steady, hard, all out --
+     was stored nowhere and shown nowhere afterwards: workout-detail's "How
+     it felt" card reads a reflection of five one-to-five ratings, and every
+     session in the seed carries those five. So this asks for the five the
+     data actually has, under the keys the data actually uses, and what is
+     answered here is what that card reads back. Still optional, still below
+     the fold, and it still gates nothing. */
+  var REFLECT = [
+    ['energy',     'Energy'],
+    ['focus',      'Focus'],
+    ['pump',       'Pump'],
+    ['difficulty', 'Difficulty'],
+    ['enjoyment',  'Enjoyment']
   ];
 
   /* ---- screen state ---------------------------------------------- */
-  var S = { view: 'record', saved: false, feel: null, discardArmed: false,
+  /* Review reviews a session that was handed over. Opened with nothing handed
+     and no seed to fall back on -- a new account -- there is no session, and
+     the screen says so instead of showing the demo's Push. */
+  var S = { view: (window.LKFixtures ? 'record' : 'empty'),
+            saved: false, reflection: {}, note: '', discardArmed: false,
             ai: 'idle', toast: null,
             /* split: 'pending' | 'updated' | 'kept'. picks: indices chosen
                in the per-change sheet, empty until the lifter picks. */
-            split: 'pending', applied: [], picks: [], sheet: false };
+            split: 'pending', applied: [], picks: [], sheet: false,
+            throwbackGone: false };
 
   /* ---- blocks ----------------------------------------------------- */
 
@@ -372,8 +513,112 @@
           '</div>' +
         '</div>' +
         '<p class="t-body-em mt-3 num">' + set(r.w, r.r) + '</p>' +
-        '<p class="t-detail">Beat ' + set(r.prevW, r.r) + ', set ' + r.prevDate + '.</p>' +
+        '<p class="t-detail">Beat ' + set(r.prevW, r.prevR === undefined ? r.r : r.prevR) +
+          ', set ' + r.prevDate + '.</p>' +
       '</div>';
+  }
+
+  /* ---- THE THROWBACK -------------------------------------------------
+     One session in five, after the save decision is already on screen, this
+     says what the same lift looked like a long time ago. The shipped app had
+     it, the rebuild dropped it with no note anywhere saying so, and the note
+     Progress left about cutting its own copy was that a 25% Math.random()
+     card is unreproducible -- a screenshot of it can never be taken twice
+     and a test can never assert it.
+
+     So the roll is 1-in-5 and DETERMINISTIC: it is a hash of the session
+     being reviewed, which means the same session always makes the same
+     decision, on every device and in every test run, and it is still a
+     surprise because nobody knows the hash of their Tuesday.
+
+     It only draws when there is something real behind it: a lift in this
+     session that was also trained at least thirty days ago, and that has
+     gone up since. Dismissing writes lk_throwbackDismissed -- the shipped
+     app's own key -- and nothing asks again for three days.
+     -------------------------------------------------------------------- */
+  var THROWBACK_MIN_DAYS = 30;
+  var THROWBACK_QUIET_DAYS = 3;
+  /* The same list workout-detail reads: the store, with the seed behind it.
+     FX.lastTime above answers a different question -- the MOST RECENT
+     session before a date -- and cannot reach back to the oldest one. */
+  function historyList() {
+    var seed = (window.LKFixtures && LKFixtures.history) || [];
+    var list = window.LKStore ? LKStore.get('lk_history', seed) : seed;
+    return Array.isArray(list) ? list : seed;
+  }
+  function isoMs(iso) {
+    var a = String(iso || '').slice(0, 10).split('-');
+    return a.length === 3 ? Date.UTC(+a[0], +a[1] - 1, +a[2]) : NaN;
+  }
+  function today() {
+    return window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10);
+  }
+  function throwbackQuiet() {
+    var raw = window.LKStore ? LKStore.get('lk_throwbackDismissed', null) : null;
+    if (!raw) return false;
+    var then = Date.parse(raw);
+    if (isNaN(then)) return false;
+    return (isoMs(today()) - then) < THROWBACK_QUIET_DAYS * 86400000;
+  }
+  /* 32-bit FNV-ish, which is all a 1-in-5 needs. */
+  function rollOf(str) {
+    var h = 2166136261;
+    for (var i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+    }
+    return h % 5;
+  }
+  function throwback(d) {
+    if (S.throwbackGone || throwbackQuiet()) return null;
+    if (!d || !d.lifts || !d.lifts.length) return null;
+    var key = String(d.dateISO || d.date || '') + '|' + String(d.title || '');
+    if (rollOf(key) !== 0) return null;
+    var cut = isoMs(d.dateISO || today()) - THROWBACK_MIN_DAYS * 86400000;
+    if (isNaN(cut)) return null;
+    var best = null;
+    var list = historyList();
+    d.lifts.forEach(function (l) {
+      if (!l.top) return;
+      /* The OLDEST session with this lift in it, that far back. */
+      var found = null;
+      list.forEach(function (w) {
+        if (w.kind === 'cardio' || !w.exercises) return;
+        var when = isoMs(w.date);
+        if (isNaN(when) || when > cut) return;
+        w.exercises.forEach(function (ex) {
+          if (Number(ex.id) !== Number(l.id)) return;
+          if (!found || when < found.when) {
+            var st = window.LKFixtures && LKFixtures.liftStats ? LKFixtures.liftStats(ex) : null;
+            if (st && st.top) found = { when: when, date: w.date, top: st.top };
+          }
+        });
+      });
+      if (!found) return;
+      var gain = l.top[0] - found.top[0];
+      if (gain <= 0) return;                 /* no progression is not a throwback */
+      if (!best || gain > best.gain) {
+        best = { name: l.name, now: l.top, then: found.top, thenDate: found.date, gain: gain,
+                 days: Math.round((isoMs(d.dateISO || today()) - found.when) / 86400000) };
+      }
+    });
+    return best;
+  }
+
+  function throwbackCard(d) {
+    var t = throwback(d);
+    if (!t) return '';
+    return '<div class="section" data-testid="section-throwback">' +
+      '<div class="card" data-testid="card-throwback">' +
+        '<div class="spread"><span class="t-label">' + t.days + ' days ago</span>' +
+          '<button class="btn btn--tertiary btn--sm" data-testid="action-throwback-dismiss">' +
+            '<span class="btn__label">Hide</span></button></div>' +
+        '<h2 class="t-section mt-2">' + esc(t.name) + '</h2>' +
+        '<p class="t-body-em mt-2">' + set(t.then[0], t.then[1]) + ' \u2192 ' + set(t.now[0], t.now[1]) + '</p>' +
+        '<p class="t-detail mt-1">' + shortDate(t.thenDate) + ' to today, ' +
+          n((t.gain > 0 ? '+' : '\u2212') + LKUnits.v(Math.abs(t.gain))) + ' ' + LKUnits.label() +
+          ' on the top set.</p>' +
+      '</div></div>';
   }
 
   /* The comparison. The reason this screen exists: it is computed on
@@ -597,6 +842,65 @@
       '</div>';
   }
 
+  /* THE READ IS ASKED FOR, NOT INVENTED. This used to be a 900 ms timer
+     that set done or error from whichever dev state was showing, and the
+     text under it came from the fixture -- which is the one thing a card
+     labelled "Generated, not measured" must never be, because a reader
+     has no way to tell a written read from a fabricated one.
+
+     It sends the session's own figures and nothing else: the totals this
+     screen computed, the sets, and how they compare to last time. A
+     failure stays a failure, and saving never waits for it. */
+  function sessionForCoach(d) {
+    d = d || {};
+    var out = {
+      name: d.name || (d.session && d.session.name) || 'this session',
+      volumeKg: d.volume || (d.totals && d.totals.volume) || null,
+      sets: d.sets || (d.totals && d.totals.sets) || null,
+      minutes: d.minutes || (d.totals && d.totals.minutes) || null
+    };
+    if (Array.isArray(d.lifts)) {
+      out.lifts = d.lifts.slice(0, 10).map(function (l) {
+        return { name: l.name, best: l.best || l.top || null, last: l.last || null };
+      });
+    }
+    return out;
+  }
+
+  function askCoach() {
+    var C = window.LKCloud;
+    var d = DATA[S.view] || {};
+    if (!C || !C.coachReady()) {
+      /* No endpoint, so no read, and the card says which rather than
+         spinning at somebody. */
+      S.ai = 'error';
+      S.aiWhy = 'There is no coach endpoint in this build, so nothing was asked and ' +
+                'nothing was written. Your session is untouched.';
+      paint(true);
+      return;
+    }
+    S.ai = 'loading'; S.aiWhy = null; paint(true);
+    C.ask([{ role: 'user',
+             content: 'Write one short paragraph about the session below. Use only the ' +
+                      'numbers given. Do not state a total that is not there, and do not ' +
+                      'invent a lift. ' + JSON.stringify(sessionForCoach(d)) }],
+           { })
+      .then(function (r) {
+        if (S.view !== 'record' && S.view !== 'populated') return;
+        if (!r || !r.ok || !r.data || !String(r.data.reply || '').trim()) {
+          S.ai = 'error';
+          S.aiWhy = (r && r.message) || null;
+          paint(true);
+          return;
+        }
+        S.aiText = String(r.data.reply).trim().slice(0, 900);
+        S.ai = 'done';
+        paint(true);
+      }, function () {
+        S.ai = 'error'; S.aiWhy = null; paint(true);
+      });
+  }
+
   /* The one thing on the screen that is not measured. Dashed, labelled,
      never fetched unless asked, and a failure stays a failure. */
   function aiCard(d) {
@@ -615,13 +919,22 @@
     } else if (S.ai === 'error') {
       inner = '<div class="banner banner--error" role="alert" data-testid="ai-error">' +
                 ICO.alert +
-                '<span><strong>Coach did not answer</strong>The request timed out. Your session is ' +
-                'untouched and the comparison above is unaffected.</span>' +
+                '<span><strong>Coach did not answer</strong>' + esc(S.aiWhy ||
+                  'The request did not come back. Your session is untouched and the ' +
+                  'comparison above is unaffected.') + '</span>' +
               '</div>' +
               '<button class="btn btn--secondary btn--block mt-3" data-testid="ai-retry">' +
                 '<span class="btn__label">Try again</span></button>';
     } else {
-      inner = '<p class="t-detail" data-testid="ai-text">' + d.insight + '</p>';
+      /* What came back, when something did. d.insight is the fixture's own
+         line and only shows on a dev state nobody asked the coach from. */
+      inner = S.aiText
+        ? '<p class="t-detail" data-testid="ai-text">' + esc(S.aiText) + '</p>'
+        : d.insight
+        ? '<p class="t-detail" data-testid="ai-text">' + d.insight + '</p>'
+        : '<p class="t-detail" data-testid="ai-text">Nothing was written about this session. ' +
+          'The figures above are yours and are computed on this phone. Nothing wrote a ' +
+          'read on them for this session.</p>';
     }
     return '' +
       '<div class="section">' +
@@ -635,12 +948,23 @@
       '</div>';
   }
 
-  /* Optional, secondary, and it gates nothing. One question, four
-     answers, one tap, and the screen is savable with or without it. */
+  /* Optional, secondary, and it gates nothing. Five ratings and a line of
+     text, all of it saved with the session and all of it readable again on
+     the session's own screen days later. */
   function feelSection() {
-    var chips = FEELINGS.map(function (f) {
-      return '<button class="chip" type="button" aria-pressed="' + (S.feel === f[0]) + '" ' +
-             'data-feel="' + f[0] + '" data-testid="feel-' + f[0] + '">' + f[1] + '</button>';
+    var rows = REFLECT.map(function (f) {
+      var v = S.reflection[f[0]];
+      var dots = '';
+      for (var i = 1; i <= 5; i++) {
+        dots += '<button class="rate__dot" type="button" aria-pressed="' + (v === i) + '" ' +
+          'data-rate="' + f[0] + '" data-val="' + i + '" data-testid="rate-' + f[0] + '-' + i + '" ' +
+          'aria-label="' + f[1] + ', ' + i + ' of 5">' + i + '</button>';
+      }
+      return '<div class="rate" role="group" aria-label="' + f[1] + ', one to five, optional" ' +
+               'data-testid="rate-' + f[0] + '">' +
+          '<span class="rate__label t-detail">' + f[1] + '</span>' +
+          '<span class="rate__dots">' + dots + '</span>' +
+        '</div>';
     }).join('');
     return '' +
       '<div class="section" data-testid="section-feel">' +
@@ -648,7 +972,50 @@
           '<h2 class="t-label">How did it feel</h2>' +
           '<span class="t-meta">Optional</span>' +
         '</div>' +
-        '<div class="chiprow" role="group" aria-label="How did it feel, optional">' + chips + '</div>' +
+        '<div class="card">' + rows +
+          '<p class="t-meta mt-2">One is low, five is high. Saved with the session.</p>' +
+        '</div>' +
+        '<div class="section__head mt-4">' +
+          '<h2 class="t-label">Note</h2>' +
+          '<span class="t-meta">Optional</span>' +
+        '</div>' +
+        '<div class="card">' +
+          '<label class="vis-hidden" for="session-note">A note about this session</label>' +
+          '<textarea class="input" id="session-note" rows="2" data-testid="session-note" ' +
+            'placeholder="What is worth remembering about this one?">' + esc(S.note) + '</textarea>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* WHAT YOU ACTUALLY DID. The screen compared today against last time and
+     never once showed a set: a lifter asking "how many did I get on the
+     third one" had to leave and find the session in their history, which is
+     the one screen this one is supposed to save them. */
+  function setsSection(d) {
+    if (!d.exercises || !d.exercises.length) return '';
+    return '<div class="section" data-testid="section-sets">' +
+        '<div class="section__head"><h2 class="t-label">Every set</h2>' +
+          '<span class="t-meta num">' + d.exercises.length + '</span></div>' +
+        d.exercises.map(function (e, i) {
+          var wi = 0;
+          return '<div class="card card--flush mt-3" data-testid="rex-' + i + '">' +
+              '<div class="card__head"><span class="t-label grow">' + esc(e.name) + '</span>' +
+                '<span class="t-meta">' + esc(e.muscle || '') + '</span></div>' +
+              '<div style="padding: 0 var(--sp-4) var(--sp-4)">' +
+                e.sets.map(function (s, k) {
+                  /* A right-hand row is the same set on the other side, so it
+                     takes its set's number rather than the next one. */
+                  if (!s.warm && s.side !== 'R') wi++;
+                  return '<div class="rsetline" data-testid="rset-' + i + '-' + k + '">' +
+                      '<span class="rsetline__n' + (s.warm ? ' rsetline__n--warm' : '') + '">' +
+                        (s.warm ? 'W' : wi + (s.side || '')) + '</span>' +
+                      '<span class="t-detail num">' + set(s.kg, s.reps) + '</span>' +
+                      '<span class="t-meta num">' + (s.rir != null ? s.rir + ' RIR' : '') + '</span>' +
+                    '</div>';
+                }).join('') +
+              '</div>' +
+            '</div>';
+        }).join('') +
       '</div>';
   }
 
@@ -681,6 +1048,16 @@
      Save never scrolls away, so banking the session is one tap from
      the state the screen opens in, whatever the scroll position. */
   function saveBar(opts) {
+    /* Opened from the index or a dev state, there is no workout behind this
+       screen. The button stays -- it is the shape of the screen -- and the
+       line beside it says what it will find to save. */
+    if (!HANDED && !S.saved) {
+      return '<div class="actionbar" role="contentinfo" aria-label="Session actions" data-testid="actionbar">' +
+               '<span class="actionbar__status" data-testid="save-status">Demo session</span>' +
+               '<button class="btn btn--primary" data-testid="action-save">' +
+                 '<span class="btn__label">Save session</span></button>' +
+             '</div>';
+    }
     if (S.saved) {
       return '<div class="actionbar" role="contentinfo" aria-label="Session actions" data-testid="actionbar">' +
                /* tabindex -1 so focus can be MOVED here without the status
@@ -689,8 +1066,14 @@
                   happened rather than on <body>. */
                '<span class="actionbar__status" role="status" tabindex="-1" data-testid="save-status">' +
                  'Saved to history</span>' +
-               '<button class="btn btn--secondary" disabled data-testid="action-save">' +
-                 '<span class="btn__label">Saved</span></button>' +
+               /* A WAY FORWARD, NOT A FULL STOP. This was a disabled button
+                  reading "Saved", so finishing a workout and banking it left
+                  the reader on a screen with nothing on it to press: the last
+                  act of a session ended in a dead end. The status still says
+                  what happened; the button now does the thing somebody
+                  actually wants next. */
+               '<button class="btn btn--primary" data-testid="action-done">' +
+                 '<span class="btn__label">Done</span></button>' +
              '</div>';
     }
     var busy = opts && opts.disabled;
@@ -708,7 +1091,8 @@
   function full(d) {
     return {
       body: receipt(d) + (d.record ? recordCard(d.record) : '') + compare(d) +
-            splitCard(d) + aiCard(d) + feelSection() + discardSection(d.sets),
+            throwbackCard(d) +
+            setsSection(d) + splitCard(d) + aiCard(d) + feelSection() + discardSection(d.sets),
       bar: saveBar({ status: d.record ? 'Record included' : '' }),
       overlay: (S.sheet && d.diffs) ? splitSheet(d) : ''
     };
@@ -834,10 +1218,164 @@
     });
   }
 
+  /* Read on boot and on entry, not on every paint: re-reading on paint would
+     change the screen under a reader who had only pressed a dev-state button,
+     but in the demo this screen is mounted once and Finish arrives long
+     after boot -- so it reported its fixture's 16 sets and 4,383 kg against
+     a session of two sets and 1,088 kg. */
+  var HANDED = null;
+  function takeHanded() {
+    var h = handed();
+    if (!h) return false;
+    HANDED = h;
+    /* The prior column has to be the same lifts. Left at the fixture's whole
+       5-lift Push, a session of one bench read "-2,671 kg, -62.6%" against a
+       workout it shares one exercise with. Comparing like for like means
+       summing the prior volume of the lifts that are actually in this
+       session, and naming the session it came from. */
+    var pv = 0, pd = null;
+    HANDED.lifts.forEach(function (l) {
+      pv += l.priorVol || 0;
+      if (l.priorDate && (!pd || l.priorDate > pd)) pd = l.priorDate;
+    });
+    if (pv > 0) {
+      PRIOR = { name: HANDED.lifts.length === 1 ? HANDED.lifts[0].name : 'the same lifts',
+                dateLabel: pd ? shortDate(pd) : 'last time', volumeKg: pv };
+    }
+    DATA.record = HANDED;
+    DATA.populated = HANDED;
+    DATA.error = { title: HANDED.title, date: HANDED.date, sets: HANDED.sets,
+                   volumeKg: HANDED.volumeKg, minutes: HANDED.minutes };
+    DATA.empty = { title: HANDED.title, date: HANDED.date };
+    DATA.loading = DATA.empty;
+    SAVED = null;
+    return true;
+  }
+  takeHanded();
+  document.addEventListener('lk:enter', function () {
+    if (takeHanded()) { S.view = 'populated'; paint(); }
+  });
+
+  /* ---- saving ------------------------------------------------------
+     SAVING SAVES. "Save session" set a flag, disabled its own button and
+     printed "Saved to history" -- and wrote nothing, anywhere. A finished
+     workout never joined lk_history, so Train's list, Home's counts, the
+     records, and this screen's own "against last time" all carried on as
+     if the session had not happened. It is the one hole that made the whole
+     training loop a demo, and it is written now, through LKStore, under the
+     key every other screen reads.
+     -------------------------------------------------------------------- */
+  var SAVED = null;                 /* the record written, once per session */
+
+  /* ---- WHO A WORKOUT IS ------------------------------------------------
+     Every row in lk_history is addressed by its id: workout-detail opens one
+     by id, edits it by id and deletes it by id. The id came from whoever
+     happened to write the row -- this screen stamps one, the log's own
+     history writer stamps another -- and a row that arrived without one
+     (an older build's, an import, a seed row) was invisible to all three: it
+     could be read in a list and never opened.
+
+     withWorkoutIds stamps every unstamped row it is given, from the row's own
+     date and position so the same list always produces the same ids.
+     sameWorkout answers the other half: two records are the same session when
+     they carry the same id, or -- with no id to go on -- when they are the
+     same day, the same name and the same work. Saving uses it so pressing
+     Save twice, or reopening a review that was already banked, cannot put two
+     copies of one workout in the history.
+
+     They live here because this is the screen that writes history. The right
+     home for them is store.js, which every screen already loads, but this
+     package does not own that file; the note is in the report. */
+  function withWorkoutIds(list) {
+    var out = Array.isArray(list) ? list : [];
+    var stamped = 0;
+    out.forEach(function (w, i) {
+      if (!w || w.id) return;
+      var t = isoMs(w.date);
+      w.id = 'w_' + (isNaN(t) ? 'x' : t) + '_' + i;
+      stamped++;
+    });
+    return { list: out, stamped: stamped };
+  }
+  function sameWorkout(a, b) {
+    if (!a || !b) return false;
+    if (a.id && b.id) return String(a.id) === String(b.id);
+    return String(a.date).slice(0, 10) === String(b.date).slice(0, 10) &&
+           String(a.name || '') === String(b.name || '') &&
+           Number(a.sets || 0) === Number(b.sets || 0) &&
+           Number(a.kg || 0) === Number(b.kg || 0);
+  }
+
+  function reflectionOrNull() {
+    var out = null;
+    REFLECT.forEach(function (f) {
+      var v = S.reflection[f[0]];
+      if (v === undefined || v === null) return;
+      if (!out) out = {};
+      out[f[0]] = v;
+    });
+    return out;
+  }
+
+  function saveSession() {
+    if (SAVED) return SAVED;
+    if (!HANDED || !window.LKStore) return null;
+    var rec = {
+      id: 'w_' + Date.now(),
+      kind: 'lift',
+      name: HANDED.title,
+      /* The seed's own field names -- date, min, kg -- because every screen
+         that reads history reads those, and a record written in a second
+         vocabulary is a record only this screen can read. */
+      date: HANDED.dateISO || (window.LKStore ? LKStore.today() : null),
+      min: HANDED.minutes,
+      sets: HANDED.sets,
+      kg: HANDED.volumeKg,
+      exercises: HANDED.exercises || [],
+      note: (S.note || '').trim(),
+      reflection: reflectionOrNull()
+    };
+    /* Stamped on the way past, and never doubled. */
+    var hist = withWorkoutIds(LKStore.get('lk_history', [])).list;
+    var dup = null;
+    for (var h = 0; h < hist.length; h++) { if (sameWorkout(hist[h], rec)) { dup = hist[h]; break; } }
+    if (dup) {
+      SAVED = dup;
+      LKStore.remove('lk_lastSession');
+      return dup;
+    }
+    hist.unshift(rec);
+    LKStore.set('lk_history', hist);
+
+    /* A mark set today becomes the record. Left alone, this screen announced
+       a personal record and the PR vault went on showing the one it beat. */
+    var r = HANDED.record;
+    if (r && r.exId != null) {
+      var prs = LKStore.get('lk_prs', []);
+      if (Array.isArray(prs)) {
+        for (var i = 0; i < prs.length; i++) {
+          if (prs[i].exId === r.exId) {
+            prs[i].kg = r.w; prs[i].reps = r.r; prs[i].date = rec.date;
+            break;
+          }
+        }
+        LKStore.set('lk_prs', prs);
+      }
+    }
+
+    /* The hand-over has been used up. Left in place, reopening this screen
+       would offer to save the same workout again. */
+    LKStore.remove('lk_lastSession');
+    SAVED = rec;
+    return rec;
+  }
+
   function show(view) {
     var v = VIEWS[view] ? view : 'record';
-    S = { view: v, saved: false, feel: null, discardArmed: false, ai: 'idle',
-          toast: null, split: 'pending', applied: [], picks: [], sheet: false };
+    S = { view: v, saved: false, reflection: {}, note: '', discardArmed: false, ai: 'idle',
+          toast: null, split: 'pending', applied: [], picks: [], sheet: false,
+          /* The dismissal is stored, so it does not need to survive here. */
+          throwbackGone: false };
     /* Two of the dev states are a mid-decision snapshot rather than an
        entry state: the sheet already open, and the split already
        updated by the swap. */
@@ -872,7 +1410,7 @@
   /* One delegated handler. Every control on the screen is in here, so
      there is no path that reaches a control with no behaviour. */
   document.addEventListener('click', function (e) {
-    var el = e.target.closest('[data-testid], [data-feel], [data-pick]');
+    var el = e.target.closest('[data-testid], [data-rate], [data-pick]');
     if (!el) return;
     var id = el.getAttribute('data-testid');
     var d = DATA[S.view] || {};
@@ -884,16 +1422,27 @@
       paint(true);
       return;
     }
-    if (el.dataset.feel) {
-      S.feel = S.feel === el.dataset.feel ? null : el.dataset.feel;
+    if (el.dataset.rate) {
+      var rk = el.dataset.rate, rv = Number(el.dataset.val);
+      /* Tapping the figure that is already chosen clears it, so an answer
+         given by accident can be taken back rather than only changed. */
+      if (S.reflection[rk] === rv) delete S.reflection[rk];
+      else S.reflection[rk] = rv;
       paint(true);
       return;
     }
     switch (id) {
       case 'action-save':
+        var written = saveSession();
+        if (!written) {
+          /* No workout was handed over, so there is nothing to write. Saying
+             "saved" here is exactly the lie this screen used to tell. */
+          toast('Nothing to save: this screen was opened without a workout, so no record was written.');
+          return;
+        }
         S.saved = true;
         paint(true);
-        toast('Session saved' + (S.feel ? ', marked ' + S.feel : '') + '.');
+        toast('Session saved to your history.');
         /* Saving disables the button it was pressed with, which blurs it and
            drops focus to <body> — so the next Tab restarts at the top of the
            document. It goes to the status the save just produced, which is
@@ -915,20 +1464,31 @@
       case 'action-discard-cancel':
         S.discardArmed = false; paint(true); return;
       case 'action-discard-confirm':
+        /* Discard has to consume the hand-over as well, or the discarded
+           workout is still sitting there waiting to be reviewed and saved
+           the next time this screen opens. */
+        if (window.LKStore) LKStore.remove('lk_lastSession');
         S.discardArmed = false; paint(true); toast('Session discarded. Nothing was written.'); return;
       case 'ai-ask':
       case 'ai-retry':
-        S.ai = 'loading'; paint(true);
-        setTimeout(function () {
-          if (S.view !== 'record' && S.view !== 'populated') return;
-          S.ai = S.view === 'populated' ? 'error' : 'done';
-          paint(true);
-        }, 900);
+        askCoach();
+        return;
+      /* Hidden for three days, on the shipped app's own key, so it is the
+         same suppression every other surface honours. */
+      case 'action-throwback-dismiss':
+        S.throwbackGone = true;
+        if (window.LKStore) LKStore.set('lk_throwbackDismissed', new Date().toISOString());
+        paint(true);
+        toast('Hidden. Nothing like it for a few days.');
         return;
       case 'action-retry-compare':
         show('loading');
         setTimeout(function () { if (S.view === 'loading') show('record'); }, 900);
         return;
+      case 'action-done':
+        location.href = 'home.html';
+        return;
+
       case 'action-back':
       case 'action-back-to-workout':
         toast('Back to the workout. Nothing was saved.'); paint(true); return;
@@ -974,6 +1534,13 @@
     }
   });
 
+  /* The note, as it is typed. Kept in state rather than read off the field
+     at save time, because the field is inside a region that repaints. */
+  document.addEventListener('input', function (e) {
+    var t = e.target.closest ? e.target.closest('[data-testid="session-note"]') : null;
+    if (t) S.note = t.value;
+  });
+
   /* A sheet closes on Escape, and closing it changes nothing. */
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
@@ -995,7 +1562,11 @@
     if (b) show(b.dataset.state);
   });
 
-  show(new URLSearchParams(location.search).get('state') || 'record');
+  /* The demo's finished Push is the entry state while a seed is loaded. With
+     no seed there is no session to review until one is handed over, and
+     showing the seeded Push would be a workout nobody did. */
+  show(new URLSearchParams(location.search).get('state') ||
+       (window.LKFixtures ? 'record' : 'empty'));
 })();
 
   /* The running workout, from a screen that is not it. Leaving the workout

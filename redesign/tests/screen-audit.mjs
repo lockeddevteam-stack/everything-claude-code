@@ -129,11 +129,35 @@ for (const file of files) {
         });
 
         let small = [], targets = 0;
-        document.querySelectorAll('button, a[href], input, select, textarea, [role="button"], [role="tab"]')
+        /* A label is measured only when it STANDS IN for its control --
+           a hidden file input, where the label is the only thing a finger
+           can press. A label sitting above a text field is not a target:
+           tapping it focuses the field, which is a courtesy, not a
+           requirement, and holding a 13px caption to 44px would mean
+           every form label in the build became a button. */
+        const standIn = (el) => {
+          if (el.tagName !== 'LABEL') return true;
+          const f = el.getAttribute('for');
+          if (!f) return false;
+          const ctl = document.getElementById(f);
+          if (!ctl) return false;
+          const cr = ctl.getBoundingClientRect();
+          if (cr.width >= 44 && cr.height >= 44) return false;
+          return ctl.classList.contains('vis-hidden') ||
+                 getComputedStyle(ctl).visibility === 'hidden' ||
+                 cr.width < 8 || cr.height < 8;
+        };
+        document.querySelectorAll('button, a[href], input, select, textarea, label[for], [role="button"], [role="tab"]')
           .forEach(el => {
             const r = el.getBoundingClientRect();
             if (!r.width || !r.height) return;
             if (el.closest('svg')) return;
+            /* Present for form wiring or for a screen reader, not painted.
+               Its label is the target and is measured in its place. */
+            if (el.classList.contains('vis-hidden')) return;
+            const cs = getComputedStyle(el);
+            if (cs.visibility === 'hidden' || cs.opacity === '0') return;
+            if (!standIn(el)) return;
             targets++;
             if (r.width < 44 || r.height < 44)
               small.push((el.dataset.testid || el.className) + ` ${Math.round(r.width)}x${Math.round(r.height)}`);

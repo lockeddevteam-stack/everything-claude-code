@@ -7,6 +7,9 @@
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
 <script src="theme.js"></script>
+<script src="fixtures.js"></script>
+<script src="store.js"></script>
+<script src="units.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 <script src="session.js"></script>
@@ -168,7 +171,11 @@
     close:   svg('<path d="M7 7l10 10M17 7L7 17"/>'),
     alert:   svg('<path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/>'),
     search:  svg('<circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/>'),
-    plan:    svg('<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M8 3v4M16 3v4M3.5 10.5h17"/>')
+    plan:    svg('<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M8 3v4M16 3v4M3.5 10.5h17"/>'),
+    star:    svg('<path d="M12 4l2.4 5.2 5.6.7-4.1 3.9 1.1 5.6-5-2.9-5 2.9 1.1-5.6L4 9.9l5.6-.7z"/>'),
+    trash:   svg('<path d="M5 7h14M10 7V4.5h4V7M9 11v6M15 11v6M7 7l1 13h8l1-13"/>'),
+    up:      svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+    down:    svg('<path d="M12 5v14M6 13l6 6 6-6"/>')
   };
 
   /* =============================================================
@@ -178,7 +185,12 @@
   var MONTHS = ['January','February','March','April','May','June','July',
                 'August','September','October','November','December'];
   var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var TODAY = '2026-09-09';
+  /* The fixture's today, not the wall clock. Every date on this screen is
+     measured against the seed, so a log stamped with the real date read
+     "last -1 days ago" the moment the two disagreed. */
+  /* The wall clock, or the seed's date while a seed is loaded. Pinned to
+     the fixture, a build with no seed read undefined. */
+  var TODAY = window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10);
 
   function esc(s) {
     return String(s).replace(/[&<>"]/g, function (c) {
@@ -209,95 +221,596 @@
   }
 
   /* =============================================================
-     Seed. tests/fixtures/seed-data.json, guest profile, kg.
+     Seed and store. tests/fixtures/seed-data.json is the seed; once a
+     person has logged anything, LKStore holds the truth and the fixture
+     is never consulted again for that key. Everything below is READ
+     through loadData() rather than frozen into a const, because a cardio
+     session logged on this screen has to move the chart, the week row and
+     the history list, and a reload has to find it still there.
      ============================================================= */
-  var SPLITS = [
-    { id: 's1784970000000', name: 'PPL', current: true, updated: '2026-07-25',
-      days: [
-        { id: 'push', name: 'Push', exercises: 5, minutes: 50, next: true },
-        { id: 'pull', name: 'Pull', exercises: 5, minutes: 52 },
-        { id: 'legs', name: 'Legs', exercises: 5, minutes: 55 }
-      ] },
-    { id: 's1784973600000', name: 'Upper / Lower', updated: '2026-07-25',
-      days: [
-        { id: 'upper', name: 'Upper', exercises: 5, minutes: 48 },
-        { id: 'lower', name: 'Lower', exercises: 5, minutes: 50 }
-      ] },
-    { id: 's1784977200000', name: 'Full Body 3x', updated: '2026-07-25',
-      days: [
-        { id: 'a', name: 'Day A', exercises: 5, minutes: 45 },
-        { id: 'b', name: 'Day B', exercises: 5, minutes: 45 },
-        { id: 'c', name: 'Day C', exercises: 5, minutes: 47 }
-      ] }
+  function store() { return window.LKStore; }
+  /* `fresh` is the dev switcher rebuilding a state from scratch: it must not
+     read a person's stored sessions back over the state it is showing. */
+  function rd(key, fallback, fresh) {
+    var st = store();
+    if (!st || fresh) {
+      var F = window.LKFixtures;
+      if (!fresh && !st) return fallback;
+      if (key === 'lk_history' && F) return JSON.parse(JSON.stringify(F.history));
+      if (key === 'lk_splits' && F) return JSON.parse(JSON.stringify(F.splits));
+      return fallback;
+    }
+    return st.get(key, fallback);
+  }
+
+  /* A stored split carries `created` as "7/25/2026" and history carries ISO.
+     absDate() split on "-" and so read "edited undefined NaN" on every split
+     sheet in the build. Both shapes are understood here, and anything that is
+     neither is absent rather than a word. */
+  function toISO(s) {
+    if (!s) return null;
+    s = String(s);
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    var m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (!m) return null;
+    function p2(v) { return (v.length < 2 ? '0' : '') + v; }
+    return m[3] + '-' + p2(m[1]) + '-' + p2(m[2]);
+  }
+
+  var MIN_PER_EX = 10;
+  var SPLITS = [], HISTORY = [], WEEKS = [], FAVS = [], CUSTOM_CARDIO = [];
+  var PREFS = {}, PROFILE = {}, BODY_KG = 70;
+
+  /* lk_splits. The day rows' exercise counts are COUNTED and the split's own
+     total is the sum of them. The sheet printed days.length * 5, which is
+     true of PPL and of nothing else: an Upper/Lower of 10 exercises read 10
+     only by coincidence, and a day with four lifts was still counted as five. */
+  /* The median length of the sessions logged under a day's name, to the
+     nearest five minutes. Home computes the same figure the same way; two
+     screens describing one session must not disagree about how long it is. */
+  function medianMinutes(dayName) {
+    var raw = (window.LKStore ? window.LKStore.get('lk_history', null) : null) ||
+              (window.LKFixtures && LKFixtures.history) || [];
+    var needle = String(dayName || '').toLowerCase(), mins = [];
+    if (!needle) return 0;
+    raw.forEach(function (w) {
+      if (w.kind !== 'lift' || !w.min) return;
+      if (String(w.name).toLowerCase().indexOf(needle) < 0) return;
+      mins.push(w.min);
+    });
+    if (!mins.length) return 0;
+    mins.sort(function (a, b) { return a - b; });
+    return Math.round(mins[Math.floor(mins.length / 2)] / 5) * 5;
+  }
+
+  /* WHICH day the log should open. Handed over by id, because the log used
+     to open its own seeded Push session whatever was pressed. */
+  function handStartDay(key) {
+    try { localStorage.setItem('lk_startDay', String(key || '')); } catch (e) {}
+  }
+  function todayDayKey() {
+    if (!SPLITS.length || !SPLITS[0].days.length) return '';
+    return SPLITS[0].id + ':' + SPLITS[0].days[0].id;
+  }
+
+  /* A DAY'S LIFTS, in either shape it is stored in. A phone that has been
+     running LOCKED holds `exIds: [111, 302, ...]` on each day -- that is what
+     tests/fixtures/seed-data.json carries, because it is a copy of a real
+     phone -- while the split builder writes the resolved `exercises: [{id,
+     name, group, muscle}]`. Reading only the second counted every day of a
+     real user's split as zero exercises, and the card said "0 exercises,
+     about 0 min" over a Push day with five lifts in it. */
+  function dayExercises(d) {
+    if (d && d.exercises && d.exercises.length) return d.exercises;
+    if (d && d.exIds && d.exIds.length) {
+      return d.exIds.map(function (id) { return { id: id }; });
+    }
+    return [];
+  }
+
+  function loadSplits(fresh) {
+    var raw = rd('lk_splits', [], fresh) || [];
+    SPLITS = raw.map(function (sp, i) {
+      var days = (sp.days || []).map(function (d, j) {
+        var count = dayExercises(d).length;
+        var blocks = (d.blocks || []).length;
+        /* How long this day has ACTUALLY taken, the median of the sessions
+           logged under its name, rounded to five minutes. A flat ten minutes
+           a lift put Train at 50 min for the same Push session Home called
+           55, on the same screenful. */
+        var mins = medianMinutes(d.name);
+        return { id: (d.name || ('day' + j)).toLowerCase().replace(/\W+/g, '-'), name: d.name,
+                 exercises: count, blocks: blocks,
+                 minutes: mins || (count * MIN_PER_EX),
+                 measured: !!mins, next: i === 0 && j === 0 };
+      });
+      return {
+        id: sp.id, name: sp.name, current: i === 0,
+        updated: toISO(sp.updated || sp.created),
+        exercises: days.reduce(function (a, d) { return a + d.exercises; }, 0),
+        days: days
+      };
+    });
+  }
+
+  /* =============================================================
+     CARDIO v1 -> v2 — F-TRAIN-025.
+
+     LOCKED shipped a first cardio schema and then replaced it. A v1 row is
+     { cardioType, duration (minutes), distance + distanceUnit, intensity (a
+     word), calories } under `type: 'cardio'`; a v2 row is the one every
+     screen in this build reads — kind, min, km, cal, modality, durationSec,
+     distanceM, intensity { rpe, estMET }. Nothing anywhere mapped one onto
+     the other, so a phone that had been logging cardio before the upgrade
+     opened Train to an empty cardio history, an empty chart and no bests:
+     the rows were still on the device and no screen could read them.
+
+     It runs once, before anything reads lk_history, and lk_cardioMigrated
+     records that it has. It is safe to run twice: a row that is already v2
+     is returned untouched. Nothing is deleted — a field that cannot be
+     mapped is left on the record rather than dropped.
+     ============================================================= */
+  var V1_MODALITY = {
+    run: 'run', jog: 'run', running: 'run', treadmill: 'treadmill_run',
+    walk: 'walk', walking: 'walk', hike: 'hike', hiking: 'hike',
+    bike: 'cycling', cycling: 'cycling', cycle: 'cycling', spin: 'spin_class',
+    row: 'row', rowing: 'row', swim: 'swim_freestyle', swimming: 'swim_freestyle',
+    elliptical: 'elliptical', stairs: 'stair_climber', stairmaster: 'stair_climber',
+    hiit: 'hiit', circuit: 'circuit', other: 'custom'
+  };
+  var V1_RPE = { light: 3, easy: 3, moderate: 5, steady: 5, vigorous: 7, hard: 7, max: 9, 'all out': 9 };
+
+  function isV1Cardio(w) {
+    if (!w) return false;
+    var isCardio = w.kind === 'cardio' || w.type === 'cardio';
+    if (!isCardio) return false;
+    /* Already v2: it carries the minutes and the modality this build reads. */
+    if (w.min != null && w.modality) return false;
+    return w.cardioType !== undefined || w.duration !== undefined;
+  }
+
+  function cardioV1toV2(w) {
+    var out = {};
+    Object.keys(w).forEach(function (k) { out[k] = w[k]; });
+    var type = String(w.cardioType || w.type || '').toLowerCase();
+    var mod = V1_MODALITY[type] || 'custom';
+    out.kind = 'cardio';
+    out.modality = w.modality || mod;
+    /* The ISO date, because every date on every screen is compared as one.
+       A v1 row carried a display string ("Sep 6") beside it. */
+    out.date = String(w.dateISO || w.date || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(out.date)) out.date = String(w.dateISO || '').slice(0, 10);
+    var min = Number(w.min != null ? w.min : w.duration);
+    if (!(min > 0) && w.durationSec) min = Math.round(Number(w.durationSec) / 60);
+    out.min = min > 0 ? Math.round(min) : 0;
+    out.durationSec = out.durationSec || out.min * 60;
+    /* Distance: v1 stored the number and its unit side by side. Miles are
+       converted to the kilometres the model is in, once, here. */
+    if (out.km == null && w.distance != null && w.distance !== '') {
+      var d = Number(w.distance);
+      if (d > 0) {
+        out.km = String(w.distanceUnit || 'km').toLowerCase().indexOf('mi') === 0
+          ? Math.round(d * 1.609344 * 100) / 100 : Math.round(d * 100) / 100;
+        out.distanceM = Math.round(out.km * 1000);
+      }
+    }
+    /* Intensity was a word. It becomes the RPE the v2 shape carries, and the
+       word is kept so nothing a person recorded is thrown away. */
+    if (typeof w.intensity === 'string') {
+      var rpe = V1_RPE[w.intensity.toLowerCase()];
+      out.intensity = { rpe: rpe || null, estMET: null, talkTest: null, v1: w.intensity };
+    }
+    var cal = w.cal != null ? w.cal : (w.calories && w.calories.value != null ? w.calories.value : w.calories);
+    if (typeof cal === 'number' && cal > 0) out.cal = Math.round(cal);
+    /* No calorie figure in v1 and none can be invented: the estimate is done
+       from this device's own body weight and what the row actually holds,
+       and it is marked as an estimate, exactly like one logged today. */
+    if (out.cal == null && out.min > 0) {
+      var act = byModality(out.modality) || { name: out.name || 'Cardio', met: 6, f: [] };
+      var est = estimate(act, { min: out.min, dist: out.km,
+                                hr: (w.heartRate && w.heartRate.avg) || null });
+      out.cal = est.kcal;
+      out.calDetail = { value: est.kcal, net: est.net, gross: est.kcal,
+                        range: [est.lo, est.hi], method: est.method, tier: est.tier,
+                        confidence: est.conf.toLowerCase(), basis: 'gross', estimated: true };
+    }
+    if (!out.name) {
+      var a2 = byModality(out.modality);
+      out.name = a2 ? a2.name : 'Cardio';
+    }
+    if (!out.environment) out.environment = /treadmill|erg|elliptical|stair|spin|hiit|circuit|row$/.test(out.modality) ? 'indoor' : 'outdoor';
+    out.schemaVersion = 2;
+    return out;
+  }
+
+  function migrateCardio() {
+    if (!window.LKStore) return false;
+    if (LKStore.get('lk_cardioMigrated', false)) return false;
+    var raw = LKStore.get('lk_history', null);
+    if (raw && raw.length) {
+      var changed = false;
+      var next = raw.map(function (w) {
+        if (!isV1Cardio(w)) return w;
+        changed = true;
+        return cardioV1toV2(w);
+      });
+      if (changed) LKStore.set('lk_history', next);
+    }
+    LKStore.set('lk_cardioMigrated', true);
+    return true;
+  }
+
+  /* lk_history, in this screen's row shape. A lifting row carries sets and
+     volume; a cardio row carries whatever was actually measured and nothing
+     it was not. */
+  function loadHistory(fresh) {
+    var raw = rd('lk_history', [], fresh) || [];
+    HISTORY = raw.map(function (w) {
+      var row = { id: w.id, kind: w.kind === 'cardio' ? 'cardio' : 'lift',
+                  name: String(w.name || '').replace(/ - /g, ' &middot; '),
+                  date: w.date, min: w.min };
+      if (row.kind === 'lift') { row.sets = w.sets; row.kg = w.kg; }
+      else {
+        /* A cardio record carries a lot and a hand-logged one carries almost
+           none of it, so every field here is copied only where it exists.
+           The row printed "undefined km, undefined cal" for a session nothing
+           had measured. */
+        ['km', 'cal', 'effort', 'surface', 'position', 'resistance', 'incline',
+         'watts', 'hr', 'note', 'act', 'modality', 'environment', 'climb'
+        ].forEach(function (k) { if (w[k] !== undefined && w[k] !== null && w[k] !== '') row[k] = w[k]; });
+        if (w.heartRate && w.heartRate.avg) row.hr = Number(w.heartRate.avg);
+        if (w.intensity) {
+          if (w.intensity.rpe != null) row.rpe = Number(w.intensity.rpe);
+          if (w.intensity.estMET != null) row.met = Number(w.intensity.estMET);
+        }
+        if (w.machine && w.machine.category) {
+          /* The machine's NAME, not the id the record stores it under. A
+             treadmill run logged on this screen writes category "treadrun",
+             and the row printed that word back at the reader. */
+          row.machine = machineName(w.machine.category) +
+            (w.machine.brand ? ' \u00b7 ' + w.machine.brand : '');
+        }
+        if (w.distanceM != null && row.km == null) row.km = Math.round(w.distanceM / 100) / 10;
+        if (w.calDetail) {
+          row.calNet = w.calDetail.net;
+          row.calRange = w.calDetail.range;
+          row.calConf = w.calDetail.confidence;
+          row.calEstimated = w.calDetail.estimated !== false;
+        }
+      }
+      return row;
+    }).sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+  }
+
+  /* Minutes of cardio per week, Monday weeks, eight buckets ending on the
+     week TODAY falls in. It was a hand-typed array, so a session logged on
+     this screen moved a chart that had already been drawn from constants. */
+  function mondayOf(iso) {
+    var d = new Date(ms(iso));
+    var dow = (d.getUTCDay() + 6) % 7;          /* Monday = 0 */
+    d.setUTCDate(d.getUTCDate() - dow);
+    return d.toISOString().slice(0, 10);
+  }
+  function loadWeeks() {
+    var thisWeek = mondayOf(TODAY);
+    var starts = [];
+    for (var i = 7; i >= 0; i--) {
+      var d = new Date(ms(thisWeek));
+      d.setUTCDate(d.getUTCDate() - i * 7);
+      starts.push(d.toISOString().slice(0, 10));
+    }
+    WEEKS = starts.map(function (s) {
+      return { start: s, min: 0, cal: 0, n: 0, now: s === thisWeek };
+    });
+    HISTORY.forEach(function (w) {
+      if (w.kind !== 'cardio') return;
+      var wk = mondayOf(w.date);
+      for (var i = 0; i < WEEKS.length; i++) {
+        if (WEEKS[i].start === wk) {
+          WEEKS[i].min += w.min || 0;
+          WEEKS[i].cal += w.cal || 0;
+          WEEKS[i].n += 1;
+        }
+      }
+    });
+  }
+
+  /* The router claims these clicks in the demo -- the handler below leaves
+     with location.href -- so the builder was opened without being told which
+     split to open and edited whichever one happened to be first. */
+  document.addEventListener('lk:handoff', function (e) {
+    var d = e.detail || {};
+    if (d.selector === '[data-action="start-today"]') handStartDay(todayDayKey());
+    if (d.selector === '[data-action="start-day"]' && d.el) handStartDay(d.el.getAttribute('data-id') || '');
+    if (d.selector === '[data-action="open-session"]' && d.el) {
+      try { localStorage.setItem('lk_openWorkout', d.el.getAttribute('data-id') || ''); } catch (err) {}
+    }
+    if (d.selector === '[data-action="edit-split"]') {
+      var id = d.el ? (d.el.getAttribute('data-id') || '') : '';
+      try { localStorage.setItem('lk_openSplit', id); } catch (err) {}
+    } else if (d.selector === '[data-action="new-split"]') {
+      var mode = d.el && d.el.getAttribute('data-mode') === 'draft' ? '__draft__' : '__new__';
+      try { localStorage.setItem('lk_openSplit', mode); } catch (err) {}
+    }
+  });
+
+  /* Every screen is mounted once in the demo, so a split saved in the builder
+     or a session finished in the log reached Train only after a full reload.
+     The route announces itself; re-read the keys when it does. */
+  document.addEventListener('lk:enter', function () {
+    if (S.state !== 'populated') return;
+    loadData(false);
+    render(true);
+  });
+
+  function loadData(fresh) {
+    loadSplits(fresh);
+    loadHistory(fresh);
+    loadWeeks();
+    /* lk_cardioFavorites, in the shape the shipped app stores: a label, a
+       modality, a machine and a defaults block. The quick rows were a
+       hand-written literal of three, so the one favourite actually stored
+       never appeared and a second one could not be made. */
+    FAVS = (rd('lk_cardioFavorites', [], fresh) || []).slice().sort(function (a, b) {
+      return (a.order || 0) - (b.order || 0);
+    });
+    CUSTOM_CARDIO = (rd('lk_cardioCustom', [], fresh) || []).map(function (c) {
+      c.custom = true; c.g = 'yours'; return c;
+    });
+    PREFS = rd('lk_cardioPrefs', {}, fresh) || {};
+    var prof = rd('lk_profile', null, fresh) ||
+               (window.LKFixtures && LKFixtures.profile) || {};
+    PROFILE = prof;
+    BODY_KG = Number(prof.weightKg) > 0 ? Number(prof.weightKg) : 70;
+  }
+
+  /* =============================================================
+     THE CARDIO CATALOGUE. The picker said "41 activities, searchable"
+     over a list of nine, and the sheet it opened offered six of them.
+     Here are the forty-one, in the four groups the shipped app groups
+     them by, each carrying what it needs to be logged honestly:
+
+       met     the Compendium of Physical Activities value for a steady
+               effort, which is what the calorie estimate is built on
+       speed   'run' | 'walk' | 'bike' | null — where a distance lets the
+               MET be read off the actual pace rather than assumed
+       fields  what this activity is asked for beyond duration. A treadmill
+               is asked for incline, a road bike for its riding position,
+               a rower for its split. Asking a swimmer for a surface was
+               the kind of question the Cardio audit called cosmetic.
+     ============================================================= */
+  var CARDIO_GROUPS = [
+    ['machine', 'Machines'],
+    ['outdoor', 'Outdoors'],
+    ['water',   'Water and snow'],
+    ['studio',  'Studio and sport']
+  ];
+  var CARDIO_CAT = [
+    /* Machines */
+    { id: 'treadrun', mod: 'treadmill_run',  name: 'Treadmill run',      g: 'machine', met: 9.8,  min: 30, speed: 'run',  f: ['dist', 'incline', 'hr', 'effort'] },
+    { id: 'treadwalk', mod: 'treadmill_walk', name: 'Treadmill walk',     g: 'machine', met: 4.3,  min: 30, speed: 'walk', f: ['dist', 'incline', 'hr', 'effort'] },
+    { id: 'row', mod: 'row',       name: 'Rowing erg',         g: 'machine', met: 8.5,  min: 20, f: ['dist', 'watts', 'hr', 'effort'] },
+    { id: 'bike', mod: 'bike',      name: 'Upright bike',       g: 'machine', met: 7.0,  min: 25, f: ['dist', 'resistance', 'watts', 'hr', 'effort'] },
+    { id: 'recumbent', mod: 'recumbent_bike', name: 'Recumbent bike',     g: 'machine', met: 5.5,  min: 30, f: ['dist', 'resistance', 'hr', 'effort'] },
+    { id: 'spinbike', mod: 'spin_bike',  name: 'Spin bike',          g: 'machine', met: 8.5,  min: 45, f: ['dist', 'resistance', 'watts', 'hr', 'effort'] },
+    { id: 'ellip', mod: 'elliptical',     name: 'Elliptical',         g: 'machine', met: 5.0,  min: 30, f: ['dist', 'resistance', 'hr', 'effort'] },
+    { id: 'stair', mod: 'stair_climber',     name: 'Stair climber',      g: 'machine', met: 9.0,  min: 20, f: ['floors', 'resistance', 'hr', 'effort'] },
+    { id: 'ski', mod: 'ski_erg',       name: 'Ski erg',            g: 'machine', met: 7.0,  min: 15, f: ['dist', 'watts', 'hr', 'effort'] },
+    { id: 'airbike', mod: 'air_bike',   name: 'Air bike',           g: 'machine', met: 8.5,  min: 15, f: ['dist', 'watts', 'hr', 'effort'] },
+    { id: 'armerg', mod: 'arm_ergometer',    name: 'Arm ergometer',      g: 'machine', met: 5.0,  min: 15, f: ['dist', 'resistance', 'hr', 'effort'] },
+    { id: 'curved', mod: 'curved_treadmill',    name: 'Curved treadmill',   g: 'machine', met: 10.0, min: 20, speed: 'run', f: ['dist', 'hr', 'effort'] },
+    /* Outdoors */
+    { id: 'run', mod: 'run',       name: 'Outdoor run',        g: 'outdoor', met: 9.8,  min: 35, speed: 'run',  f: ['dist', 'surface', 'hr', 'effort'] },
+    { id: 'trail', mod: 'trail_run',     name: 'Trail run',          g: 'outdoor', met: 10.0, min: 45, speed: 'run',  f: ['dist', 'climb', 'hr', 'effort'] },
+    { id: 'walk', mod: 'walk',      name: 'Walking',            g: 'outdoor', met: 3.5,  min: 45, speed: 'walk', f: ['dist', 'surface', 'hr', 'effort'] },
+    { id: 'powerwalk', mod: 'power_walk', name: 'Power walking',      g: 'outdoor', met: 5.0,  min: 30, speed: 'walk', f: ['dist', 'surface', 'hr', 'effort'] },
+    { id: 'hike', mod: 'hike',      name: 'Hiking',             g: 'outdoor', met: 6.0,  min: 60, f: ['dist', 'climb', 'hr', 'effort'] },
+    { id: 'cycle', mod: 'cycling',     name: 'Outdoor cycling',    g: 'outdoor', met: 8.0,  min: 45, speed: 'bike', f: ['dist', 'position', 'climb', 'hr', 'effort'] },
+    { id: 'mtb', mod: 'mountain_bike',       name: 'Mountain biking',    g: 'outdoor', met: 8.5,  min: 60, f: ['dist', 'climb', 'hr', 'effort'] },
+    { id: 'hills', mod: 'hill_sprints',     name: 'Hill sprints',       g: 'outdoor', met: 10.0, min: 15, f: ['reps', 'hr', 'effort'] },
+    { id: 'sled', mod: 'sled',      name: 'Sled push and drag', g: 'outdoor', met: 8.0,  min: 12, f: ['dist', 'hr', 'effort'] },
+    { id: 'ruck', mod: 'ruck',      name: 'Rucking',            g: 'outdoor', met: 7.0,  min: 50, speed: 'walk', f: ['dist', 'packkg', 'climb', 'hr'] },
+    { id: 'stairs', mod: 'stair_climbing',    name: 'Stair climbing',     g: 'outdoor', met: 8.8,  min: 20, f: ['floors', 'hr', 'effort'] },
+    /* Water and snow */
+    { id: 'swimfree', mod: 'swim_freestyle',  name: 'Swimming, freestyle', g: 'water', met: 8.3,  min: 30, f: ['dist', 'hr', 'effort'] },
+    { id: 'swimbreast', mod: 'swim_breaststroke',name: 'Swimming, breaststroke', g: 'water', met: 10.3, min: 30, f: ['dist', 'hr', 'effort'] },
+    { id: 'swimopen', mod: 'open_water_swim',  name: 'Open water swim',    g: 'water', met: 9.5,  min: 40, f: ['dist', 'hr', 'effort'] },
+    { id: 'aqua', mod: 'aqua_jog',      name: 'Aqua jogging',       g: 'water', met: 8.0,  min: 30, f: ['hr', 'effort'] },
+    { id: 'kayak', mod: 'kayak',     name: 'Kayaking',           g: 'water', met: 5.0,  min: 60, f: ['dist', 'hr', 'effort'] },
+    { id: 'waterrow', mod: 'row_water',  name: 'Rowing on water',    g: 'water', met: 7.0,  min: 60, f: ['dist', 'hr', 'effort'] },
+    { id: 'xcski', mod: 'xc_ski',     name: 'Cross-country skiing', g: 'water', met: 9.0, min: 60, f: ['dist', 'climb', 'hr', 'effort'] },
+    /* Studio and sport */
+    { id: 'rope', mod: 'jump_rope',      name: 'Jump rope',          g: 'studio', met: 12.3, min: 12, f: ['reps', 'hr', 'effort'] },
+    { id: 'hiit', mod: 'hiit',      name: 'HIIT circuit',       g: 'studio', met: 8.0,  min: 20, f: ['rounds', 'hr', 'effort'] },
+    { id: 'circuit', mod: 'circuit',   name: 'Circuit training',   g: 'studio', met: 7.5,  min: 30, f: ['rounds', 'hr', 'effort'] },
+    { id: 'bag', mod: 'heavy_bag',       name: 'Boxing, heavy bag',  g: 'studio', met: 7.8,  min: 20, f: ['rounds', 'hr', 'effort'] },
+    { id: 'kick', mod: 'kickboxing',      name: 'Kickboxing class',   g: 'studio', met: 10.3, min: 45, f: ['hr', 'effort'] },
+    { id: 'spinclass', mod: 'spin_class', name: 'Spin class',         g: 'studio', met: 8.5,  min: 45, f: ['watts', 'hr', 'effort'] },
+    { id: 'dance', mod: 'dance_cardio',     name: 'Dance cardio',       g: 'studio', met: 7.3,  min: 45, f: ['hr', 'effort'] },
+    { id: 'climb', mod: 'climbing',     name: 'Rock climbing',      g: 'studio', met: 8.0,  min: 60, f: ['hr', 'effort'] },
+    { id: 'football', mod: 'football',  name: 'Football',           g: 'studio', met: 7.0,  min: 60, f: ['hr', 'effort'] },
+    { id: 'basketball', mod: 'basketball',name: 'Basketball',         g: 'studio', met: 6.5,  min: 45, f: ['hr', 'effort'] },
+    { id: 'tennis', mod: 'tennis',    name: 'Tennis',             g: 'studio', met: 7.3,  min: 60, f: ['hr', 'effort'] }
   ];
 
-  /* lk_history. Lifting rows carry sets and volume, cardio rows carry
-     distance and calories; both carry one duration. */
-  var HISTORY = [
-    { id: 'w_1788804300000', kind: 'lift', name: 'PPL &middot; Legs', date: '2026-09-07', min: 52, sets: 16, kg: 14363 },
-    { id: 'w_1788678900000', kind: 'cardio', name: 'Treadmill run', date: '2026-09-06', min: 30, km: 5.2, cal: 340 },
-    { id: 'w_1788618300000', kind: 'lift', name: 'PPL &middot; Pull', date: '2026-09-05', min: 51, sets: 16, kg: 7158 },
-    { id: 'w_1788445500000', kind: 'lift', name: 'PPL &middot; Push', date: '2026-09-03', min: 55, sets: 16, kg: 4266 },
-    { id: 'w_1788199500000', kind: 'lift', name: 'PPL &middot; Legs', date: '2026-08-31', min: 55, sets: 16, kg: 13700 },
-    { id: 'w_1788074100000', kind: 'cardio', name: 'Rowing erg', date: '2026-08-30', min: 20, km: 4.6, cal: 230 },
-    { id: 'w_1788013500000', kind: 'lift', name: 'PPL &middot; Pull', date: '2026-08-29', min: 57, sets: 16, kg: 6913 },
-    { id: 'w_1787840700000', kind: 'lift', name: 'PPL &middot; Push', date: '2026-08-27', min: 57, sets: 16, kg: 4076 },
-    { id: 'w_1787594700000', kind: 'lift', name: 'PPL &middot; Legs', date: '2026-08-24', min: 54, sets: 16, kg: 13363 },
-    { id: 'w_1787469300000', kind: 'cardio', name: 'Walking', date: '2026-08-23', min: 45, km: 4, cal: 210 },
-    { id: 'w_1787408700000', kind: 'lift', name: 'PPL &middot; Pull', date: '2026-08-22', min: 49, sets: 16, kg: 6519 },
-    { id: 'w_1787235900000', kind: 'lift', name: 'PPL &middot; Push', date: '2026-08-20', min: 51, sets: 16, kg: 3985 },
-    { id: 'w_1786989900000', kind: 'lift', name: 'PPL &middot; Legs', date: '2026-08-17', min: 49, sets: 16, kg: 12800 },
-    { id: 'w_1786864500000', kind: 'cardio', name: 'Upright bike', date: '2026-08-16', min: 25, km: 9, cal: 240 },
-    { id: 'w_1786803900000', kind: 'lift', name: 'PPL &middot; Pull', date: '2026-08-15', min: 59, sets: 16, kg: 6306 },
-    { id: 'w_1786631100000', kind: 'lift', name: 'PPL &middot; Push', date: '2026-08-13', min: 58, sets: 16, kg: 3748 },
-    { id: 'w_1786385100000', kind: 'lift', name: 'PPL &middot; Legs', date: '2026-08-10', min: 59, sets: 16, kg: 12255 },
-    { id: 'w_1786199100000', kind: 'lift', name: 'PPL &middot; Pull', date: '2026-08-08', min: 57, sets: 16, kg: 5851 },
-    { id: 'w_1786026300000', kind: 'lift', name: 'PPL &middot; Push', date: '2026-08-06', min: 56, sets: 16, kg: 3688 },
-    { id: 'w_1785780300000', kind: 'lift', name: 'PPL &middot; Legs', date: '2026-08-03', min: 59, sets: 16, kg: 12060 },
-    { id: 'w_1785594300000', kind: 'lift', name: 'PPL &middot; Pull', date: '2026-08-01', min: 55, sets: 16, kg: 5585 },
-    { id: 'w_1785421500000', kind: 'lift', name: 'PPL &middot; Push', date: '2026-07-30', min: 54, sets: 16, kg: 3568 }
-  ];
+  /* The field schema. One row per field id, so a form is built from the
+     activity rather than from a fixed list of questions. */
+  /* =============================================================
+     DISTANCE, in the unit this reader chose — F-CARDIO-020.
 
-  /* lk_cardioFavorites plus the two most recent other modalities.
-     Ranked by how often this lifter actually does them, each carrying
-     the duration it is normally done for, so logging is one tap. */
-  var CARDIO_QUICK = [
-    { id: 'fav_1787122800000', name: 'Treadmill run', min: 30, note: 'Favourite', last: '2026-09-06' },
-    { id: 'q_row', name: 'Rowing erg', min: 20, last: '2026-08-30' },
-    { id: 'q_walk', name: 'Walking', min: 45, last: '2026-08-23' }
-  ];
+     Only pack weight was converted. Distance was hard-wired to kilometres,
+     so a reader in pounds typed kilometres into the form, and the row, the
+     detail, the pace and the bests all came back in kilometres beside every
+     other figure on the screen in pounds.
 
-  /* The rest of the catalogue, ranked rather than walled: the picker
-     opens on what is likely and search reduces the other 41. */
-  var CARDIO_ALL = [
-    { id: 'a_bike', name: 'Upright bike', min: 25 },
-    { id: 'a_ellip', name: 'Elliptical', min: 30 },
-    { id: 'a_stair', name: 'Stair climber', min: 20 },
-    { id: 'a_run', name: 'Outdoor run', min: 35 },
-    { id: 'a_cycle', name: 'Outdoor cycling', min: 45 },
-    { id: 'a_swim', name: 'Swimming', min: 30 },
-    { id: 'a_rope', name: 'Jump rope', min: 12 },
-    { id: 'a_hike', name: 'Hiking', min: 60 },
-    { id: 'a_ski', name: 'Ski erg', min: 15 },
-    { id: 'a_assault', name: 'Air bike', min: 15 }
-  ];
-  var CARDIO_CATALOGUE = 41;
+     There is one stored answer about units and LKUnits owns it
+     (lk_profile.useKg). Kilometres go with kilograms and miles with pounds:
+     one switch, one answer, one conversion — and, exactly as with weight,
+     THE MODEL IS ALWAYS METRIC. A record holds kilometres whatever the
+     screen says, so switching units re-reads the history rather than
+     rewriting it.
+     ============================================================= */
+  var KM_PER_MI = 1.609344;
+  function useKm() { return !window.LKUnits || LKUnits.useKg(); }
+  function distUnit() { return useKm() ? 'km' : 'mi'; }
+  function speedUnit() { return useKm() ? 'km/h' : 'mph'; }
+  /* Kilometres out of the record, as the number this screen shows. */
+  function distV(km, d) {
+    if (km === null || km === undefined || isNaN(km)) return km;
+    var x = useKm() ? Number(km) : Number(km) / KM_PER_MI;
+    var p = Math.pow(10, d === undefined ? 2 : d);
+    return Math.round(x * p) / p;
+  }
+  /* What was typed, on the way into the record, and never again. */
+  function distIn(v) {
+    if (v === '' || v === null || v === undefined || isNaN(v)) return v;
+    return useKm() ? Number(v) : Math.round(Number(v) * KM_PER_MI * 1000) / 1000;
+  }
+  function fmtDist(km) {
+    var x = distV(km);
+    return x === null || x === undefined || isNaN(x) ? '' : x + ' ' + distUnit();
+  }
 
-  /* Minutes per week, Monday weeks, eight buckets ending this week.
-     Derived from the four cardio records above, each of which fell on
-     the Sunday of its week. */
-  var WEEKS = [
-    { start: '2026-07-20', min: 0 },
-    { start: '2026-07-27', min: 0 },
-    { start: '2026-08-03', min: 0 },
-    { start: '2026-08-10', min: 25 },
-    { start: '2026-08-17', min: 45 },
-    { start: '2026-08-24', min: 20 },
-    { start: '2026-08-31', min: 30 },
-    { start: '2026-09-07', min: 0, now: true }
-  ];
+  var FIELD = {
+    /* type 'dist' rather than 'num': the same on-the-way-in conversion the
+       weight fields get, against the same single stored setting. */
+    dist:       { label: 'Distance', unit: 'km',      type: 'dist', step: '0.01', max: 500 },
+    floors:     { label: 'Floors',   unit: 'floors',  type: 'num', step: '1',    max: 5000 },
+    reps:       { label: 'Reps',     unit: 'reps',    type: 'num', step: '1',    max: 5000 },
+    rounds:     { label: 'Rounds',   unit: 'rounds',  type: 'num', step: '1',    max: 200 },
+    watts:      { label: 'Average power', unit: 'W',  type: 'num', step: '1',    max: 900 },
+    hr:         { label: 'Average heart rate', unit: 'bpm', type: 'num', step: '1', min: 30, max: 230 },
+    incline:    { label: 'Incline',  unit: '%',       type: 'num', step: '0.5',  max: 40 },
+    climb:      { label: 'Elevation gain', unit: 'm', type: 'num', step: '1',    max: 9000 },
+    resistance: { label: 'Resistance level', unit: '', type: 'num', step: '1',   max: 30 },
+    packkg:     { label: 'Pack weight', unit: 'kg',   type: 'weight', step: '0.5', max: 80 },
+    surface:    { label: 'Surface',  type: 'choice', opts: ['Road', 'Track', 'Trail', 'Treadmill', 'Sand'] },
+    position:   { label: 'Riding position', type: 'choice', opts: ['Upright', 'Hoods', 'Drops', 'Aero bars'] },
+    effort:     { label: 'How hard', type: 'choice', opts: ['Easy', 'Steady', 'Hard', 'All out'] }
+  };
+  var EFFORT_K = { 'Easy': 0.85, 'Steady': 1, 'Hard': 1.15, 'All out': 1.3 };
 
-  var LIBRARY = { total: 227, logged: 46 };
+  /* A machine id, as the name a person would call it. A record stores the
+     catalogue's own id ("treadrun") or the shipped app's category word
+     ("treadmill"); neither is a word to print. */
+  function machineName(id) {
+    if (!id) return '';
+    var a = findCardio(id) || byModality(id);
+    if (a) return a.name;
+    var s2 = String(id).replace(/_/g, ' ');
+    return s2.charAt(0).toUpperCase() + s2.slice(1);
+  }
+
+  function catCount() { return CARDIO_CAT.length + CUSTOM_CARDIO.length; }
+  function allActivities() { return CARDIO_CAT.concat(CUSTOM_CARDIO); }
+  function findCardio(id) {
+    var all = allActivities();
+    for (var i = 0; i < all.length; i++) if (all[i].id === id) return all[i];
+    return null;
+  }
+
+  /* =============================================================
+     THE CALORIE ESTIMATE. A logged cardio session carried no calorie
+     figure at all: the sheet asked for minutes, wrote minutes, and the
+     history row printed minutes. Every figure below is arithmetic done
+     on this device from this person's own body weight and what they
+     typed; nothing is fetched and nothing is invented.
+
+       kcal = MET x 3.5 x kg / 200 x minutes
+
+     which is the standard reading of a MET as 3.5 ml of oxygen per
+     kilogram per minute at about 5 kcal per litre of oxygen. Where a
+     distance was given for a run, walk or ride, the MET is read off the
+     actual pace instead of the catalogue's steady-effort value, which is
+     the single biggest improvement available without a chest strap.
+
+     NET is the burn above simply existing for those minutes: (MET - 1).
+     It is the smaller and the more honest number for anyone subtracting
+     it from a food target, so both are shown and both are labelled.
+
+     The range is not decoration. It widens as the inputs thin out, and
+     the confidence pill says which of the five things the estimate wants
+     were actually known. Nothing here is presented as measured. */
+  function metForSpeed(kind, kph) {
+    if (!(kph > 0)) return null;
+    if (kind === 'run') {
+      /* ACSM running: 0.2 ml/kg/min per m/min, plus 3.5 resting. */
+      if (kph < 6.4) return null;                 /* that is a walk, not a run */
+      return Math.min(23, (0.2 * (kph * 1000 / 60) + 3.5) / 3.5);
+    }
+    if (kind === 'walk') {
+      if (kph > 8) return null;
+      return Math.max(2, Math.min(9, (0.1 * (kph * 1000 / 60) + 3.5) / 3.5));
+    }
+    if (kind === 'bike') {
+      if (kph < 8) return 3.5;
+      if (kph < 16) return 5.8;
+      if (kph < 19) return 6.8;
+      if (kph < 22) return 8.0;
+      if (kph < 26) return 10.0;
+      if (kph < 30) return 12.0;
+      return 15.8;
+    }
+    return null;
+  }
+
+  /* Five things an estimate wants. Each one that is known both narrows the
+     range and lights a bar on the meter, so the reader can see what the
+     figure is standing on rather than being asked to trust it. */
+  function estimate(act, v) {
+    var min = Number(v.min) || 0;
+    var known = [];
+    var met = act.met, from = 'the ' + act.name.toLowerCase() + ' average';
+
+    known.push({ k: 'Your body weight', on: BODY_KG > 0 });
+    known.push({ k: 'Duration', on: min > 0 });
+
+    var km = Number(v.dist) || 0;
+    var paceMet = null;
+    if (act.speed && km > 0 && min > 0) {
+      paceMet = metForSpeed(act.speed, km / (min / 60));
+      if (paceMet) { met = paceMet; from = 'your actual pace'; }
+    }
+    known.push({ k: 'Distance', on: km > 0 });
+
+    var eff = v.effort;
+    if (!paceMet && eff && EFFORT_K[eff]) { met = met * EFFORT_K[eff]; from = 'the average, adjusted for ' + eff.toLowerCase(); }
+    known.push({ k: 'How hard it felt', on: !!eff });
+
+    var hr = Number(v.hr) || 0;
+    known.push({ k: 'Heart rate', on: hr > 0 });
+
+    var score = known.filter(function (x) { return x.on; }).length;
+    /* The band: five knowns is still an estimate, so it never closes below
+       eight per cent either side. */
+    var spread = [0.30, 0.30, 0.22, 0.16, 0.12, 0.08][score];
+    var gross = met * 3.5 * BODY_KG / 200 * min;
+    var net = Math.max(0, (met - 1) * 3.5 * BODY_KG / 200 * min);
+
+    var tier = met < 3 ? 'Light' : met < 6 ? 'Moderate' : met < 9 ? 'Vigorous' : 'Hard';
+    var conf = score >= 4 ? 'High' : score >= 3 ? 'Fair' : 'Low';
+
+    return {
+      kcal: Math.round(gross),
+      net: Math.round(net),
+      lo: Math.round(gross * (1 - spread)),
+      hi: Math.round(gross * (1 + spread)),
+      met: Math.round(met * 10) / 10,
+      method: paceMet ? 'pace-derived' : 'met-lookup',
+      from: from,
+      tier: tier,
+      conf: conf,
+      score: score,
+      known: known
+    };
+  }
+
+  /* Counted from the catalogue and the history. It was { total: 227,
+     logged: 46 } -- neither figure appears anywhere else in the app, and the
+     library screen the row leads to says 867. */
+  var LIBRARY = (window.LKFixtures && LKFixtures.library)
+    ? { total: LKFixtures.library.total, logged: LKFixtures.library.logged }
+    : { total: 0, logged: 0 };
 
   /* =============================================================
      State
@@ -306,12 +819,21 @@
     state: 'populated',   /* populated | empty | loading | error */
     view: 'hub',          /* hub | history */
     filter: 'all',        /* all | lift | cardio */
-    sheet: null,          /* null | { kind: 'split', id } | { kind: 'activity' } */
+    cgroup: 'all',        /* all | machine | outdoor | water | studio | other */
+    sheet: null,          /* null | {kind:'split'|'activity'|'favs'|'newcardio'} */
     query: '',
     toast: null,
-    /* The cardio log in progress: { id, name, min } while its sheet is open. */
+    /* The id of the split whose delete is armed. One at a time, and cleared
+       by anything else, so an armed button cannot be hit by accident later. */
+    confirmDel: null,
+    /* The cardio log in progress. `v` is the form, `done` the record once it
+       has been written, so the sheet can show what was logged rather than
+       closing on a toast. */
     logging: null,
-    logError: null
+    logError: null,
+    open: null,           /* id of the expanded cardio row in history */
+    newCardio: null,      /* the "your own activity" form while it is open */
+    confirmFav: null      /* favourite id awaiting its second tap to delete */
   };
 
   /* =============================================================
@@ -329,15 +851,21 @@
        three-part line printed "undefined km, undefined cal" for it. An
        absent figure is absent, not zero and not a word. */
     var parts = w.kind === 'lift'
-      ? [n(w.min) + ' min', n(w.sets) + ' sets', n(group(w.kg)) + ' kg']
+      ? [n(w.min) + ' min', n(w.sets) + ' sets', n(LKUnits.fmtTotal(w.kg))]
       : [n(w.min) + ' min',
-         w.km != null ? n(w.km) + ' km' : null,
-         w.cal != null ? n(w.cal) + ' cal' : null];
+         w.km != null ? n(distV(w.km)) + ' ' + distUnit() : null,
+         w.cal != null ? n(w.cal) + ' kcal' : null];
     var meta = parts.filter(Boolean).join(' &middot; ');
     /* The date sits on the title line, not beside the metrics: at 393px
        a lifting metric line plus a date wrapped to two lines. */
+    /* A LIFTING row pushes to the session it names. A CARDIO row opens in
+       place: a cardio session is eight figures and a note, not a screen, and
+       workout-detail is built around exercises and sets it does not have. */
+    var open = S.open === w.id;
     return '' +
-      '<button class="row" type="button" data-action="open-session" data-id="' + w.id + '" ' +
+      '<button class="row" type="button" data-action="' +
+              (w.kind === 'lift' ? 'open-session' : 'toggle-session') + '" data-id="' + w.id + '" ' +
+              (w.kind === 'lift' ? '' : 'aria-expanded="' + open + '" ') +
               'data-testid="history-' + w.id + '">' +
         '<span class="ico-well">' + (w.kind === 'lift' ? ICO.lift : ICO.cardio) + '</span>' +
         '<span class="row__main stack">' +
@@ -348,7 +876,59 @@
           '<span class="row__sub">' + meta + '</span>' +
         '</span>' +
         '<span class="row__chev">' + ICO.chev + '</span>' +
-      '</button>';
+      '</button>' +
+      (open ? cardioDetail(w) : '');
+  }
+
+  /* What the record actually holds — F-CARDIO-012. Every line is a stored
+     figure or one derived from two of them; nothing is filled in. */
+  function cardioDetail(w) {
+    var rows = [];
+    function add(label, val) { if (val !== undefined && val !== null && val !== '') rows.push([label, val]); }
+    add('Duration', w.min + ' min');
+    add('Distance', w.km != null ? fmtDist(w.km) : null);
+    if (w.km > 0 && w.min > 0) {
+      /* Pace is minutes per unit of distance, so it converts with the
+         distance: 5:30 /km is 8:51 /mi, and printing the first under a
+         screen reading miles is a different number entirely. */
+      add('Pace', paceStr(w.min / distV(w.km, 4)) + ' /' + distUnit());
+      add('Speed', (Math.round(distV(w.km, 4) / (w.min / 60) * 10) / 10) + ' ' + speedUnit());
+      if (/row/.test(w.modality || '')) add('Split', paceStr(w.min / (w.km * 2)) + ' /500 m');
+    }
+    add('Average power', w.watts != null ? w.watts + ' W' : null);
+    add('Heart rate', w.hr != null ? w.hr + ' bpm' : null);
+    add('Effort', w.rpe != null ? 'RPE ' + w.rpe : w.effort);
+    add('Surface', w.surface ? capitalise(w.surface) : null);
+    add('Machine', w.machine ? capitalise(String(w.machine).replace(/_/g, ' ')) : null);
+    add('Gross burn', w.cal != null ? group(w.cal) + ' kcal' : null);
+    add('Net burn', w.calNet != null ? group(w.calNet) + ' kcal' : null);
+    return '<div class="card card--sunken" data-testid="detail-' + w.id + '">' +
+      rows.map(function (r) {
+        return '<div class="spread mt-2"><span class="t-detail">' + r[0] + '</span>' +
+          '<span class="t-meta num">' + r[1] + '</span></div>';
+      }).join('') +
+      (w.note ? '<p class="t-detail mt-3">' + esc(w.note) + '</p>' : '') +
+      (w.calRange
+        ? '<p class="t-caption-1 quiet mt-3">The burn is an estimate at ' +
+          esc(String(w.calConf || 'unknown')) + ' confidence, between ' +
+          group(w.calRange[0]) + ' and ' + group(w.calRange[1]) + ' kcal. Nothing measured it.</p>'
+        : '') +
+      /* Favourite THIS session — F-CARDIO-023. A setup could only be kept
+         from the sheet of the session you had just logged, so a session from
+         last month could not be turned into a favourite at all. */
+      favFromHistory(w) +
+    '</div>';
+  }
+
+  function favFromHistory(w) {
+    var act = byModality(w.modality) || (w.act && findCardio(w.act)) || byName(w.name);
+    if (!act) return '';
+    var on = !!favForAct(act.id);
+    return '<button class="btn btn--tertiary btn--block mt-3" type="button" ' +
+      'data-action="fav-toggle" data-id="' + act.id + '" data-from="' + esc(w.id) + '" ' +
+      'data-testid="fav-from-' + esc(w.id) + '">' + ICO.star +
+      '<span class="btn__label">' + (on ? 'Remove this setup from favourites' : 'Save this setup as a favourite') +
+      '</span></button>';
   }
 
   function splitRow(sp) {
@@ -415,66 +995,495 @@
            out.join('') + '</svg>';
   }
 
-  /* An activity by id, from either list. */
-  function findCardio(id) {
-    var all = CARDIO_QUICK.concat(CARDIO_ALL);
-    for (var i = 0; i < all.length; i++) if (all[i].id === id) return all[i];
-    return null;
-  }
-
-  /* The write. It moves the week chart, the four-week total and the history
-     list, because a log that changes none of those is indistinguishable from
-     one that failed -- which is what this was: a toast saying "Logged
-     Treadmill run" over a chart that still read 120 min in 4 weeks. */
-  function saveCardio() {
-    var l = S.logging;
-    if (!l) return;
-    var f = overlay.querySelector('[data-testid="cardio-min"]');
-    var min = f ? parseInt(f.value, 10) : l.min;
-    if (isNaN(min) || min < 1 || min > 600) {
-      S.logError = 'Between 1 and 600 minutes.';
-      render();
-      if (f) f.focus();
-      return;
-    }
-    var week = WEEKS[WEEKS.length - 1];
-    week.min += min;
-    HISTORY.unshift({ id: 'w' + Date.now(), kind: 'cardio', name: l.name,
-                      date: todayISO(), min: min });
-    /* Its own row remembers what you actually did, so the next one-tap log
-       is right rather than the catalogue default. */
-    var c = findCardio(l.id);
-    if (c) { c.min = min; c.last = todayISO(); }
-    S.logging = null; S.logError = null;
-    render();
-    say(esc(l.name) + ' &middot; ' + min + ' min logged.');
-  }
-
   /* TODAY, not the wall clock. Every date on this screen is measured against
      the fixture, so a log stamped with the real date read "last -1 days ago"
      the moment the two disagreed. */
   function todayISO() { return TODAY; }
 
+  /* =============================================================
+     Cardio: favourites, the form, the write.
+     ============================================================= */
+
+  /* The quick rows. A favourite is a SAVED SETUP -- an activity, a duration
+     and whatever else was filled in last time -- so tapping it opens the form
+     already answered rather than at the catalogue default. Under the stored
+     favourites sit the other modalities this person has actually done
+     recently, which is what makes the top of the block a ranking rather than
+     a second catalogue. */
+  function favName(f) { return f.label || f.name || 'Saved setup'; }
+  function favMin(f) {
+    if (f.defaults && f.defaults.durationSec) return Math.round(f.defaults.durationSec / 60);
+    return f.min || 30;
+  }
+  function favAct(f) {
+    return byModality(f.modality) || byName(favName(f)) || findCardio(f.act);
+  }
+  function byModality(mod) {
+    if (!mod) return null;
+    var all = allActivities();
+    for (var i = 0; i < all.length; i++) if (all[i].mod === mod || all[i].id === mod) return all[i];
+    return null;
+  }
+  function favRows() {
+    var out = FAVS.map(function (f) {
+      var act = favAct(f) || { id: f.modality || f.id, name: favName(f), min: favMin(f) };
+      return { key: 'fav:' + f.id, id: act.id, fav: f, name: favName(f),
+               min: favMin(f), note: 'Saved setup',
+               last: f.lastUsedAt ? String(f.lastUsedAt).slice(0, 10) : f.last };
+    });
+    var seen = {};
+    out.forEach(function (r) { seen[r.id] = 1; });
+    /* Recently done, newest first, up to three rows in total. */
+    for (var i = 0; i < HISTORY.length && out.length < 3; i++) {
+      var w = HISTORY[i];
+      if (w.kind !== 'cardio') continue;
+      var act = byModality(w.modality) || (w.act && findCardio(w.act)) || byName(w.name);
+      if (!act || seen[act.id]) continue;
+      seen[act.id] = 1;
+      out.push({ key: 'recent:' + act.id, id: act.id, name: act.name, min: w.min || act.min, last: w.date });
+    }
+    return out;
+  }
+  function byName(name) {
+    var all = allActivities();
+    var flat = String(name || '').replace(/&middot;/g, '').trim().toLowerCase();
+    for (var i = 0; i < all.length; i++) if (all[i].name.toLowerCase() === flat) return all[i];
+    return null;
+  }
+  function lastCardioFor(id) {
+    for (var i = 0; i < HISTORY.length; i++) {
+      var w = HISTORY[i];
+      if (w.kind !== 'cardio') continue;
+      var a = byModality(w.modality) || (w.act && findCardio(w.act)) || byName(w.name);
+      if (a && a.id === id) return w;
+    }
+    return null;
+  }
+
+  /* THIS WEEK, from the history rather than from a constant. Three figures
+     a reader can check against the list below them. */
+  function weekStats() {
+    var wk = WEEKS[WEEKS.length - 1];
+    return { n: wk.n, min: wk.min, cal: wk.cal };
+  }
+
+  /* Personal bests, computed from every cardio session on this device.
+     Only over what was actually recorded: a session with no distance cannot
+     win "furthest", and a stat nothing can win is not shown at all. */
+  function cardioBests() {
+    var best = {};
+    HISTORY.forEach(function (w) {
+      if (w.kind !== 'cardio') return;
+      function keep(k, val, label) {
+        if (val === null || val === undefined || isNaN(val)) return;
+        if (!best[k] || val > best[k].v) best[k] = { v: val, label: label, w: w };
+      }
+      function keepLow(k, val, label) {
+        if (val === null || val === undefined || isNaN(val)) return;
+        if (!best[k] || val < best[k].v) best[k] = { v: val, label: label, w: w };
+      }
+      keep('far', w.km, 'Furthest');
+      keep('long', w.min, 'Longest');
+      keep('burn', w.cal, 'Biggest burn');
+      keep('watts', w.watts, 'Most power');
+      if (w.km > 0 && w.min > 0) {
+        /* Pace is a minutes-per-kilometre figure and it only means anything
+           on foot: a 21.6 km/h bike ride read "best pace 2:47 /km" beside a
+           run, which is a comparison between two different things. Wheels
+           and water get a speed; feet get a pace. */
+        var onFoot = /run|walk|hike|ruck/.test(w.modality || '') ||
+                     /run|walk|hik|ruck/i.test(w.name || '');
+        if (onFoot) keepLow('pace', w.min / w.km, 'Best pace');
+        else keep('speed', w.km / (w.min / 60), 'Fastest');
+      }
+    });
+    return best;
+  }
+  function paceStr(minPerKm) {
+    var m = Math.floor(minPerKm), s = Math.round((minPerKm - m) * 60);
+    if (s === 60) { m += 1; s = 0; }
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function bestsStrip() {
+    var b = cardioBests();
+    var tiles = [];
+    function tile(k, value, sub) {
+      if (!b[k]) return;
+      tiles.push('<div class="stat" data-testid="best-' + k + '"><span class="stat__label">' + b[k].label + '</span>' +
+        '<span class="stat__value">' + value + '</span>' +
+        '<span class="t-detail">' + esc(sub) + '</span></div>');
+    }
+    tile('far', n(b.far ? distV(b.far.v) : 0) + '<span class="stat__unit"> ' + distUnit() + '</span>',
+         b.far ? b.far.w.name.replace(/&middot;/g, '·') + ', ' + absDate(b.far.w.date) : '');
+    if (b.pace) tile('pace', n(paceStr(useKm() ? b.pace.v : b.pace.v * KM_PER_MI)) + '<span class="stat__unit"> /' + distUnit() + '</span>',
+         b.pace.w.name + ', ' + absDate(b.pace.w.date));
+    if (b.speed) tile('speed', n(Math.round(distV(b.speed.v, 4) * 10) / 10) + '<span class="stat__unit"> ' + speedUnit() + '</span>',
+         b.speed.w.name + ', ' + absDate(b.speed.w.date));
+    tile('long', n(b.long ? b.long.v : 0) + '<span class="stat__unit"> min</span>',
+         b.long ? b.long.w.name + ', ' + absDate(b.long.w.date) : '');
+    tile('burn', n(b.burn ? b.burn.v : 0) + '<span class="stat__unit"> kcal</span>',
+         b.burn ? b.burn.w.name + ', ' + absDate(b.burn.w.date) : '');
+    if (b.watts) tile('watts', n(b.watts.v) + '<span class="stat__unit"> W</span>',
+         b.watts.w.name + ', ' + absDate(b.watts.w.date));
+    if (!tiles.length) return '';
+    return '<div class="card mt-3" data-testid="cardio-bests">' +
+      '<div class="spread"><span class="t-label">Your bests</span>' +
+      '<span class="t-meta">From what was recorded</span></div>' +
+      '<div class="facts mt-3">' + tiles.join('') + '</div>' +
+      /* TIME IN ZONE, honestly. No session on this device carries a heart
+         rate, and a zone chart drawn without one would be a picture of
+         nothing. The form asks for average heart rate; once one is entered
+         this says which zone it fell in. */
+      timeInZone() +
+    '</div>';
+  }
+
+  /* TIME IN ZONE, on the model lk_cardioPrefs actually stores: five zones of
+     heart rate RESERVE, which needs a resting rate as well as a maximum and
+     is the reason restingHr is stored at all. A session with no heart rate
+     cannot be placed in a zone and is counted as unplaced rather than
+     quietly dropped into Z1. */
+  var ZONES = [[0, 0.60, 'Z1 Recovery'], [0.60, 0.70, 'Z2 Easy'], [0.70, 0.80, 'Z3 Steady'],
+               [0.80, 0.90, 'Z4 Hard'], [0.90, 9, 'Z5 Max']];
+  function maxHR() {
+    if (Number(PREFS.maxHrOverride) > 0) return Number(PREFS.maxHrOverride);
+    return 220 - (Number(PROFILE.age) || 30);
+  }
+  function restHR() { return Number(PREFS.restingHr) > 0 ? Number(PREFS.restingHr) : 60; }
+  function timeInZone() {
+    var mx = maxHR(), rest = restHR();
+    var rows = ZONES.map(function (z) { return { name: z[2], min: 0 }; });
+    var total = 0, unplaced = 0;
+    HISTORY.forEach(function (w) {
+      if (w.kind !== 'cardio') return;
+      if (!(w.hr > 0)) { unplaced += w.min || 0; return; }
+      var pct = (w.hr - rest) / (mx - rest);
+      for (var i = 0; i < ZONES.length; i++) {
+        if (pct >= ZONES[i][0] && pct < ZONES[i][1]) { rows[i].min += w.min || 0; total += w.min || 0; }
+      }
+    });
+    if (!total) {
+      return '<p class="t-caption-1 quiet mt-3" data-testid="zone-empty">Time in zone needs a heart rate, ' +
+        'and no cardio session on this phone carries one. Type an average heart rate when you log and it lands ' +
+        'in a zone here, against a reserve of ' + rest + ' to ' + mx + ' bpm.</p>';
+    }
+    return '<div class="mt-3" data-testid="zone-card">' +
+      '<div class="spread"><span class="t-label">Time in zone</span>' +
+        '<span class="t-meta num">' + total + ' min placed</span></div>' +
+      rows.filter(function (r) { return r.min; }).map(function (r) {
+        return '<div class="spread mt-2"><span class="t-detail">' + r.name + '</span>' +
+          '<span class="t-meta num">' + r.min + ' min</span></div>' +
+          /* Quiet, not accent. One accent fill to a screen: the start button
+             is the thing being pointed at, and three coloured bars beside it
+             make four, which is the rule the accent audit exists to keep. */
+          '<div class="meter meter--quiet"><span class="meter__fill" style="width:' +
+          Math.round(r.min / total * 100) + '%"></span></div>';
+      }).join('') +
+      '<p class="t-caption-1 quiet mt-2">Heart rate reserve, ' + rest + ' to ' + mx + ' bpm' +
+        (unplaced ? '. ' + unplaced + ' more minutes carried no heart rate and are not placed' : '') + '.</p>' +
+    '</div>';
+  }
+
+  /* The write. A logged session is a full record in lk_history through
+     LKStore: it survives the reload, it moves the chart, the week row and
+     the history list, and it carries a calorie figure, which it never did.
+     Everything the form did not ask for is absent from the record rather
+     than stored as zero. */
+  function saveCardio() {
+    var l = S.logging;
+    if (!l) return;
+    var act = findCardio(l.id) || { name: l.name, met: 6, f: [] };
+    var min = Number(l.v.min);
+    if (isNaN(min) || min < 1 || min > 600) {
+      S.logError = 'Between 1 and 600 minutes.';
+      render();
+      focusField('cardio-min');
+      return;
+    }
+    var est = estimate(act, l.v);
+    /* The record is written in the shape every other screen reads: the same
+       keys the seeded cardio sessions carry, so a session logged here and a
+       session that came with the app are indistinguishable to the reader of
+       lk_history. calDetail says the figure is estimated, because it is. */
+    var rec = {
+      id: 'w' + Date.now(), kind: 'cardio', act: act.id, modality: act.mod || act.id,
+      name: act.name, date: todayISO(), dateISO: todayISO(),
+      min: min, durationSec: min * 60,
+      cal: est.kcal, sets: 0, vol: 0, exercises: [],
+      calDetail: { value: est.kcal, net: est.net, gross: est.kcal,
+                   range: [est.lo, est.hi], method: est.method, tier: est.tier,
+                   confidence: est.conf.toLowerCase(), basis: 'gross', estimated: true },
+      intensity: { rpe: null, estMET: est.met, talkTest: null },
+      environment: act.g === 'machine' ? 'indoor' : 'outdoor'
+    };
+    (act.f || []).forEach(function (k) {
+      var val = l.v[k];
+      if (val === undefined || val === null || val === '') return;
+      if (FIELD[k].type === 'choice') rec[k] = val;
+      else if (k === 'dist') { rec.km = Number(val); rec.distanceM = Math.round(Number(val) * 1000); }
+      else if (k === 'hr') rec.heartRate = { avg: Number(val) };
+      else rec[k] = Number(val);
+    });
+    if (act.g === 'machine') rec.machine = { category: act.id, brand: null, model: null };
+    if (l.v.note && l.v.note.trim()) rec.note = l.v.note.trim();
+
+    var hist = rd('lk_history', [], false) || [];
+    hist.unshift(rec);
+    if (store()) store().set('lk_history', hist);
+    loadHistory(false);
+    loadWeeks();
+    S.logging = { id: l.id, name: act.name, v: l.v, done: rec, est: est };
+    S.logError = null;
+    render();
+  }
+
+  /* "Save this setup" — F-CARDIO-021. A favourite is what was just logged,
+     minus the date: the activity and every answer, so the next one is one
+     tap and already right. */
+  function saveFavourite() {
+    var l = S.logging;
+    if (!l || !l.done) return;
+    var act = findCardio(l.id) || {};
+    /* One favourite per setup. The star on the activity row and this button
+       write the same list, so without this a second tap made a second copy of
+       the same saved setup and the quick rows printed it twice. */
+    var already = favForAct(l.id);
+    if (already) { say(esc(favName(already)) + ' is already in your favourites.'); return; }
+    var stored = (rd('lk_cardioFavorites', [], false) || []).slice();
+    var fav = {
+      id: 'fav_' + Date.now(), label: l.done.name, modality: act.mod || l.id,
+      environment: l.done.environment, machine: l.done.machine || null,
+      defaults: { durationSec: l.done.min * 60, surface: l.done.surface || null, v: l.v },
+      order: stored.length, useCount: 0, lastUsedAt: todayISO(), pinned: false
+    };
+    stored.push(fav);
+    if (store()) store().set('lk_cardioFavorites', stored);
+    loadData(false);
+    say(esc(fav.label) + ' saved to your favourites.');
+  }
+
+  /* =============================================================
+     FAVOURITING, from anywhere — F-CARDIO-023.
+
+     A favourite could be made from exactly one place: the "Save this setup"
+     button on the sheet of the session you had just logged. Miss it and the
+     only way to make one was to log the session again. So the star is on the
+     activity rows in the picker and on every cardio session in the history,
+     and it toggles: the same tap takes one away.
+     ============================================================= */
+  function favForAct(id) {
+    for (var i = 0; i < FAVS.length; i++) {
+      var a = favAct(FAVS[i]);
+      if (a && a.id === id) return FAVS[i];
+      if (FAVS[i].modality === id) return FAVS[i];
+    }
+    return null;
+  }
+  /* A favourite made from a session is that session's own setup, minus its
+     date. Made from a catalogue row with nothing logged, it is the
+     catalogue's default duration — which is what the row already says. */
+  function favFromSession(act, w) {
+    var v = { min: (w && w.min) || act.min };
+    if (w) {
+      if (w.km != null) v.dist = w.km;
+      if (w.hr != null) v.hr = w.hr;
+      if (w.surface) v.surface = capitalise(w.surface);
+      if (w.effort) v.effort = w.effort;
+      if (w.watts != null) v.watts = w.watts;
+    }
+    return {
+      id: 'fav_' + Date.now(), label: act.name, modality: act.mod || act.id,
+      environment: act.g === 'machine' ? 'indoor' : 'outdoor',
+      machine: act.g === 'machine' ? { category: act.id, brand: null, model: null } : null,
+      defaults: { durationSec: (v.min || act.min) * 60, surface: v.surface || null, v: v },
+      order: FAVS.length, useCount: 0, lastUsedAt: todayISO(), pinned: false
+    };
+  }
+  function toggleFav(actId, w) {
+    var act = findCardio(actId);
+    if (!act) return;
+    var have = favForAct(actId);
+    var stored = (rd('lk_cardioFavorites', [], false) || []).slice();
+    if (have) {
+      stored = stored.filter(function (f) { return f.id !== have.id; });
+      stored.forEach(function (f, i) { f.order = i; });
+      if (store()) store().set('lk_cardioFavorites', stored);
+      loadData(false);
+      say(esc(favName(have)) + ' removed from favourites.');
+      return;
+    }
+    var fav = favFromSession(act, w || lastCardioFor(actId));
+    stored.push(fav);
+    if (store()) store().set('lk_cardioFavorites', stored);
+    loadData(false);
+    say(esc(fav.label) + ' saved to your favourites.');
+  }
+  function starBtn(actId, name, extra) {
+    var on = !!favForAct(actId);
+    return '<button class="iconbtn' + (on ? ' iconbtn--on' : '') + '" type="button" ' +
+      'data-action="fav-toggle" data-id="' + actId + '"' + (extra || '') +
+      ' aria-pressed="' + on + '" data-testid="star-' + actId + '" ' +
+      'aria-label="' + (on ? 'Remove ' : 'Save ') + esc(name) + (on ? ' from' : ' to') +
+      ' your favourites">' + ICO.star + '</button>';
+  }
+
+  function field(k, v, act) {
+    var f = FIELD[k];
+    if (!f) return '';
+    var id = 'cf-' + k;
+    if (f.type === 'choice') {
+      return '<div class="section" style="padding:0">' +
+        '<span class="t-label">' + f.label + '</span>' +
+        '<div class="chiprow mt-2">' + f.opts.map(function (o) {
+          return '<button class="chip" type="button" data-action="cf-choice" data-k="' + k + '" data-v="' + esc(o) + '" ' +
+            'aria-pressed="' + (v === o) + '" data-testid="cf-' + k + '-' + o.toLowerCase().replace(/\W+/g, '-') + '">' +
+            esc(o) + '</button>';
+        }).join('') + '</div></div>';
+    }
+    var unit = f.type === 'weight' ? LKUnits.label() : f.type === 'dist' ? distUnit() : f.unit;
+    var shown = v;
+    var max = f.max;
+    if (v !== '' && v !== undefined && v !== null) {
+      if (f.type === 'weight') shown = LKUnits.v(Number(v));
+      else if (f.type === 'dist') shown = distV(Number(v));
+    }
+    if (f.type === 'dist') max = distV(f.max, 0);
+    return '<label class="field mt-3"><span class="field__label t-label">' + f.label +
+      (unit ? ' <span class="quiet">(' + unit + ')</span>' : '') + '</span>' +
+      '<input class="input num" id="' + id + '" type="number" inputmode="decimal" ' +
+        'step="' + f.step + '" min="' + (f.min || 0) + '" max="' + max + '" ' +
+        'value="' + (shown === undefined || shown === null ? '' : esc(shown)) + '" ' +
+        'data-action="cf-num" data-k="' + k + '" data-testid="cf-' + k + '"></label>';
+  }
+
+  var DUR_CHIPS = [10, 15, 20, 30, 45, 60];
+
+  /* The live estimate. A count-up would be motion for its own sake on a
+     figure that changes as you type, so the number is simply current, the
+     band under it says how wide the estimate is, and the five bars say what
+     it is standing on. */
+  function estimateCard(act, v) {
+    var est = estimate(act, v);
+    var bars = est.known.map(function (k, i) {
+      return '<span class="strength__seg' + (k.on ? ' strength__seg--good' : '') + '" ' +
+        'data-testid="qbar-' + i + '"></span>';
+    }).join('');
+    var missing = est.known.filter(function (k) { return !k.on; }).map(function (k) { return k.k.toLowerCase(); });
+    return '<div class="card card--sunken mt-4" data-testid="cardio-estimate">' +
+      '<div class="spread"><span class="t-label">Estimated burn</span>' +
+        '<span class="badge badge--est" data-testid="cardio-conf">' + est.conf + ' confidence</span></div>' +
+      '<div class="spread mt-2">' +
+        '<span class="t-title num" data-testid="cardio-kcal">' + group(est.kcal) + ' kcal</span>' +
+        '<span class="t-meta num" data-testid="cardio-range">' + group(est.lo) + ' to ' + group(est.hi) + '</span>' +
+      '</div>' +
+      '<div class="strength__scale mt-2" role="img" aria-label="' + est.score +
+        ' of 5 inputs known">' + bars + '</div>' +
+      '<p class="t-caption-1 quiet mt-2" data-testid="cardio-basis">' +
+        est.tier + ' effort, ' + est.met + ' MET from ' + esc(est.from) + ', at ' +
+        LKUnits.fmt(BODY_KG, 1) + ' body weight. ' +
+        'Net of simply being alive for ' + (Number(v.min) || 0) + ' minutes: ' + group(est.net) + ' kcal. ' +
+        'Estimated on this phone, not measured' +
+        (missing.length ? '; it would tighten with ' + esc(missing.join(' and ')) : '') + '.</p>' +
+    '</div>';
+  }
+
   function cardioSheet() {
     var l = S.logging;
     if (!l) return '';
+    var act = findCardio(l.id) || { name: l.name, met: 6, f: [], min: 30 };
+    if (l.done) return loggedSheet(l, act);
+    var v = l.v;
+    var body = '' +
+      '<span class="t-label">Minutes</span>' +
+      '<div class="chiprow mt-2">' + DUR_CHIPS.map(function (d) {
+        return '<button class="chip" type="button" data-action="cf-min" data-v="' + d + '" ' +
+          'aria-pressed="' + (Number(v.min) === d) + '" data-testid="cf-min-' + d + '">' + d + '</button>';
+      }).join('') + '</div>' +
+      '<input class="input num mt-2" id="cardio-min" type="number" min="1" max="600" step="1" ' +
+        'inputmode="numeric" value="' + esc(v.min) + '" aria-label="Minutes" ' +
+        'data-action="cf-num" data-k="min" data-testid="cardio-min">' +
+      (S.logError ? '<p class="field__error" role="alert" data-testid="cardio-error">' + esc(S.logError) + '</p>' : '') +
+      (act.f || []).map(function (k) { return field(k, v[k], act); }).join('') +
+      '<label class="field mt-3"><span class="field__label t-label">Notes</span>' +
+        '<textarea class="input" rows="2" data-action="cf-note" data-testid="cf-note" ' +
+        'placeholder="Anything worth remembering">' + esc(v.note || '') + '</textarea></label>' +
+      estimateCard(act, v);
+
     return '<div class="scrim" data-action="cardio-cancel" data-testid="scrim"></div>' +
-      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="cd-title" data-testid="cardio-sheet">' +
-        '<div class="sheet__head"><h2 class="t-section grow" id="cd-title">' + esc(l.name) + '</h2>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="cd-title" data-testid="cardio-sheet" ' +
+        'data-detents="0.6 0.94" data-detent-open="0.94">' +
+        /* A detented sheet MUST carry a grab handle. Without one chrome.js
+           falls back to making the whole sheet the drag handle, which takes
+           a pointer capture on every press and swallows the tap on Log it. */
+        '<div class="sheet__grab"></div>' +
+        '<div class="sheet__head"><h2 class="t-section grow" id="cd-title">' + esc(act.name) + '</h2>' +
           '<button class="iconbtn" type="button" data-action="cardio-cancel" aria-label="Cancel" ' +
             'data-testid="cardio-close">' + ICO.close + '</button></div>' +
-        '<div class="sheet__body">' +
-          '<label class="t-label field__label" for="cardio-min">Minutes</label>' +
-          '<input class="input num" id="cardio-min" type="number" min="1" max="600" step="1" ' +
-            'inputmode="numeric" value="' + l.min + '" data-testid="cardio-min">' +
-          (S.logError ? '<p class="field__error" role="alert" data-testid="cardio-error">' +
-            esc(S.logError) + '</p>' : '') +
-          '<p class="t-caption-1 quiet mt-3">Starts at what you normally do. It becomes the ' +
-            'default for next time.</p>' +
-        '</div>' +
+        '<div class="sheet__body">' + body + '</div>' +
         '<div class="sheet__foot">' +
           '<button class="btn btn--primary btn--block" type="button" data-action="cardio-save" ' +
             'data-testid="cardio-save"><span class="btn__label">Log it</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* What was written, in the record's own words. It replaces the toast that
+     was the whole of the old confirmation. */
+  function loggedSheet(l, act) {
+    var w = l.done, est = l.est;
+    var rows = [];
+    function add(label, val) { if (val !== undefined && val !== null && val !== '') rows.push([label, val]); }
+    add('Duration', w.min + ' min');
+    add('Distance', w.km != null ? fmtDist(w.km) : null);
+    if (w.km > 0 && w.min > 0) {
+      /* Pace is minutes per unit of distance, so it converts with the
+         distance: 5:30 /km is 8:51 /mi, and printing the first under a
+         screen reading miles is a different number entirely. */
+      add('Pace', paceStr(w.min / distV(w.km, 4)) + ' /' + distUnit());
+      add('Speed', (Math.round(distV(w.km, 4) / (w.min / 60) * 10) / 10) + ' ' + speedUnit());
+      if (act.id === 'row' || act.id === 'waterrow') add('Split', paceStr(w.min / (w.km * 2)) + ' /500 m');
+    }
+    add('Average power', w.watts != null ? w.watts + ' W' : null);
+    /* Off the record, in the record's own shape. `w` here is what was just
+       written to lk_history, where a heart rate is heartRate.avg and a
+       machine is machine.category -- so reading w.hr and w.surface dropped
+       the two figures somebody had just typed, on the screen confirming what
+       had been saved. */
+    add('Heart rate', (w.heartRate && w.heartRate.avg != null) ? w.heartRate.avg + ' bpm'
+                    : (w.hr != null ? w.hr + ' bpm' : null));
+    add('Effort', w.effort);
+    /* A surface is a surface and a machine is a machine — F-CARDIO-021. This
+       fell back to the machine id when no surface had been asked for, so a
+       treadmill run logged here read "Surface  treadrun": a row labelled with
+       a question the form never asked, answered with an internal id. */
+    add('Surface', w.surface ? capitalise(w.surface) : null);
+    /* Only where it says something the title does not: a treadmill run on a
+       treadmill does not need a row to say so. */
+    var mach = (w.machine && w.machine.category) ? machineName(w.machine.category) : null;
+    add('Machine', mach && mach !== w.name ? mach : null);
+    add('Riding position', w.position);
+    add('Gross burn', group(w.cal) + ' kcal');
+    add('Net burn', group(w.calDetail ? w.calDetail.net : est.net) + ' kcal');
+    return '<div class="scrim" data-action="cardio-cancel" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="cd-title" data-testid="cardio-logged">' +
+        '<div class="sheet__head"><h2 class="t-section grow" id="cd-title">Logged &middot; ' + esc(w.name) + '</h2>' +
+          '<button class="iconbtn" type="button" data-action="cardio-cancel" aria-label="Close" ' +
+            'data-testid="cardio-close">' + ICO.close + '</button></div>' +
+        '<div class="sheet__body">' +
+          '<p class="t-detail">Saved to your history on this phone. Nothing has left this device.</p>' +
+          '<div class="card card--flush mt-3">' + rows.map(function (r) {
+            return '<div class="row row--static"><span class="row__main"><span class="row__title">' + r[0] +
+              '</span></span><span class="row__value num">' + r[1] + '</span></div>';
+          }).join('') + '</div>' +
+          '<p class="t-caption-1 quiet mt-3">The burn is an estimate at ' + est.conf.toLowerCase() +
+            ' confidence, between ' + group(est.lo) + ' and ' + group(est.hi) + ' kcal. Nothing measured it.</p>' +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--secondary btn--block" type="button" data-action="cardio-fav" ' +
+            'data-testid="cardio-fav">' + ICO.star + '<span class="btn__label">Save this setup</span></button>' +
+          '<button class="btn btn--primary btn--block mt-2" type="button" data-action="cardio-cancel" ' +
+            'data-testid="cardio-done"><span class="btn__label">Done</span></button>' +
         '</div>' +
       '</div>';
   }
@@ -484,39 +1493,77 @@
        one, so anything logged today landed in a week the figure did not
        count and the total never moved. */
     var last4 = WEEKS.slice(-4).reduce(function (a, w) { return a + w.min; }, 0);
-    var rows = CARDIO_QUICK.map(function (c) {
-      return '' +
-        '<button class="row" type="button" data-action="log-cardio" data-id="' + c.id + '" ' +
-                'data-testid="log-' + c.id + '" ' +
-                'aria-label="Log ' + esc(c.name) + ', ' + c.min + ' minutes">' +
-          '<span class="ico-well">' + ICO.cardio + '</span>' +
-          '<span class="row__main stack">' +
-            '<span class="row__title">' + esc(c.name) + '</span>' +
-            '<span class="row__sub">' + n(c.min) + ' min' +
-              (c.note ? ' &middot; ' + esc(c.note) : '') +
-              ' &middot; last ' + relDate(c.last) + '</span>' +
-          '</span>' +
-          '<span class="row__chev">' + ICO.plus + '</span>' +
+    var wk = weekStats();
+    /* TWO CONTROLS ON A SAVED SETUP — F-CARDIO-003. The row opens the form
+       already answered, because "logged 30 minutes" when it was 22 is a wrong
+       number in the record and the shipped app asked. But a FAVOURITE is a
+       duration this person chose and saved on purpose, so it also carries the
+       one-tap re-log the audit asked for, as its own labelled button: the tap
+       that logs says what it is logging. A merely recent activity gets no such
+       button — its duration is last time's, not a decision. */
+    var rows = favRows().map(function (c) {
+      var openBtn =
+        '<button class="trainrow__main stack" type="button" data-action="log-cardio" data-id="' + c.id + '" ' +
+                (c.fav ? 'data-fav="' + c.fav.id + '" ' : '') +
+                'data-testid="log-' + c.key.replace(/[^\w]/g, '-') + '" ' +
+                'aria-label="Log ' + esc(c.name) + ', ' + c.min + ' minutes, with the form open">' +
+          '<span class="row__title">' + esc(c.name) + '</span>' +
+          /* A stored favourite's own button already says the duration, so the
+             sub-line does not say it twice on a 393px row. */
+          '<span class="row__sub truncate">' + (c.fav ? '' : n(c.min) + ' min') +
+            (c.note ? (c.fav ? '' : ' &middot; ') + esc(c.note) : '') +
+            (c.last ? ' &middot; last ' + relDate(c.last) : '') + '</span>' +
         '</button>';
+      return '' +
+        '<div class="row row--withaside" data-testid="favrow-' + c.key.replace(/[^\w]/g, '-') + '">' +
+          '<span class="ico-well">' + (c.fav ? ICO.star : ICO.cardio) + '</span>' +
+          openBtn +
+          (c.fav
+            ? '<button class="btn btn--secondary btn--sm" type="button" data-action="quick-log" ' +
+                'data-id="' + c.id + '" data-fav="' + c.fav.id + '" ' +
+                'data-testid="quick-' + c.fav.id + '" ' +
+                'aria-label="Log ' + esc(c.name) + ', ' + c.min + ' minutes, now">' +
+                '<span class="btn__label">Log ' + c.min + ' min</span></button>'
+            : starBtn(c.id, c.name)) +
+        '</div>';
     }).join('');
 
     return '' +
       '<section class="section" data-testid="section-cardio">' +
-        '<div class="section__head"><h2 class="t-label">Cardio</h2></div>' +
-        '<div class="card">' +
-          '<div class="spread">' +
+        '<div class="section__head"><h2 class="t-label">Cardio</h2>' +
+          '<button class="btn btn--tertiary btn--sm" type="button" data-action="open-favs" data-testid="open-favs">' +
+            '<span class="btn__label">Favourites</span></button>' +
+        '</div>' +
+        /* THIS WEEK, three figures from the same history the list below is
+           drawn from. The block used to open on an eight-week chart and say
+           nothing at all about the week you are in. */
+        '<div class="card" data-testid="cardio-week">' +
+          '<div class="facts">' +
+            '<div class="stat"><span class="stat__label">This week</span>' +
+              '<span class="stat__value">' + n(wk.n) + '</span>' +
+              '<span class="t-detail">' + (wk.n === 1 ? 'session' : 'sessions') + '</span></div>' +
+            '<div class="stat"><span class="stat__label">Minutes</span>' +
+              '<span class="stat__value">' + n(wk.min) + '</span>' +
+              '<span class="t-detail">' + (PREFS.weeklyTargetMin
+                ? 'of ' + PREFS.weeklyTargetMin + ' target' : 'this week') + '</span></div>' +
+            '<div class="stat"><span class="stat__label">Calories</span>' +
+              '<span class="stat__value">' + n(group(wk.cal)) + '</span>' +
+              '<span class="t-detail">estimated</span></div>' +
+          '</div>' +
+          '<div class="spread mt-4">' +
             '<span class="t-label">Minutes per week</span>' +
             '<span class="t-meta num">' + last4 + ' min in 4 weeks</span>' +
           '</div>' +
           '<div class="mt-3">' + weekChart() + '</div>' +
         '</div>' +
+        bestsStrip() +
         '<div class="card card--flush mt-3">' +
           rows +
           '<button class="row" type="button" data-action="open-activities" data-testid="open-activities">' +
             '<span class="ico-well">' + ICO.search + '</span>' +
             '<span class="row__main stack">' +
               '<span class="row__title">Log something else</span>' +
-              '<span class="row__sub">' + n(CARDIO_CATALOGUE) + ' activities, searchable</span>' +
+              '<span class="row__sub">' + n(catCount()) + ' activities, searchable</span>' +
             '</span>' +
             '<span class="row__chev">' + ICO.chev + '</span>' +
           '</button>' +
@@ -530,9 +1577,19 @@
   var VIEWS = {};
 
   VIEWS.populated = function () {
+    /* Gated on the DATA, not on a dev state. A reader with no splits was
+       still shown a training day, because the state came from the switcher. */
+    if (!SPLITS.length || !SPLITS[0].days.length) return VIEWS.empty();
     var sp = SPLITS[0];
     var day = sp.days[0];
     var recent = HISTORY.slice(0, 5);
+    /* WHEN this day was last done, from the history rather than a literal
+       date typed into the markup. */
+    var lastDone = null;
+    for (var i = 0; i < HISTORY.length && !lastDone; i++) {
+      var w = HISTORY[i];
+      if (w.kind === 'lift' && w.name.indexOf(day.name) > -1) lastDone = w.date;
+    }
 
     return '' +
       /* The one thing a lifter opens this tab to do, in the first fold
@@ -541,12 +1598,15 @@
       '<section class="card card--raised mt-4 enter-rise" data-testid="card-today">' +
         '<div class="t-label">Today &middot; ' + esc(sp.name) + '</div>' +
         '<h2 class="t-title mt-2">' + esc(day.name) + '</h2>' +
-        '<p class="t-detail mt-2">' + n(day.exercises) + ' exercises &middot; about ' +
-          n(day.minutes) + ' min &middot; last done ' + relDate('2026-09-03') + '</p>' +
+        '<p class="t-detail mt-2" data-testid="today-meta">' + n(day.exercises) + ' exercises &middot; about ' +
+          n(day.minutes) + ' min' +
+          (lastDone ? ' &middot; last done ' + relDate(lastDone) : '') + '</p>' +
         '<button class="btn btn--primary btn--block mt-4" type="button" data-action="start-today" data-testid="start-today">' +
           ICO.play + '<span class="btn__label">Start ' + esc(day.name) + '</span>' +
         '</button>' +
       '</section>' +
+
+      cycleBanner() +
 
       '<section class="section" data-testid="section-splits">' +
         '<div class="section__head">' +
@@ -556,6 +1616,8 @@
         '</div>' +
         '<div class="card card--flush">' + SPLITS.map(splitRow).join('') + '</div>' +
       '</section>' +
+
+      recoveryBlock() +
 
       cardioBlock() +
 
@@ -583,9 +1645,193 @@
       '</section>';
   };
 
-  /* Nothing has been earned yet, so nothing is claimed and nothing
-     competes: one sentence, one action. The audited empty state
-     offered two. */
+  /* =============================================================
+     THE CYCLE BANNER — F-CYCLE-022.
+
+     Cycle tracking is an opt-in behind lk_cycle, and when it is on the one
+     thing it has to say about training belongs on the training screen. The
+     word "cycle" appeared on Train exactly once before this, on the outdoor
+     cycling cardio activity.
+
+     WHERE THE FACTS COME FROM. lk_mcFuelAdjust, which the cycle screen
+     writes: the phase, the day, the cycle length, whether the reader asked
+     for discreet mode, and the phase's own training line. That key is the
+     bridge the cycle screen exists to publish, so this screen keeps no copy
+     of the arithmetic and no copy of the guidance — two copies is how three
+     screens came to give three answers about one cycle.
+
+     WHAT IT IS NOT. Not a control and not an instruction. There is no
+     declared crossing from Train to the cycle screen, so this states what
+     today is and says nothing it cannot back; it carries no accent, because
+     the accent on this screen is on Start.
+
+     DISCREET MODE travels with the bridge. With it on, the phase is not
+     named and the day number is not printed: the guidance stands alone,
+     which is the whole point of the setting.
+     ============================================================= */
+  function cycleOnFlag() {
+    var v = rd('lk_cycle', false, false);
+    return v === true || v === 'true';
+  }
+  function cycleBridge() {
+    var v = rd('lk_mcFuelAdjust', false, false);
+    if (!v || typeof v !== 'object' || v.on !== true) return null;
+    return v;
+  }
+  function cycleBanner() {
+    if (!cycleOnFlag()) return '';
+    var c = cycleBridge();
+    if (!c || !c.train) return '';
+    var head = c.discreet
+      ? 'Today'
+      : (c.phaseName || 'Cycle') + (c.day ? ' · day ' + c.day +
+          (c.cycleLen ? ' of about ' + c.cycleLen : '') : '');
+    return '<section class="section" data-testid="section-cycle">' +
+      '<div class="card card--sunken">' +
+        '<div class="spread">' +
+          '<span class="t-label" data-testid="cycle-phase">' + esc(head) + '</span>' +
+          '<span class="t-meta">Cycle</span>' +
+        '</div>' +
+        '<p class="t-body-em mt-2" data-testid="cycle-train">' + esc(c.train) + '</p>' +
+        '<p class="t-caption-1 quiet mt-2">From your cycle log on this phone' +
+          (c.updated ? ', as of ' + absDate(String(c.updated).slice(0, 10)) : '') +
+          '. It is guidance, not a rule, and it changes nothing in your split.</p>' +
+      '</div>' +
+    '</section>';
+  }
+
+  /* =============================================================
+     What has been trained, and what has had time to recover.
+
+     Neither existed. The screen could tell you what you did yesterday and
+     what your split says to do next, and nothing at all about which muscles
+     had been hit twice this week and which had not been touched in nine days
+     -- the one question a split is meant to answer and the one a log is
+     uniquely able to answer.
+
+     The muscles are the seed's own strings, grouped the way the body is
+     trained rather than the way an anatomy chart names it, so Mid Chest and
+     Upper Chest are Chest and the screen does not report thirteen separate
+     regions nobody plans around.
+     ============================================================= */
+  var MUSCLE_GROUP = {
+    'Quads': 'Legs', 'Hamstrings': 'Legs', 'Calves': 'Legs', 'Glutes': 'Legs',
+    'Lats': 'Back', 'Mid Back': 'Back', 'Lower Back': 'Back', 'Traps': 'Back',
+    'Mid Chest': 'Chest', 'Upper Chest': 'Chest', 'Lower Chest': 'Chest',
+    'Front Delt': 'Shoulders', 'Side Delt': 'Shoulders', 'Rear Delt': 'Shoulders',
+    'Long Head': 'Arms', 'Short Head': 'Arms', 'Lateral Head': 'Arms',
+    'Medial Head': 'Arms', 'Biceps': 'Arms', 'Triceps': 'Arms', 'Forearms': 'Arms',
+    'Abs': 'Core', 'Obliques': 'Core'
+  };
+  var GROUP_ORDER = ['Legs', 'Back', 'Chest', 'Shoulders', 'Arms', 'Core'];
+
+  /* Sets and days since, per group, from the logged sets only. A warm-up is
+     not volume and an unfinished set is not work. */
+  function muscleState() {
+    var out = {};
+    GROUP_ORDER.forEach(function (g) { out[g] = { week: 0, last: null, total: 0 }; });
+    var weekAgo = new Date(ms(TODAY) - 6 * 86400000).toISOString().slice(0, 10);
+    (rd('lk_history', [], false) || []).forEach(function (w) {
+      if (w.kind === 'cardio') return;
+      var iso = String(w.date || w.dateISO || '').slice(0, 10);
+      if (!iso) return;
+      (w.exercises || []).forEach(function (ex) {
+        var g = MUSCLE_GROUP[ex.muscle];
+        if (!g || !out[g]) return;
+        var work = (ex.sets || []).filter(function (st) { return st.done && !st.warm; }).length;
+        if (!work) return;
+        out[g].total += work;
+        if (iso >= weekAgo) out[g].week += work;
+        if (!out[g].last || iso > out[g].last) out[g].last = iso;
+      });
+    });
+    return out;
+  }
+
+  /* Recovered, ready, or resting. Forty-eight hours is the figure most
+     programmes use for a trained muscle group, so two clear days is "ready"
+     and anything past six days without work is called what it is. */
+  function recoveryWord(days) {
+    if (days === null) return ['Never logged', 'rec--none'];
+    if (days <= 1) return ['Trained ' + (days === 0 ? 'today' : 'yesterday'), 'rec--fresh'];
+    if (days <= 3) return ['Ready', 'rec--ready'];
+    if (days <= 6) return [days + ' days ago', 'rec--ready'];
+    return [days + ' days ago', 'rec--stale'];
+  }
+
+  function recoveryBlock() {
+    var st = muscleState();
+    var any = GROUP_ORDER.some(function (g) { return st[g].total > 0; });
+    if (!any) return '';
+    var max = Math.max.apply(null, GROUP_ORDER.map(function (g) { return st[g].week; }).concat([1]));
+    /* What to train today, from what has recovered. v6 put this in hours;
+       the log is dated to the day, so hours would be precision this data does
+       not have. Days, and the sentence says which groups rather than naming a
+       number nothing measured. */
+    var ready = [], resting = [], never = [];
+    GROUP_ORDER.forEach(function (g) {
+      var d = st[g];
+      if (!d.total) { never.push(g); return; }
+      var days = daysAgo(d.last);
+      if (days >= 2) ready.push({ g: g, days: days }); else resting.push({ g: g, days: days });
+    });
+    /* Least recently trained first: the group that has waited longest is the
+       one a week has been neglecting. */
+    ready.sort(function (a, b) { return b.days - a.days; });
+    var line;
+    if (ready.length) {
+      var pick = ready.slice(0, 2).map(function (r) { return r.g.toLowerCase(); });
+      line = 'Recovered and ready: ' + (pick.length === 2 ? pick[0] + ' or ' + pick[1] : pick[0]) + '.';
+      if (resting.length) {
+        line += ' ' + resting.map(function (r) { return r.g.toLowerCase(); }).join(' and ') +
+          (resting.length === 1 ? ' was' : ' were') + ' trained ' +
+          (resting[0].days === 0 ? 'today' : 'yesterday') + '.';
+      }
+    } else if (resting.length) {
+      line = 'Everything you train was hit in the last two days. Rest, or something easy.';
+    } else {
+      line = 'Nothing logged yet, so there is nothing to recover from.';
+    }
+    if (never.length) {
+      line += ' ' + never.map(function (g) { return g.toLowerCase(); }).join(' and ') +
+        ' ' + (never.length === 1 ? 'has' : 'have') + ' never been logged.';
+    }
+
+    return '<section class="section" data-testid="section-recovery">' +
+      '<div class="section__head"><h2 class="t-label">By muscle, this week</h2></div>' +
+      '<div class="card">' +
+      '<p class="t-body-em" data-testid="rec-suggestion">' + esc(line) + '</p>' +
+      '<div class="mt-3">' + GROUP_ORDER.map(function (g, i) {
+        var d = st[g];
+        var days = d.last === null ? null : daysAgo(d.last);
+        var word = recoveryWord(days);
+        var pct = Math.round(d.week / max * 100);
+        return '<div class="recrow' + (i ? ' mt-3' : '') + '" data-testid="rec-' + g.toLowerCase() + '">' +
+          '<div class="hstack hstack--3">' +
+            '<span class="t-subheadline recrow__name">' + g + '</span>' +
+            '<span class="t-caption-1 ' + word[1] + '">' + esc(word[0]) + '</span>' +
+            '<span class="t-subheadline num">' + n(d.week) + '</span>' +
+          '</div>' +
+          '<div class="meter meter--quiet mt-2" role="img" aria-label="' + g + ', ' + d.week +
+            (d.week === 1 ? ' working set' : ' working sets') + ' in the last seven days">' +
+            '<span class="meter__fill" style="width:' + pct + '%"></span></div>' +
+        '</div>';
+      }).join('') + '</div>' +
+      '<p class="t-caption-1 quiet mt-3">Working sets in the last seven days, counted from what ' +
+        'you ticked. Warm-ups are not volume. The bar is each group against the hardest-worked ' +
+        'one, not against a target: this screen does not have an opinion about how much is ' +
+        'right for you.</p>' +
+      '</div>' +
+    '</section>';
+  }
+
+  /* One sentence, ONE accent fill, and a second way in under it — the
+     F-TRAIN-302 finding. The builder has two modes and the draft one had no
+     entrance at all from an empty Train: you had to start the manual builder
+     and find the tertiary button inside its own empty state. So the draft is
+     offered here, as a tertiary control under the primary, which is one
+     action competing with nothing rather than two fills competing with each
+     other. Both open the same screen; the key says which mode. */
   VIEWS.empty = function () {
     return '' +
       '<div class="empty mt-5 enter-settle" data-testid="train-empty">' +
@@ -594,6 +1840,9 @@
         '<p class="empty__body">A split is the week you intend to train. Build one and each day of it starts from this screen.</p>' +
         '<button class="btn btn--primary" type="button" data-action="new-split" data-testid="empty-build-split">' +
           '<span class="btn__label">Build a split</span>' +
+        '</button>' +
+        '<button class="btn btn--tertiary mt-2" type="button" data-action="new-split" data-mode="draft" data-testid="empty-draft-split">' +
+          '<span class="btn__label">Draft one from a description</span>' +
         '</button>' +
       '</div>';
   };
@@ -638,9 +1887,23 @@
   /* The full record, one level deep. The app's ONE segmented control
      is spent here, on the only filter that removes work: two kinds of
      session in one list. Same row component as the preview above. */
+  /* Which group of activities a cardio session belongs to, through the
+     catalogue rather than through a second table. A session whose activity is
+     not in the catalogue at all is "other", and is never silently dropped. */
+  function groupOfSession(w) {
+    if (w.kind !== 'cardio') return null;
+    var a = byModality(w.modality) || (w.act && findCardio(w.act)) || byName(w.name);
+    return a ? a.g : 'other';
+  }
+
   function historyView() {
     var list = HISTORY.filter(function (w) {
-      return S.filter === 'all' || w.kind === S.filter;
+      if (S.filter !== 'all' && w.kind !== S.filter) return false;
+      /* The per-group chips narrow the cardio list to a kind of session —
+         F-CARDIO-007. They exist only where they mean something: under All
+         and Lifting there is nothing for them to narrow. */
+      if (S.filter === 'cardio' && S.cgroup !== 'all' && groupOfSession(w) !== S.cgroup) return false;
+      return true;
     });
     var out = [], month = null, buf = [];
     function flush() {
@@ -648,7 +1911,7 @@
       out.push(
         '<section class="section">' +
           '<div class="section__head"><h2 class="t-label">' + month + '</h2>' +
-            '<span class="t-meta num">' + buf.length + ' sessions</span></div>' +
+            '<span class="t-meta num">' + buf.length + (buf.length === 1 ? ' session' : ' sessions') + '</span></div>' +
           '<div class="card card--flush">' + buf.join('') + '</div>' +
         '</section>');
       buf = [];
@@ -661,6 +1924,31 @@
     flush();
 
     var FILTERS = [['all', 'All'], ['lift', 'Lifting'], ['cardio', 'Cardio']];
+    /* Only the groups this person's own cardio history actually contains, with
+       the count beside each: a chip for a kind of session nobody has done
+       would filter a list to nothing and teach nothing. */
+    var seen = {};
+    HISTORY.forEach(function (w) {
+      if (w.kind !== 'cardio') return;
+      var g = groupOfSession(w);
+      seen[g] = (seen[g] || 0) + 1;
+    });
+    var GNAMES = { other: 'Other' };
+    CARDIO_GROUPS.forEach(function (g) { GNAMES[g[0]] = g[1]; });
+    var order = CARDIO_GROUPS.map(function (g) { return g[0]; }).concat(['other']);
+    var present = order.filter(function (g) { return seen[g]; });
+    var nCardio = HISTORY.filter(function (w) { return w.kind === 'cardio'; }).length;
+    var chips = (S.filter === 'cardio' && present.length > 1)
+      ? '<div class="chiprow mt-3" data-testid="cardio-groups">' +
+          [['all', 'All ' + nCardio]].concat(present.map(function (g) {
+            return [g, GNAMES[g] + ' ' + seen[g]];
+          })).map(function (c) {
+            return '<button class="chip" type="button" data-action="cgroup" data-g="' + c[0] + '" ' +
+              'aria-pressed="' + (S.cgroup === c[0]) + '" data-testid="cgroup-' + c[0] + '">' +
+              esc(c[1]) + '</button>';
+          }).join('') +
+        '</div>'
+      : '';
     return '' +
       '<div class="section" style="margin-top: var(--sp-3)">' +
         '<div class="seg seg--lg" role="radiogroup" aria-label="Session type" data-testid="history-filter">' +
@@ -670,12 +1958,19 @@
               f[1] + '</button>';
           }).join('') +
         '</div>' +
+        chips +
       '</div>' +
       (list.length ? out.join('') :
         '<div class="empty mt-5" data-testid="history-empty-filter">' +
           '<span class="empty__ico">' + ICO.plan + '</span>' +
-          '<h2 class="empty__title">No cardio yet</h2>' +
-          '<p class="empty__body">Cardio you log on the Train screen appears here beside your lifting.</p>' +
+          '<h2 class="empty__title">' +
+            (S.filter === 'lift' ? 'No lifting sessions yet'
+             : S.cgroup !== 'all' ? 'Nothing under ' + esc(GNAMES[S.cgroup] || S.cgroup)
+             : 'No cardio yet') + '</h2>' +
+          '<p class="empty__body">' +
+            (S.filter === 'lift'
+              ? 'Sessions you finish in the workout log appear here.'
+              : 'Cardio you log on the Train screen appears here beside your lifting.') + '</p>' +
         '</div>');
   }
 
@@ -717,7 +2012,11 @@
           '<span class="row__main stack">' +
             '<span class="row__title">' + esc(d.name) +
               (d.next ? ' <span class="badge badge--accent">Next</span>' : '') + '</span>' +
-            '<span class="row__sub">' + n(d.exercises) + ' exercises &middot; about ' + n(d.minutes) + ' min</span>' +
+            '<span class="row__sub">' + n(d.exercises) + ' exercises' +
+              /* A day can hold blocks now -- a warm-up, some mobility, a
+                 finisher -- and they are part of what that day is. */
+              (d.blocks ? ' &middot; ' + n(d.blocks) + (d.blocks === 1 ? ' block' : ' blocks') : '') +
+              ' &middot; about ' + n(d.minutes) + ' min</span>' +
           '</span>' +
           '<span class="row__chev">' + ICO.play + '</span>' +
         '</button>';
@@ -732,44 +2031,80 @@
             ICO.close + '</button>' +
         '</div>' +
         '<div class="sheet__body">' +
-          '<p class="t-detail">' + n(sp.days.length) + ' days &middot; ' +
-            n(sp.days.length * 5) + ' exercises &middot; edited ' + absDate(sp.updated) + '</p>' +
+          /* COUNTED, and DATED. This line read "3 days, 15 exercises, edited
+             undefined NaN": the count was days.length * 5, which is true of
+             PPL and of no other split stored here, and the date was an ISO
+             parse of "7/25/2026". Both come off the split itself now. */
+          '<p class="t-detail" data-testid="split-summary">' + n(sp.days.length) +
+            (sp.days.length === 1 ? ' day' : ' days') + ' &middot; ' +
+            n(sp.exercises) + (sp.exercises === 1 ? ' exercise' : ' exercises') +
+            (sp.updated ? ' &middot; edited ' + absDate(sp.updated) : '') + '</p>' +
           '<div class="card card--flush mt-3">' + days + '</div>' +
         '</div>' +
         '<div class="sheet__foot">' +
           '<button class="btn btn--secondary btn--block" type="button" data-action="edit-split" data-id="' + sp.id + '" ' +
                   'data-testid="edit-split">' + ICO.pencil +
             '<span class="btn__label">Edit split</span></button>' +
+          /* A split could be made and edited and never removed, so a week
+             somebody had stopped running sat at the top of the screen for
+             good. Two taps, and the sessions it produced are not touched:
+             deleting a plan is not a claim the training never happened. */
+          '<button class="btn btn--block mt-2 ' +
+            (S.confirmDel === sp.id ? 'btn--danger' : 'btn--tertiary') + '" type="button" ' +
+            'data-action="del-split" data-id="' + sp.id + '" data-testid="delete-split">' +
+            '<span class="btn__label">' + (S.confirmDel === sp.id
+              ? 'Tap again to delete ' + esc(sp.name)
+              : 'Delete this split') + '</span></button>' +
+          (S.confirmDel === sp.id
+            ? '<p class="t-meta mt-2" data-testid="delete-split-note">The sessions you logged from ' +
+              'it stay in your history.</p>'
+            : '') +
         '</div>' +
       '</div>';
   }
 
-  /* The 41-tile wall, replaced. What this lifter is likely to log is
-     already a row on the screen behind; here the rest of the
-     catalogue is a ranked list with search as the reducer. */
+  /* The 41-tile wall, replaced. The catalogue is real now and it is all
+     reachable: the sheet opens on the four groups, search reduces every one
+     of them, and the count in the field is the count of the list. It said
+     "Search 41 activities" over a list of nine and showed six of those. */
   function activitySheet() {
     var q = S.query.trim().toLowerCase();
-    var list = CARDIO_ALL.concat(CARDIO_QUICK.map(function (c) {
-      return { id: 'p_' + c.id, name: c.name, min: c.min };
-    }));
-    var shown = q ? list.filter(function (a) { return a.name.toLowerCase().indexOf(q) > -1; })
-                  : CARDIO_ALL.slice(0, 6);
+    var all = allActivities();
+    var body;
+    if (q) {
+      var shown = all.filter(function (a) {
+        return a.name.toLowerCase().indexOf(q) > -1 ||
+               (GNAME_CARDIO[a.g] || '').toLowerCase().indexOf(q) > -1;
+      });
+      body = (shown.length
+        ? '<div class="card card--flush">' + shown.map(activityRow).join('') + '</div>'
+        : '<div class="empty mt-4" data-testid="activity-none">' +
+            '<span class="empty__ico">' + ICO.search + '</span>' +
+            '<h2 class="empty__title">Nothing matches &ldquo;' + esc(S.query) + '&rdquo;</h2>' +
+            '<p class="empty__body">Add it as your own and it joins the list for good.</p>' +
+            '<button class="btn btn--primary" type="button" data-action="new-cardio" data-testid="new-cardio">' +
+              ICO.plus + '<span class="btn__label">Add &ldquo;' + esc(S.query) + '&rdquo;</span></button>' +
+          '</div>') +
+        '<p class="t-meta mt-3" data-testid="activity-count">' + shown.length + ' of ' + catCount() + ' activities</p>';
+    } else {
+      var groups = CARDIO_GROUPS.slice();
+      if (CUSTOM_CARDIO.length) groups = groups.concat([['yours', 'Yours']]);
+      body = groups.map(function (g) {
+        var list = all.filter(function (a) { return a.g === g[0] || (g[0] === 'yours' && a.custom); });
+        if (!list.length) return '';
+        return '<div class="section" style="padding-left:0;padding-right:0">' +
+          '<div class="section__head"><h3 class="t-label">' + g[1] + '</h3>' +
+            '<span class="t-meta num">' + list.length + '</span></div>' +
+          '<div class="card card--flush">' + list.map(activityRow).join('') + '</div>' +
+        '</div>';
+      }).join('') +
+      '<button class="btn btn--secondary btn--block mt-3" type="button" data-action="new-cardio" data-testid="new-cardio">' +
+        ICO.plus + '<span class="btn__label">Add your own activity</span></button>' +
+      '<p class="t-meta mt-3" data-testid="activity-count">All ' + catCount() + ' activities. Type to reduce them.</p>';
+    }
 
-    var rows = shown.map(function (a) {
-      return '' +
-        '<button class="row" type="button" data-action="log-cardio" data-id="' + a.id + '" ' +
-                'data-testid="pick-' + a.id + '" aria-label="Log ' + esc(a.name) + ', ' + a.min + ' minutes">' +
-          '<span class="ico-well">' + ICO.cardio + '</span>' +
-          '<span class="row__main stack">' +
-            '<span class="row__title">' + esc(a.name) + '</span>' +
-            '<span class="row__sub">' + n(a.min) + ' min by default</span>' +
-          '</span>' +
-          '<span class="row__chev">' + ICO.plus + '</span>' +
-        '</button>';
-    }).join('');
-
-    return '' +
-      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="act-title" data-testid="activity-sheet">' +
+    return '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="act-title" data-testid="activity-sheet" ' +
+        'data-detents="0.6 0.94" data-detent-open="0.94">' +
         '<div class="sheet__grab"></div>' +
         '<div class="sheet__head">' +
           '<h2 class="t-section" id="act-title">Log cardio</h2>' +
@@ -780,18 +2115,123 @@
           '<span class="search__ico" aria-hidden="true">' + ICO.search + '</span>' +
           '<label class="vis-hidden" for="act-q">Search activities</label>' +
           '<input class="input" id="act-q" type="text" autocomplete="off" spellcheck="false" ' +
-                 'placeholder="Search ' + CARDIO_CATALOGUE + ' activities" value="' + esc(S.query) + '" ' +
+                 'placeholder="Search ' + catCount() + ' activities" value="' + esc(S.query) + '" ' +
                  'data-testid="activity-search">' +
         '</div>' +
-        '<div class="sheet__body mt-3">' +
-          (shown.length
-            ? '<div class="card card--flush">' + rows + '</div>'
-            : '<p class="t-detail center mt-4">Nothing matches &ldquo;' + esc(S.query) + '&rdquo;.</p>') +
-          '<p class="t-meta mt-3">' + (q ? shown.length + ' of ' + CARDIO_CATALOGUE + ' activities'
-                                         : 'Your usual three are on the Train screen. Type to reach any of the ' +
-                                           CARDIO_CATALOGUE + '.') + '</p>' +
-        '</div>' +
+        '<div class="sheet__body mt-3">' + body + '</div>' +
       '</div>';
+  }
+  var GNAME_CARDIO = {};
+  CARDIO_GROUPS.forEach(function (g) { GNAME_CARDIO[g[0]] = g[1]; });
+
+  /* Every activity row carries its own star — F-CARDIO-023. The row is a
+     container rather than a button so the star can be a control of its own:
+     a button inside a button is not markup a browser will render. */
+  function activityRow(a) {
+    var last = lastCardioFor(a.id);
+    return '' +
+      '<div class="row row--withaside" data-testid="actrow-' + a.id + '">' +
+        '<span class="ico-well">' + ICO.cardio + '</span>' +
+        '<button class="trainrow__main stack" type="button" data-action="log-cardio" data-id="' + a.id + '" ' +
+                'data-testid="pick-' + a.id + '" aria-label="Log ' + esc(a.name) + '">' +
+          '<span class="row__title">' + esc(a.name) +
+            (a.custom ? ' <span class="badge">Yours</span>' : '') + '</span>' +
+          '<span class="row__sub">' + n(a.min) + ' min by default &middot; ' + a.met + ' MET' +
+            (last ? ' &middot; last ' + relDate(last.date) : '') + '</span>' +
+        '</button>' +
+        starBtn(a.id, a.name) +
+      '</div>';
+  }
+
+  /* Your own activities — F-CARDIO-025. A name and a MET value is all an
+     estimate needs; the MET is offered as four plain efforts rather than a
+     number nobody carries in their head. */
+  function newCardioSheet() {
+    var d = S.newCardio;
+    var EFFORTS = [['Easy, you could hold a conversation', 4], ['Steady, breathing hard', 7],
+                   ['Hard, sentences are short', 9], ['All out', 11.5]];
+    return '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="nc-title" data-testid="newcardio-sheet">' +
+      '<div class="sheet__grab"></div>' +
+      '<div class="sheet__head"><h2 class="t-section grow" id="nc-title">Your own activity</h2>' +
+        '<button class="iconbtn" type="button" data-action="close-sheet" aria-label="Close" ' +
+          'data-testid="newcardio-close">' + ICO.close + '</button></div>' +
+      '<div class="sheet__body">' +
+        '<label class="field"><span class="field__label t-label">Name</span>' +
+          '<input class="input" type="text" value="' + esc(d.name) + '" data-action="nc-name" ' +
+            'data-testid="nc-name" placeholder="Padel with Marco"></label>' +
+        (d.error ? '<p class="field__error" role="alert" data-testid="nc-error">' + esc(d.error) + '</p>' : '') +
+        '<label class="field mt-4"><span class="field__label t-label">Usual duration (min)</span>' +
+          '<input class="input num" type="number" min="1" max="600" value="' + esc(d.min) + '" ' +
+            'data-action="nc-min" data-testid="nc-min"></label>' +
+        '<div class="mt-4"><span class="t-label">How hard it usually is</span>' +
+          '<div class="card card--flush mt-2" role="radiogroup" aria-label="Effort">' + EFFORTS.map(function (e) {
+            return '<button class="opt" type="button" role="radio" aria-checked="' + (d.met === e[1]) + '" ' +
+              'data-action="nc-met" data-v="' + e[1] + '" data-testid="nc-met-' + e[1] + '">' +
+              '<span class="opt__mark">' + ICO.play + '</span>' +
+              '<span class="opt__main"><span class="opt__title">' + esc(e[0]) + '</span>' +
+              '<span class="opt__sub">' + e[1] + ' MET</span></span></button>';
+          }).join('') + '</div></div>' +
+        '<p class="t-caption-1 quiet mt-3">Saved on this phone and added to the catalogue. ' +
+          'The MET value is what the calorie estimate is built on.</p>' +
+      '</div>' +
+      '<div class="sheet__foot">' +
+        '<button class="btn btn--primary btn--block" type="button" data-action="nc-save" data-testid="nc-save">' +
+          '<span class="btn__label">Add it</span></button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  /* FAVOURITES — F-CARDIO-002..005. They are stored setups, so this is where
+     they are read, renamed, reordered and removed. Deleting takes two taps
+     and the second one is the red one; there is no dialog, because a
+     favourite is a shortcut and losing one costs a tap to rebuild. */
+  function favSheet() {
+    var body;
+    if (!FAVS.length) {
+      body = '<div class="empty" data-testid="favs-empty">' +
+        '<span class="empty__ico">' + ICO.star + '</span>' +
+        '<h2 class="empty__title">No favourites yet</h2>' +
+        '<p class="empty__body">Log a cardio session and keep the setup. It comes back here as one tap, ' +
+          'already carrying the duration and everything else you filled in.</p></div>';
+    } else {
+      body = '<div class="card card--flush">' + FAVS.map(function (f, i) {
+        var confirming = S.confirmFav === f.id;
+        return '<div class="row" data-testid="fav-' + f.id + '">' +
+          '<span class="ico-well">' + ICO.star + '</span>' +
+          '<span class="row__main stack">' +
+            /* favName/favMin, not f.name/f.min. A stored favourite carries
+               `label` and `defaults.durationSec` -- the shipped app's shape,
+               which is why the helpers exist two hundred lines above this --
+               so reading the raw keys rendered the literal string "undefined"
+               in the name field, in the sub-line, and in all three aria
+               labels. The helpers were written for exactly this and this row
+               was the one place that did not call them. */
+            '<input class="input" type="text" value="' + esc(favName(f)) + '" aria-label="Name of favourite" ' +
+              'data-action="fav-rename" data-id="' + f.id + '" data-testid="fav-name-' + f.id + '">' +
+            '<span class="row__sub">' + n(favMin(f)) + ' min' +
+              (f.last ? ' &middot; saved ' + relDate(f.last) : '') + '</span>' +
+          '</span>' +
+          '<button class="iconbtn" type="button" data-action="fav-move" data-dir="-1" data-id="' + f.id + '" ' +
+            (i === 0 ? 'disabled aria-disabled="true" ' : '') + 'aria-label="Move ' + esc(favName(f)) + ' up" ' +
+            'data-testid="fav-up-' + f.id + '">' + ICO.up + '</button>' +
+          '<button class="iconbtn" type="button" data-action="fav-move" data-dir="1" data-id="' + f.id + '" ' +
+            (i === FAVS.length - 1 ? 'disabled aria-disabled="true" ' : '') + 'aria-label="Move ' + esc(favName(f)) + ' down" ' +
+            'data-testid="fav-down-' + f.id + '">' + ICO.down + '</button>' +
+          '<button class="iconbtn iconbtn--danger' + (confirming ? '' : '-quiet') + '" type="button" ' +
+            'data-action="fav-delete" data-id="' + f.id + '" data-testid="fav-delete-' + f.id + '" ' +
+            'aria-label="' + (confirming ? 'Confirm removing ' : 'Remove ') + esc(favName(f)) + '">' +
+            (confirming ? '<span class="btn__label">Remove</span>' : ICO.trash) + '</button>' +
+        '</div>';
+      }).join('') + '</div>' +
+      '<p class="t-meta mt-3">Tap the bin once to arm it, again to remove. Renaming saves as you type.</p>';
+    }
+    return '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="fav-title" data-testid="favs-sheet">' +
+      '<div class="sheet__grab"></div>' +
+      '<div class="sheet__head"><h2 class="t-section grow" id="fav-title">Favourites</h2>' +
+        '<button class="iconbtn" type="button" data-action="close-sheet" aria-label="Close favourites" ' +
+          'data-testid="favs-close">' + ICO.close + '</button></div>' +
+      '<div class="sheet__body">' + body + '</div>' +
+    '</div>';
   }
 
   function overlayHTML() {
@@ -799,6 +2239,8 @@
     if (!S.sheet) return '';
     var inner = S.sheet.kind === 'split'
       ? splitSheet(SPLITS.filter(function (s) { return s.id === S.sheet.id; })[0])
+      : S.sheet.kind === 'favs' ? favSheet()
+      : S.sheet.kind === 'newcardio' ? newCardioSheet()
       : activitySheet();
     return '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' + inner;
   }
@@ -856,8 +2298,57 @@
   function openSheet(sheet) {
     lastFocus = document.activeElement;
     S.sheet = sheet;
-    S.query = '';
+    S.confirmFav = null;
+    if (sheet.kind !== 'newcardio') S.query = '';
     render(true);
+  }
+  function focusField(testid) {
+    var f = overlay.querySelector('[data-testid="' + testid + '"]');
+    if (f) { f.focus(); if (f.select) { try { f.select(); } catch (e) {} } }
+  }
+  function capitalise(s2) { return String(s2).charAt(0).toUpperCase() + String(s2).slice(1); }
+
+  /* Re-draw the log sheet's body only, so a chip tap or a keystroke does not
+     rebuild the field the caret is in. The live estimate moves with it. */
+  function renderSheetBody() {
+    var holder = overlay.querySelector('[data-testid="cardio-sheet"] .sheet__body');
+    if (!holder) { render(true); return; }
+    var tmp = document.createElement('div');
+    tmp.innerHTML = cardioSheet();
+    var next = tmp.querySelector('[data-testid="cardio-sheet"] .sheet__body');
+    if (next) LKPatch(holder, next.innerHTML);
+  }
+
+  /* A favourite that gets used says so: the count and the date are what make
+     the list orderable by anything other than when it was made. */
+  function markFavUsed(fav) {
+    fav.useCount = (fav.useCount || 0) + 1;
+    fav.lastUsedAt = todayISO();
+    if (store()) store().set('lk_cardioFavorites', FAVS);
+  }
+
+  function saveCustomCardio() {
+    var d = S.newCardio;
+    if (!d.name.trim()) {
+      d.error = 'Give it a name first.';
+      render(true); focusField('nc-name'); return;
+    }
+    var min = Number(d.min);
+    if (isNaN(min) || min < 1 || min > 600) {
+      d.error = 'A usual duration between 1 and 600 minutes.';
+      render(true); focusField('nc-min'); return;
+    }
+    var act = { id: 'own_' + Date.now(), mod: 'custom', name: d.name.trim(), g: 'yours',
+                met: d.met, min: min, custom: true, f: ['dist', 'hr', 'effort'] };
+    var stored = (rd('lk_cardioCustom', [], false) || []).slice();
+    stored.push(act);
+    if (store()) store().set('lk_cardioCustom', stored);
+    loadData(false);
+    S.sheet = { kind: 'activity' };
+    S.query = '';
+    S.newCardio = null;
+    render(true);
+    say(esc(act.name) + ' added to your activities.');
   }
   function closeSheet() {
     S.sheet = null;
@@ -879,6 +2370,11 @@
      ============================================================= */
   document.addEventListener('click', function (e) {
     var t = e.target.closest('[data-action]');
+    /* Any other control disarms a pending delete. An armed destructive button
+       that stays armed while somebody does three other things is a trap. */
+    if (S.confirmDel && (!t || t.getAttribute('data-action') !== 'del-split')) {
+      S.confirmDel = null;
+    }
     if (!t) return;
     var a = t.dataset.action;
 
@@ -887,7 +2383,41 @@
     if (a === 'close-sheet') { closeSheet(); return; }
     if (a === 'open-history') { S.view = 'history'; render(); body.focus(); return; }
     if (a === 'back') { S.view = 'hub'; render(); return; }
-    if (a === 'filter') { S.filter = t.dataset.filter; render(true); return; }
+    if (a === 'filter') { S.filter = t.dataset.filter; S.cgroup = 'all'; render(true); return; }
+    if (a === 'cgroup') { S.cgroup = t.getAttribute('data-g') || 'all'; render(true); return; }
+    /* The star, from an activity row or from a session in the history. */
+    if (a === 'fav-toggle') {
+      var fid2 = t.getAttribute('data-id');
+      var fromId = t.getAttribute('data-from');
+      var fromW = null;
+      if (fromId) {
+        for (var fi = 0; fi < HISTORY.length; fi++) if (HISTORY[fi].id === fromId) fromW = HISTORY[fi];
+      }
+      toggleFav(fid2, fromW);
+      render(true);
+      return;
+    }
+    /* ONE TAP — F-CARDIO-003. The saved setup, logged at the duration it was
+       saved with, with no form in between. What was written is shown
+       immediately, in the same sheet a form-logged session ends on, so the
+       figure can be checked and the session removed if it is wrong. */
+    if (a === 'quick-log') {
+      var qid = t.getAttribute('data-id');
+      var qfav = FAVS.filter(function (f) { return f.id === t.getAttribute('data-fav'); })[0];
+      var qact = findCardio(qid);
+      if (!qact || !qfav) return;
+      var qv = { min: favMin(qfav), note: '' };
+      if (qfav.defaults && qfav.defaults.v) {
+        Object.keys(qfav.defaults.v).forEach(function (k2) { qv[k2] = qfav.defaults.v[k2]; });
+        qv.min = favMin(qfav);
+      }
+      markFavUsed(qfav);
+      S.logging = { id: qid, name: qact.name, v: qv };
+      S.logError = null;
+      if (S.sheet) { S.sheet = null; S.query = ''; }
+      saveCardio();
+      return;
+    }
     /* Opens the duration sheet rather than logging on the tap. The row
        carries the duration this activity is normally done for, and one tap
        from there logs it -- but "logged 30 minutes" when it was 22 is a
@@ -896,15 +2426,87 @@
       var id = t.getAttribute('data-id');
       var c = findCardio(id);
       if (!c) return;
-      S.logging = { id: id, name: c.name, min: c.min };
-      if (S.sheet) closeSheet();
-      render();
-      var f = overlay.querySelector('[data-testid="cardio-min"]');
-      if (f) { f.focus(); f.select(); }
+      /* The form opens on what this person last did, not on the catalogue
+         default: a saved setup first, then the last logged session, then the
+         catalogue. Every answer is pre-filled, which is the whole value of a
+         favourite. */
+      var v = { min: c.min, note: '' };
+      var favId = t.getAttribute('data-fav');
+      var fav = favId && FAVS.filter(function (f) { return f.id === favId; })[0];
+      var last = lastCardioFor(id);
+      if (last) {
+        v.min = last.min;
+        if (last.km != null) v.dist = last.km;
+        if (last.hr != null) v.hr = last.hr;
+        if (last.surface) v.surface = capitalise(last.surface);
+        if (last.effort) v.effort = last.effort;
+        if (last.watts != null) v.watts = last.watts;
+      }
+      if (fav) {
+        v.min = favMin(fav);
+        if (fav.defaults && fav.defaults.v) {
+          Object.keys(fav.defaults.v).forEach(function (k) { v[k] = fav.defaults.v[k]; });
+          v.min = favMin(fav);
+        }
+        markFavUsed(fav);
+      }
+      S.logging = { id: id, name: c.name, v: v };
+      S.logError = null;
+      if (S.sheet) closeSheet(); else render();
+      focusField('cardio-min');
       return;
     }
-    if (a === 'cardio-cancel') { S.logging = null; render(); return; }
+    if (a === 'cardio-cancel') { S.logging = null; S.logError = null; render(); return; }
     if (a === 'cardio-save') { saveCardio(); return; }
+    if (a === 'cardio-fav') { saveFavourite(); return; }
+    if (a === 'cf-min') { S.logging.v.min = Number(t.getAttribute('data-v')); renderSheetBody(); return; }
+    if (a === 'cf-choice') {
+      var k = t.getAttribute('data-k'), val = t.getAttribute('data-v');
+      S.logging.v[k] = S.logging.v[k] === val ? undefined : val;
+      renderSheetBody();
+      return;
+    }
+    if (a === 'open-favs') { openSheet({ kind: 'favs' }); return; }
+    if (a === 'new-cardio') {
+      S.newCardio = { name: S.query.trim(), min: 30, met: 7, error: null };
+      openSheet({ kind: 'newcardio' });
+      focusField('nc-name');
+      return;
+    }
+    if (a === 'nc-met') { S.newCardio.met = Number(t.getAttribute('data-v')); render(true); return; }
+    if (a === 'nc-save') { saveCustomCardio(); return; }
+    if (a === 'fav-move') {
+      var dir = Number(t.getAttribute('data-dir'));
+      var fid = t.getAttribute('data-id');
+      var i = FAVS.map(function (f) { return f.id; }).indexOf(fid);
+      if (i < 0 || i + dir < 0 || i + dir >= FAVS.length) return;
+      FAVS.splice(i + dir, 0, FAVS.splice(i, 1)[0]);
+      FAVS.forEach(function (f, k) { f.order = k; });
+      if (store()) store().set('lk_cardioFavorites', FAVS);
+      render(true);
+      focusField('fav-' + (dir < 0 ? 'up' : 'down') + '-' + fid);
+      return;
+    }
+    if (a === 'fav-delete') {
+      var did = t.getAttribute('data-id');
+      /* Two taps, not a dialog. The first arms the button and says so; the
+         second removes. A favourite is a shortcut, so losing one costs a tap
+         to rebuild and does not deserve a modal. */
+      if (S.confirmFav !== did) { S.confirmFav = did; render(true); return; }
+      var gone = FAVS.filter(function (f) { return f.id === did; })[0];
+      FAVS = FAVS.filter(function (f) { return f.id !== did; });
+      FAVS.forEach(function (f, k) { f.order = k; });
+      if (store()) store().set('lk_cardioFavorites', FAVS);
+      S.confirmFav = null;
+      render(true);
+      say(esc(favName(gone || {})) + ' removed from favourites.');
+      return;
+    }
+    if (a === 'toggle-session') {
+      S.open = S.open === t.getAttribute('data-id') ? null : t.getAttribute('data-id');
+      render(true);
+      return;
+    }
     if (a === 'undo') { S.toast = null; render(true); return; }
     if (a === 'retry') { S.state = 'loading'; render(); setTimeout(function () { S.state = 'populated'; render(); }, 900); return; }
     if (a === 'use-cached') { S.state = 'populated'; render(); return; }
@@ -912,25 +2514,102 @@
        and stay put, which is a sentence that describes what a working button
        would have done. In the demo the router takes them first, by the same
        selectors, and every destination below is declared in MANIFEST.nav. */
-    if (a === 'start-today') { location.href = 'workout-log.html'; return; }
-    if (a === 'start-day') { closeSheet(); location.href = 'workout-log.html'; return; }
-    if (a === 'edit-split') { location.href = 'split-builder.html'; return; }
-    if (a === 'new-split') { location.href = 'split-builder.html'; return; }
+    /* WHICH day. The log opened its own seeded Push session whatever was
+       pressed, so "Start Upper A" landed in a PPL - Push already 21 minutes
+       in with 1,088 kg on it. The day is handed over by id. */
+    if (a === 'start-today') { handStartDay(todayDayKey()); location.href = 'workout-log.html'; return; }
+    if (a === 'start-day') { handStartDay(t.getAttribute('data-id') || ''); closeSheet(); location.href = 'workout-log.html'; return; }
+    /* WHICH split. Both of these opened the builder with no idea which split
+       was meant, so "Edit split" and "New split" landed on the same thing. */
+    if (a === 'del-split') {
+      var did = t.getAttribute('data-id');
+      if (S.confirmDel !== did) { S.confirmDel = did; render(true); return; }
+      var keep = [], goneSp = null;
+      (rd('lk_splits', [], false) || []).forEach(function (x) {
+        if (x.id === did) goneSp = x; else keep.push(x);
+      });
+      if (store()) store().set('lk_splits', keep);
+      S.confirmDel = null; S.sheet = null;
+      loadSplits(false);
+      render(true);
+      say(goneSp ? goneSp.name + ' deleted. Its sessions are still in your history.' : 'Deleted.');
+      return;
+    }
+    if (a === 'edit-split') {
+      try { localStorage.setItem('lk_openSplit', t.getAttribute('data-id') || ''); } catch (err) {}
+      location.href = 'split-builder.html'; return;
+    }
+    if (a === 'new-split') {
+      try {
+        localStorage.setItem('lk_openSplit', t.getAttribute('data-mode') === 'draft' ? '__draft__' : '__new__');
+      } catch (err) {}
+      location.href = 'split-builder.html'; return;
+    }
     if (a === 'open-library') { location.href = 'exercise-library.html'; return; }
-    if (a === 'open-session') { location.href = 'workout-detail.html'; return; }
+    if (a === 'open-session') {
+      /* WHICH session. Every history row used to open the same hand-written
+         workout-detail, so tapping any of the eighteen sessions showed one
+         fixed Sep 5 Pull -- with lifts that appear in no session at all. */
+      try { localStorage.setItem('lk_openWorkout', t.getAttribute('data-id') || ''); } catch (err) {}
+      location.href = 'workout-detail.html';
+      return;
+    }
   });
 
   document.addEventListener('input', function (e) {
-    if (e.target.id !== 'act-q') return;
-    S.query = e.target.value;
-    var holder = overlay.querySelector('.sheet__body');
-    if (!holder) return;
-    /* Re-render the sheet body only, so the field keeps focus and
-       the caret. */
-    var tmp = document.createElement('div');
-    tmp.innerHTML = activitySheet();
-    LKPatch(holder, tmp.querySelector('.sheet__body').innerHTML);
+    var el = e.target;
+    if (el.id === 'act-q') {
+      S.query = el.value;
+      var holder = overlay.querySelector('[data-testid="activity-sheet"] .sheet__body');
+      if (!holder) return;
+      /* Re-render the sheet body only, so the field keeps focus and
+         the caret. */
+      var tmp = document.createElement('div');
+      tmp.innerHTML = activitySheet();
+      LKPatch(holder, tmp.querySelector('.sheet__body').innerHTML);
+      return;
+    }
+    var a = el.getAttribute && el.getAttribute('data-action');
+    if (!a) return;
+    if (a === 'cf-num' && S.logging) {
+      var k = el.getAttribute('data-k');
+      var raw = el.value === '' ? '' : Number(el.value);
+      /* The model is always kilograms: a pack weight typed in pounds is
+         converted here, on the way in, and never again. */
+      if (k !== 'min' && FIELD[k] && FIELD[k].type === 'weight' && raw !== '') {
+        raw = LKUnits.useKg() ? raw : Math.round(raw / LKUnits.lbPerKg * 100) / 100;
+      }
+      /* And the same for a distance typed in miles. The record is kilometres
+         whatever the field is labelled. */
+      if (k !== 'min' && FIELD[k] && FIELD[k].type === 'dist' && raw !== '') {
+        raw = distIn(raw);
+      }
+      S.logging.v[k] = raw;
+      updateEstimate();
+      return;
+    }
+    if (a === 'cf-note' && S.logging) { S.logging.v.note = el.value; return; }
+    if (a === 'nc-name' && S.newCardio) { S.newCardio.name = el.value; return; }
+    if (a === 'nc-min' && S.newCardio) { S.newCardio.min = el.value; return; }
+    if (a === 'fav-rename') {
+      var fid = el.getAttribute('data-id');
+      FAVS.forEach(function (f) { if (f.id === fid) f.label = el.value; });
+      if (store()) store().set('lk_cardioFavorites', FAVS);
+      return;
+    }
   });
+
+  /* Only the estimate card, so typing a distance never rebuilds the field
+     the caret is in. */
+  function updateEstimate() {
+    var holder = overlay.querySelector('[data-testid="cardio-estimate"]');
+    if (!holder || !S.logging) return;
+    var act = findCardio(S.logging.id);
+    if (!act) return;
+    var tmp = document.createElement('div');
+    tmp.innerHTML = estimateCard(act, S.logging.v);
+    LKPatch(holder, tmp.firstChild.innerHTML);
+  }
 
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
@@ -959,13 +2638,35 @@
   menu.addEventListener('click', function (e) {
     var b = e.target.closest('.dev__item');
     if (!b) return;
+    /* The switcher shows a STATE, so it rebuilds from the fixture and must
+       not read a person's stored sessions back over the state it is showing. */
+    loadData(true);
     S.state = b.dataset.state;
     S.view = 'hub';
     S.sheet = null;
     S.toast = null;
+    S.logging = null;
+    S.open = null;
     render();
   });
 
+  /* Another tab logging a session, or the workout log finishing one, moves
+     this screen rather than leaving the two to drift. */
+  if (window.LKStore) {
+    ['lk_history', 'lk_splits', 'lk_cardioFavorites', 'lk_cardioCustom'].forEach(function (k) {
+      LKStore.onChange(k, function () {
+        if (S.logging || S.sheet) return;
+        loadData(false);
+        render(true);
+      });
+    });
+  }
+
+  /* The migration runs before the first read, and the estimate it may need
+     is built on this person's own body weight, so the profile is loaded
+     first and the history re-read after. */
+  loadData(false);
+  if (migrateCardio()) loadData(false);
   var params = new URLSearchParams(location.search);
   if (params.get('state')) S.state = params.get('state');
   if (params.get('view')) S.view = params.get('view');

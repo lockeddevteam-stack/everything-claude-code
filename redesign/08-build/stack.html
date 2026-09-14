@@ -7,6 +7,9 @@
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
 <script src="theme.js"></script>
+<script src="fixtures.js"></script>
+<script src="store.js"></script>
+<script src="units.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 <script src="session.js"></script>
@@ -124,6 +127,11 @@
     return Math.round((Date.UTC(y.y, y.m - 1, y.d) - Date.UTC(x.y, x.m - 1, x.d)) / 86400000);
   }
   function pretty(iso) { var p = parts(iso); return p.d + ' ' + MONTHS[p.m - 1] + ' ' + p.y; }
+  /* The last day OF the cycle, not the day after it. A twelve-week cycle
+     starting 11 Aug runs to 2 Nov -- eighty-four days counting the first one.
+     Saving an unchanged cycle used to push the date to 3 Nov, so opening the
+     edit sheet and pressing Save moved the end of the cycle by a day. */
+  function endFrom(startIso, weeks) { return addDays(startIso, weeks * 7 - 1); }
   function dow(iso) { var p = parts(iso); return new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay(); }
 
   /* THE ONE FREQUENCY FUNCTION. The shipped app had this rule written out
@@ -134,8 +142,18 @@
     if (f === 'daily') return true;
     if (f === 'eod') return daysBetween(comp.since || iso, iso) % 2 === 0;
     if (f === 'e3d') return daysBetween(comp.since || iso, iso) % 3 === 0;
-    if (f === 'weekly') return dow(iso) === (comp.day === undefined ? 1 : comp.day);
-    if (f === 'twice-weekly') return dow(iso) === 1 || dow(iso) === 4;
+    /* The weekday comes from when the compound STARTED, the way every other
+       frequency here does. Both of these were hardcoded to Monday (and
+       Monday/Thursday), so a compound begun on a Wednesday was due on days
+       nobody had pinned and not due on the day they had. */
+    if (f === 'weekly') {
+      if (comp.day !== undefined) return dow(iso) === comp.day;
+      return dow(iso) === dow(comp.since || iso);
+    }
+    if (f === 'twice-weekly') {
+      var d0 = comp.day !== undefined ? comp.day : dow(comp.since || iso);
+      return dow(iso) === d0 || dow(iso) === (d0 + 3) % 7;
+    }
     return false;
   }
   var FREQ_LABEL = { daily: 'Every day', eod: 'Every other day', e3d: 'Every third day',
@@ -158,48 +176,83 @@
   /* The preset list. Half-lives are a number of hours here rather than the
      shipped free text ("~8 days (Enanthate)"), because a string cannot be
      compared, sorted or used to work out when the last dose clears. */
+  /* THIRTY-TWO, not twelve. The shipped app's database was the thing people
+     opened this screen for, and a browser over a quarter of it sends most of
+     them back to typing a name and a half-life they do not have. Every dose
+     here is a COMMON STARTING FIGURE and nothing more -- the screen says so
+     where they are listed -- and every half-life is hours, so it can be
+     compared, sorted and used to work out when a last dose clears. */
   var PRESETS = [
     { name: 'Testosterone enanthate', cat: 'aas', dose: '250 mg', freq: 'twice-weekly', route: 'Intramuscular', halfLifeH: 192 },
     { name: 'Testosterone cypionate', cat: 'aas', dose: '250 mg', freq: 'twice-weekly', route: 'Intramuscular', halfLifeH: 192 },
     { name: 'Testosterone propionate', cat: 'aas', dose: '100 mg', freq: 'eod', route: 'Intramuscular', halfLifeH: 20 },
+    { name: 'Sustanon 250', cat: 'aas', dose: '250 mg', freq: 'twice-weekly', route: 'Intramuscular', halfLifeH: 216 },
+    { name: 'Testosterone base / suspension', cat: 'aas', dose: '50 mg', freq: 'daily', route: 'Intramuscular', halfLifeH: 4 },
     { name: 'Nandrolone decanoate', cat: 'aas', dose: '200 mg', freq: 'weekly', route: 'Intramuscular', halfLifeH: 144 },
+    { name: 'Nandrolone phenylpropionate', cat: 'aas', dose: '100 mg', freq: 'eod', route: 'Intramuscular', halfLifeH: 65 },
+    { name: 'Boldenone undecylenate', cat: 'aas', dose: '400 mg', freq: 'weekly', route: 'Intramuscular', halfLifeH: 336 },
+    { name: 'Trenbolone acetate', cat: 'aas', dose: '75 mg', freq: 'eod', route: 'Intramuscular', halfLifeH: 24 },
+    { name: 'Trenbolone enanthate', cat: 'aas', dose: '200 mg', freq: 'twice-weekly', route: 'Intramuscular', halfLifeH: 168 },
+    { name: 'Drostanolone propionate', cat: 'aas', dose: '100 mg', freq: 'eod', route: 'Intramuscular', halfLifeH: 48 },
+    { name: 'Drostanolone enanthate', cat: 'aas', dose: '200 mg', freq: 'twice-weekly', route: 'Intramuscular', halfLifeH: 168 },
+    { name: 'Methenolone enanthate', cat: 'aas', dose: '200 mg', freq: 'weekly', route: 'Intramuscular', halfLifeH: 240 },
+    { name: 'Oxandrolone', cat: 'aas', dose: '20 mg', freq: 'daily', route: 'Oral', halfLifeH: 9 },
+    { name: 'Stanozolol', cat: 'aas', dose: '25 mg', freq: 'daily', route: 'Oral', halfLifeH: 9 },
+    { name: 'Methandienone', cat: 'aas', dose: '30 mg', freq: 'daily', route: 'Oral', halfLifeH: 5 },
+    { name: 'Oxymetholone', cat: 'aas', dose: '50 mg', freq: 'daily', route: 'Oral', halfLifeH: 9 },
+    { name: 'Chlorodehydromethyltestosterone', cat: 'aas', dose: '40 mg', freq: 'daily', route: 'Oral', halfLifeH: 16 },
     { name: 'Anastrozole', cat: 'anc', dose: '0.5 mg', freq: 'eod', route: 'Oral', halfLifeH: 46 },
+    { name: 'Exemestane', cat: 'anc', dose: '12.5 mg', freq: 'eod', route: 'Oral', halfLifeH: 24 },
+    { name: 'Letrozole', cat: 'anc', dose: '1.25 mg', freq: 'eod', route: 'Oral', halfLifeH: 48 },
     { name: 'Tamoxifen', cat: 'anc', dose: '20 mg', freq: 'daily', route: 'Oral', halfLifeH: 120 },
+    { name: 'Clomifene', cat: 'anc', dose: '50 mg', freq: 'daily', route: 'Oral', halfLifeH: 120 },
     { name: 'Enclomiphene', cat: 'anc', dose: '12.5 mg', freq: 'daily', route: 'Oral', halfLifeH: 240 },
+    { name: 'hCG', cat: 'anc', dose: '500 iu', freq: 'twice-weekly', route: 'Subcutaneous', halfLifeH: 33 },
+    { name: 'Cabergoline', cat: 'anc', dose: '0.5 mg', freq: 'twice-weekly', route: 'Oral', halfLifeH: 65 },
     { name: 'Semaglutide', cat: 'glp', dose: '0.5 mg', freq: 'weekly', route: 'Subcutaneous', halfLifeH: 168 },
     { name: 'Tirzepatide', cat: 'glp', dose: '5 mg', freq: 'weekly', route: 'Subcutaneous', halfLifeH: 120 },
+    { name: 'Liraglutide', cat: 'glp', dose: '1.2 mg', freq: 'daily', route: 'Subcutaneous', halfLifeH: 13 },
+    { name: 'Somatropin', cat: 'hgh', dose: '2 iu', freq: 'daily', route: 'Subcutaneous', halfLifeH: 3 },
+    { name: 'CJC-1295 with DAC', cat: 'hgh', dose: '2 mg', freq: 'weekly', route: 'Subcutaneous', halfLifeH: 168 },
+    { name: 'Tesamorelin', cat: 'hgh', dose: '2 mg', freq: 'daily', route: 'Subcutaneous', halfLifeH: 1 },
     { name: 'BPC-157', cat: 'sarm', dose: '250 mcg', freq: 'daily', route: 'Subcutaneous', halfLifeH: 4 },
     { name: 'Ipamorelin', cat: 'sarm', dose: '200 mcg', freq: 'daily', route: 'Subcutaneous', halfLifeH: 2 },
-    { name: 'Somatropin', cat: 'hgh', dose: '2 iu', freq: 'daily', route: 'Subcutaneous', halfLifeH: 3 }
+    { name: 'TB-500', cat: 'sarm', dose: '2 mg', freq: 'weekly', route: 'Subcutaneous', halfLifeH: 48 },
+    { name: 'MK-677', cat: 'sarm', dose: '25 mg', freq: 'daily', route: 'Oral', halfLifeH: 24 },
+    { name: 'Ostarine', cat: 'sarm', dose: '20 mg', freq: 'daily', route: 'Oral', halfLifeH: 24 },
+    { name: 'Ligandrol', cat: 'sarm', dose: '10 mg', freq: 'daily', route: 'Oral', halfLifeH: 30 },
+    { name: 'RAD-140', cat: 'sarm', dose: '10 mg', freq: 'daily', route: 'Oral', halfLifeH: 20 }
   ];
 
   /* ---------------------------------------------------------------
-     Data. lk_cycles, inlined from the fixture.
+     Data. lk_cycles, through LKStore.
 
-     endPlanned and endActual are separate fields. The shipped app had one,
-     and ending a cycle early overwrote the plan with the date you ended it,
-     so the schedule the cycle had been measured against disappeared.
+     This was a literal in this file while Home's "compounds due" card read
+     lk_cycles, so that card had nothing to read and never rendered: two
+     screens, one of them holding the data privately. The cycles are seed
+     data now and both screens read the same key, which is also what makes an
+     edit here show up there.
      --------------------------------------------------------------- */
-  var CYCLES = [
-    { id: 'c1', name: 'Autumn block', status: 'active',
-      start: '2026-08-11', weeks: 12, endPlanned: '2026-11-02', endActual: null,
-      note: 'Bloods booked for week 6.',
-      comps: [
-        { name: 'Testosterone enanthate', cat: 'aas', dose: '250 mg', freq: 'twice-weekly',
-          route: 'Intramuscular', at: '08:00', halfLifeH: 192, taken: ['2026-09-07'] },
-        { name: 'Anastrozole', cat: 'anc', dose: '0.5 mg', freq: 'eod',
-          route: 'Oral', at: '08:00', since: '2026-08-11', halfLifeH: 46, taken: [] },
-        { name: 'BPC-157', cat: 'sarm', dose: '250 mcg', freq: 'daily',
-          route: 'Subcutaneous', at: '21:00', halfLifeH: 4, taken: [] }
-      ] },
-    { id: 'c2', name: 'Spring cut', status: 'completed',
-      start: '2026-03-02', weeks: 10, endPlanned: '2026-05-11', endActual: '2026-04-27',
-      note: 'Ended two weeks early, shoulder.',
-      comps: [
-        { name: 'Testosterone propionate', cat: 'aas', dose: '100 mg', freq: 'eod',
-          route: 'Intramuscular', at: '07:30', since: '2026-03-02', halfLifeH: 20, taken: [] }
-      ] }
-  ];
+  function rdCycles() {
+    var list = window.LKStore ? (window.LKStore.get('lk_cycles', []) || [])
+                              : ((window.LKFixtures && window.LKFixtures.cycles) || []);
+    /* EVERY COMPOUND KNOWS WHEN IT STARTED. dueOn falls back to the day being
+       asked about when a compound has no `since`, which makes an every-other-
+       day or twice-weekly compound due on whatever day you happen to ask --
+       so it read as due every day, and a streak counted off that schedule
+       counts days the compound was never meant to be taken on. The cycle's
+       own start date is the answer, and it is the same one save-comp already
+       writes for anything added here. */
+    list.forEach(function (c) {
+      (c.comps || []).forEach(function (x) { if (!x.since) x.since = c.start; });
+    });
+    return list;
+  }
+  function wrCycles() {
+    if (window.LKStore) window.LKStore.set('lk_cycles', CYCLES);
+  }
+  var CYCLES = rdCycles();
+
 
   /* ---------------------------------------------------------------
      State
@@ -274,7 +327,12 @@
     if (!m) return null;
     var total = parseFloat(m[1]) * perWeek(comp);
     if (!total) return null;
-    return (Math.round(total * 10) / 10) + ' ' + m[2];
+    /* As precise as the dose it came from. 0.5 mg every other day is 1.75 mg
+       a week, and rounding that to 1.8 quietly reported a dose nobody takes:
+       for an aromatase inhibitor a tenth of a milligram is a real difference.
+       Two decimals, trailing zeroes trimmed. */
+    var out = (Math.round(total * 100) / 100).toFixed(2).replace(/\.?0+$/, '');
+    return out + ' ' + m[2];
   }
 
   function overview(c) {
@@ -331,14 +389,22 @@
       '</div>';
     }
     if (active.length) {
-      var c0 = active[0][0];
-      var due = dueToday(c0), took = takenToday(c0);
+      /* EVERY active cycle, not active[0]. Two cycles running at once -- a
+         blast and a peptide protocol, which is the ordinary case this screen
+         exists for -- showed only the first one's doses under a heading that
+         counted only its own, so half of today was invisible. */
+      var due = [], took = [];
+      active.forEach(function (a0) {
+        dueToday(a0[0]).forEach(function (x) { due.push([x, a0[1]]); });
+        takenToday(a0[0]).forEach(function (x) { took.push(x); });
+      });
       out += head('Today', n(took.length) + ' of ' + n(due.length) + ' taken');
       if (due.length) {
-        out += listCard(due.sort(function (a, b) { return (a.at || '').localeCompare(b.at || ''); })
-          .map(function (x) {
+        out += listCard(due.sort(function (a, b) { return ((a[0].at || '')).localeCompare(b[0].at || ''); })
+          .map(function (pair) {
+            var x = pair[0];
             var isTaken = (x.taken || []).indexOf(TODAY) >= 0;
-            return '<button class="row" type="button" data-action="take" data-c="' + active[0][1] +
+            return '<button class="row" type="button" data-action="take" data-c="' + pair[1] +
               '" data-n="' + esc(x.name) + '" data-testid="take-' + esc(x.name).replace(/\W+/g, '-') + '"' +
               (isTaken ? ' aria-pressed="true"' : '') + '>' +
               '<span class="ico-well">' + (isTaken ? ICO.tick : ICO.dot) + '</span>' +
@@ -359,6 +425,39 @@
       out += listCard(past.map(function (p) { return cycleRow(p[0], p[1]); }));
     }
     return out;
+  }
+
+  /* THE NEXT DAY THIS COMPOUND IS DUE, looked forward rather than asserted.
+     A cycle that has nothing today should say when it does have something,
+     or "not today" is the end of the sentence. */
+  function nextDue(c, comp, from) {
+    var end = c.endActual || c.endPlanned;
+    for (var i = 1; i <= 60; i++) {
+      var d = addDays(from, i);
+      if (d > end) return null;
+      if (dueOn(comp, d)) return d;
+    }
+    return null;
+  }
+  /* Consecutive SCHEDULED days taken, counted back. A compound due twice a
+     week does not lose its streak on the five days it was not due, and today
+     does not break it until today is over: an untaken dose that is still due
+     later today is not a missed one. */
+  function compStreak(c, comp) {
+    var taken = {};
+    (comp.taken || []).forEach(function (d) { taken[d] = 1; });
+    var streak = 0;
+    var start = comp.since || c.start;
+    var d = TODAY;
+    if (dueOn(comp, d) && !taken[d]) d = addDays(d, -1);   /* today is not over */
+    for (var i = 0; i < 400 && d >= start; i++) {
+      if (dueOn(comp, d)) {
+        if (!taken[d]) break;
+        streak++;
+      }
+      d = addDays(d, -1);
+    }
+    return streak;
   }
 
   function viewDetail() {
@@ -384,6 +483,49 @@
         '<button class="btn btn--secondary grow" type="button" data-action="edit" data-testid="edit-cycle">' +
           '<span class="btn__label">Edit</span></button>' +
       '</div>');
+
+    /* TODAY'S DOSES, INSIDE THE CYCLE. They were on the list screen only, so
+       an opened cycle -- the screen showing the thing being run -- could not
+       log a dose against it, and going back to the list to tick something off
+       a cycle you already had open is a trip nobody should make.
+
+       Every compound is here, not only the due ones: "not due today" is an
+       answer, and a screen that silently omits the compound you came looking
+       for reads as a compound that is missing. */
+    if (c.status === 'active') {
+      var dueN = 0, tookN = 0;
+      c.comps.forEach(function (x) {
+        if (dueOn(x, TODAY)) { dueN++; if ((x.taken || []).indexOf(TODAY) >= 0) tookN++; }
+      });
+      out += head('Today', n(tookN) + ' of ' + n(dueN) + ' taken');
+      out += listCard(c.comps.map(function (x, i) {
+        var due = dueOn(x, TODAY);
+        var isTaken = (x.taken || []).indexOf(TODAY) >= 0;
+        var st = compStreak(c, x);
+        var sub = esc(x.dose) + ' · ' + esc(x.at || '') +
+          (st ? ' · ' + st + (st === 1 ? ' dose in a row' : ' doses in a row') : '');
+        if (!due) {
+          var nx = nextDue(c, x, TODAY);
+          return '<div class="row row--static" data-testid="detail-notdue-' + i + '">' +
+            '<span class="ico-well">' + ICO.dot + '</span>' +
+            '<span class="row__main stack">' +
+              '<span class="row__title muted">' + esc(x.name) + '</span>' +
+              '<span class="row__sub">Not due today · ' +
+                (nx ? 'next ' + esc(pretty(nx)) : 'nothing left before the cycle ends') +
+                (st ? ' · ' + st + (st === 1 ? ' dose in a row' : ' doses in a row') : '') +
+              '</span>' +
+            '</span></div>';
+        }
+        return '<button class="row" type="button" data-action="take" data-c="' + S.sel +
+          '" data-n="' + esc(x.name) + '" data-testid="detail-take-' + i + '"' +
+          (isTaken ? ' aria-pressed="true"' : '') + '>' +
+          '<span class="ico-well">' + (isTaken ? ICO.tick : ICO.dot) + '</span>' +
+          '<span class="row__main stack">' +
+            '<span class="row__title">' + esc(x.name) + '</span>' +
+            '<span class="row__sub">' + sub + (isTaken ? ' · taken' : '') + '</span>' +
+          '</span></button>';
+      }));
+    }
 
     out += head('Compounds', n(c.comps.length));
     out += listCard(c.comps.map(function (x, i) {
@@ -497,6 +639,13 @@
         }).join('') + '</div></div>' +
       field('cp-at', 'Time', f.at || '08:00', 'time',
         'Compounds had no time of day at all before, so everything read as due from midnight.') +
+      /* Enterable, because a compound typed in by hand could otherwise never
+         have one -- only the presets carried it -- and without it this screen
+         cannot show a clearance date for that compound at all. Blank is a
+         real answer: no half-life means no clearance line, not a guess. */
+      field('cp-hl', 'Half-life, hours', f.halfLifeH == null ? '' : String(f.halfLifeH), 'number',
+        'Leave it blank if you do not know it. Clearance dates are worked out from this and ' +
+        'are only as good as it is.') +
       '<button class="btn btn--primary btn--block mt-4" type="button" data-action="save-comp" data-testid="save-comp">' +
         '<span class="btn__label">Save</span></button>' +
       (S.compIdx !== null
@@ -531,12 +680,25 @@
                 '" data-testid="preset-' + i + '">' +
               '<span class="row__main stack">' +
                 '<span class="row__title">' + esc(p.name) + '</span>' +
+                /* Hours under two days, days above. "half-life 1 days" was
+                   wrong twice over: a short half-life rounded to a whole
+                   number of days loses the figure entirely, and the plural
+                   was never checked. */
                 '<span class="row__sub">' + esc(p.dose) + ' · ' + esc(FREQ_LABEL[p.freq]) +
-                  ' · half-life ' + n(Math.round(p.halfLifeH / 24 * 10) / 10) + ' days</span>' +
+                  ' · half-life ' + (p.halfLifeH < 48
+                    ? n(Math.round(p.halfLifeH * 10) / 10) + ' h'
+                    : (function () {
+                        var d = Math.round(p.halfLifeH / 24 * 10) / 10;
+                        return n(d) + (d === 1 ? ' day' : ' days');
+                      })()) + '</span>' +
               '</span>' +
               '<span class="badge">' + esc(catName(p.cat)) + '</span></button>';
           }).join('') + '</div>'
         : '<p class="t-body mt-4">Nothing matches “' + esc(S.presetQ) + '”. You can type it in by hand instead.</p>') +
+      '<p class="t-detail muted mt-3" data-testid="preset-count">' + n(list.length) + ' of ' +
+        n(PRESETS.length) + ' compounds. The dose on each row is a common starting figure, not a ' +
+        'recommendation and not a prescription: it fills the form so you can change it. The ' +
+        'half-life is what the clearance dates on a cycle are worked out from.</p>' +
       '<button class="btn btn--secondary btn--block mt-3" type="button" data-action="cancel-presets" data-testid="presets-back">' +
         '<span class="btn__label">Back</span></button>' +
     '</div>';
@@ -650,10 +812,18 @@
 
     if (a === 'back') {
       if (S.view === 'list') { location.href = 'fuel.html'; return; }
-      S.view = S.view === 'presets' ? 'comp' : (S.view === 'list' ? 'list' : 'detail');
+      /* Detail goes back to the LIST. It went back to itself, so the only way
+         out of a cycle was the browser's own back button, which the demo does
+         not give this screen. */
+      S.view = S.view === 'presets' ? 'comp'
+             : (S.view === 'detail' ? 'list' : 'detail');
+      if (S.view === 'list') S.sel = null;
       S.err = null; render({ scrollTop: true }); return;
     }
-    if (a === 'enable') { S.status = 'ready'; S.view = 'list'; render(); toast('Stack tracking is on.'); return; }
+    if (a === 'enable') {
+      setPerfTracking(true);
+      S.status = 'ready'; S.view = 'list'; render(); toast('Stack tracking is on.'); return;
+    }
     if (a === 'open') { S.sel = +t.getAttribute('data-i'); S.ai = null; S.view = 'detail'; render({ scrollTop: true }); return; }
     if (a === 'cancel') { S.view = S.sel === null ? 'list' : 'detail'; S.err = null; render({ scrollTop: true }); return; }
     if (a === 'cancel-presets') { S.view = 'comp'; render({ scrollTop: true }); return; }
@@ -677,12 +847,13 @@
       if (c) {
         /* Status is untouched on purpose. */
         c.name = nm.trim(); c.start = st; c.weeks = wk; c.note = nt.trim();
-        c.endPlanned = addDays(st, wk * 7);
-        toast('Saved.');
+        c.endPlanned = endFrom(st, wk);
+        wrCycles(); toast('Saved.');
       } else {
         CYCLES.unshift({ id: 'c' + Date.now(), name: nm.trim(), status: 'active', start: st,
-          weeks: wk, endPlanned: addDays(st, wk * 7), endActual: null, note: nt.trim(), comps: [] });
+          weeks: wk, endPlanned: endFrom(st, wk), endActual: null, note: nt.trim(), comps: [] });
         S.sel = 0;
+        wrCycles();
         toast('Cycle started.');
       }
       S.err = null; S.view = 'detail'; render({ scrollTop: true }); return;
@@ -692,13 +863,14 @@
       if (S.confirm !== 'end') { arm('end'); render(); return; }
       /* endPlanned is left alone. */
       c.status = 'completed'; c.endActual = TODAY; S.confirm = null;
-      render(); toast('Cycle ended. The planned end date is kept.'); return;
+      wrCycles(); render(); toast('Cycle ended. The planned end date is kept.'); return;
     }
-    if (a === 'reopen') { c.status = 'active'; c.endActual = null; render(); toast('Cycle reopened.'); return; }
+    if (a === 'reopen') { c.status = 'active'; c.endActual = null; wrCycles(); render(); toast('Cycle reopened.'); return; }
     if (a === 'delete') {
       if (S.confirm !== 'del') { arm('del'); render(); return; }
       var gone = CYCLES.splice(S.sel, 1)[0];
       S.sel = null; S.confirm = null; S.view = 'list';
+      wrCycles();
       render({ scrollTop: true }); toast(gone.name + ' deleted.'); return;
     }
 
@@ -710,7 +882,12 @@
     if (a === 'open-comp') {
       S.compIdx = +t.getAttribute('data-i');
       var x = c.comps[S.compIdx];
-      S.form = { name: x.name, dose: x.dose, cat: x.cat, freq: x.freq, route: x.route, at: x.at || '08:00' };
+      /* halfLifeH travels with the form. It did not, so editing a compound --
+         changing its time of day, say -- wrote the record back with no
+         half-life at all, and the clearance date, the overview's tail and
+         every "clears on" line for it silently disappeared. */
+      S.form = { name: x.name, dose: x.dose, cat: x.cat, freq: x.freq, route: x.route,
+                 at: x.at || '08:00', halfLifeH: x.halfLifeH || null };
       S.view = 'comp'; S.err = null; render({ scrollTop: true }); return;
     }
     if (a === 'cp-cat') { S.form.cat = t.getAttribute('data-v'); render(); return; }
@@ -737,11 +914,24 @@
       var ca = (document.getElementById('cp-at') || {}).value || '08:00';
       if (!cn.trim()) { S.err = 'Name the compound.'; render(); return; }
       if (!cd.trim()) { S.err = 'A dose is the point of logging it.'; render(); return; }
+      /* Typed if you typed one, otherwise whatever the compound already had.
+         A compound entered by hand rather than from a preset could never get
+         a half-life at all, so it could never show a clearance date. */
+      var chRaw = (document.getElementById('cp-hl') || {}).value;
+      var ch = chRaw === undefined || chRaw === '' ? null : parseFloat(chRaw);
+      if (ch !== null && (isNaN(ch) || ch <= 0 || ch > 2000)) {
+        S.err = 'A half-life is in hours, between 0 and 2,000. Leave it blank if you do not know it.';
+        render(); return;
+      }
+      var prev = S.compIdx === null ? null : c.comps[S.compIdx];
       var rec = { name: cn.trim(), dose: cd.trim(), cat: S.form.cat, freq: S.form.freq,
-                  route: S.form.route, at: ca, since: c.start,
-                  halfLifeH: S.form.halfLifeH || null, taken: [] };
+                  route: S.form.route, at: ca,
+                  since: prev && prev.since ? prev.since : c.start,
+                  halfLifeH: ch !== null ? ch : (S.form.halfLifeH || (prev && prev.halfLifeH) || null),
+                  taken: [] };
       if (S.compIdx === null) c.comps.push(rec);
       else { rec.taken = c.comps[S.compIdx].taken || []; c.comps[S.compIdx] = rec; }
+      wrCycles();
       S.err = null; S.view = 'detail'; S.compIdx = null;
       render({ scrollTop: true }); toast('Saved.'); return;
     }
@@ -759,8 +949,12 @@
         var comp = tc.comps[j];
         comp.taken = comp.taken || [];
         var at = comp.taken.indexOf(TODAY);
-        if (at >= 0) { comp.taken.splice(at, 1); render(); toast(comp.name + ' un-marked.'); }
-        else { comp.taken.push(TODAY); render(); toast(comp.name + ' logged.'); }
+        /* Written, not just rendered. A dose ticked here is what Home's
+           "compounds due" card counts down, and it was being kept in memory
+           only, so the card said the same dose was still due after a
+           reload. */
+        if (at >= 0) { comp.taken.splice(at, 1); wrCycles(); render(); toast(comp.name + ' un-marked.'); }
+        else { comp.taken.push(TODAY); wrCycles(); render(); toast(comp.name + ' logged.'); }
         return;
       }
       return;
@@ -776,15 +970,32 @@
     if (a === 'read-stack') {
       S.ai = 'thinking'; render();
       setTimeout(function () {
+        /* Built from THIS cycle's own compounds. The line used to be one
+           fixed paragraph that named an aromatase inhibitor at 0.5 mg every
+           other day whatever was actually in the cycle -- advice about a
+           stack the reader is not running, in the voice of the app. */
         var ovx = overview(c);
-        S.ai = 'Twelve weeks with a long ester in it runs longer than twelve weeks. ' +
-          (ovx.tail ? ovx.tail.name + ' is still working ' + ovx.tail.after + ' days after the end date, so ' +
-            'anything planned for the week after the last pin is happening on a full dose. ' : '') +
-          'Bloods are worth pulling at week 6 and again three to four weeks after clearance, ' +
-          'not on the last day of the cycle: lipids and haematocrit move first and both read ' +
-          'high while the ester is still in you. The AI at 0.5 mg every other day is a ' +
-          'starting point rather than a setting \u2014 it is titrated against symptoms and ' +
-          'oestradiol, and running it blind is how people end up crashed.';
+        var anc = c.comps.filter(function (x) { return x.cat === 'anc'; });
+        var half = c.weeks ? Math.max(1, Math.round(c.weeks / 2)) : 6;
+        var bits = [];
+        bits.push(c.weeks + ' weeks with ' + (c.comps.length === 1 ? 'one compound' :
+          c.comps.length + ' compounds') + ' in it.');
+        if (ovx.tail) {
+          bits.push(ovx.tail.name + ' is still working ' + ovx.tail.after + ' days after the end date, ' +
+            'so anything planned for the week after the last dose is happening on a full dose.');
+        } else {
+          bits.push('Nothing here carries past the end date on the half-lives recorded, so the ' +
+            'cycle and its effects end together \u2014 which is only as true as the half-lives you entered.');
+        }
+        bits.push('Bloods are worth pulling at week ' + half + ' and again three to four weeks after ' +
+          'clearance, not on the last day: lipids and haematocrit move first and both read high ' +
+          'while anything long-estered is still in you.');
+        anc.forEach(function (x) {
+          bits.push(x.name + ' at ' + x.dose + ' ' + (FREQ_LABEL[x.freq] || '').toLowerCase() +
+            ' is a starting point rather than a setting \u2014 it is titrated against symptoms and ' +
+            'bloods, and running it blind is how people end up crashed.');
+        });
+        S.ai = bits.join(' ');
         render();
       }, 900);
       return;
@@ -848,9 +1059,34 @@
     });
   }
 
+  /* THE GATE IS THE STORED FLAG. This screen never read it: it opened
+     populated whatever Settings said, so Settings could show "Stack tracking
+     Off" while a URL to this screen showed a full cycle. And its own enable
+     button only changed a local variable, so turning tracking on here left
+     Settings and Fuel's chip still saying off. */
+  function perfTracking() {
+    try { return localStorage.getItem('lk_perfTracking') === 'true'; } catch (e) { return false; }
+  }
+  function setPerfTracking(on) {
+    try { localStorage.setItem('lk_perfTracking', on ? 'true' : 'false'); } catch (e) {}
+  }
+  if (!perfTracking()) S.status = 'gated';
+
   var q = new URLSearchParams(location.search);
   var want = q.get('state');
   if (want === 'gated') S.status = 'gated';
+  /* Toggled in Settings, in another tab or on the way back to this one. */
+  window.addEventListener('storage', function (ev) {
+    if (ev.key !== 'lk_perfTracking') return;
+    S.status = perfTracking() ? 'ready' : 'gated';
+    S.view = 'list';
+    render();
+  });
+  document.addEventListener('lk:enter', function () {
+    var should = perfTracking() ? 'ready' : 'gated';
+    if (S.status === should || S.status === 'loading' || S.status === 'error') return;
+    S.status = should; S.view = 'list'; render();
+  });
   render();
   window.__ready = true;
 })();

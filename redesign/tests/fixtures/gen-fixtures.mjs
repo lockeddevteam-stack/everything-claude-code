@@ -1,0 +1,657 @@
+/* Generates 08-build/fixtures.js from seed-data.json.
+ *
+ *   node redesign/tests/fixtures/gen-fixtures.mjs
+ *
+ * WHY THIS EXISTS. Every screen that shows training history used to carry its
+ * own hand-typed copy of it. Two copies is one copy too many: recap.html was
+ * written with an invented 22-row array and only four of its rows matched the
+ * real data, so Recap reported a September of 5 sessions and 50,203 kg while
+ * Train reported 4 and 25,787 from the same fixture. Nothing caught it,
+ * because every screen agreed with itself.
+ *
+ * So the history, the PRs and the weight log are generated here, once, from
+ * the fixture, and every screen reads window.LKFixtures. A screen can still
+ * choose what to show; it can no longer disagree about what happened.
+ *
+ * Volume and set counts are RECOMPUTED from each session's own set rows
+ * rather than trusted from the stored summary, so a fixture whose summary
+ * drifts from its sets is caught here instead of on screen.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const SEED = path.join(HERE, 'seed-data.json');
+const OUT = path.join(HERE, '..', '..', '08-build', 'fixtures.js');
+
+const seed = JSON.parse(fs.readFileSync(SEED, 'utf8'));
+const raw = JSON.parse(seed.lk_history);
+
+const warn = [];
+const history = raw.map((w) => {
+  const isCardio = /run|walk|bike|erg|row|cycle|swim|hike/i.test(w.name) && !w.exercises?.length;
+  /* WORKING sets, which means warmups are not counted and their load is not
+     in the volume. That is the rule the stored summaries already follow, and
+     counting every done set instead made this generator disagree with all
+     eighteen lifting sessions on its first run -- 17 sets and 14,723 kg
+     against a stored 16 and 14,363. The fixture was right. A warm-up is
+     something you did, not something you lifted. */
+  let sets = 0, vol = 0;
+  for (const ex of w.exercises || []) {
+    for (const st of ex.sets || []) {
+      if (!st.done || st.setType === 'warmup') continue;
+      sets++;
+      const kg = parseFloat(st.w), reps = parseFloat(st.r);
+      if (!isNaN(kg) && !isNaN(reps)) vol += kg * reps;
+    }
+  }
+  vol = Math.round(vol);
+  /* The stored summary is checked, not trusted. */
+  const statedSets = parseInt(w.sets, 10);
+  const statedVol = parseInt(String(w.vol).replace(/[^\d]/g, ''), 10);
+  if (!isCardio && statedSets && statedSets !== sets) warn.push(`${w.dateISO} sets: stored ${statedSets}, computed ${sets}`);
+  if (!isCardio && statedVol && Math.abs(statedVol - vol) > 1) warn.push(`${w.dateISO} vol: stored ${statedVol}, computed ${vol}`);
+
+  const min = parseInt(String(w.dur).replace(/[^\d]/g, ''), 10) ||
+              (w.durationSec ? Math.round(w.durationSec / 60) : 0);
+  const rec = { id: w.id, kind: isCardio ? 'cardio' : 'lift', name: w.name, date: w.dateISO, min };
+  if (isCardio) {
+    /* The seed stores metres and kilocalories under their full names; the
+       screens want km. Reading w.km straight off the record returned
+       undefined for every cardio session and the rows printed "null km". */
+    rec.km = w.distanceM != null ? Math.round(w.distanceM / 100) / 10 : null;
+    /* calories is an object in the seed -- {value, net, gross, range, method,
+       tier, confidence, basis, estimated} -- not a number. Assigning it whole
+       printed "[object Object] kcal" on the Recap cardio row. `value` is the
+       figure the stored records show (Treadmill run = 340), and it is
+       kilocalories, so every screen labels it kcal. */
+    var c = w.calories;
+    rec.cal = c == null ? null : (typeof c === 'object' ? (c.value ?? null) : c);
+    /* Everything else the seed records about the session, so a screen that
+       wants a pace, a split, a heart-rate zone or the machine it was done on
+       has it rather than having to invent one. */
+    rec.calDetail = (c && typeof c === 'object') ? c : null;
+    rec.modality = w.modality || null;
+    rec.cardioType = w.cardioType || null;
+    rec.distanceM = w.distanceM ?? null;
+    rec.durationSec = w.durationSec ?? null;
+    rec.surface = w.surface || null;
+    rec.environment = w.environment || null;
+    rec.machine = w.machine || null;
+    rec.heartRate = w.heartRate || null;
+    rec.intensity = w.intensity || null;
+    rec.metrics = w.metrics || null;
+    rec.fasted = !!w.fasted;
+    rec.favoriteId = w.favoriteId || null;
+    rec.note = w.note || '';
+  } else {
+    rec.sets = sets; rec.kg = vol;
+    /* The exercises, set by set. Without them every history row could only
+       open one hand-written workout-detail: tapping any of the eighteen
+       sessions on Train showed the same "Sat, Sep 5 PPL - Pull" with lifts
+       that appear in no session at all. They also give the workout log the
+       real "last time" weights, and Review the session it is reviewing. */
+    rec.exercises = (w.exercises || []).map(function (ex) {
+      return {
+        id: ex.id, name: ex.name, muscle: ex.muscle,
+        sets: (ex.sets || []).map(function (st) {
+          return {
+            kg: st.w === '' || st.w == null ? null : parseFloat(st.w),
+            reps: st.r === '' || st.r == null ? null : parseFloat(st.r),
+            rir: st.rir === '' || st.rir == null ? null : parseFloat(st.rir),
+            warm: st.setType === 'warmup',
+            done: !!st.done
+          };
+        })
+      };
+    });
+    rec.note = w.note || '';
+    rec.reflection = w.reflection || null;
+  }
+  return rec;
+}).sort((a, b) => (a.date < b.date ? 1 : -1));
+
+/* PRs, flattened to the best set per lift. lk_prs keys on exercise id and
+   holds every qualifying set, so "the PR" is the heaviest of them. */
+const prsRaw = JSON.parse(seed.lk_prs);
+/* Records carry their exercise's name, resolved here from the catalogue, so
+   no screen has to keep its own id-to-name map. Recap's did, and it was
+   missing three of the nine ids in the fixture -- those rows read
+   "Exercise 801". */
+const catalogue = JSON.parse(fs.readFileSync(path.join(HERE, 'exercise-db.json'), 'utf8'));
+const nameOf = new Map(catalogue.map((e) => [e.id, e.name]));
+const groupOf = new Map(catalogue.map((e) => [e.id, e.group || '']));
+const muscleOf = new Map(catalogue.map((e) => [e.id, e.muscle || '']));
+const missing = [];
+/* EVERY stored record row, not the best per lift. Flattening here cost
+   three of the twelve records the seed holds, and Progress carried a
+   hand-typed copy of the full map to get them back -- a second source of
+   truth for the same key, which is how a record could be written on one
+   screen and read as missing on another. Screens that want "the PR" take
+   the heaviest row for the lift. */
+const prs = Object.keys(prsRaw).reduce((acc, id) => {
+  const nm = nameOf.get(Number(id));
+  if (!nm) missing.push(id);
+  prsRaw[id].forEach((r) => {
+    acc.push({ exId: Number(id), name: nm || ('Exercise ' + id),
+               group: groupOf.get(Number(id)) || '', muscle: muscleOf.get(Number(id)) || '',
+               kg: r.w, reps: r.r, date: r.date });
+  });
+  return acc;
+}, []).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.kg - a.kg));
+if (missing.length) warn.push('records name no exercise in the catalogue: ' + missing.join(', '));
+
+/* ---------------------------------------------------------------------
+   Everything else the screens were hand-typing.
+
+   The cross-screen audit found Profile claiming 84 sessions and 413k kg
+   against a fixture holding 22 and 140k, Fuel showing a body weight 22%
+   heavier than Settings and Progress, the split builder running a "PPL v2"
+   that exists in no split, Train counting "46 of 227" exercises against a
+   library of 868, and three different supplement lists. Every one of those
+   was a literal inside one screen. They are derived here instead.
+   --------------------------------------------------------------------- */
+const profileRaw = JSON.parse(seed.lk_profile);
+const splitsRaw = JSON.parse(seed.lk_splits);
+const customEx = JSON.parse(seed.lk_customEx);
+customEx.forEach((e) => nameOf.set(e.id, e.name));
+
+const splits = splitsRaw.map((sp) => ({
+  id: sp.id,
+  name: sp.name,
+  created: sp.created,
+  days: sp.days.map((d) => ({
+    name: d.name,
+    blocks: d.blocks || [],
+    exercises: d.exIds.map((id) => {
+      const nm = nameOf.get(id);
+      if (!nm) missing.push('split ' + sp.name + ' exId ' + id);
+      return { id, name: nm || ('Exercise ' + id),
+               group: groupOf.get(id) || '', muscle: muscleOf.get(id) || '' };
+    })
+  }))
+}));
+
+/* Lifetime totals, every one of them counted rather than stated. */
+const lifts = history.filter((h) => h.kind === 'lift');
+const totals = {
+  sessions: history.length,
+  liftSessions: lifts.length,
+  cardioSessions: history.length - lifts.length,
+  sets: lifts.reduce((a, h) => a + h.sets, 0),
+  volumeKg: lifts.reduce((a, h) => a + h.kg, 0),
+  /* Records, not record-holding lifts: lk_prs holds several per lift. */
+  records: Object.keys(prsRaw).reduce((a, id) => a + prsRaw[id].length, 0),
+  recordLifts: prs.length,
+  cardioMin: history.filter((h) => h.kind === 'cardio').reduce((a, h) => a + h.min, 0)
+};
+
+/* Distinct exercises that appear in a logged session, and the size of the
+   catalogue they are drawn from. Train printed "46 of 227"; neither figure
+   came from anywhere. */
+const loggedIds = new Set();
+for (const w of raw) for (const ex of w.exercises || []) if (ex.id != null) loggedIds.add(Number(ex.id));
+const library = {
+  total: catalogue.length + customEx.length,
+  catalogue: catalogue.length,
+  custom: customEx.length,
+  logged: loggedIds.size
+};
+
+/* CYCLE. The cycle screen carried its own seedProfile with a start date four
+   days off this one, and Home carried a third answer as a hardcoded string,
+   so three surfaces gave three different readings of what day it is. There is
+   one answer and it is here. */
+const mcProfile = JSON.parse(seed.lk_mcProfile);
+const mcDays = JSON.parse(seed.lk_mcDays);
+const mcFuelAdjust = JSON.parse(seed.lk_mcFuelAdjust);
+
+/* CARDIO, in full. The flattened record kept minutes, distance and calories
+   and dropped heartRate, metrics, intensity and machine, so the personal
+   bests, the time-in-zone card and the machine name had no inputs to read
+   even though the seed holds all of them. */
+const cardioPrefs = JSON.parse(seed.lk_cardioPrefs);
+const cardioFavorites = JSON.parse(seed.lk_cardioFavorites);
+
+const supplements = JSON.parse(seed.lk_supplements);
+
+/* What was actually swallowed, by day. The supplements list says what is on
+   the shelf; this says which of them went down on which morning, and without
+   it a streak is a number with nothing behind it.
+
+   Fourteen days ending on TODAY. Creatine is the habit -- missed once, eleven
+   days ago -- and Vitamin D is the one that slips, so the two streaks differ
+   and the screen has something to show rather than two identical rows. */
+const SUPP_LOG_END = '2026-09-09';
+const suppLog = {};
+for (let i = 13; i >= 0; i--) {
+  const iso = new Date(Date.parse(SUPP_LOG_END + 'T00:00:00Z') - i * 86400000)
+    .toISOString().slice(0, 10);
+  const taken = [];
+  if (i !== 11) taken.push('Creatine');
+  if (i % 3 !== 0) taken.push('Vitamin D');
+  if (taken.length) suppLog[iso] = taken;
+}
+/* Today is deliberately not complete: Creatine down, Vitamin D still due, so
+   the Home card has something to ask for and the tick has somewhere to go. */
+suppLog[SUPP_LOG_END] = ['Creatine'];
+const shoppingList = JSON.parse(seed.lk_shoppingList);
+const pantry = JSON.parse(seed.lk_pantryItems);
+const goals = JSON.parse(seed.lk_goals);
+const budget = JSON.parse(seed.lk_budgetData);
+const stores = JSON.parse(seed.lk_myStores);
+const bfLog = JSON.parse(seed.lk_bfLog);
+/* The morning check-ins and the coach's plan. Both keys exist in the seed and
+   neither reached the build: Coach invented its own two-row check-in history
+   with a `motivation` field the key does not carry, and its own plan shape, so
+   the seed's own values crashed both panes. */
+const feedback = JSON.parse(seed.lk_feedback);
+const coachPlan = JSON.parse(seed.lk_coachPlan);
+/* The coach's own two keys. They were in the seed and in no fixture, so
+   coach.html kept private SEED_MEMORY and SEED_INSTRUCTIONS copies -- a
+   second source for a key the store already owns, which is the rule this
+   build keeps breaking. */
+const coachMemory = JSON.parse(seed.lk_coachMemory);
+const coachInstructions = JSON.parse(seed.lk_coachInstructions);
+/* The stored thumbs are 1x1 placeholder JPEGs. The screens draw their own
+   tinted tile instead, so only the date and the note travel. */
+const photos = JSON.parse(seed.lk_progressPhotos).map((p) => ({ date: p.date, note: p.note }));
+const featured = JSON.parse(seed.lk_featuredLifts)
+  .map((id) => ({ id, name: nameOf.get(id) || ('Exercise ' + id) }));
+
+const profile = {
+  name: profileRaw.displayName,
+  username: profileRaw.username,
+  useKg: profileRaw.useKg !== false,
+  age: profileRaw.age,
+  sex: profileRaw.sex,
+  heightCm: profileRaw.heightCm,
+  /* The last weigh-in, not the stale copy on the profile record. They agree
+     in this fixture; if they ever stop, the weigh-in is the measurement. */
+  weightKg: profileRaw.weightKg,
+  goal: profileRaw.goal,
+  coachName: profileRaw.coachName,
+  createdAt: profileRaw.createdAt
+};
+
+const weightLog = JSON.parse(seed.lk_weightLog)
+  .map((x) => ({ date: x.date, kg: x.kg }))
+  .sort((a, b) => (a.date < b.date ? -1 : 1));
+
+/* ---------------------------------------------------------------------
+   NUTRITION. The seed has no food in it -- the shipped app never stored a
+   day's meals in a form worth seeding -- so the fixture is authored here.
+   Authored in ONE place, which is the whole point: Fuel was showing a day
+   of 2,980 kcal and 160 g of protein while Recap showed the same person's
+   day as 2,400 and 170, and Fuel's own macro bars carried 10 g of carbs and
+   14 g of fat belonging to no meal on the list. Nothing below is a total.
+   Every total is added up from the meals, here, once.
+   --------------------------------------------------------------------- */
+/* Each food carries a serving in grams and the four micronutrients a lifter
+   actually reads: fibre, sugar, saturated fat and sodium. The screen showed
+   energy and three macros and nothing else, so a day could hit every macro
+   on 4 g of fibre and 4,800 mg of sodium and the app had no opinion at all.
+
+   `g` is what one serving weighs, which is what makes per-100 g scaling and
+   a grams field possible: a food with no weight cannot be rescaled by weight,
+   only by a vague multiplier. */
+const FOODS = {
+  eggs:     { icon: '\u{1F373}', name: 'Eggs, toast, butter',  kcal: 540, pro: 38, carb: 46, fat: 24,
+              g: 260, fibre: 4,   sugar: 5,  satfat: 9,   sodium: 720 },
+  bowl:     { icon: '\u{1F957}', name: 'Chicken rice bowl',    kcal: 720, pro: 52, carb: 84, fat: 16,
+              g: 450, fibre: 6,   sugar: 8,  satfat: 4,   sodium: 980 },
+  shake:    { icon: '\u{1F964}', name: 'Whey shake, banana',   kcal: 310, pro: 31, carb: 38, fat: 4,
+              g: 400, fibre: 3,   sugar: 24, satfat: 1.5, sodium: 210 },
+  pasta:    { icon: '\u{1F35D}', name: 'Beef mince and pasta', kcal: 810, pro: 48, carb: 92, fat: 26,
+              g: 520, fibre: 7,   sugar: 11, satfat: 10,  sodium: 890 },
+  chilli:   { icon: '\u{1F372}', name: 'Chilli',               kcal: 530, pro: 41, carb: 38, fat: 18,
+              g: 400, fibre: 11,  sugar: 9,  satfat: 6,   sodium: 760 },
+  cnr:      { icon: '\u{1F35A}', name: 'Chicken and rice',     kcal: 690, pro: 61, carb: 74, fat: 13,
+              g: 480, fibre: 3,   sugar: 3,  satfat: 3.5, sodium: 640 },
+  pancakes: { icon: '\u{1F95E}', name: 'Protein pancakes',     kcal: 360, pro: 31, carb: 37, fat: 8,
+              g: 220, fibre: 5,   sugar: 7,  satfat: 2,   sodium: 380 },
+  skyr:     { icon: '\u{1F96B}', name: 'Skyr, plain',          kcal: 96,  pro: 17, carb: 6,  fat: 0.3,
+              g: 170, fibre: 0,   sugar: 6,  satfat: 0.1, sodium: 65 }
+};
+
+/* What somebody types or says when they mean each of these. Typed entry
+   matches on these as well as on the name, because nobody types "Eggs, toast,
+   butter" -- they type "2 eggs and toast". The list is seed data rather than
+   a literal on the screen so one table answers for every path that matches
+   a word to a food. */
+const ALIASES = {
+  eggs:     ['egg', 'eggs', 'toast', 'eggs and toast', 'eggs on toast', 'fry up'],
+  bowl:     ['rice bowl', 'chicken bowl', 'chicken rice bowl', 'burrito bowl', 'bowl'],
+  shake:    ['shake', 'whey', 'protein shake', 'whey shake', 'smoothie'],
+  pasta:    ['pasta', 'spaghetti', 'bolognese', 'mince and pasta', 'beef pasta'],
+  chilli:   ['chilli', 'chili', 'chilli con carne'],
+  cnr:      ['chicken and rice', 'chicken rice', 'chicken n rice'],
+  pancakes: ['pancakes', 'pancake', 'protein pancakes'],
+  skyr:     ['skyr', 'yoghurt', 'yogurt', 'greek yoghurt', 'quark']
+};
+/* Aliases that name a PART of the dish rather than the dish. "2 eggs"
+   matched "eggs" and multiplied the whole 260 g "Eggs, toast, butter" by
+   two: 1,080 kcal and 76 g of protein for two eggs. The table holds one
+   figure per dish and none per egg, so a count in front of one of these
+   cannot be priced. The screen logs one serving and says so, rather than
+   quietly inventing a number. */
+const PART_ALIASES = {
+  eggs:     ['egg', 'eggs', 'toast'],
+  pancakes: ['pancake', 'pancakes'],
+  shake:    ['whey']
+};
+for (const [k, list] of Object.entries(ALIASES)) {
+  if (!FOODS[k]) throw new Error('alias for a food that does not exist: ' + k);
+  FOODS[k].alias = list;
+  const parts = PART_ALIASES[k] || [];
+  for (const a of parts) {
+    if (!list.includes(a)) throw new Error(`${k}: "${a}" is named a part but is not one of its aliases`);
+  }
+  FOODS[k].parts = parts;
+}
+for (const k of Object.keys(FOODS)) {
+  if (!FOODS[k].alias) throw new Error(k + ' has no aliases, so nothing typed can match it');
+}
+
+/* What a unit weighs, for turning "2 tbsp olive oil" or "200 g rice" into
+   grams. A parser without this can only count servings, which is why free
+   text used to be a transcript nobody could act on. `serving` resolves to
+   the food's own serving weight rather than a fixed number. */
+const UNIT_G = {
+  g: 1, gram: 1, grams: 1, kg: 1000, kilo: 1000, kilos: 1000,
+  ml: 1, l: 1000, litre: 1000, litres: 1000,
+  oz: 28.35, lb: 453.6,
+  tbsp: 15, tablespoon: 15, tablespoons: 15,
+  tsp: 5, teaspoon: 5, teaspoons: 5,
+  cup: 240, cups: 240,
+  scoop: 30, scoops: 30,
+  slice: 35, slices: 35,
+  serving: 0, servings: 0, plate: 0, plates: 0, portion: 0, portions: 0
+};
+
+/* The barcodes this build can resolve. Three, and that is the honest number:
+   a barcode is a lookup into a database of millions and this app carries a
+   table of eight, so the scan sheet has to be able to say "not found" and
+   mean it. Packaged things only -- a plate of eggs and toast has no barcode,
+   and giving it one would be the same lie the Verified badge used to tell. */
+const BARCODES = {
+  '5060123456789': 'skyr',
+  '5012345678900': 'shake',
+  '5000112345678': 'pancakes'
+};
+for (const [code, k] of Object.entries(BARCODES)) {
+  if (!FOODS[k]) throw new Error('barcode for a food that does not exist: ' + k);
+  if (!/^[0-9]{8,14}$/.test(code)) throw new Error('not a barcode: ' + code);
+  FOODS[k].barcode = code;
+}
+
+/* Every food has to carry all of it, or a screen reading a micronutrient
+   gets undefined and prints NaN. */
+for (const [k, f] of Object.entries(FOODS)) {
+  for (const field of ['g', 'fibre', 'sugar', 'satfat', 'sodium']) {
+    if (typeof f[field] !== 'number') throw new Error(k + ' has no ' + field);
+  }
+}
+
+/* Daily reference figures, so a micronutrient panel can say "of what".
+   Fibre and sodium are the UK reference intakes; sugar and saturated fat are
+   the reference maximums, which is why they read as ceilings on screen. */
+const MICRO_REF = { fibre: 30, sugar: 90, satfat: 20, sodium: 2400 };
+
+const TARGETS = { kcal: 2980, pro: 160, carb: 380, fat: 80, waterMl: 3000 };
+
+/* src is the provenance of the figures, and it is the only thing that earns
+   a Verified badge: 'verified' means a barcode matched a database row,
+   'estimate' means a model read a photo, 'recipe' means your own recipe,
+   'repeat' means a meal you logged before, logged again, and 'table' means a
+   row picked out of the built-in food table. Re-logging used to stamp
+   'verified' on a home-cooked meal and tell the reader a barcode had read it,
+   and so did every search result. Eggs, toast and butter is a plate somebody
+   assembled; it carries no barcode, so it is 'table'. */
+const DAY_LOG = {
+  '2026-09-09': { water: 1750, supps: [true, true], meals: [
+    ['eggs', '8:05', 'table', 'breakfast'], ['bowl', '12:40', 'estimate', 'lunch'],
+    ['shake', '3:15', 'verified', 'snack'] ] },
+  '2026-09-08': { water: 3100, supps: [true, true], meals: [
+    ['eggs', '8:10', 'table', 'breakfast'], ['cnr', '12:30', 'recipe', 'lunch'],
+    ['pasta', '7:20', 'estimate', 'dinner'], ['shake', '4:05', 'verified', 'snack'],
+    ['pancakes', '9:30', 'recipe', 'snack'] ] },
+  '2026-09-07': { water: 2900, supps: [true, false], meals: [
+    ['eggs', '8:00', 'table', 'breakfast'], ['bowl', '12:45', 'estimate', 'lunch'],
+    ['chilli', '7:15', 'recipe', 'dinner'], ['shake', '3:40', 'verified', 'snack'],
+    ['pancakes', '9:45', 'recipe', 'snack'], ['skyr', '10:30', 'verified', 'snack'] ] },
+  '2026-09-06': { water: 2600, supps: [false, false], meals: [
+    ['eggs', '9:20', 'table', 'breakfast'], ['cnr', '1:10', 'recipe', 'lunch'],
+    ['chilli', '7:00', 'recipe', 'dinner'], ['shake', '4:30', 'verified', 'snack'] ] }
+};
+
+const round1 = (x) => Math.round(x * 10) / 10;
+const nutritionDays = {};
+for (const iso of Object.keys(DAY_LOG)) {
+  const d = DAY_LOG[iso];
+  const meals = d.meals.map(([k, at, src, slot]) => {
+    const f = FOODS[k];
+    if (!f) throw new Error('no food named ' + k);
+    if (!['breakfast', 'lunch', 'dinner', 'snack'].includes(slot)) {
+      throw new Error('no slot on ' + k + ' at ' + at);
+    }
+    return { key: k, icon: f.icon, name: f.name, at, src, slot,
+             kcal: f.kcal, pro: f.pro, carb: f.carb, fat: f.fat,
+             fibre: f.fibre, sugar: f.sugar, satfat: f.satfat, sodium: f.sodium };
+  });
+  nutritionDays[iso] = {
+    date: iso,
+    meals,
+    eaten: meals.reduce((a, m) => a + m.kcal, 0),
+    pro: round1(meals.reduce((a, m) => a + m.pro, 0)),
+    carb: round1(meals.reduce((a, m) => a + m.carb, 0)),
+    fat: round1(meals.reduce((a, m) => a + m.fat, 0)),
+    waterMl: d.water,
+    supps: supplements.map((sp, i) => ({ name: sp.name, dose: sp.dose, when: sp.timeOf, taken: !!d.supps[i] }))
+  };
+}
+
+/* Thirty days of intake, so the Trends sheet's 7, 14 and 30 day ranges are
+   all real slices of one series rather than three separate numbers. The last
+   four are the days above, added up, not typed again: a trend that disagrees
+   with the day it ends on is the same defect one screen further out.
+
+   The series carries dates, because a chart that cannot say which day a point
+   belongs to cannot put today's live total on the end of it. */
+const trendHead = [
+  2740, 3105, 2880, 2650, 3210, 2795, 2960, 2830, 3060, 2710,
+  2905, 3140, 2760, 2680, 3020, 2870,
+  2870, 3040, 2790, 3180, 2900, 2680, 2985, 2740, 3120, 2610
+];
+const TREND_END = '2026-09-09';
+const trendDates = [];
+for (let i = 29; i >= 0; i--) {
+  const d = new Date(Date.parse(TREND_END + 'T00:00:00Z') - i * 86400000);
+  trendDates.push(d.toISOString().slice(0, 10));
+}
+const trendTail = ['2026-09-06', '2026-09-07', '2026-09-08', '2026-09-09'].map((iso) => nutritionDays[iso].eaten);
+const trendValues = trendHead.concat(trendTail);
+if (trendValues.length !== 30) throw new Error('trend is ' + trendValues.length + ' days, want 30');
+/* Performance cycles. This lived as a literal inside stack.html while Home's
+   "compounds due" card read lk_cycles, so the card had nothing to read and
+   never rendered: two screens, one of them holding the data privately. It is
+   seed data now, and both read the same key.
+
+   endPlanned and endActual are separate fields on purpose. The shipped app
+   had one, so ending a cycle early overwrote the plan with the date you
+   ended it and the schedule the cycle had been measured against disappeared. */
+const cycles = [
+    { id: 'c1', name: 'Autumn block', status: 'active',
+      start: '2026-08-11', weeks: 12, endPlanned: '2026-11-02', endActual: null,
+      note: 'Bloods booked for week 6.',
+      comps: [
+        { name: 'Testosterone enanthate', cat: 'aas', dose: '250 mg', freq: 'twice-weekly',
+          route: 'Intramuscular', at: '08:00', halfLifeH: 192, taken: ['2026-09-07'] },
+        { name: 'Anastrozole', cat: 'anc', dose: '0.5 mg', freq: 'eod',
+          route: 'Oral', at: '08:00', since: '2026-08-11', halfLifeH: 46, taken: [] },
+        { name: 'BPC-157', cat: 'sarm', dose: '250 mcg', freq: 'daily',
+          route: 'Subcutaneous', at: '21:00', halfLifeH: 4, taken: [] }
+      ] },
+    { id: 'c2', name: 'Spring cut', status: 'completed',
+      start: '2026-03-02', weeks: 10, endPlanned: '2026-05-11', endActual: '2026-04-27',
+      note: 'Ended two weeks early, shoulder.',
+      comps: [
+        { name: 'Testosterone propionate', cat: 'aas', dose: '100 mg', freq: 'eod',
+          route: 'Intramuscular', at: '07:30', since: '2026-03-02', halfLifeH: 20, taken: [] }
+      ] }
+  ];
+
+const nutrition = {
+  targets: TARGETS,
+  microRef: MICRO_REF,
+  unitG: UNIT_G,
+  barcodes: BARCODES,
+  foods: FOODS,
+  days: nutritionDays,
+  /* Kept for anything still reading a bare array of the last fourteen. */
+  trend: trendValues.slice(-14),
+  trendSeries: trendDates.map((date, i) => ({ date, kcal: trendValues[i] }))
+};
+
+if (profile.weightKg !== weightLog[weightLog.length - 1].kg) {
+  warn.push(`profile weight ${profile.weightKg} kg is not the last weigh-in ${weightLog[weightLog.length - 1].kg} kg`);
+}
+
+const body = `/* GENERATED — do not edit.
+   Written by tests/fixtures/gen-fixtures.mjs from tests/fixtures/seed-data.json.
+   Regenerate with:  node redesign/tests/fixtures/gen-fixtures.mjs
+
+   One copy of the training history, the records and the weight log, read by
+   every screen that shows them. Screens used to hand-type their own, and two
+   of them disagreed about what the same month contained.
+
+   Volume and set counts here are recomputed from each session's own set rows
+   rather than copied from its stored summary. */
+(function (g) {
+  'use strict';
+  g.LKFixtures = {
+    today: '2026-09-09',
+    history: ${JSON.stringify(history, null, 6).replace(/\n/g, '\n    ')},
+    prs: ${JSON.stringify(prs, null, 6).replace(/\n/g, '\n    ')},
+    weightLog: ${JSON.stringify(weightLog, null, 6).replace(/\n/g, '\n    ')},
+    bfLog: ${JSON.stringify(bfLog, null, 6).replace(/\n/g, '\n    ')},
+    profile: ${JSON.stringify(profile, null, 6).replace(/\n/g, '\n    ')},
+    totals: ${JSON.stringify(totals, null, 6).replace(/\n/g, '\n    ')},
+    library: ${JSON.stringify(library, null, 6).replace(/\n/g, '\n    ')},
+    splits: ${JSON.stringify(splits, null, 6).replace(/\n/g, '\n    ')},
+    featured: ${JSON.stringify(featured, null, 6).replace(/\n/g, '\n    ')},
+    goals: ${JSON.stringify(goals, null, 6).replace(/\n/g, '\n    ')},
+    photos: ${JSON.stringify(photos, null, 6).replace(/\n/g, '\n    ')},
+    supplements: ${JSON.stringify(supplements, null, 6).replace(/\n/g, '\n    ')},
+    shoppingList: ${JSON.stringify(shoppingList, null, 6).replace(/\n/g, '\n    ')},
+    pantry: ${JSON.stringify(pantry, null, 6).replace(/\n/g, '\n    ')},
+    budget: ${JSON.stringify(budget, null, 6).replace(/\n/g, '\n    ')},
+    stores: ${JSON.stringify(stores, null, 6).replace(/\n/g, '\n    ')},
+    customEx: ${JSON.stringify(customEx, null, 6).replace(/\n/g, '\n    ')},
+    nutrition: ${JSON.stringify(nutrition, null, 6).replace(/\n/g, '\n    ')},
+    mcProfile: ${JSON.stringify(mcProfile, null, 6).replace(/\n/g, '\n    ')},
+    mcDays: ${JSON.stringify(mcDays, null, 6).replace(/\n/g, '\n    ')},
+    mcFuelAdjust: ${JSON.stringify(mcFuelAdjust)},
+    cardioPrefs: ${JSON.stringify(cardioPrefs, null, 6).replace(/\n/g, '\n    ')},
+    cardioFavorites: ${JSON.stringify(cardioFavorites, null, 6).replace(/\n/g, '\n    ')},
+    cycles: ${JSON.stringify(cycles, null, 6).replace(/\n/g, '\n    ')},
+    suppLog: ${JSON.stringify(suppLog, null, 6).replace(/\n/g, '\n    ')},
+    feedback: ${JSON.stringify(feedback, null, 6).replace(/\n/g, '\n    ')},
+    coachPlan: ${JSON.stringify(coachPlan, null, 6).replace(/\n/g, '\n    ')},
+    coachMemory: ${JSON.stringify(coachMemory, null, 6).replace(/\n/g, '\n    ')},
+    coachInstructions: ${JSON.stringify(coachInstructions)},
+
+    /* Every session on a date, newest first. */
+    on: function (iso) {
+      return g.LKFixtures.history.filter(function (h) { return h.date === iso; });
+    },
+    /* Inclusive both ends. */
+    between: function (a, b) {
+      return g.LKFixtures.history.filter(function (h) { return h.date >= a && h.date <= b; });
+    },
+    /* One session by id, which is what a history row hands on. */
+    session: function (id) {
+      var h = g.LKFixtures.history;
+      for (var i = 0; i < h.length; i++) { if (h[i].id === id) return h[i]; }
+      return null;
+    },
+    /* The most recent session, older than the date given, that contains this lift, and
+       that lift's rows inside it. This is what "last time" means, and it is
+       the only honest source for it. */
+    lastTime: function (exId, before) {
+      var h = g.LKFixtures.history;
+      for (var i = 0; i < h.length; i++) {
+        var w = h[i];
+        if (w.kind !== 'lift') continue;
+        if (before && w.date >= before) continue;
+        for (var j = 0; j < w.exercises.length; j++) {
+          if (w.exercises[j].id === exId) return { date: w.date, exercise: w.exercises[j] };
+        }
+      }
+      return null;
+    },
+    /* The cycle, worked out rather than stated. Every screen that shows a day
+       number, a phase or a next-period date asks here, so they cannot drift.
+       The date argument defaults to today. */
+    cycleOn: function (iso) {
+      var p = g.LKFixtures.mcProfile;
+      if (!p || !p.lastStart) return null;
+      iso = iso || g.LKFixtures.today;
+      var ms = function (s) { var a = s.split('-'); return Date.UTC(+a[0], +a[1] - 1, +a[2]); };
+      var day = Math.round((ms(iso) - ms(p.lastStart)) / 86400000);
+      var len = p.cycleLen || 28, per = p.periodLen || 5;
+      /* Days past the end of a cycle are NOT wrapped. The screen used to take
+         the day count modulo the cycle length, so a period ten days late read
+         "Day 11" and an overdue state could never be reached. */
+      var overdue = day >= len ? day - len + 1 : 0;
+      var inCycle = day < 0 ? null : (overdue ? day + 1 : (day % len) + 1);
+      var phase = inCycle === null ? null
+        : inCycle <= per ? 'menstrual'
+        : inCycle <= Math.round(len / 2) - 2 ? 'follicular'
+        : inCycle <= Math.round(len / 2) + 1 ? 'ovulatory'
+        : 'luteal';
+      var nextMs = ms(p.lastStart) + len * 86400000;
+      var next = new Date(nextMs).toISOString().slice(0, 10);
+      return {
+        day: inCycle,
+        phase: overdue ? 'late' : phase,
+        overdue: overdue,
+        cycleLen: len,
+        periodLen: per,
+        irregular: !!p.irregular,
+        nextStart: next,
+        daysToNext: Math.round((nextMs - ms(iso)) / 86400000)
+      };
+    },
+
+    /* Working volume and top set of one lift inside one session. */
+    liftStats: function (ex) {
+      var vol = 0, top = null;
+      ex.sets.forEach(function (st) {
+        if (!st.done || st.warm || st.kg == null || st.reps == null) return;
+        vol += st.kg * st.reps;
+        if (!top || st.kg > top[0] || (st.kg === top[0] && st.reps > top[1])) top = [st.kg, st.reps];
+      });
+      return { vol: Math.round(vol), top: top };
+    }
+  };
+})(typeof window !== 'undefined' ? window : this);
+`;
+fs.writeFileSync(OUT, body);
+
+console.log(`wrote ${OUT}`);
+console.log(`  ${history.length} sessions (${history.filter(h => h.kind === 'lift').length} lifting, ${history.filter(h => h.kind === 'cardio').length} cardio)`);
+console.log(`  ${prs.length} record lifts (${totals.records} records), ${weightLog.length} weigh-ins`);
+console.log(`  ${totals.sets} working sets, ${totals.volumeKg.toLocaleString('en-GB')} kg lifted`);
+console.log(`  ${library.logged} of ${library.total} library exercises logged, ${splits.length} splits`);
+Object.keys(nutritionDays).sort().reverse().forEach((iso) => {
+  const d = nutritionDays[iso];
+  console.log(`  ${iso}: ${d.meals.length} meals, ${d.eaten} kcal, ${d.pro}P ${d.carb}C ${d.fat}F`);
+});
+if (warn.length) {
+  console.log('\nthe fixture disagrees with itself:');
+  warn.forEach((w) => console.log('  ' + w));
+  process.exit(1);
+}
+console.log('  every stored summary matches its own set rows');

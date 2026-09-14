@@ -1,0 +1,5241 @@
+/* GENERATED — do not edit.
+   Written by tests/fixtures/gen-fixtures.mjs from tests/fixtures/seed-data.json.
+   Regenerate with:  node redesign/tests/fixtures/gen-fixtures.mjs
+
+   One copy of the training history, the records and the weight log, read by
+   every screen that shows them. Screens used to hand-type their own, and two
+   of them disagreed about what the same month contained.
+
+   Volume and set counts here are recomputed from each session's own set rows
+   rather than copied from its stored summary. */
+(function (g) {
+  'use strict';
+  g.LKFixtures = {
+    today: '2026-09-09',
+    history: [
+          {
+                "id": "w_1788804300000",
+                "kind": "lift",
+                "name": "PPL - Legs",
+                "date": "2026-09-07",
+                "min": 52,
+                "sets": 16,
+                "kg": 14363,
+                "exercises": [
+                      {
+                            "id": 701,
+                            "name": "Barbell Squat",
+                            "muscle": "Quads",
+                            "sets": [
+                                  {
+                                        "kg": 45,
+                                        "reps": 8,
+                                        "rir": 5,
+                                        "warm": true,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 87.5,
+                                        "reps": 8,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 87.5,
+                                        "reps": 7,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 87.5,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 82.5,
+                                        "reps": 5,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 801,
+                            "name": "Romanian Deadlift",
+                            "muscle": "Hamstrings",
+                            "sets": [
+                                  {
+                                        "kg": 77.5,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 77.5,
+                                        "reps": 8,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 77.5,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 703,
+                            "name": "Leg Press",
+                            "muscle": "Quads",
+                            "sets": [
+                                  {
+                                        "kg": 165,
+                                        "reps": 12,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 165,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 165,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 802,
+                            "name": "Lying Leg Curl",
+                            "muscle": "Hamstrings",
+                            "sets": [
+                                  {
+                                        "kg": 52.5,
+                                        "reps": 12,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 52.5,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 52.5,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 1101,
+                            "name": "Standing Calf Raise",
+                            "muscle": "Calves",
+                            "sets": [
+                                  {
+                                        "kg": 72.5,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 72.5,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 72.5,
+                                        "reps": 13,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      }
+                ],
+                "note": "Squats felt fast. Left knee fine.",
+                "reflection": {
+                      "energy": 4,
+                      "focus": 4,
+                      "pump": 3,
+                      "difficulty": 3,
+                      "enjoyment": 4
+                }
+          },
+          {
+                "id": "w_1788678900000",
+                "kind": "cardio",
+                "name": "Treadmill run",
+                "date": "2026-09-06",
+                "min": 30,
+                "km": 5.2,
+                "cal": 340,
+                "calDetail": {
+                      "value": 340,
+                      "net": 304,
+                      "gross": 340,
+                      "range": [
+                            300,
+                            380
+                      ],
+                      "method": "met-lookup",
+                      "tier": 4,
+                      "confidence": "medium",
+                      "basis": "net",
+                      "estimated": true
+                },
+                "modality": "treadmill_run",
+                "cardioType": "run",
+                "distanceM": 5200,
+                "durationSec": 1800,
+                "surface": "machine",
+                "environment": "indoor",
+                "machine": {
+                      "category": "treadmill",
+                      "brand": null,
+                      "model": null
+                },
+                "heartRate": {
+                      "avg": 152
+                },
+                "intensity": {
+                      "rpe": 6,
+                      "estMET": 10.3,
+                      "talkTest": null
+                },
+                "metrics": {
+                      "avgHr": "152",
+                      "rpe": "6"
+                },
+                "fasted": false,
+                "favoriteId": null,
+                "note": ""
+          },
+          {
+                "id": "w_1788631500000",
+                "kind": "lift",
+                "name": "PPL - Pull",
+                "date": "2026-09-05",
+                "min": 51,
+                "sets": 16,
+                "kg": 7158,
+                "exercises": [
+                      {
+                            "id": 221,
+                            "name": "Barbell Deadlift",
+                            "muscle": "Lower Back",
+                            "sets": [
+                                  {
+                                        "kg": 57.5,
+                                        "reps": 8,
+                                        "rir": 5,
+                                        "warm": true,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 115,
+                                        "reps": 5,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 115,
+                                        "reps": 5,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 115,
+                                        "reps": 4,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 105,
+                                        "reps": 4,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 202,
+                            "name": "Lat Pulldown",
+                            "muscle": "Lats",
+                            "sets": [
+                                  {
+                                        "kg": 62.5,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 62.5,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 62.5,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 213,
+                            "name": "Seated Cable Row",
+                            "muscle": "Mid Back",
+                            "sets": [
+                                  {
+                                        "kg": 57.5,
+                                        "reps": 12,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 57.5,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 57.5,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 321,
+                            "name": "Face Pull",
+                            "muscle": "Rear Delt",
+                            "sets": [
+                                  {
+                                        "kg": 20,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 20,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 20,
+                                        "reps": 13,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 503,
+                            "name": "Barbell Curl",
+                            "muscle": "Long Head",
+                            "sets": [
+                                  {
+                                        "kg": 30,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 30,
+                                        "reps": 8,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 30,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      }
+                ],
+                "note": "",
+                "reflection": null
+          },
+          {
+                "id": "w_1788458700000",
+                "kind": "lift",
+                "name": "PPL - Push",
+                "date": "2026-09-03",
+                "min": 55,
+                "sets": 16,
+                "kg": 4266,
+                "exercises": [
+                      {
+                            "id": 111,
+                            "name": "Barbell Bench Press",
+                            "muscle": "Mid Chest",
+                            "sets": [
+                                  {
+                                        "kg": 37.5,
+                                        "reps": 8,
+                                        "rir": 5,
+                                        "warm": true,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 72.5,
+                                        "reps": 8,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 72.5,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 72.5,
+                                        "reps": 5,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 67.5,
+                                        "reps": 5,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 302,
+                            "name": "DB Shoulder Press",
+                            "muscle": "Front Delt",
+                            "sets": [
+                                  {
+                                        "kg": 25,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 25,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 25,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 103,
+                            "name": "Incline Cable Fly",
+                            "muscle": "Upper Chest",
+                            "sets": [
+                                  {
+                                        "kg": 15,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 15,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 15,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 311,
+                            "name": "Lateral Raise",
+                            "muscle": "Side Delt",
+                            "sets": [
+                                  {
+                                        "kg": 10.5,
+                                        "reps": 15,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 10.5,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 10.5,
+                                        "reps": 12,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 411,
+                            "name": "Tricep Pushdown",
+                            "muscle": "Lateral Head",
+                            "sets": [
+                                  {
+                                        "kg": 30,
+                                        "reps": 12,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 30,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 30,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      }
+                ],
+                "note": "",
+                "reflection": null
+          },
+          {
+                "id": "w_1788199500000",
+                "kind": "lift",
+                "name": "PPL - Legs",
+                "date": "2026-08-31",
+                "min": 55,
+                "sets": 16,
+                "kg": 13700,
+                "exercises": [
+                      {
+                            "id": 701,
+                            "name": "Barbell Squat",
+                            "muscle": "Quads",
+                            "sets": [
+                                  {
+                                        "kg": 42.5,
+                                        "reps": 8,
+                                        "rir": 5,
+                                        "warm": true,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 85,
+                                        "reps": 7,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 85,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 85,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 80,
+                                        "reps": 5,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 801,
+                            "name": "Romanian Deadlift",
+                            "muscle": "Hamstrings",
+                            "sets": [
+                                  {
+                                        "kg": 75,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 75,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 75,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 703,
+                            "name": "Leg Press",
+                            "muscle": "Quads",
+                            "sets": [
+                                  {
+                                        "kg": 160,
+                                        "reps": 12,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 160,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 160,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 802,
+                            "name": "Lying Leg Curl",
+                            "muscle": "Hamstrings",
+                            "sets": [
+                                  {
+                                        "kg": 50,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 50,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 50,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 1101,
+                            "name": "Standing Calf Raise",
+                            "muscle": "Calves",
+                            "sets": [
+                                  {
+                                        "kg": 70,
+                                        "reps": 15,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 70,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 70,
+                                        "reps": 13,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      }
+                ],
+                "note": "",
+                "reflection": null
+          },
+          {
+                "id": "w_1788074100000",
+                "kind": "cardio",
+                "name": "Rowing erg",
+                "date": "2026-08-30",
+                "min": 20,
+                "km": 4.6,
+                "cal": 230,
+                "calDetail": {
+                      "value": 230,
+                      "net": 206,
+                      "gross": 230,
+                      "range": [
+                            190,
+                            270
+                      ],
+                      "method": "met-lookup",
+                      "tier": 4,
+                      "confidence": "medium",
+                      "basis": "net",
+                      "estimated": true
+                },
+                "modality": "row",
+                "cardioType": "row",
+                "distanceM": 4600,
+                "durationSec": 1200,
+                "surface": "machine",
+                "environment": "indoor",
+                "machine": {
+                      "category": "rower",
+                      "brand": "Concept2",
+                      "model": null
+                },
+                "heartRate": {
+                      "avg": 148
+                },
+                "intensity": {
+                      "rpe": 7,
+                      "estMET": 10.5,
+                      "talkTest": null
+                },
+                "metrics": {
+                      "avgHr": "148",
+                      "rpe": "7"
+                },
+                "fasted": false,
+                "favoriteId": null,
+                "note": ""
+          },
+          {
+                "id": "w_1788026700000",
+                "kind": "lift",
+                "name": "PPL - Pull",
+                "date": "2026-08-29",
+                "min": 57,
+                "sets": 16,
+                "kg": 6913,
+                "exercises": [
+                      {
+                            "id": 221,
+                            "name": "Barbell Deadlift",
+                            "muscle": "Lower Back",
+                            "sets": [
+                                  {
+                                        "kg": 55,
+                                        "reps": 8,
+                                        "rir": 5,
+                                        "warm": true,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 110,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 110,
+                                        "reps": 5,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 110,
+                                        "reps": 4,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 100,
+                                        "reps": 4,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 202,
+                            "name": "Lat Pulldown",
+                            "muscle": "Lats",
+                            "sets": [
+                                  {
+                                        "kg": 60,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 60,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 60,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 213,
+                            "name": "Seated Cable Row",
+                            "muscle": "Mid Back",
+                            "sets": [
+                                  {
+                                        "kg": 55,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 55,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 55,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 321,
+                            "name": "Face Pull",
+                            "muscle": "Rear Delt",
+                            "sets": [
+                                  {
+                                        "kg": 19,
+                                        "reps": 15,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 19,
+                                        "reps": 13,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 19,
+                                        "reps": 12,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 503,
+                            "name": "Barbell Curl",
+                            "muscle": "Long Head",
+                            "sets": [
+                                  {
+                                        "kg": 29,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 29,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 29,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      }
+                ],
+                "note": "",
+                "reflection": {
+                      "energy": 4,
+                      "focus": 4,
+                      "pump": 3,
+                      "difficulty": 3,
+                      "enjoyment": 4
+                }
+          },
+          {
+                "id": "w_1787853900000",
+                "kind": "lift",
+                "name": "PPL - Push",
+                "date": "2026-08-27",
+                "min": 57,
+                "sets": 16,
+                "kg": 4076,
+                "exercises": [
+                      {
+                            "id": 111,
+                            "name": "Barbell Bench Press",
+                            "muscle": "Mid Chest",
+                            "sets": [
+                                  {
+                                        "kg": 35,
+                                        "reps": 8,
+                                        "rir": 5,
+                                        "warm": true,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 70,
+                                        "reps": 7,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 70,
+                                        "reps": 7,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 70,
+                                        "reps": 5,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 65,
+                                        "reps": 5,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 302,
+                            "name": "DB Shoulder Press",
+                            "muscle": "Front Delt",
+                            "sets": [
+                                  {
+                                        "kg": 24,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 24,
+                                        "reps": 8,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 24,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 103,
+                            "name": "Incline Cable Fly",
+                            "muscle": "Upper Chest",
+                            "sets": [
+                                  {
+                                        "kg": 14.5,
+                                        "reps": 12,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 14.5,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 14.5,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 311,
+                            "name": "Lateral Raise",
+                            "muscle": "Side Delt",
+                            "sets": [
+                                  {
+                                        "kg": 10,
+                                        "reps": 15,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 10,
+                                        "reps": 13,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 10,
+                                        "reps": 12,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 411,
+                            "name": "Tricep Pushdown",
+                            "muscle": "Lateral Head",
+                            "sets": [
+                                  {
+                                        "kg": 29,
+                                        "reps": 12,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 29,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 29,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      }
+                ],
+                "note": "Deload on pulldown, shoulder tight.",
+                "reflection": null
+          },
+          {
+                "id": "w_1787594700000",
+                "kind": "lift",
+                "name": "PPL - Legs",
+                "date": "2026-08-24",
+                "min": 54,
+                "sets": 16,
+                "kg": 13363,
+                "exercises": [
+                      {
+                            "id": 701,
+                            "name": "Barbell Squat",
+                            "muscle": "Quads",
+                            "sets": [
+                                  {
+                                        "kg": 42.5,
+                                        "reps": 8,
+                                        "rir": 5,
+                                        "warm": true,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 82.5,
+                                        "reps": 7,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 82.5,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 82.5,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 77.5,
+                                        "reps": 5,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 801,
+                            "name": "Romanian Deadlift",
+                            "muscle": "Hamstrings",
+                            "sets": [
+                                  {
+                                        "kg": 72.5,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 72.5,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 72.5,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 703,
+                            "name": "Leg Press",
+                            "muscle": "Quads",
+                            "sets": [
+                                  {
+                                        "kg": 155,
+                                        "reps": 12,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 155,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 155,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 802,
+                            "name": "Lying Leg Curl",
+                            "muscle": "Hamstrings",
+                            "sets": [
+                                  {
+                                        "kg": 47.5,
+                                        "reps": 12,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 47.5,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 47.5,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 1101,
+                            "name": "Standing Calf Raise",
+                            "muscle": "Calves",
+                            "sets": [
+                                  {
+                                        "kg": 67.5,
+                                        "reps": 15,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 67.5,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 67.5,
+                                        "reps": 12,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      }
+                ],
+                "note": "",
+                "reflection": null
+          },
+          {
+                "id": "w_1787469300000",
+                "kind": "cardio",
+                "name": "Walking",
+                "date": "2026-08-23",
+                "min": 45,
+                "km": 4,
+                "cal": 210,
+                "calDetail": {
+                      "value": 210,
+                      "net": 156,
+                      "gross": 210,
+                      "range": [
+                            170,
+                            250
+                      ],
+                      "method": "met-lookup",
+                      "tier": 4,
+                      "confidence": "medium",
+                      "basis": "net",
+                      "estimated": true
+                },
+                "modality": "walk",
+                "cardioType": "walk",
+                "distanceM": 4000,
+                "durationSec": 2700,
+                "surface": "road",
+                "environment": "outdoor",
+                "machine": null,
+                "heartRate": {
+                      "avg": 112
+                },
+                "intensity": {
+                      "rpe": 3,
+                      "estMET": 4.2,
+                      "talkTest": null
+                },
+                "metrics": {
+                      "avgHr": "112",
+                      "rpe": "3"
+                },
+                "fasted": false,
+                "favoriteId": null,
+                "note": ""
+          },
+          {
+                "id": "w_1787421900000",
+                "kind": "lift",
+                "name": "PPL - Pull",
+                "date": "2026-08-22",
+                "min": 49,
+                "sets": 16,
+                "kg": 6519,
+                "exercises": [
+                      {
+                            "id": 221,
+                            "name": "Barbell Deadlift",
+                            "muscle": "Lower Back",
+                            "sets": [
+                                  {
+                                        "kg": 52.5,
+                                        "reps": 8,
+                                        "rir": 5,
+                                        "warm": true,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 105,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 105,
+                                        "reps": 4,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 105,
+                                        "reps": 4,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 95,
+                                        "reps": 4,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 202,
+                            "name": "Lat Pulldown",
+                            "muscle": "Lats",
+                            "sets": [
+                                  {
+                                        "kg": 57.5,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 57.5,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 57.5,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 213,
+                            "name": "Seated Cable Row",
+                            "muscle": "Mid Back",
+                            "sets": [
+                                  {
+                                        "kg": 52.5,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 52.5,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 52.5,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 321,
+                            "name": "Face Pull",
+                            "muscle": "Rear Delt",
+                            "sets": [
+                                  {
+                                        "kg": 18,
+                                        "reps": 15,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 18,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 18,
+                                        "reps": 12,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 503,
+                            "name": "Barbell Curl",
+                            "muscle": "Long Head",
+                            "sets": [
+                                  {
+                                        "kg": 28,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 28,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 28,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      }
+                ],
+                "note": "",
+                "reflection": null
+          },
+          {
+                "id": "w_1787249100000",
+                "kind": "lift",
+                "name": "PPL - Push",
+                "date": "2026-08-20",
+                "min": 51,
+                "sets": 16,
+                "kg": 3985,
+                "exercises": [
+                      {
+                            "id": 111,
+                            "name": "Barbell Bench Press",
+                            "muscle": "Mid Chest",
+                            "sets": [
+                                  {
+                                        "kg": 35,
+                                        "reps": 8,
+                                        "rir": 5,
+                                        "warm": true,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 67.5,
+                                        "reps": 8,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 67.5,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 67.5,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 62.5,
+                                        "reps": 5,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 302,
+                            "name": "DB Shoulder Press",
+                            "muscle": "Front Delt",
+                            "sets": [
+                                  {
+                                        "kg": 23,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 23,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 23,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 103,
+                            "name": "Incline Cable Fly",
+                            "muscle": "Upper Chest",
+                            "sets": [
+                                  {
+                                        "kg": 14,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 14,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 14,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 311,
+                            "name": "Lateral Raise",
+                            "muscle": "Side Delt",
+                            "sets": [
+                                  {
+                                        "kg": 9.5,
+                                        "reps": 15,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 9.5,
+                                        "reps": 13,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 9.5,
+                                        "reps": 12,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 411,
+                            "name": "Tricep Pushdown",
+                            "muscle": "Lateral Head",
+                            "sets": [
+                                  {
+                                        "kg": 28,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 28,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 28,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      }
+                ],
+                "note": "",
+                "reflection": {
+                      "energy": 4,
+                      "focus": 4,
+                      "pump": 3,
+                      "difficulty": 3,
+                      "enjoyment": 4
+                }
+          },
+          {
+                "id": "w_1786989900000",
+                "kind": "lift",
+                "name": "PPL - Legs",
+                "date": "2026-08-17",
+                "min": 49,
+                "sets": 16,
+                "kg": 12800,
+                "exercises": [
+                      {
+                            "id": 701,
+                            "name": "Barbell Squat",
+                            "muscle": "Quads",
+                            "sets": [
+                                  {
+                                        "kg": 40,
+                                        "reps": 8,
+                                        "rir": 5,
+                                        "warm": true,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 80,
+                                        "reps": 8,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 80,
+                                        "reps": 7,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 80,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 75,
+                                        "reps": 5,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 801,
+                            "name": "Romanian Deadlift",
+                            "muscle": "Hamstrings",
+                            "sets": [
+                                  {
+                                        "kg": 70,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 70,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 70,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 703,
+                            "name": "Leg Press",
+                            "muscle": "Quads",
+                            "sets": [
+                                  {
+                                        "kg": 150,
+                                        "reps": 12,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 150,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 150,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 802,
+                            "name": "Lying Leg Curl",
+                            "muscle": "Hamstrings",
+                            "sets": [
+                                  {
+                                        "kg": 45,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 45,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 45,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 1101,
+                            "name": "Standing Calf Raise",
+                            "muscle": "Calves",
+                            "sets": [
+                                  {
+                                        "kg": 65,
+                                        "reps": 15,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 65,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 65,
+                                        "reps": 13,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      }
+                ],
+                "note": "",
+                "reflection": null
+          },
+          {
+                "id": "w_1786864500000",
+                "kind": "cardio",
+                "name": "Upright bike",
+                "date": "2026-08-16",
+                "min": 25,
+                "km": 9,
+                "cal": 240,
+                "calDetail": {
+                      "value": 240,
+                      "net": 210,
+                      "gross": 240,
+                      "range": [
+                            200,
+                            280
+                      ],
+                      "method": "met-lookup",
+                      "tier": 4,
+                      "confidence": "medium",
+                      "basis": "net",
+                      "estimated": true
+                },
+                "modality": "bike_upright",
+                "cardioType": "bike",
+                "distanceM": 9000,
+                "durationSec": 1500,
+                "surface": "machine",
+                "environment": "indoor",
+                "machine": {
+                      "category": "bike",
+                      "brand": null,
+                      "model": null
+                },
+                "heartRate": {
+                      "avg": 138
+                },
+                "intensity": {
+                      "rpe": 5,
+                      "estMET": 8.7,
+                      "talkTest": null
+                },
+                "metrics": {
+                      "avgHr": "138",
+                      "rpe": "5"
+                },
+                "fasted": false,
+                "favoriteId": null,
+                "note": ""
+          },
+          {
+                "id": "w_1786817100000",
+                "kind": "lift",
+                "name": "PPL - Pull",
+                "date": "2026-08-15",
+                "min": 59,
+                "sets": 16,
+                "kg": 6306,
+                "exercises": [
+                      {
+                            "id": 221,
+                            "name": "Barbell Deadlift",
+                            "muscle": "Lower Back",
+                            "sets": [
+                                  {
+                                        "kg": 50,
+                                        "reps": 8,
+                                        "rir": 5,
+                                        "warm": true,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 100,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 100,
+                                        "reps": 5,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 100,
+                                        "reps": 4,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 90,
+                                        "reps": 4,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 202,
+                            "name": "Lat Pulldown",
+                            "muscle": "Lats",
+                            "sets": [
+                                  {
+                                        "kg": 55,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 55,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 55,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 213,
+                            "name": "Seated Cable Row",
+                            "muscle": "Mid Back",
+                            "sets": [
+                                  {
+                                        "kg": 50,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 50,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 50,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 321,
+                            "name": "Face Pull",
+                            "muscle": "Rear Delt",
+                            "sets": [
+                                  {
+                                        "kg": 17,
+                                        "reps": 15,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 17,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 17,
+                                        "reps": 13,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 503,
+                            "name": "Barbell Curl",
+                            "muscle": "Long Head",
+                            "sets": [
+                                  {
+                                        "kg": 27,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 27,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 27,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      }
+                ],
+                "note": "",
+                "reflection": null
+          },
+          {
+                "id": "w_1786644300000",
+                "kind": "lift",
+                "name": "PPL - Push",
+                "date": "2026-08-13",
+                "min": 58,
+                "sets": 16,
+                "kg": 3748,
+                "exercises": [
+                      {
+                            "id": 111,
+                            "name": "Barbell Bench Press",
+                            "muscle": "Mid Chest",
+                            "sets": [
+                                  {
+                                        "kg": 32.5,
+                                        "reps": 8,
+                                        "rir": 5,
+                                        "warm": true,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 65,
+                                        "reps": 7,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 65,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 65,
+                                        "reps": 5,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 60,
+                                        "reps": 5,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 302,
+                            "name": "DB Shoulder Press",
+                            "muscle": "Front Delt",
+                            "sets": [
+                                  {
+                                        "kg": 22,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 22,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 22,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 103,
+                            "name": "Incline Cable Fly",
+                            "muscle": "Upper Chest",
+                            "sets": [
+                                  {
+                                        "kg": 13.5,
+                                        "reps": 12,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 13.5,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 13.5,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 311,
+                            "name": "Lateral Raise",
+                            "muscle": "Side Delt",
+                            "sets": [
+                                  {
+                                        "kg": 9,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 9,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 9,
+                                        "reps": 13,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 411,
+                            "name": "Tricep Pushdown",
+                            "muscle": "Lateral Head",
+                            "sets": [
+                                  {
+                                        "kg": 27,
+                                        "reps": 12,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 27,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 27,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      }
+                ],
+                "note": "",
+                "reflection": null
+          },
+          {
+                "id": "w_1786385100000",
+                "kind": "lift",
+                "name": "PPL - Legs",
+                "date": "2026-08-10",
+                "min": 59,
+                "sets": 16,
+                "kg": 12255,
+                "exercises": [
+                      {
+                            "id": 701,
+                            "name": "Barbell Squat",
+                            "muscle": "Quads",
+                            "sets": [
+                                  {
+                                        "kg": 40,
+                                        "reps": 8,
+                                        "rir": 5,
+                                        "warm": true,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 77.5,
+                                        "reps": 7,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 77.5,
+                                        "reps": 7,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 77.5,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 72.5,
+                                        "reps": 5,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 801,
+                            "name": "Romanian Deadlift",
+                            "muscle": "Hamstrings",
+                            "sets": [
+                                  {
+                                        "kg": 67.5,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 67.5,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 67.5,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 703,
+                            "name": "Leg Press",
+                            "muscle": "Quads",
+                            "sets": [
+                                  {
+                                        "kg": 145,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 145,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 145,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 802,
+                            "name": "Lying Leg Curl",
+                            "muscle": "Hamstrings",
+                            "sets": [
+                                  {
+                                        "kg": 42.5,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 42.5,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 42.5,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 1101,
+                            "name": "Standing Calf Raise",
+                            "muscle": "Calves",
+                            "sets": [
+                                  {
+                                        "kg": 62.5,
+                                        "reps": 15,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 62.5,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 62.5,
+                                        "reps": 12,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      }
+                ],
+                "note": "",
+                "reflection": {
+                      "energy": 4,
+                      "focus": 4,
+                      "pump": 3,
+                      "difficulty": 3,
+                      "enjoyment": 4
+                }
+          },
+          {
+                "id": "w_1786212300000",
+                "kind": "lift",
+                "name": "PPL - Pull",
+                "date": "2026-08-08",
+                "min": 57,
+                "sets": 16,
+                "kg": 5851,
+                "exercises": [
+                      {
+                            "id": 221,
+                            "name": "Barbell Deadlift",
+                            "muscle": "Lower Back",
+                            "sets": [
+                                  {
+                                        "kg": 47.5,
+                                        "reps": 8,
+                                        "rir": 5,
+                                        "warm": true,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 95,
+                                        "reps": 5,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 95,
+                                        "reps": 5,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 95,
+                                        "reps": 4,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 85,
+                                        "reps": 4,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 202,
+                            "name": "Lat Pulldown",
+                            "muscle": "Lats",
+                            "sets": [
+                                  {
+                                        "kg": 52.5,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 52.5,
+                                        "reps": 8,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 52.5,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 213,
+                            "name": "Seated Cable Row",
+                            "muscle": "Mid Back",
+                            "sets": [
+                                  {
+                                        "kg": 47.5,
+                                        "reps": 12,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 47.5,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 47.5,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 321,
+                            "name": "Face Pull",
+                            "muscle": "Rear Delt",
+                            "sets": [
+                                  {
+                                        "kg": 16,
+                                        "reps": 15,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 16,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 16,
+                                        "reps": 13,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 503,
+                            "name": "Barbell Curl",
+                            "muscle": "Long Head",
+                            "sets": [
+                                  {
+                                        "kg": 26,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 26,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 26,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      }
+                ],
+                "note": "",
+                "reflection": null
+          },
+          {
+                "id": "w_1786039500000",
+                "kind": "lift",
+                "name": "PPL - Push",
+                "date": "2026-08-06",
+                "min": 56,
+                "sets": 16,
+                "kg": 3688,
+                "exercises": [
+                      {
+                            "id": 111,
+                            "name": "Barbell Bench Press",
+                            "muscle": "Mid Chest",
+                            "sets": [
+                                  {
+                                        "kg": 32.5,
+                                        "reps": 8,
+                                        "rir": 5,
+                                        "warm": true,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 62.5,
+                                        "reps": 8,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 62.5,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 62.5,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 57.5,
+                                        "reps": 5,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 302,
+                            "name": "DB Shoulder Press",
+                            "muscle": "Front Delt",
+                            "sets": [
+                                  {
+                                        "kg": 21,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 21,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 21,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 103,
+                            "name": "Incline Cable Fly",
+                            "muscle": "Upper Chest",
+                            "sets": [
+                                  {
+                                        "kg": 13,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 13,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 13,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 311,
+                            "name": "Lateral Raise",
+                            "muscle": "Side Delt",
+                            "sets": [
+                                  {
+                                        "kg": 8.5,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 8.5,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 8.5,
+                                        "reps": 13,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 411,
+                            "name": "Tricep Pushdown",
+                            "muscle": "Lateral Head",
+                            "sets": [
+                                  {
+                                        "kg": 26,
+                                        "reps": 12,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 26,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 26,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      }
+                ],
+                "note": "",
+                "reflection": null
+          },
+          {
+                "id": "w_1785780300000",
+                "kind": "lift",
+                "name": "PPL - Legs",
+                "date": "2026-08-03",
+                "min": 59,
+                "sets": 16,
+                "kg": 12060,
+                "exercises": [
+                      {
+                            "id": 701,
+                            "name": "Barbell Squat",
+                            "muscle": "Quads",
+                            "sets": [
+                                  {
+                                        "kg": 37.5,
+                                        "reps": 8,
+                                        "rir": 5,
+                                        "warm": true,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 75,
+                                        "reps": 8,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 75,
+                                        "reps": 7,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 75,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 70,
+                                        "reps": 5,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 801,
+                            "name": "Romanian Deadlift",
+                            "muscle": "Hamstrings",
+                            "sets": [
+                                  {
+                                        "kg": 65,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 65,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 65,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 703,
+                            "name": "Leg Press",
+                            "muscle": "Quads",
+                            "sets": [
+                                  {
+                                        "kg": 140,
+                                        "reps": 12,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 140,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 140,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 802,
+                            "name": "Lying Leg Curl",
+                            "muscle": "Hamstrings",
+                            "sets": [
+                                  {
+                                        "kg": 40,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 40,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 40,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 1101,
+                            "name": "Standing Calf Raise",
+                            "muscle": "Calves",
+                            "sets": [
+                                  {
+                                        "kg": 60,
+                                        "reps": 15,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 60,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 60,
+                                        "reps": 13,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      }
+                ],
+                "note": "",
+                "reflection": null
+          },
+          {
+                "id": "w_1785607500000",
+                "kind": "lift",
+                "name": "PPL - Pull",
+                "date": "2026-08-01",
+                "min": 55,
+                "sets": 16,
+                "kg": 5585,
+                "exercises": [
+                      {
+                            "id": 221,
+                            "name": "Barbell Deadlift",
+                            "muscle": "Lower Back",
+                            "sets": [
+                                  {
+                                        "kg": 45,
+                                        "reps": 8,
+                                        "rir": 5,
+                                        "warm": true,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 90,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 90,
+                                        "reps": 4,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 90,
+                                        "reps": 4,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 80,
+                                        "reps": 4,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 202,
+                            "name": "Lat Pulldown",
+                            "muscle": "Lats",
+                            "sets": [
+                                  {
+                                        "kg": 50,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 50,
+                                        "reps": 8,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 50,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 213,
+                            "name": "Seated Cable Row",
+                            "muscle": "Mid Back",
+                            "sets": [
+                                  {
+                                        "kg": 45,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 45,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 45,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 321,
+                            "name": "Face Pull",
+                            "muscle": "Rear Delt",
+                            "sets": [
+                                  {
+                                        "kg": 15,
+                                        "reps": 15,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 15,
+                                        "reps": 13,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 15,
+                                        "reps": 13,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 503,
+                            "name": "Barbell Curl",
+                            "muscle": "Long Head",
+                            "sets": [
+                                  {
+                                        "kg": 25,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 25,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 25,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      }
+                ],
+                "note": "",
+                "reflection": {
+                      "energy": 4,
+                      "focus": 4,
+                      "pump": 3,
+                      "difficulty": 3,
+                      "enjoyment": 4
+                }
+          },
+          {
+                "id": "w_1785434700000",
+                "kind": "lift",
+                "name": "PPL - Push",
+                "date": "2026-07-30",
+                "min": 54,
+                "sets": 16,
+                "kg": 3568,
+                "exercises": [
+                      {
+                            "id": 111,
+                            "name": "Barbell Bench Press",
+                            "muscle": "Mid Chest",
+                            "sets": [
+                                  {
+                                        "kg": 30,
+                                        "reps": 8,
+                                        "rir": 5,
+                                        "warm": true,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 60,
+                                        "reps": 7,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 60,
+                                        "reps": 7,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 60,
+                                        "reps": 6,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 55,
+                                        "reps": 5,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 302,
+                            "name": "DB Shoulder Press",
+                            "muscle": "Front Delt",
+                            "sets": [
+                                  {
+                                        "kg": 20,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 20,
+                                        "reps": 9,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 20,
+                                        "reps": 8,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 103,
+                            "name": "Incline Cable Fly",
+                            "muscle": "Upper Chest",
+                            "sets": [
+                                  {
+                                        "kg": 12.5,
+                                        "reps": 12,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 12.5,
+                                        "reps": 10,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 12.5,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 311,
+                            "name": "Lateral Raise",
+                            "muscle": "Side Delt",
+                            "sets": [
+                                  {
+                                        "kg": 8,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 8,
+                                        "reps": 14,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 8,
+                                        "reps": 13,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      },
+                      {
+                            "id": 411,
+                            "name": "Tricep Pushdown",
+                            "muscle": "Lateral Head",
+                            "sets": [
+                                  {
+                                        "kg": 25,
+                                        "reps": 12,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 25,
+                                        "reps": 11,
+                                        "rir": 2,
+                                        "warm": false,
+                                        "done": true
+                                  },
+                                  {
+                                        "kg": 25,
+                                        "reps": 10,
+                                        "rir": 1,
+                                        "warm": false,
+                                        "done": true
+                                  }
+                            ]
+                      }
+                ],
+                "note": "",
+                "reflection": null
+          }
+    ],
+    prs: [
+          {
+                "exId": 703,
+                "name": "Leg Press",
+                "group": "Quads",
+                "muscle": "Quads",
+                "kg": 165,
+                "reps": 10,
+                "date": "2026-09-07"
+          },
+          {
+                "exId": 701,
+                "name": "Barbell Squat",
+                "group": "Quads",
+                "muscle": "Quads",
+                "kg": 87.5,
+                "reps": 8,
+                "date": "2026-09-07"
+          },
+          {
+                "exId": 701,
+                "name": "Barbell Squat",
+                "group": "Quads",
+                "muscle": "Quads",
+                "kg": 82.5,
+                "reps": 5,
+                "date": "2026-09-07"
+          },
+          {
+                "exId": 801,
+                "name": "Romanian Deadlift",
+                "group": "Hamstrings",
+                "muscle": "Hamstrings",
+                "kg": 77.5,
+                "reps": 8,
+                "date": "2026-09-07"
+          },
+          {
+                "exId": 221,
+                "name": "Barbell Deadlift",
+                "group": "Back",
+                "muscle": "Lower Back",
+                "kg": 115,
+                "reps": 4,
+                "date": "2026-09-05"
+          },
+          {
+                "exId": 202,
+                "name": "Lat Pulldown",
+                "group": "Back",
+                "muscle": "Lats",
+                "kg": 62.5,
+                "reps": 8,
+                "date": "2026-09-05"
+          },
+          {
+                "exId": 213,
+                "name": "Seated Cable Row",
+                "group": "Back",
+                "muscle": "Mid Back",
+                "kg": 57.5,
+                "reps": 10,
+                "date": "2026-09-05"
+          },
+          {
+                "exId": 503,
+                "name": "Barbell Curl",
+                "group": "Biceps",
+                "muscle": "Long Head",
+                "kg": 30,
+                "reps": 8,
+                "date": "2026-09-05"
+          },
+          {
+                "exId": 111,
+                "name": "Barbell Bench Press",
+                "group": "Chest",
+                "muscle": "Mid Chest",
+                "kg": 72.5,
+                "reps": 5,
+                "date": "2026-09-03"
+          },
+          {
+                "exId": 111,
+                "name": "Barbell Bench Press",
+                "group": "Chest",
+                "muscle": "Mid Chest",
+                "kg": 72.5,
+                "reps": 8,
+                "date": "2026-09-03"
+          },
+          {
+                "exId": 302,
+                "name": "DB Shoulder Press",
+                "group": "Shoulders",
+                "muscle": "Front Delt",
+                "kg": 25,
+                "reps": 8,
+                "date": "2026-09-03"
+          },
+          {
+                "exId": 221,
+                "name": "Barbell Deadlift",
+                "group": "Back",
+                "muscle": "Lower Back",
+                "kg": 110,
+                "reps": 6,
+                "date": "2026-08-29"
+          }
+    ],
+    weightLog: [
+          {
+                "date": "2026-07-27",
+                "kg": 65.3
+          },
+          {
+                "date": "2026-08-03",
+                "kg": 65.3
+          },
+          {
+                "date": "2026-08-10",
+                "kg": 64.9
+          },
+          {
+                "date": "2026-08-17",
+                "kg": 64.7
+          },
+          {
+                "date": "2026-08-24",
+                "kg": 64.6
+          },
+          {
+                "date": "2026-08-31",
+                "kg": 64.5
+          },
+          {
+                "date": "2026-09-07",
+                "kg": 64.2
+          }
+    ],
+    bfLog: [
+          {
+                "pct": 24.1,
+                "method": "manual",
+                "date": "2026-08-03"
+          },
+          {
+                "pct": 23.2,
+                "method": "manual",
+                "date": "2026-08-31"
+          }
+    ],
+    profile: {
+          "name": "Cesco",
+          "username": "cesco",
+          "useKg": true,
+          "age": 29,
+          "sex": "female",
+          "heightCm": 168,
+          "weightKg": 64.2,
+          "goal": "build",
+          "coachName": "Coach",
+          "createdAt": "7/25/2026"
+    },
+    totals: {
+          "sessions": 22,
+          "liftSessions": 18,
+          "cardioSessions": 4,
+          "sets": 288,
+          "volumeKg": 140204,
+          "records": 12,
+          "recordLifts": 12,
+          "cardioMin": 120
+    },
+    library: {
+          "total": 867,
+          "catalogue": 866,
+          "custom": 1,
+          "logged": 15
+    },
+    splits: [
+          {
+                "id": "s1784970000000",
+                "name": "PPL",
+                "created": "7/25/2026",
+                "days": [
+                      {
+                            "name": "Push",
+                            "blocks": [],
+                            "exercises": [
+                                  {
+                                        "id": 111,
+                                        "name": "Barbell Bench Press",
+                                        "group": "Chest",
+                                        "muscle": "Mid Chest"
+                                  },
+                                  {
+                                        "id": 302,
+                                        "name": "DB Shoulder Press",
+                                        "group": "Shoulders",
+                                        "muscle": "Front Delt"
+                                  },
+                                  {
+                                        "id": 103,
+                                        "name": "Incline Cable Fly",
+                                        "group": "Chest",
+                                        "muscle": "Upper Chest"
+                                  },
+                                  {
+                                        "id": 311,
+                                        "name": "Lateral Raise",
+                                        "group": "Shoulders",
+                                        "muscle": "Side Delt"
+                                  },
+                                  {
+                                        "id": 411,
+                                        "name": "Tricep Pushdown",
+                                        "group": "Triceps",
+                                        "muscle": "Lateral Head"
+                                  }
+                            ]
+                      },
+                      {
+                            "name": "Pull",
+                            "blocks": [],
+                            "exercises": [
+                                  {
+                                        "id": 221,
+                                        "name": "Barbell Deadlift",
+                                        "group": "Back",
+                                        "muscle": "Lower Back"
+                                  },
+                                  {
+                                        "id": 202,
+                                        "name": "Lat Pulldown",
+                                        "group": "Back",
+                                        "muscle": "Lats"
+                                  },
+                                  {
+                                        "id": 213,
+                                        "name": "Seated Cable Row",
+                                        "group": "Back",
+                                        "muscle": "Mid Back"
+                                  },
+                                  {
+                                        "id": 321,
+                                        "name": "Face Pull",
+                                        "group": "Shoulders",
+                                        "muscle": "Rear Delt"
+                                  },
+                                  {
+                                        "id": 503,
+                                        "name": "Barbell Curl",
+                                        "group": "Biceps",
+                                        "muscle": "Long Head"
+                                  }
+                            ]
+                      },
+                      {
+                            "name": "Legs",
+                            "blocks": [],
+                            "exercises": [
+                                  {
+                                        "id": 701,
+                                        "name": "Barbell Squat",
+                                        "group": "Quads",
+                                        "muscle": "Quads"
+                                  },
+                                  {
+                                        "id": 801,
+                                        "name": "Romanian Deadlift",
+                                        "group": "Hamstrings",
+                                        "muscle": "Hamstrings"
+                                  },
+                                  {
+                                        "id": 703,
+                                        "name": "Leg Press",
+                                        "group": "Quads",
+                                        "muscle": "Quads"
+                                  },
+                                  {
+                                        "id": 802,
+                                        "name": "Lying Leg Curl",
+                                        "group": "Hamstrings",
+                                        "muscle": "Hamstrings"
+                                  },
+                                  {
+                                        "id": 1101,
+                                        "name": "Standing Calf Raise",
+                                        "group": "Calves",
+                                        "muscle": "Calves"
+                                  }
+                            ]
+                      }
+                ]
+          },
+          {
+                "id": "s1784973600000",
+                "name": "Upper / Lower",
+                "created": "8/9/2026",
+                "days": [
+                      {
+                            "name": "Upper",
+                            "blocks": [],
+                            "exercises": [
+                                  {
+                                        "id": 111,
+                                        "name": "Barbell Bench Press",
+                                        "group": "Chest",
+                                        "muscle": "Mid Chest"
+                                  },
+                                  {
+                                        "id": 211,
+                                        "name": "Barbell Row",
+                                        "group": "Back",
+                                        "muscle": "Mid Back"
+                                  },
+                                  {
+                                        "id": 302,
+                                        "name": "DB Shoulder Press",
+                                        "group": "Shoulders",
+                                        "muscle": "Front Delt"
+                                  },
+                                  {
+                                        "id": 202,
+                                        "name": "Lat Pulldown",
+                                        "group": "Back",
+                                        "muscle": "Lats"
+                                  },
+                                  {
+                                        "id": 503,
+                                        "name": "Barbell Curl",
+                                        "group": "Biceps",
+                                        "muscle": "Long Head"
+                                  }
+                            ]
+                      },
+                      {
+                            "name": "Lower",
+                            "blocks": [],
+                            "exercises": [
+                                  {
+                                        "id": 701,
+                                        "name": "Barbell Squat",
+                                        "group": "Quads",
+                                        "muscle": "Quads"
+                                  },
+                                  {
+                                        "id": 801,
+                                        "name": "Romanian Deadlift",
+                                        "group": "Hamstrings",
+                                        "muscle": "Hamstrings"
+                                  },
+                                  {
+                                        "id": 703,
+                                        "name": "Leg Press",
+                                        "group": "Quads",
+                                        "muscle": "Quads"
+                                  },
+                                  {
+                                        "id": 803,
+                                        "name": "Seated Leg Curl",
+                                        "group": "Hamstrings",
+                                        "muscle": "Hamstrings"
+                                  },
+                                  {
+                                        "id": 1102,
+                                        "name": "Seated Calf Raise",
+                                        "group": "Calves",
+                                        "muscle": "Calves"
+                                  }
+                            ]
+                      }
+                ]
+          },
+          {
+                "id": "s1784977200000",
+                "name": "Full Body 3x",
+                "created": "8/27/2026",
+                "days": [
+                      {
+                            "name": "Day A",
+                            "blocks": [
+                                  {
+                                        "title": "Warm-up",
+                                        "notes": "5 min bike, hip openers",
+                                        "duration": "5 min"
+                                  }
+                            ],
+                            "exercises": [
+                                  {
+                                        "id": 701,
+                                        "name": "Barbell Squat",
+                                        "group": "Quads",
+                                        "muscle": "Quads"
+                                  },
+                                  {
+                                        "id": 111,
+                                        "name": "Barbell Bench Press",
+                                        "group": "Chest",
+                                        "muscle": "Mid Chest"
+                                  },
+                                  {
+                                        "id": 213,
+                                        "name": "Seated Cable Row",
+                                        "group": "Back",
+                                        "muscle": "Mid Back"
+                                  },
+                                  {
+                                        "id": 311,
+                                        "name": "Lateral Raise",
+                                        "group": "Shoulders",
+                                        "muscle": "Side Delt"
+                                  },
+                                  {
+                                        "id": 1101,
+                                        "name": "Standing Calf Raise",
+                                        "group": "Calves",
+                                        "muscle": "Calves"
+                                  }
+                            ]
+                      },
+                      {
+                            "name": "Day B",
+                            "blocks": [],
+                            "exercises": [
+                                  {
+                                        "id": 221,
+                                        "name": "Barbell Deadlift",
+                                        "group": "Back",
+                                        "muscle": "Lower Back"
+                                  },
+                                  {
+                                        "id": 302,
+                                        "name": "DB Shoulder Press",
+                                        "group": "Shoulders",
+                                        "muscle": "Front Delt"
+                                  },
+                                  {
+                                        "id": 202,
+                                        "name": "Lat Pulldown",
+                                        "group": "Back",
+                                        "muscle": "Lats"
+                                  },
+                                  {
+                                        "id": 802,
+                                        "name": "Lying Leg Curl",
+                                        "group": "Hamstrings",
+                                        "muscle": "Hamstrings"
+                                  },
+                                  {
+                                        "id": 503,
+                                        "name": "Barbell Curl",
+                                        "group": "Biceps",
+                                        "muscle": "Long Head"
+                                  }
+                            ]
+                      },
+                      {
+                            "name": "Day C",
+                            "blocks": [],
+                            "exercises": [
+                                  {
+                                        "id": 703,
+                                        "name": "Leg Press",
+                                        "group": "Quads",
+                                        "muscle": "Quads"
+                                  },
+                                  {
+                                        "id": 113,
+                                        "name": "Machine Chest Press",
+                                        "group": "Chest",
+                                        "muscle": "Mid Chest"
+                                  },
+                                  {
+                                        "id": 216,
+                                        "name": "Chest Supported Row",
+                                        "group": "Back",
+                                        "muscle": "Mid Back"
+                                  },
+                                  {
+                                        "id": 321,
+                                        "name": "Face Pull",
+                                        "group": "Shoulders",
+                                        "muscle": "Rear Delt"
+                                  },
+                                  {
+                                        "id": 411,
+                                        "name": "Tricep Pushdown",
+                                        "group": "Triceps",
+                                        "muscle": "Lateral Head"
+                                  }
+                            ]
+                      }
+                ]
+          }
+    ],
+    featured: [
+          {
+                "id": 111,
+                "name": "Barbell Bench Press"
+          },
+          {
+                "id": 701,
+                "name": "Barbell Squat"
+          },
+          {
+                "id": 221,
+                "name": "Barbell Deadlift"
+          }
+    ],
+    goals: [
+          {
+                "type": "lift",
+                "name": "Bench 75 kg x5",
+                "target": 75,
+                "targetDate": "2026-12-01",
+                "exId": 111,
+                "unit": "kg",
+                "notes": "Add 2.5 kg every second week.",
+                "start": 60,
+                "status": "active",
+                "created": "2026-07-30T09:00:00.000Z"
+          },
+          {
+                "type": "lift",
+                "name": "Squat 100 kg",
+                "target": 100,
+                "targetDate": "2027-01-06",
+                "exId": 701,
+                "unit": "kg",
+                "notes": "",
+                "start": 75,
+                "status": "active",
+                "created": "2026-07-30T09:05:00.000Z"
+          },
+          {
+                "type": "weight",
+                "name": "Body weight 63 kg",
+                "target": 63,
+                "targetDate": "2026-11-07",
+                "exId": null,
+                "unit": "kg",
+                "notes": "",
+                "start": 65.4,
+                "status": "active",
+                "created": "2026-08-04T08:00:00.000Z"
+          }
+    ],
+    photos: [
+          {
+                "date": "2026-07-29T08:00:00.000Z",
+                "note": "Week 1, relaxed"
+          },
+          {
+                "date": "2026-08-26T08:00:00.000Z",
+                "note": "Week 5"
+          }
+    ],
+    supplements: [
+          {
+                "name": "Creatine",
+                "dose": "5 g",
+                "freq": "Daily",
+                "timeOf": "Morning",
+                "reminder": true,
+                "created": "2026-07-30T08:00:00.000Z"
+          },
+          {
+                "name": "Vitamin D",
+                "dose": "2000 IU",
+                "freq": "Daily",
+                "timeOf": "Morning",
+                "reminder": true,
+                "created": "2026-07-30T08:01:00.000Z"
+          }
+    ],
+    shoppingList: [
+          {
+                "id": "sh_1788775200000_2sh0q",
+                "itemName": "Chicken thighs",
+                "quantity": 1,
+                "unit": "kg",
+                "category": "meat",
+                "dateAdded": "2026-09-07T10:00:00.000Z",
+                "checked": false
+          },
+          {
+                "id": "sh_1788775201000_0rasx",
+                "itemName": "Greek yogurt",
+                "quantity": 2,
+                "unit": "tubs",
+                "category": "dairy",
+                "dateAdded": "2026-09-07T10:01:00.000Z",
+                "checked": false
+          },
+          {
+                "id": "sh_1788775202000_28bcm",
+                "itemName": "Eggs",
+                "quantity": 12,
+                "unit": "pcs",
+                "category": "dairy",
+                "dateAdded": "2026-09-07T10:02:00.000Z",
+                "checked": false
+          },
+          {
+                "id": "sh_1788775203000_0ku3i",
+                "itemName": "Oats",
+                "quantity": 1,
+                "unit": "kg",
+                "category": "pantry",
+                "dateAdded": "2026-09-07T10:03:00.000Z",
+                "checked": true
+          },
+          {
+                "id": "sh_1788775204000_28c66",
+                "itemName": "Bananas",
+                "quantity": 6,
+                "unit": "pcs",
+                "category": "produce",
+                "dateAdded": "2026-09-07T10:04:00.000Z",
+                "checked": false
+          },
+          {
+                "id": "sh_1788775205000_5nll2",
+                "itemName": "Spinach",
+                "quantity": 1,
+                "unit": "bag",
+                "category": "produce",
+                "dateAdded": "2026-09-07T10:05:00.000Z",
+                "checked": false
+          },
+          {
+                "id": "sh_1788775206000_55fcy",
+                "itemName": "Rice",
+                "quantity": 2,
+                "unit": "kg",
+                "category": "pantry",
+                "dateAdded": "2026-09-07T10:06:00.000Z",
+                "checked": false
+          },
+          {
+                "id": "sh_1788775207000_3z8gk",
+                "itemName": "Salmon",
+                "quantity": 500,
+                "unit": "g",
+                "category": "meat",
+                "dateAdded": "2026-09-07T10:07:00.000Z",
+                "checked": false
+          },
+          {
+                "id": "sh_1788775208000_5aljy",
+                "itemName": "Almonds",
+                "quantity": 1,
+                "unit": "bag",
+                "category": "snacks",
+                "dateAdded": "2026-09-07T10:08:00.000Z",
+                "checked": true
+          },
+          {
+                "id": "sh_1788775209000_0ee39",
+                "itemName": "Olive oil",
+                "quantity": 1,
+                "unit": "bottle",
+                "category": "other",
+                "dateAdded": "2026-09-07T10:09:00.000Z",
+                "checked": false
+          }
+    ],
+    pantry: [
+          {
+                "id": "p_1787133600000",
+                "name": "Whey protein",
+                "quantity": 1,
+                "unit": "",
+                "store": "",
+                "category": "pantry",
+                "dateAdded": "2026-08-19T10:00:00.000Z",
+                "empty": false,
+                "staple": true,
+                "intervalDays": 30
+          },
+          {
+                "id": "p_1787133660000",
+                "name": "Peanut butter",
+                "quantity": 1,
+                "unit": "",
+                "store": "",
+                "category": "pantry",
+                "dateAdded": "2026-08-19T10:01:00.000Z",
+                "empty": false
+          },
+          {
+                "id": "p_1788343200000",
+                "name": "Frozen berries",
+                "quantity": 2,
+                "unit": "",
+                "store": "",
+                "category": "other",
+                "dateAdded": "2026-09-02T10:00:00.000Z",
+                "empty": false
+          },
+          {
+                "id": "p_1788343260000",
+                "name": "Canned tuna",
+                "quantity": 0,
+                "unit": "",
+                "store": "",
+                "category": "pantry",
+                "dateAdded": "2026-09-02T10:01:00.000Z",
+                "empty": true
+          }
+    ],
+    budget: {
+          "weeklyTarget": 120,
+          "history": [
+                {
+                      "id": "p_1788796800000",
+                      "items": [
+                            {
+                                  "name": "Chicken thighs",
+                                  "price": 9.5,
+                                  "qty": 1
+                            },
+                            {
+                                  "name": "Greek yogurt",
+                                  "price": 4.2,
+                                  "qty": 2
+                            },
+                            {
+                                  "name": "Bananas",
+                                  "price": 1.8,
+                                  "qty": 1
+                            }
+                      ],
+                      "store": "Trader Joe's",
+                      "date": "2026-09-07T16:00:00.000Z",
+                      "total": 19.7,
+                      "source": "manual"
+                },
+                {
+                      "id": "r_1788458400000",
+                      "items": [
+                            {
+                                  "name": "Salmon",
+                                  "price": 12.9,
+                                  "qty": 1
+                            },
+                            {
+                                  "name": "Rice",
+                                  "price": 3.5,
+                                  "qty": 2
+                            },
+                            {
+                                  "name": "Olive oil",
+                                  "price": 8.9,
+                                  "qty": 1
+                            }
+                      ],
+                      "store": "Safeway",
+                      "date": "2026-09-03T18:00:00.000Z",
+                      "total": 28.8,
+                      "source": "receipt"
+                },
+                {
+                      "id": "p_1788109200000",
+                      "items": [
+                            {
+                                  "name": "Eggs",
+                                  "price": 4.5,
+                                  "qty": 2
+                            },
+                            {
+                                  "name": "Oats",
+                                  "price": 3.2,
+                                  "qty": 1
+                            }
+                      ],
+                      "store": "Trader Joe's",
+                      "date": "2026-08-30T17:00:00.000Z",
+                      "total": 12.2,
+                      "source": "manual"
+                }
+          ],
+          "pendingItems": []
+    },
+    stores: [
+          {
+                "id": "store_1786276800000",
+                "name": "Trader Joe's",
+                "url": "https://www.traderjoes.com",
+                "description": "specialty grocery",
+                "enabled": true
+          }
+    ],
+    customEx: [
+          {
+                "id": 900001,
+                "name": "Cable Fly (low pulley)",
+                "eq": "Cable",
+                "gid": "chest",
+                "sid": "lower",
+                "custom": true,
+                "startResist": 0,
+                "smithNoCB": false
+          }
+    ],
+    nutrition: {
+          "targets": {
+                "kcal": 2980,
+                "pro": 160,
+                "carb": 380,
+                "fat": 80,
+                "waterMl": 3000
+          },
+          "microRef": {
+                "fibre": 30,
+                "sugar": 90,
+                "satfat": 20,
+                "sodium": 2400
+          },
+          "unitG": {
+                "g": 1,
+                "gram": 1,
+                "grams": 1,
+                "kg": 1000,
+                "kilo": 1000,
+                "kilos": 1000,
+                "ml": 1,
+                "l": 1000,
+                "litre": 1000,
+                "litres": 1000,
+                "oz": 28.35,
+                "lb": 453.6,
+                "tbsp": 15,
+                "tablespoon": 15,
+                "tablespoons": 15,
+                "tsp": 5,
+                "teaspoon": 5,
+                "teaspoons": 5,
+                "cup": 240,
+                "cups": 240,
+                "scoop": 30,
+                "scoops": 30,
+                "slice": 35,
+                "slices": 35,
+                "serving": 0,
+                "servings": 0,
+                "plate": 0,
+                "plates": 0,
+                "portion": 0,
+                "portions": 0
+          },
+          "barcodes": {
+                "5060123456789": "skyr",
+                "5012345678900": "shake",
+                "5000112345678": "pancakes"
+          },
+          "foods": {
+                "eggs": {
+                      "icon": "🍳",
+                      "name": "Eggs, toast, butter",
+                      "kcal": 540,
+                      "pro": 38,
+                      "carb": 46,
+                      "fat": 24,
+                      "g": 260,
+                      "fibre": 4,
+                      "sugar": 5,
+                      "satfat": 9,
+                      "sodium": 720,
+                      "alias": [
+                            "egg",
+                            "eggs",
+                            "toast",
+                            "eggs and toast",
+                            "eggs on toast",
+                            "fry up"
+                      ],
+                      "parts": [
+                            "egg",
+                            "eggs",
+                            "toast"
+                      ]
+                },
+                "bowl": {
+                      "icon": "🥗",
+                      "name": "Chicken rice bowl",
+                      "kcal": 720,
+                      "pro": 52,
+                      "carb": 84,
+                      "fat": 16,
+                      "g": 450,
+                      "fibre": 6,
+                      "sugar": 8,
+                      "satfat": 4,
+                      "sodium": 980,
+                      "alias": [
+                            "rice bowl",
+                            "chicken bowl",
+                            "chicken rice bowl",
+                            "burrito bowl",
+                            "bowl"
+                      ],
+                      "parts": []
+                },
+                "shake": {
+                      "icon": "🥤",
+                      "name": "Whey shake, banana",
+                      "kcal": 310,
+                      "pro": 31,
+                      "carb": 38,
+                      "fat": 4,
+                      "g": 400,
+                      "fibre": 3,
+                      "sugar": 24,
+                      "satfat": 1.5,
+                      "sodium": 210,
+                      "alias": [
+                            "shake",
+                            "whey",
+                            "protein shake",
+                            "whey shake",
+                            "smoothie"
+                      ],
+                      "parts": [
+                            "whey"
+                      ],
+                      "barcode": "5012345678900"
+                },
+                "pasta": {
+                      "icon": "🍝",
+                      "name": "Beef mince and pasta",
+                      "kcal": 810,
+                      "pro": 48,
+                      "carb": 92,
+                      "fat": 26,
+                      "g": 520,
+                      "fibre": 7,
+                      "sugar": 11,
+                      "satfat": 10,
+                      "sodium": 890,
+                      "alias": [
+                            "pasta",
+                            "spaghetti",
+                            "bolognese",
+                            "mince and pasta",
+                            "beef pasta"
+                      ],
+                      "parts": []
+                },
+                "chilli": {
+                      "icon": "🍲",
+                      "name": "Chilli",
+                      "kcal": 530,
+                      "pro": 41,
+                      "carb": 38,
+                      "fat": 18,
+                      "g": 400,
+                      "fibre": 11,
+                      "sugar": 9,
+                      "satfat": 6,
+                      "sodium": 760,
+                      "alias": [
+                            "chilli",
+                            "chili",
+                            "chilli con carne"
+                      ],
+                      "parts": []
+                },
+                "cnr": {
+                      "icon": "🍚",
+                      "name": "Chicken and rice",
+                      "kcal": 690,
+                      "pro": 61,
+                      "carb": 74,
+                      "fat": 13,
+                      "g": 480,
+                      "fibre": 3,
+                      "sugar": 3,
+                      "satfat": 3.5,
+                      "sodium": 640,
+                      "alias": [
+                            "chicken and rice",
+                            "chicken rice",
+                            "chicken n rice"
+                      ],
+                      "parts": []
+                },
+                "pancakes": {
+                      "icon": "🥞",
+                      "name": "Protein pancakes",
+                      "kcal": 360,
+                      "pro": 31,
+                      "carb": 37,
+                      "fat": 8,
+                      "g": 220,
+                      "fibre": 5,
+                      "sugar": 7,
+                      "satfat": 2,
+                      "sodium": 380,
+                      "alias": [
+                            "pancakes",
+                            "pancake",
+                            "protein pancakes"
+                      ],
+                      "parts": [
+                            "pancake",
+                            "pancakes"
+                      ],
+                      "barcode": "5000112345678"
+                },
+                "skyr": {
+                      "icon": "🥫",
+                      "name": "Skyr, plain",
+                      "kcal": 96,
+                      "pro": 17,
+                      "carb": 6,
+                      "fat": 0.3,
+                      "g": 170,
+                      "fibre": 0,
+                      "sugar": 6,
+                      "satfat": 0.1,
+                      "sodium": 65,
+                      "alias": [
+                            "skyr",
+                            "yoghurt",
+                            "yogurt",
+                            "greek yoghurt",
+                            "quark"
+                      ],
+                      "parts": [],
+                      "barcode": "5060123456789"
+                }
+          },
+          "days": {
+                "2026-09-09": {
+                      "date": "2026-09-09",
+                      "meals": [
+                            {
+                                  "key": "eggs",
+                                  "icon": "🍳",
+                                  "name": "Eggs, toast, butter",
+                                  "at": "8:05",
+                                  "src": "table",
+                                  "slot": "breakfast",
+                                  "kcal": 540,
+                                  "pro": 38,
+                                  "carb": 46,
+                                  "fat": 24,
+                                  "fibre": 4,
+                                  "sugar": 5,
+                                  "satfat": 9,
+                                  "sodium": 720
+                            },
+                            {
+                                  "key": "bowl",
+                                  "icon": "🥗",
+                                  "name": "Chicken rice bowl",
+                                  "at": "12:40",
+                                  "src": "estimate",
+                                  "slot": "lunch",
+                                  "kcal": 720,
+                                  "pro": 52,
+                                  "carb": 84,
+                                  "fat": 16,
+                                  "fibre": 6,
+                                  "sugar": 8,
+                                  "satfat": 4,
+                                  "sodium": 980
+                            },
+                            {
+                                  "key": "shake",
+                                  "icon": "🥤",
+                                  "name": "Whey shake, banana",
+                                  "at": "3:15",
+                                  "src": "verified",
+                                  "slot": "snack",
+                                  "kcal": 310,
+                                  "pro": 31,
+                                  "carb": 38,
+                                  "fat": 4,
+                                  "fibre": 3,
+                                  "sugar": 24,
+                                  "satfat": 1.5,
+                                  "sodium": 210
+                            }
+                      ],
+                      "eaten": 1570,
+                      "pro": 121,
+                      "carb": 168,
+                      "fat": 44,
+                      "waterMl": 1750,
+                      "supps": [
+                            {
+                                  "name": "Creatine",
+                                  "dose": "5 g",
+                                  "when": "Morning",
+                                  "taken": true
+                            },
+                            {
+                                  "name": "Vitamin D",
+                                  "dose": "2000 IU",
+                                  "when": "Morning",
+                                  "taken": true
+                            }
+                      ]
+                },
+                "2026-09-08": {
+                      "date": "2026-09-08",
+                      "meals": [
+                            {
+                                  "key": "eggs",
+                                  "icon": "🍳",
+                                  "name": "Eggs, toast, butter",
+                                  "at": "8:10",
+                                  "src": "table",
+                                  "slot": "breakfast",
+                                  "kcal": 540,
+                                  "pro": 38,
+                                  "carb": 46,
+                                  "fat": 24,
+                                  "fibre": 4,
+                                  "sugar": 5,
+                                  "satfat": 9,
+                                  "sodium": 720
+                            },
+                            {
+                                  "key": "cnr",
+                                  "icon": "🍚",
+                                  "name": "Chicken and rice",
+                                  "at": "12:30",
+                                  "src": "recipe",
+                                  "slot": "lunch",
+                                  "kcal": 690,
+                                  "pro": 61,
+                                  "carb": 74,
+                                  "fat": 13,
+                                  "fibre": 3,
+                                  "sugar": 3,
+                                  "satfat": 3.5,
+                                  "sodium": 640
+                            },
+                            {
+                                  "key": "pasta",
+                                  "icon": "🍝",
+                                  "name": "Beef mince and pasta",
+                                  "at": "7:20",
+                                  "src": "estimate",
+                                  "slot": "dinner",
+                                  "kcal": 810,
+                                  "pro": 48,
+                                  "carb": 92,
+                                  "fat": 26,
+                                  "fibre": 7,
+                                  "sugar": 11,
+                                  "satfat": 10,
+                                  "sodium": 890
+                            },
+                            {
+                                  "key": "shake",
+                                  "icon": "🥤",
+                                  "name": "Whey shake, banana",
+                                  "at": "4:05",
+                                  "src": "verified",
+                                  "slot": "snack",
+                                  "kcal": 310,
+                                  "pro": 31,
+                                  "carb": 38,
+                                  "fat": 4,
+                                  "fibre": 3,
+                                  "sugar": 24,
+                                  "satfat": 1.5,
+                                  "sodium": 210
+                            },
+                            {
+                                  "key": "pancakes",
+                                  "icon": "🥞",
+                                  "name": "Protein pancakes",
+                                  "at": "9:30",
+                                  "src": "recipe",
+                                  "slot": "snack",
+                                  "kcal": 360,
+                                  "pro": 31,
+                                  "carb": 37,
+                                  "fat": 8,
+                                  "fibre": 5,
+                                  "sugar": 7,
+                                  "satfat": 2,
+                                  "sodium": 380
+                            }
+                      ],
+                      "eaten": 2710,
+                      "pro": 209,
+                      "carb": 287,
+                      "fat": 75,
+                      "waterMl": 3100,
+                      "supps": [
+                            {
+                                  "name": "Creatine",
+                                  "dose": "5 g",
+                                  "when": "Morning",
+                                  "taken": true
+                            },
+                            {
+                                  "name": "Vitamin D",
+                                  "dose": "2000 IU",
+                                  "when": "Morning",
+                                  "taken": true
+                            }
+                      ]
+                },
+                "2026-09-07": {
+                      "date": "2026-09-07",
+                      "meals": [
+                            {
+                                  "key": "eggs",
+                                  "icon": "🍳",
+                                  "name": "Eggs, toast, butter",
+                                  "at": "8:00",
+                                  "src": "table",
+                                  "slot": "breakfast",
+                                  "kcal": 540,
+                                  "pro": 38,
+                                  "carb": 46,
+                                  "fat": 24,
+                                  "fibre": 4,
+                                  "sugar": 5,
+                                  "satfat": 9,
+                                  "sodium": 720
+                            },
+                            {
+                                  "key": "bowl",
+                                  "icon": "🥗",
+                                  "name": "Chicken rice bowl",
+                                  "at": "12:45",
+                                  "src": "estimate",
+                                  "slot": "lunch",
+                                  "kcal": 720,
+                                  "pro": 52,
+                                  "carb": 84,
+                                  "fat": 16,
+                                  "fibre": 6,
+                                  "sugar": 8,
+                                  "satfat": 4,
+                                  "sodium": 980
+                            },
+                            {
+                                  "key": "chilli",
+                                  "icon": "🍲",
+                                  "name": "Chilli",
+                                  "at": "7:15",
+                                  "src": "recipe",
+                                  "slot": "dinner",
+                                  "kcal": 530,
+                                  "pro": 41,
+                                  "carb": 38,
+                                  "fat": 18,
+                                  "fibre": 11,
+                                  "sugar": 9,
+                                  "satfat": 6,
+                                  "sodium": 760
+                            },
+                            {
+                                  "key": "shake",
+                                  "icon": "🥤",
+                                  "name": "Whey shake, banana",
+                                  "at": "3:40",
+                                  "src": "verified",
+                                  "slot": "snack",
+                                  "kcal": 310,
+                                  "pro": 31,
+                                  "carb": 38,
+                                  "fat": 4,
+                                  "fibre": 3,
+                                  "sugar": 24,
+                                  "satfat": 1.5,
+                                  "sodium": 210
+                            },
+                            {
+                                  "key": "pancakes",
+                                  "icon": "🥞",
+                                  "name": "Protein pancakes",
+                                  "at": "9:45",
+                                  "src": "recipe",
+                                  "slot": "snack",
+                                  "kcal": 360,
+                                  "pro": 31,
+                                  "carb": 37,
+                                  "fat": 8,
+                                  "fibre": 5,
+                                  "sugar": 7,
+                                  "satfat": 2,
+                                  "sodium": 380
+                            },
+                            {
+                                  "key": "skyr",
+                                  "icon": "🥫",
+                                  "name": "Skyr, plain",
+                                  "at": "10:30",
+                                  "src": "verified",
+                                  "slot": "snack",
+                                  "kcal": 96,
+                                  "pro": 17,
+                                  "carb": 6,
+                                  "fat": 0.3,
+                                  "fibre": 0,
+                                  "sugar": 6,
+                                  "satfat": 0.1,
+                                  "sodium": 65
+                            }
+                      ],
+                      "eaten": 2556,
+                      "pro": 210,
+                      "carb": 249,
+                      "fat": 70.3,
+                      "waterMl": 2900,
+                      "supps": [
+                            {
+                                  "name": "Creatine",
+                                  "dose": "5 g",
+                                  "when": "Morning",
+                                  "taken": true
+                            },
+                            {
+                                  "name": "Vitamin D",
+                                  "dose": "2000 IU",
+                                  "when": "Morning",
+                                  "taken": false
+                            }
+                      ]
+                },
+                "2026-09-06": {
+                      "date": "2026-09-06",
+                      "meals": [
+                            {
+                                  "key": "eggs",
+                                  "icon": "🍳",
+                                  "name": "Eggs, toast, butter",
+                                  "at": "9:20",
+                                  "src": "table",
+                                  "slot": "breakfast",
+                                  "kcal": 540,
+                                  "pro": 38,
+                                  "carb": 46,
+                                  "fat": 24,
+                                  "fibre": 4,
+                                  "sugar": 5,
+                                  "satfat": 9,
+                                  "sodium": 720
+                            },
+                            {
+                                  "key": "cnr",
+                                  "icon": "🍚",
+                                  "name": "Chicken and rice",
+                                  "at": "1:10",
+                                  "src": "recipe",
+                                  "slot": "lunch",
+                                  "kcal": 690,
+                                  "pro": 61,
+                                  "carb": 74,
+                                  "fat": 13,
+                                  "fibre": 3,
+                                  "sugar": 3,
+                                  "satfat": 3.5,
+                                  "sodium": 640
+                            },
+                            {
+                                  "key": "chilli",
+                                  "icon": "🍲",
+                                  "name": "Chilli",
+                                  "at": "7:00",
+                                  "src": "recipe",
+                                  "slot": "dinner",
+                                  "kcal": 530,
+                                  "pro": 41,
+                                  "carb": 38,
+                                  "fat": 18,
+                                  "fibre": 11,
+                                  "sugar": 9,
+                                  "satfat": 6,
+                                  "sodium": 760
+                            },
+                            {
+                                  "key": "shake",
+                                  "icon": "🥤",
+                                  "name": "Whey shake, banana",
+                                  "at": "4:30",
+                                  "src": "verified",
+                                  "slot": "snack",
+                                  "kcal": 310,
+                                  "pro": 31,
+                                  "carb": 38,
+                                  "fat": 4,
+                                  "fibre": 3,
+                                  "sugar": 24,
+                                  "satfat": 1.5,
+                                  "sodium": 210
+                            }
+                      ],
+                      "eaten": 2070,
+                      "pro": 171,
+                      "carb": 196,
+                      "fat": 59,
+                      "waterMl": 2600,
+                      "supps": [
+                            {
+                                  "name": "Creatine",
+                                  "dose": "5 g",
+                                  "when": "Morning",
+                                  "taken": false
+                            },
+                            {
+                                  "name": "Vitamin D",
+                                  "dose": "2000 IU",
+                                  "when": "Morning",
+                                  "taken": false
+                            }
+                      ]
+                }
+          },
+          "trend": [
+                2870,
+                3040,
+                2790,
+                3180,
+                2900,
+                2680,
+                2985,
+                2740,
+                3120,
+                2610,
+                2070,
+                2556,
+                2710,
+                1570
+          ],
+          "trendSeries": [
+                {
+                      "date": "2026-08-11",
+                      "kcal": 2740
+                },
+                {
+                      "date": "2026-08-12",
+                      "kcal": 3105
+                },
+                {
+                      "date": "2026-08-13",
+                      "kcal": 2880
+                },
+                {
+                      "date": "2026-08-14",
+                      "kcal": 2650
+                },
+                {
+                      "date": "2026-08-15",
+                      "kcal": 3210
+                },
+                {
+                      "date": "2026-08-16",
+                      "kcal": 2795
+                },
+                {
+                      "date": "2026-08-17",
+                      "kcal": 2960
+                },
+                {
+                      "date": "2026-08-18",
+                      "kcal": 2830
+                },
+                {
+                      "date": "2026-08-19",
+                      "kcal": 3060
+                },
+                {
+                      "date": "2026-08-20",
+                      "kcal": 2710
+                },
+                {
+                      "date": "2026-08-21",
+                      "kcal": 2905
+                },
+                {
+                      "date": "2026-08-22",
+                      "kcal": 3140
+                },
+                {
+                      "date": "2026-08-23",
+                      "kcal": 2760
+                },
+                {
+                      "date": "2026-08-24",
+                      "kcal": 2680
+                },
+                {
+                      "date": "2026-08-25",
+                      "kcal": 3020
+                },
+                {
+                      "date": "2026-08-26",
+                      "kcal": 2870
+                },
+                {
+                      "date": "2026-08-27",
+                      "kcal": 2870
+                },
+                {
+                      "date": "2026-08-28",
+                      "kcal": 3040
+                },
+                {
+                      "date": "2026-08-29",
+                      "kcal": 2790
+                },
+                {
+                      "date": "2026-08-30",
+                      "kcal": 3180
+                },
+                {
+                      "date": "2026-08-31",
+                      "kcal": 2900
+                },
+                {
+                      "date": "2026-09-01",
+                      "kcal": 2680
+                },
+                {
+                      "date": "2026-09-02",
+                      "kcal": 2985
+                },
+                {
+                      "date": "2026-09-03",
+                      "kcal": 2740
+                },
+                {
+                      "date": "2026-09-04",
+                      "kcal": 3120
+                },
+                {
+                      "date": "2026-09-05",
+                      "kcal": 2610
+                },
+                {
+                      "date": "2026-09-06",
+                      "kcal": 2070
+                },
+                {
+                      "date": "2026-09-07",
+                      "kcal": 2556
+                },
+                {
+                      "date": "2026-09-08",
+                      "kcal": 2710
+                },
+                {
+                      "date": "2026-09-09",
+                      "kcal": 1570
+                }
+          ]
+    },
+    mcProfile: {
+          "setup": true,
+          "goal": "train",
+          "lastStart": "2026-08-29",
+          "cycleLen": 28,
+          "periodLen": 5,
+          "irregular": false,
+          "birthControl": "none",
+          "discreet": false,
+          "createdAt": "2026-08-01"
+    },
+    mcDays: {
+          "2026-08-29": {
+                "flow": 2,
+                "sym": {
+                      "cramps": 2,
+                      "fatigue": 1
+                },
+                "mood": [
+                      "tired"
+                ],
+                "note": ""
+          },
+          "2026-08-30": {
+                "flow": 3,
+                "sym": {
+                      "cramps": 2,
+                      "fatigue": 1
+                },
+                "mood": [],
+                "note": ""
+          },
+          "2026-08-31": {
+                "flow": 2,
+                "sym": {},
+                "mood": [],
+                "note": ""
+          },
+          "2026-09-01": {
+                "flow": 1,
+                "sym": {},
+                "mood": [],
+                "note": ""
+          },
+          "2026-09-02": {
+                "flow": 1,
+                "sym": {},
+                "mood": [],
+                "note": ""
+          },
+          "2026-09-05": {
+                "flow": 0,
+                "sym": {},
+                "mood": [
+                      "energised"
+                ],
+                "note": "Great squat day"
+          }
+    },
+    mcFuelAdjust: false,
+    cardioPrefs: {
+          "distUnit": "km",
+          "weeklyTargetMin": 150,
+          "maxHrOverride": null,
+          "zoneModel": "5zone",
+          "restingHr": 58
+    },
+    cardioFavorites: [
+          {
+                "id": "fav_1787122800000",
+                "label": "Treadmill run",
+                "emoji": "run",
+                "modality": "treadmill_run",
+                "subType": null,
+                "environment": "indoor",
+                "machine": {
+                      "category": "treadmill",
+                      "brand": null,
+                      "model": null
+                },
+                "defaults": {
+                      "durationSec": 1800,
+                      "surface": "machine"
+                },
+                "order": 0,
+                "useCount": 3,
+                "lastUsedAt": "2026-09-06T07:45:00.000Z",
+                "pinned": true
+          }
+    ],
+    cycles: [
+          {
+                "id": "c1",
+                "name": "Autumn block",
+                "status": "active",
+                "start": "2026-08-11",
+                "weeks": 12,
+                "endPlanned": "2026-11-02",
+                "endActual": null,
+                "note": "Bloods booked for week 6.",
+                "comps": [
+                      {
+                            "name": "Testosterone enanthate",
+                            "cat": "aas",
+                            "dose": "250 mg",
+                            "freq": "twice-weekly",
+                            "route": "Intramuscular",
+                            "at": "08:00",
+                            "halfLifeH": 192,
+                            "taken": [
+                                  "2026-09-07"
+                            ]
+                      },
+                      {
+                            "name": "Anastrozole",
+                            "cat": "anc",
+                            "dose": "0.5 mg",
+                            "freq": "eod",
+                            "route": "Oral",
+                            "at": "08:00",
+                            "since": "2026-08-11",
+                            "halfLifeH": 46,
+                            "taken": []
+                      },
+                      {
+                            "name": "BPC-157",
+                            "cat": "sarm",
+                            "dose": "250 mcg",
+                            "freq": "daily",
+                            "route": "Subcutaneous",
+                            "at": "21:00",
+                            "halfLifeH": 4,
+                            "taken": []
+                      }
+                ]
+          },
+          {
+                "id": "c2",
+                "name": "Spring cut",
+                "status": "completed",
+                "start": "2026-03-02",
+                "weeks": 10,
+                "endPlanned": "2026-05-11",
+                "endActual": "2026-04-27",
+                "note": "Ended two weeks early, shoulder.",
+                "comps": [
+                      {
+                            "name": "Testosterone propionate",
+                            "cat": "aas",
+                            "dose": "100 mg",
+                            "freq": "eod",
+                            "route": "Intramuscular",
+                            "at": "07:30",
+                            "since": "2026-03-02",
+                            "halfLifeH": 20,
+                            "taken": []
+                      }
+                ]
+          }
+    ],
+    suppLog: {
+          "2026-08-27": [
+                "Creatine",
+                "Vitamin D"
+          ],
+          "2026-08-28": [
+                "Creatine"
+          ],
+          "2026-08-29": [
+                "Vitamin D"
+          ],
+          "2026-08-30": [
+                "Creatine",
+                "Vitamin D"
+          ],
+          "2026-08-31": [
+                "Creatine"
+          ],
+          "2026-09-01": [
+                "Creatine",
+                "Vitamin D"
+          ],
+          "2026-09-02": [
+                "Creatine",
+                "Vitamin D"
+          ],
+          "2026-09-03": [
+                "Creatine"
+          ],
+          "2026-09-04": [
+                "Creatine",
+                "Vitamin D"
+          ],
+          "2026-09-05": [
+                "Creatine",
+                "Vitamin D"
+          ],
+          "2026-09-06": [
+                "Creatine"
+          ],
+          "2026-09-07": [
+                "Creatine",
+                "Vitamin D"
+          ],
+          "2026-09-08": [
+                "Creatine",
+                "Vitamin D"
+          ],
+          "2026-09-09": [
+                "Creatine"
+          ]
+    },
+    feedback: [
+          {
+                "id": "fb1788852600000",
+                "date": "2026-09-08T07:30:00.000Z",
+                "dateStr": "9/8/2026",
+                "mood": 3,
+                "energy": 3,
+                "stress": 2,
+                "sleep": 4,
+                "soreness": 3,
+                "hoursSlept": 7,
+                "tags": [
+                      "legs sore"
+                ],
+                "note": "",
+                "anchored": "usual"
+          },
+          {
+                "id": "fb1788766200000",
+                "date": "2026-09-07T07:30:00.000Z",
+                "dateStr": "9/7/2026",
+                "mood": 4,
+                "energy": 3,
+                "stress": 2,
+                "sleep": 3,
+                "soreness": 2,
+                "hoursSlept": 7.5,
+                "tags": [],
+                "note": "",
+                "anchored": "usual"
+          },
+          {
+                "id": "fb1788679800000",
+                "date": "2026-09-06T07:30:00.000Z",
+                "dateStr": "9/6/2026",
+                "mood": 3,
+                "energy": 3,
+                "stress": 2,
+                "sleep": 3,
+                "soreness": 2,
+                "hoursSlept": 8,
+                "tags": [],
+                "note": "",
+                "anchored": "usual"
+          },
+          {
+                "id": "fb1788507000000",
+                "date": "2026-09-04T07:30:00.000Z",
+                "dateStr": "9/4/2026",
+                "mood": 4,
+                "energy": 3,
+                "stress": 2,
+                "sleep": 3,
+                "soreness": 2,
+                "hoursSlept": 7,
+                "tags": [],
+                "note": "",
+                "anchored": "usual"
+          },
+          {
+                "id": "fb1788334200000",
+                "date": "2026-09-02T07:30:00.000Z",
+                "dateStr": "9/2/2026",
+                "mood": 3,
+                "energy": 3,
+                "stress": 2,
+                "sleep": 3,
+                "soreness": 2,
+                "hoursSlept": 7.5,
+                "tags": [],
+                "note": "",
+                "anchored": "usual"
+          },
+          {
+                "id": "fb1788161400000",
+                "date": "2026-08-31T07:30:00.000Z",
+                "dateStr": "8/31/2026",
+                "mood": 4,
+                "energy": 3,
+                "stress": 2,
+                "sleep": 3,
+                "soreness": 2,
+                "hoursSlept": 8,
+                "tags": [],
+                "note": "",
+                "anchored": "usual"
+          }
+    ],
+    coachPlan: {
+          "name": "12-week strength block",
+          "description": "Linear progression on PPL, deload week 7.",
+          "startDate": "2026-08-04",
+          "phases": [
+                {
+                      "name": "Base",
+                      "weekStart": 1,
+                      "weekEnd": 4,
+                      "focus": "volume",
+                      "targets": [
+                            {
+                                  "name": "Bench 5RM",
+                                  "value": "70 kg"
+                            },
+                            {
+                                  "name": "Squat 5RM",
+                                  "value": "85 kg"
+                            }
+                      ]
+                },
+                {
+                      "name": "Build",
+                      "weekStart": 5,
+                      "weekEnd": 8,
+                      "focus": "intensity",
+                      "targets": [
+                            {
+                                  "name": "Bench 5RM",
+                                  "value": "75 kg"
+                            },
+                            {
+                                  "name": "Deadlift 4RM",
+                                  "value": "120 kg"
+                            }
+                      ]
+                },
+                {
+                      "name": "Peak",
+                      "weekStart": 9,
+                      "weekEnd": 12,
+                      "focus": "strength",
+                      "targets": [
+                            {
+                                  "name": "Squat 1RM",
+                                  "value": "100 kg"
+                            }
+                      ]
+                }
+          ],
+          "created": "2026-08-04T09:00:00.000Z",
+          "updatedAt": "2026-08-04T09:00:00.000Z"
+    },
+    coachMemory: [
+          {
+                "text": "Left knee gets tight on high-bar squats",
+                "src": "added by you, 8/25/2026",
+                "date": "2026-08-25T09:00:00.000Z"
+          }
+    ],
+    coachInstructions: "Keep replies under 80 words. Reference my actual numbers.",
+
+    /* Every session on a date, newest first. */
+    on: function (iso) {
+      return g.LKFixtures.history.filter(function (h) { return h.date === iso; });
+    },
+    /* Inclusive both ends. */
+    between: function (a, b) {
+      return g.LKFixtures.history.filter(function (h) { return h.date >= a && h.date <= b; });
+    },
+    /* One session by id, which is what a history row hands on. */
+    session: function (id) {
+      var h = g.LKFixtures.history;
+      for (var i = 0; i < h.length; i++) { if (h[i].id === id) return h[i]; }
+      return null;
+    },
+    /* The most recent session, older than the date given, that contains this lift, and
+       that lift's rows inside it. This is what "last time" means, and it is
+       the only honest source for it. */
+    lastTime: function (exId, before) {
+      var h = g.LKFixtures.history;
+      for (var i = 0; i < h.length; i++) {
+        var w = h[i];
+        if (w.kind !== 'lift') continue;
+        if (before && w.date >= before) continue;
+        for (var j = 0; j < w.exercises.length; j++) {
+          if (w.exercises[j].id === exId) return { date: w.date, exercise: w.exercises[j] };
+        }
+      }
+      return null;
+    },
+    /* The cycle, worked out rather than stated. Every screen that shows a day
+       number, a phase or a next-period date asks here, so they cannot drift.
+       The date argument defaults to today. */
+    cycleOn: function (iso) {
+      var p = g.LKFixtures.mcProfile;
+      if (!p || !p.lastStart) return null;
+      iso = iso || g.LKFixtures.today;
+      var ms = function (s) { var a = s.split('-'); return Date.UTC(+a[0], +a[1] - 1, +a[2]); };
+      var day = Math.round((ms(iso) - ms(p.lastStart)) / 86400000);
+      var len = p.cycleLen || 28, per = p.periodLen || 5;
+      /* Days past the end of a cycle are NOT wrapped. The screen used to take
+         the day count modulo the cycle length, so a period ten days late read
+         "Day 11" and an overdue state could never be reached. */
+      var overdue = day >= len ? day - len + 1 : 0;
+      var inCycle = day < 0 ? null : (overdue ? day + 1 : (day % len) + 1);
+      var phase = inCycle === null ? null
+        : inCycle <= per ? 'menstrual'
+        : inCycle <= Math.round(len / 2) - 2 ? 'follicular'
+        : inCycle <= Math.round(len / 2) + 1 ? 'ovulatory'
+        : 'luteal';
+      var nextMs = ms(p.lastStart) + len * 86400000;
+      var next = new Date(nextMs).toISOString().slice(0, 10);
+      return {
+        day: inCycle,
+        phase: overdue ? 'late' : phase,
+        overdue: overdue,
+        cycleLen: len,
+        periodLen: per,
+        irregular: !!p.irregular,
+        nextStart: next,
+        daysToNext: Math.round((nextMs - ms(iso)) / 86400000)
+      };
+    },
+
+    /* Working volume and top set of one lift inside one session. */
+    liftStats: function (ex) {
+      var vol = 0, top = null;
+      ex.sets.forEach(function (st) {
+        if (!st.done || st.warm || st.kg == null || st.reps == null) return;
+        vol += st.kg * st.reps;
+        if (!top || st.kg > top[0] || (st.kg === top[0] && st.reps > top[1])) top = [st.kg, st.reps];
+      });
+      return { vol: Math.round(vol), top: top };
+    }
+  };
+})(typeof window !== 'undefined' ? window : this);

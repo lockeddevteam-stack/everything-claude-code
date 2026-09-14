@@ -10,6 +10,9 @@
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 <script src="session.js"></script>
+<script src="fixtures.js"></script>
+<script src="store.js"></script>
+<script src="units.js"></script>
 </head>
 <body>
 <!--
@@ -88,7 +91,10 @@
 (function () {
   'use strict';
 
-  var TODAY = '2026-09-09';
+  /* The wall clock, or the seed's date while a seed is loaded -- the same
+     answer Home and Fuel get. Pinned to the seed's own day, a build with no
+     seed opened this screen on a week in somebody else's September. */
+  var TODAY = window.LKStore ? LKStore.today() : '2026-09-09';
   var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
@@ -111,66 +117,135 @@
     /* The unit is joined with a non-breaking space and kept inside the
        number, because at hero size "14.4k kg" broke after the figure and
        the card read "14.4" on one line and "k kg" on the next. */
-    if (kg >= 10000) return n((kg / 1000).toFixed(1) + 'k\u00A0kg');
-    return n(kg.toLocaleString('en-GB') + '\u00A0kg');
+    return n(volText(kg));
+  }
+  /* The same figure as plain text, for an accessible name. vol() returns
+     markup, and passing it through esc() put a literal <span class="num">
+     into the volume chart's aria-label, which is what a screen reader then
+     read out. */
+  function volText(kg) {
+    var u = LKUnits.label(), x = LKUnits.vRound(kg);
+    if (x >= 10000) return (x / 1000).toFixed(1) + 'k\u00A0' + u;
+    return x.toLocaleString('en-GB') + '\u00A0' + u;
+  }
+  /* Unabbreviated, for anywhere a reader would compare it with Home, Train
+     or workout-detail -- all of which print 14,363 kg where Recap alone said
+     "14.4k kg" for the same session. */
+  function volExact(kg) {
+    return LKUnits.vRound(kg).toLocaleString('en-GB') + '\u00A0' + LKUnits.label();
   }
 
   /* ---------------------------------------------------------------
      Data. lk_history, inlined from tests/fixtures/seed-data.json.
      --------------------------------------------------------------- */
-  var HISTORY = [
-    { d: '2026-09-07', name: 'PPL - Legs',  sets: 16, vol: 14363, min: 52, kind: 'lifting' },
-    { d: '2026-09-06', name: 'PPL - Pull',  sets: 15, vol: 11880, min: 48, kind: 'lifting' },
-    { d: '2026-09-05', name: 'PPL - Push',  sets: 14, vol:  9940, min: 44, kind: 'lifting' },
-    { d: '2026-09-03', name: 'PPL - Legs',  sets: 16, vol: 14020, min: 51, kind: 'lifting' },
-    { d: '2026-09-02', name: 'Treadmill run', sets: 0, vol: 0, min: 30, km: 5.2, cal: 340, kind: 'cardio' },
-    { d: '2026-08-31', name: 'PPL - Pull',  sets: 15, vol: 11640, min: 47, kind: 'lifting' },
-    { d: '2026-08-30', name: 'Rowing erg',  sets: 0, vol: 0, min: 20, km: 4.6, cal: 230, kind: 'cardio' },
-    { d: '2026-08-29', name: 'PPL - Push',  sets: 14, vol:  9820, min: 45, kind: 'lifting' },
-    { d: '2026-08-27', name: 'PPL - Legs',  sets: 16, vol: 13800, min: 50, kind: 'lifting' },
-    { d: '2026-08-26', name: 'PPL - Pull',  sets: 15, vol: 11500, min: 46, kind: 'lifting' },
-    { d: '2026-08-24', name: 'PPL - Push',  sets: 14, vol:  9700, min: 44, kind: 'lifting' },
-    { d: '2026-08-23', name: 'Walking',     sets: 0, vol: 0, min: 45, km: 4.0, cal: 210, kind: 'cardio' },
-    { d: '2026-08-22', name: 'PPL - Legs',  sets: 16, vol: 13540, min: 50, kind: 'lifting' },
-    { d: '2026-08-20', name: 'PPL - Pull',  sets: 15, vol: 11320, min: 46, kind: 'lifting' },
-    { d: '2026-08-19', name: 'PPL - Push',  sets: 14, vol:  9560, min: 43, kind: 'lifting' },
-    { d: '2026-08-17', name: 'PPL - Legs',  sets: 16, vol: 13280, min: 49, kind: 'lifting' },
-    { d: '2026-08-16', name: 'Upright bike', sets: 0, vol: 0, min: 25, km: 9.0, cal: 240, kind: 'cardio' },
-    { d: '2026-08-15', name: 'PPL - Pull',  sets: 15, vol: 11100, min: 45, kind: 'lifting' },
-    { d: '2026-08-13', name: 'PPL - Push',  sets: 14, vol:  9420, min: 43, kind: 'lifting' },
-    { d: '2026-08-10', name: 'PPL - Legs',  sets: 16, vol: 13020, min: 48, kind: 'lifting' },
-    { d: '2026-08-06', name: 'PPL - Pull',  sets: 15, vol: 10880, min: 44, kind: 'lifting' },
-    { d: '2026-07-30', name: 'PPL - Push',  sets: 14, vol:  9280, min: 42, kind: 'lifting' }
-  ];
+  /* One copy, generated from the fixture and shared with every other screen
+     that shows training. This screen carried its own hand-typed HISTORY, PRS
+     and WEIGHT arrays and only four of twenty-two sessions matched: Recap
+     reported a September of 5 sessions and 50,203 kg against Train's 4 and
+     25,787, and claimed a 102.5 kg squat when the record is 87.5. Nothing
+     caught it, because every screen agreed with itself. */
+  /* Read through the store, not the fixture. Recap sat one layer behind
+     every other screen: a meal logged in Fuel, a weigh-in on Progress and a
+     finished session all left it showing the seed. The fixture is the seed,
+     the store is the truth the moment anything is written. */
+  var ST = window.LKStore;
+  function stored(key, fb) { return ST ? ST.get(key, fb) : fb; }
+  var FX = window.LKFixtures || {};
 
-  /* The day the owner is reading. Today is a rest day in this fixture, which
-     is the more useful default: a recap that only works on a training day is
-     a recap you cannot check on Sunday. */
-  var DAY = {
-    d: TODAY,
-    trained: null,
-    kcal: 2180, kcalTarget: 2400,
-    protein: 168, proteinTarget: 170,
-    carbs: 214, fat: 71,
-    waterMl: 1750, waterGoalMl: 3000,
-    steps: 7420,
-    weightKg: 64.2,
-    supps: [{ name: 'Creatine', taken: true }, { name: 'Vitamin D', taken: true }, { name: 'Omega 3', taken: false }],
-    felt: 'Good',
-    note: 'Rest day. Legs still heavy from Monday.'
-  };
+  var HISTORY = stored('lk_history', null) || FX.history || [];
+  var PRS = stored('lk_prs', null) || FX.prs || [];
+  var WEIGHT = stored('lk_weightLog', null) || FX.weightLog || [];
 
-  var PRS = [
-    { lift: 'Barbell Squat', kg: 102.5, when: '2026-09-07' },
-    { lift: 'Barbell Bench Press', kg: 87.5, when: '2026-09-05' }
-  ];
+  /* Screens mount once in the demo, and everything above was read on that
+     one mount: a session finished in the workout log, a weigh-in on
+     Progress or a check-in in Coach left this screen showing what was
+     stored when the app opened. Re-read on the way in. */
+  function reread() {
+    HISTORY = stored('lk_history', null) || FX.history || [];
+    PRS = stored('lk_prs', null) || FX.prs || [];
+    WEIGHT = stored('lk_weightLog', null) || FX.weightLog || [];
+    FUELLOG = stored('lk_fuelLog', null) || NUT.days || {};
+    TARGETS = stored('lk_fuelTargets', null) || NUT.targets || {};
+    SUPP_LOG = stored('lk_suppLog', null) || FX.suppLog || {};
+    SUPPS = stored('lk_supplements', null) || FX.supplements || [];
+    FEEL = buildFeel();
+  }
 
-  var WEIGHT = [
-    { d: '2026-07-27', kg: 65.3 }, { d: '2026-08-03', kg: 65.3 },
-    { d: '2026-08-10', kg: 64.9 }, { d: '2026-08-17', kg: 64.7 },
-    { d: '2026-08-24', kg: 64.6 }, { d: '2026-08-31', kg: 64.4 },
-    { d: '2026-09-07', kg: 64.2 }
-  ];
+  /* The day's food. Fuel writes lk_fuelLog in the fixture's own day shape,
+     so the same reader serves both. Days not in here have no food logged,
+     which is a fact rather than a gap. */
+  var NUT = FX.nutrition || { targets: {}, days: {} };
+  var FUELLOG = stored('lk_fuelLog', null) || NUT.days || {};
+  var TARGETS = stored('lk_fuelTargets', null) || NUT.targets || {};
+
+  /* How the day felt, from the check-ins the Coach writes. Four days of
+     hand-typed notes used to live here, and none of them existed in the
+     stored check-ins the rest of the app reads. */
+  var FELT_WORD = [null, 'Rough', 'Flat', 'Okay', 'Good', 'Strong'];
+  function isoOfCheckin(c) {
+    if (!c) return null;
+    if (c.date && /^\d{4}-\d{2}-\d{2}/.test(String(c.date))) return String(c.date).slice(0, 10);
+    if (c.dateStr) {
+      var a = String(c.dateStr).split('/');
+      if (a.length === 3) return a[2] + '-' + ('0' + a[0]).slice(-2) + '-' + ('0' + a[1]).slice(-2);
+    }
+    return null;
+  }
+  function buildFeel() {
+    var out = {};
+    (stored('lk_feedback', null) || FX.feedback || []).forEach(function (c) {
+      var iso = isoOfCheckin(c);
+      if (!iso) return;
+      var m = Number(c.mood);
+      out[iso] = {
+        felt: FELT_WORD[m] || null,
+        note: c.note || (c.tags && c.tags.length ? c.tags.join(', ') : '')
+      };
+    });
+    return out;
+  }
+  var FEEL = buildFeel();
+
+  /* Supplements ticked on a day. The day's own record wins where Fuel wrote
+     one; otherwise the shared log, which is what Stack and Home read. */
+  var SUPP_LOG = stored('lk_suppLog', null) || FX.suppLog || {};
+  var SUPPS = stored('lk_supplements', null) || FX.supplements || [];
+  function suppsOn(iso, day) {
+    if (day && day.supps && day.supps.length) {
+      return day.supps.map(function (sp) { return { name: sp.name, taken: !!sp.taken }; });
+    }
+    var took = SUPP_LOG[iso] || [];
+    return SUPPS.map(function (sp) {
+      var name = sp.name || sp;
+      return { name: name, taken: took.indexOf(name) >= 0 };
+    });
+  }
+
+  /* The weigh-in nearest on or before the day, and the day it was taken.
+     The row used to print the day being viewed, so a Monday weigh-in read
+     as Wednesday for the rest of the week. */
+  function weightOn(iso) {
+    var last = null;
+    for (var i = 0; i < WEIGHT.length; i++) { if (WEIGHT[i].date <= iso) last = WEIGHT[i]; }
+    return last ? { kg: last.kg, date: last.date } : null;
+  }
+  function dayOf(iso) {
+    var d = FUELLOG[iso];
+    if (!d) return null;
+    var f = FEEL[iso] || { felt: null, note: '' };
+    var tg = TARGETS;
+    var w = weightOn(iso);
+    return {
+      kcal: d.eaten, kcalTarget: tg.kcal,
+      protein: Math.round(d.pro), proteinTarget: tg.pro,
+      carbs: Math.round(d.carb), fat: Math.round(d.fat),
+      waterMl: d.waterMl, waterGoalMl: tg.waterMl,
+      weightKg: w ? w.kg : null,
+      weightOn: w ? w.date : null,
+      supps: suppsOn(iso, d),
+      felt: f.felt, note: f.note
+    };
+  }
 
   /* ---------------------------------------------------------------
      Dates. Everything is an ISO string; nothing constructs a Date from
@@ -181,6 +256,10 @@
   function dowOf(iso) {
     var p = parts(iso);
     return new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay();
+  }
+  function daysBetween(a, b) {
+    var x = parts(a), y = parts(b);
+    return Math.round((Date.UTC(y.y, y.m - 1, y.d) - Date.UTC(x.y, x.m - 1, x.d)) / 86400000);
   }
   function addDays(iso, k) {
     var p = parts(iso);
@@ -200,10 +279,10 @@
   function daysIn(y, m) { return new Date(Date.UTC(y, m, 0)).getUTCDate(); }
 
   function sessionsOn(iso) {
-    return HISTORY.filter(function (h) { return h.d === iso; });
+    return HISTORY.filter(function (h) { return h.date === iso; });
   }
   function between(a, b) {
-    return HISTORY.filter(function (h) { return h.d >= a && h.d <= b; });
+    return HISTORY.filter(function (h) { return h.date >= a && h.date <= b; });
   }
 
   /* ---------------------------------------------------------------
@@ -239,18 +318,18 @@
   }
 
   function sessionRow(h, showDate) {
-    return '<button class="row" type="button" data-action="open-session" data-d="' + h.d +
-        '" data-testid="row-session-' + h.d + '">' +
+    return '<button class="row" type="button" data-action="open-session" data-id="' + esc(h.id) +
+        '" data-testid="row-session-' + h.date + '">' +
       '<span class="ico-well">' + (h.kind === 'cardio' ? ICO.flame : ICO.lift) + '</span>' +
       '<span class="row__main stack">' +
         '<span class="row__title">' + esc(h.name) + '</span>' +
         '<span class="row__sub">' +
           (h.kind === 'cardio'
             ? n(h.min) + ' min · ' + n(h.km) + ' km · ' + n(h.cal) + ' kcal'
-            : n(h.sets) + ' sets · ' + vol(h.vol) + ' · ' + n(h.min) + ' min') +
+            : n(h.sets) + ' sets · ' + n(volExact(h.kg)) + ' · ' + n(h.min) + ' min') +
         '</span>' +
       '</span>' +
-      (showDate ? '<span class="row__value t-meta">' + esc(pretty(h.d).slice(0, 3)) + '</span>' : '') +
+      (showDate ? '<span class="row__value t-meta">' + esc(pretty(h.date).slice(0, 3)) + '</span>' : '') +
       '<span class="row__chev">' + ICO.chev + '</span>' +
     '</button>';
   }
@@ -279,6 +358,7 @@
   function viewDay() {
     var today = sessionsOn(S.day);
     var isToday = S.day === TODAY;
+    var DAY = dayOf(S.day);
     var out = '';
 
     out += '<div class="daynav gutter mt-3">' +
@@ -294,41 +374,60 @@
        than left blank. */
     out += head('Training');
     if (today.length) out += listCard(today.map(function (h) { return sessionRow(h, false); }));
-    else out += card('<p class="t-body">Rest day.</p><p class="t-detail muted mt-1">' +
-      'Last session ' + esc(pretty(HISTORY[0].d)) + ', ' + esc(HISTORY[0].name) + '.</p>', 'card--sunken');
+    /* The last session, when there is one. On an account with no history at
+       all this read HISTORY[0].date off an empty array and took the whole
+       screen down with it -- the one state a new account is guaranteed to
+       be in. */
+    else if (HISTORY.length) out += card('<p class="t-body">Rest day.</p><p class="t-detail muted mt-1">' +
+      'Last session ' + esc(pretty(HISTORY[0].date)) + ', ' + esc(HISTORY[0].name) + '.</p>', 'card--sunken');
+    else out += card('<p class="t-body">Nothing logged.</p><p class="t-detail muted mt-1">' +
+      'Sessions you finish show up here.</p>', 'card--sunken');
 
-    /* Fuel. The ring is the day's calories against target; protein gets its
-       own line because it is the figure people actually chase. */
+    /* Fuel. Only for a day that has any. A day with nothing logged says so
+       rather than drawing a ring at zero, which reads as a result. */
+    if (!DAY) {
+      out += head('Fuel');
+      out += card('<p class="t-body">Nothing logged.</p>' +
+        '<p class="t-detail muted mt-1">No food, water or supplements were recorded on this day.</p>',
+        'card--sunken');
+      return out;
+    }
+
     var kpct = Math.min(100, Math.round(DAY.kcal / DAY.kcalTarget * 100));
     var ppct = Math.min(100, Math.round(DAY.protein / DAY.proteinTarget * 100));
+    var left = DAY.kcalTarget - DAY.kcal;
     out += head('Fuel', n(DAY.kcal) + ' of ' + n(DAY.kcalTarget) + ' kcal');
     out += card(
       '<div class="meter"><div class="meter__fill" style="width:' + kpct + '%"></div></div>' +
-      '<p class="t-detail muted mt-2">' + n(DAY.kcalTarget - DAY.kcal) + ' kcal left</p>' +
+      /* Over target is a state, not a negative number left. */
+      '<p class="t-detail muted mt-2">' + (left >= 0
+        ? n(left) + ' kcal left'
+        : n(Math.abs(left)) + ' kcal over') + '</p>' +
       '<div class="meter meter--quiet mt-3"><div class="meter__fill" style="width:' + ppct + '%"></div></div>' +
       '<p class="t-detail muted mt-2">Protein ' + n(DAY.protein) + ' of ' + n(DAY.proteinTarget) + ' g</p>' +
       statRow([[n(DAY.carbs) + ' g', 'Carbs'], [n(DAY.fat) + ' g', 'Fat'],
                [n((DAY.waterMl / 1000).toFixed(1)) + ' L', 'Water']]));
 
-    /* Supplements, body weight and how it felt: three one-line facts that
-       each took a tap to log and should take none to read back. */
-    var took = DAY.supps.filter(function (s) { return s.taken; }).length;
+    var took = DAY.supps.filter(function (x) { return x.taken; }).length;
     out += head('Logged');
     out += listCard([
       '<div class="row row--static"><span class="row__main stack">' +
         '<span class="row__title">Supplements</span>' +
-        '<span class="row__sub">' + DAY.supps.map(function (s) {
-          return (s.taken ? '' : '<span class="muted">') + esc(s.name) + (s.taken ? '' : '</span>');
+        '<span class="row__sub">' + DAY.supps.map(function (x) {
+          return (x.taken ? '' : '<span class="muted">') + esc(x.name) + (x.taken ? '' : '</span>');
         }).join(' · ') + '</span></span>' +
         '<span class="row__value">' + n(took) + ' of ' + n(DAY.supps.length) + '</span></div>',
+      /* The weigh-in is this day's, so its sub-line names this day. It used
+         to print a fixed date, which was wrong on every day but one. */
       '<div class="row row--static"><span class="row__main stack">' +
         '<span class="row__title">Body weight</span>' +
-        '<span class="row__sub">' + esc(pretty(WEIGHT[WEIGHT.length - 1].d)) + '</span></span>' +
-        '<span class="row__value">' + n(DAY.weightKg) + ' kg</span></div>',
+        '<span class="row__sub">' + esc(DAY.weightOn ? pretty(DAY.weightOn) : 'no weigh-in yet') + '</span></span>' +
+        '<span class="row__value">' + (DAY.weightKg == null ? '&mdash;'
+          : n(LKUnits.v(DAY.weightKg)) + ' ' + LKUnits.label()) + '</span></div>',
       '<div class="row row--static"><span class="row__main stack">' +
         '<span class="row__title">How it felt</span>' +
-        '<span class="row__sub">' + esc(DAY.note) + '</span></span>' +
-        '<span class="row__value">' + esc(DAY.felt) + '</span></div>'
+        '<span class="row__sub">' + esc(DAY.felt ? (DAY.note || 'no note') : 'no check-in on this day') + '</span></span>' +
+        '<span class="row__value">' + esc(DAY.felt || '\u2014') + '</span></div>'
     ]);
 
     return out;
@@ -342,17 +441,18 @@
     var rows = between(a, b);
     var lifts = rows.filter(function (h) { return h.kind !== 'cardio'; });
     var cardio = rows.filter(function (h) { return h.kind === 'cardio'; });
-    var totalVol = lifts.reduce(function (m, h) { return m + h.vol; }, 0);
+    var totalVol = lifts.reduce(function (m, h) { return m + h.kg; }, 0);
     var totalSets = lifts.reduce(function (m, h) { return m + h.sets; }, 0);
     var totalMin = rows.reduce(function (m, h) { return m + h.min; }, 0);
 
     /* The week before, for the comparison the old recap never drew. */
     var pa = addDays(a, -7), pb = addDays(a, -1);
     var prev = between(pa, pb).filter(function (h) { return h.kind !== 'cardio'; });
-    var prevVol = prev.reduce(function (m, h) { return m + h.vol; }, 0);
+    var prevVol = prev.reduce(function (m, h) { return m + h.kg; }, 0);
     var delta = prevVol ? Math.round((totalVol - prevVol) / prevVol * 100) : null;
 
     var isThis = a === weekStart(TODAY);
+    var daysSoFar = isThis ? daysBetween(a, TODAY) + 1 : 7;
     var out = '';
 
     out += '<div class="daynav gutter mt-3">' +
@@ -375,8 +475,17 @@
     out += head('The week', n(rows.length) + (rows.length === 1 ? ' session' : ' sessions'));
     out += card(
       '<p class="hero num" data-testid="week-volume">' + vol(totalVol) + '</p>' +
+      /* The comparison says when it is not like for like. This week is two
+         days old on a Wednesday and last week is seven, so "-43% on last
+         week" was reading a partial week against a whole one and calling it a
+         fall. The figure stays -- it is the real ratio -- and the sentence
+         beside it says what it is comparing. */
       '<p class="t-detail muted">total volume' +
         (delta === null ? '' : ' · ' + (delta >= 0 ? '+' : '') + n(delta) + '% on last week') + '</p>' +
+      (delta !== null && isThis && daysSoFar < 7
+        ? '<p class="t-detail quiet mt-1">' + n(daysSoFar) +
+          (daysSoFar === 1 ? ' day' : ' days') + ' of this week against a full week.</p>'
+        : '') +
       statRow([[n(totalSets), 'Sets'], [n(totalMin) + ' min', 'Time'],
                [n(lifts.length) + '/' + n(rows.length), 'Lifting']]));
 
@@ -384,25 +493,67 @@
     var series = [];
     for (var i = 0; i < 7; i++) {
       var d = addDays(a, i);
-      var v = between(d, d).reduce(function (m, h) { return m + h.vol; }, 0);
+      var v = between(d, d).reduce(function (m, h) { return m + h.kg; }, 0);
       series.push({ l: DOW[dowOf(d)].charAt(0), v: v, d: d });
     }
     out += head('Volume by day');
-    out += card(bars(series, 'Volume by day, ' + vol(totalVol) + ' across the week'));
+    out += card(bars(series, 'Volume by day, ' + volText(totalVol) + ' across the week'));
+
+    /* F-HOME-011. The two cards the old Weekly Recap had and this one did
+       not: the days with nothing on them, and the streak.
+
+       NOT "MISSED". The old card called them missed days, which is a claim
+       about a plan: the splits in this build carry no weekday, so which day
+       was supposed to be a training day is not in the data and nothing here
+       can know it was missed. It says what is true -- these days have no
+       session on them -- and lets the reader decide what that was. Only
+       elapsed days are counted: a Friday that has not happened yet is not a
+       day without a session. */
+    var blank = [];
+    for (var bi = 0; bi < 7; bi++) {
+      var bd = addDays(a, bi);
+      if (bd > TODAY) break;
+      if (!sessionsOn(bd).length) blank.push(bd);
+    }
+    out += head('Days without a session', n(blank.length) + ' of ' + n(isThis ? daysSoFar : 7));
+    out += card(blank.length
+      ? '<p class="t-body">' + blank.map(function (d) { return esc(DOW[dowOf(d)]); }).join(', ') + '.</p>' +
+        '<p class="t-detail muted mt-1">' + (isThis
+          ? 'Counted up to today. Rest days are training too; this is the count, not a verdict.'
+          : 'Rest days are training too; this is the count, not a verdict.') + '</p>'
+      : '<p class="t-body">A session on every day so far.</p>', 'card--sunken');
+
+    /* The streak, on the same switch as Home's pill and Profile's header --
+       lk_badges -- and counted by the same rule: consecutive days with a
+       session, back from today, or from yesterday when today has not been
+       trained yet. A streak of nothing is not a card. */
+    var badges = stored('lk_badges', false);
+    if ((badges === true || badges === 'true') && isThis) {
+      var trained = {};
+      HISTORY.forEach(function (h) { trained[h.date] = true; });
+      var cur = trained[TODAY] ? TODAY : addDays(TODAY, -1), run = 0;
+      while (trained[cur] && run < 3650) { run++; cur = addDays(cur, -1); }
+      if (run > 0) {
+        out += head('Streak');
+        out += card('<p class="hero num" data-testid="week-streak">' + n(run) + '</p>' +
+          '<p class="t-detail muted">' + (run === 1 ? 'day in a row' : 'days in a row') +
+          ', counted back from ' + (trained[TODAY] ? 'today' : 'yesterday') + '.</p>');
+      }
+    }
 
     if (cardio.length) {
       out += head('Cardio', n(cardio.reduce(function (m, h) { return m + h.min; }, 0)) + ' min');
       out += listCard(cardio.map(function (h) { return sessionRow(h, true); }));
     }
 
-    var weekPrs = PRS.filter(function (p) { return p.when >= a && p.when <= b; });
+    var weekPrs = PRS.filter(function (p) { return p.date >= a && p.date <= b; });
     if (weekPrs.length) {
       out += head('Records', n(weekPrs.length));
       out += listCard(weekPrs.map(function (p) {
         return '<div class="row row--static"><span class="ico-well">' + ICO.star + '</span>' +
-          '<span class="row__main stack"><span class="row__title">' + esc(p.lift) + '</span>' +
-          '<span class="row__sub">' + esc(pretty(p.when)) + '</span></span>' +
-          '<span class="row__value">' + n(p.kg) + ' kg</span></div>';
+          '<span class="row__main stack"><span class="row__title">' + esc(p.name) + '</span>' +
+          '<span class="row__sub">' + esc(pretty(p.date)) + '</span></span>' +
+          '<span class="row__value">' + n(LKUnits.v(p.kg)) + ' ' + LKUnits.label() + '</span></div>';
       }));
     }
 
@@ -450,7 +601,7 @@
     }
 
     var lifts = monthRows.filter(function (h) { return h.kind !== 'cardio'; });
-    var mv = lifts.reduce(function (m, h) { return m + h.vol; }, 0);
+    var mv = lifts.reduce(function (m, h) { return m + h.kg; }, 0);
 
     var out = '';
     out += '<div class="daynav gutter mt-3">' +
@@ -542,6 +693,15 @@
       '</div>';
   }
 
+  /* The demo's router takes this click before the handler below runs, so
+     hand the session id over from here as well or every row opens the same
+     workout. */
+  document.addEventListener('lk:handoff', function (e) {
+    var d = e.detail || {};
+    if (d.selector !== '[data-action="open-session"]' || !d.el) return;
+    try { localStorage.setItem('lk_openWorkout', d.el.getAttribute('data-id') || ''); } catch (err) {}
+  });
+
   function render(opts) {
     opts = opts || {};
     screen.setAttribute('data-state', S.status === 'ready' ? S.scale : S.status);
@@ -554,6 +714,32 @@
       b.setAttribute('aria-pressed', String(b.dataset.state === (S.status === 'ready' ? S.scale : S.status)));
     });
   }
+
+  /* Every screen mounts once in the demo, so the way back in is an event
+     rather than a load. Read the keys again and repaint. */
+  document.addEventListener('lk:enter', function () { reread(); render(); });
+  if (window.LKStore) {
+    LKStore.onChange(function (v, key) {
+      if (!key || String(key).indexOf('lk_') !== 0) return;
+      if (key === 'lk_openWorkout' || key === 'lk_openLift') return;
+      reread(); render();
+    });
+  }
+
+  /* F-SHARED-004. The boundary. A throw anywhere in this screen used to
+     leave whatever had been painted frozen and unexplained; it now lands in
+     the error state this screen already has, which says the sessions are
+     still on the device -- because they are -- and offers the one control
+     that helps. */
+  window.addEventListener('error', function (e) {
+    /* Only when this screen is the one on screen: in the demo every screen
+       shares one window, and another screen's throw is not this screen's
+       error. A hidden screen's root has no client rects. */
+    if (!screen.getClientRects().length) return;
+    if (!e || !e.message || S.status === 'error') return;
+    S.status = 'error';
+    try { render(); } catch (err) {}
+  });
 
   /* ---------------------------------------------------------------
      Actions
@@ -588,7 +774,11 @@
     }
     if (a === 'open-day') { S.sheet = t.getAttribute('data-d'); render(); return; }
     if (a === 'see-day') { S.day = S.sheet; S.sheet = null; S.scale = 'day'; render({ scrollTop: true }); return; }
-    if (a === 'open-session') { location.href = 'workout-detail.html'; return; }
+    if (a === 'open-session') {
+      /* WHICH session. Every row here opened the same hand-written detail. */
+      try { localStorage.setItem('lk_openWorkout', t.getAttribute('data-id') || ''); } catch (err) {}
+      location.href = 'workout-detail.html'; return;
+    }
     if (a === 'close') { S.sheet = null; render(); return; }
     if (a === 'retry') {
       S.status = 'loading'; render();

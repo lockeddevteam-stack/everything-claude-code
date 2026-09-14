@@ -1,0 +1,178 @@
+[
+ {
+  "id": "F-CYCLE-022",
+  "area": "06b-cycle",
+  "name": "Train tab cycle banner",
+  "verdict": "PRESENT",
+  "gap": "",
+  "where": "train.html:cycleBanner() / section-cycle",
+  "needs_server": false,
+  "effort": "M",
+  "evidence": "drove it — with lk_cycle off there is no banner; with it on and the cycle screen's own lk_mcFuelAdjust bridge written, Train prints the phase, the day and that phase's training line, and honours discreet mode. No arithmetic and no guidance copy is duplicated here: both come off the bridge the cycle screen publishes."
+ },
+ {
+  "id": "F-TRAIN-006",
+  "area": "02a-train-exercises",
+  "name": "Exercise detail sheet",
+  "verdict": "PRESENT",
+  "gap": "",
+  "where": "exercise-library.html ACTIONS.start / add-workout / add-day / leaveToLog()",
+  "needs_server": false,
+  "effort": "M",
+  "evidence": "drove it, standalone and in locked-demo.html. \"Start a workout with this\" writes lk_repeatWorkout {name, exercises:[{id,name,muscle,sets}]}, starts the LKSession record and leaves through the one crossing declared out of this screen (shelf-resume -> workout-log), so the log opens on that lift. With a session running the primary is \"Add to today's workout\" and appends the lift to lk_liveSessionRows (matched on startedAt, duplicate-checked) before leaving; Undo takes it back out. The picker's primary now names and uses the first split day instead of the literal id \"push\", which matched no day."
+ },
+ {
+  "id": "F-TRAIN-007",
+  "area": "02a-train-exercises",
+  "name": "Per-exercise personal notes (autosaving)",
+  "verdict": "PRESENT",
+  "gap": "",
+  "where": "exercise-library.html notesBlock() / exNote() / setExNote() / INPUTS.exnote",
+  "needs_server": false,
+  "effort": "M",
+  "evidence": "drove it — the detail sheet has a Your notes field, it reads the seed's note for exercise 111, autosaves to lk_exNotes on every keystroke, survives a reload, and is the same key and the same plain-string shape the workout log writes. It reads the seed's {text, updated} shape as well as the log's bare string, so neither screen renders [object Object]."
+ },
+ {
+  "id": "F-TRAIN-015",
+  "area": "02a-train-exercises",
+  "name": "Form-video lookup and cache",
+  "verdict": "NEEDS_SERVER",
+  "gap": "Needs a media endpoint that resolves an exercise id to a clip URL, and a cache key to store what has been fetched. Nothing on the device holds a clip and there is no lookup, so the sheet now says exactly that at the point of use instead of showing an empty 16:9 slot waiting on a network that is not there. The three media states are kept, reachable from the dev switcher, for when the endpoint exists.",
+  "where": "exercise-library.html demoNote() / mediaBlock()",
+  "needs_server": true,
+  "effort": "M",
+  "evidence": "drove it — the sheet reads \"No clip is stored on this phone. Form videos come from LOCKED's media service, which this build has no connection to; nothing is downloaded and nothing is cached.\""
+ },
+ {
+  "id": "F-TRAIN-025",
+  "area": "02a-train-exercises",
+  "name": "Cardio v1 → v2 migration (runs on load)",
+  "verdict": "PRESENT",
+  "gap": "",
+  "where": "train.html migrateCardio() / cardioV1toV2() / isV1Cardio(), run at boot before the first read",
+  "needs_server": false,
+  "effort": "M",
+  "evidence": "drove it — seeded a phone with v1 rows (type:'cardio', cardioType, duration, distance + distanceUnit:'mi', intensity:'vigorous', calories) and lk_cardioMigrated false. On load they are rewritten to the v2 shape every screen reads: kind, ISO date, min, km (miles converted once, on the way in), cal, modality, durationSec, distanceM, intensity {rpe, estMET}. A row with no calorie figure gets one estimated from this device's own body weight and marked estimated at its real confidence, never invented as measured. Nothing is deleted; unmappable fields stay on the record. lk_cardioMigrated is then set, and the migration is idempotent."
+ },
+ {
+  "id": "F-TRAIN-104",
+  "area": "02b-train-logging",
+  "name": "Split builder — add a note \"Block\" to a day",
+  "verdict": "PRESENT",
+  "gap": "The builder writes the block; workout-log.html does not yet read it. startRequested()/splitDayFor() there build the session from the day's exercises only and ignore days[j].blocks, so a programmed block is stored but does not appear when that day is started. That is a one-line read in a file this package does not own.",
+  "where": "split-builder.html blockRow() / blockRows() / blockSheet() / ACTIONS.add-block, block-save, block-remove; persistSplit()",
+  "needs_server": false,
+  "effort": "M",
+  "evidence": "drove it — every day card carries \"Add a block\"; the sheet asks the same three questions the log asks (name, optional minutes, notes) with the same two validation messages; the block appears as a row above the day's lifts with its length and note, removes with an Undo, and persistSplit now writes blocks: [{title, notes, duration, open}] instead of the unconditional empty array. Verified in the store and after a reload, with the day's five exercises intact."
+ },
+ {
+  "id": "F-TRAIN-300",
+  "area": "02c-train-hub",
+  "name": "Train tab shell: header, Cardio + Quick Start, sub-tabs",
+  "verdict": "CUT",
+  "gap": "Quick Start and the three-item sub-tab row stay cut, and the reason is written into train.html's own header comment: Quick Start spent the screen's only accent fill on starting an EMPTY workout while the programmed session sat below the fold, and the sub-tab row was broken as a set (Library replaced the whole hub while the other two swapped content) and counted by the design audit as the app's sixth tab idiom. The four things this screen holds are read top to bottom, not switched between; the one segmented control is spent on the history filter, where it removes work.",
+  "where": "train.html:31-41, 81-86 (the recorded reasons)",
+  "needs_server": false,
+  "effort": "S",
+  "evidence": "read the recorded decision; the header and the cardio block are built and driven"
+ },
+ {
+  "id": "F-TRAIN-302",
+  "area": "02c-train-hub",
+  "name": "My Splits empty state (Build Manually / AI Split Builder)",
+  "verdict": "PRESENT",
+  "gap": "",
+  "where": "train.html VIEWS.empty (empty-build-split, empty-draft-split); split-builder.html openRequested()",
+  "needs_server": false,
+  "effort": "S",
+  "evidence": "drove it standalone and in the demo — the empty state offers \"Build a split\" as the one accent fill and \"Draft one from a description\" as a tertiary under it. Both use the declared new-split crossing; the second sets lk_openSplit to __draft__ and the builder opens on the mode picker. The demo's lk:handoff listener carries the mode too, so the router's swallowed click still hands over."
+ },
+ {
+  "id": "F-TRAIN-306",
+  "area": "02c-train-hub",
+  "name": "Exercise Library (inline + full-screen)",
+  "verdict": "PRESENT",
+  "gap": "There is still no second, inline library inside Train, and that stays cut: one catalogue reached from one Reference row, rather than the same 867 rows in two places disagreeing with each other. The count is now the same figure on both screens.",
+  "where": "exercise-library.html render() placeholder, shortfallNote(); train.html section-library",
+  "needs_server": false,
+  "effort": "M",
+  "evidence": "drove it over http AND over file:// — the inline catalogue is 866 rows, so with the one stored custom the library reports 867 in the field, in the map count and in the header, matching Train's \"15 of 867 logged\". The two hard-coded 227s are gone and are computed from S.items. A shortfall sentence is rendered if the readable catalogue is ever smaller than the shipped total, so the two screens can never quietly disagree again."
+ },
+ {
+  "id": "F-TRAIN-308",
+  "area": "02c-train-hub",
+  "name": "AI Split Builder — mode picker",
+  "verdict": "PRESENT",
+  "gap": "",
+  "where": "split-builder.html pickScreen(); ACTIONS.go-ai, mode-describe, mode-photo",
+  "needs_server": false,
+  "effort": "S",
+  "evidence": "drove it — \"Let LOCKED draft it\" and Train's empty-state draft button both land on a two-card choice, Describe it and Import from a photo, with \"Build it by hand instead\" under them. Each card says what it does and what it needs; the photo card says up front that reading the photo needs a server."
+ },
+ {
+  "id": "F-TRAIN-310",
+  "area": "02c-train-hub",
+  "name": "AI Split Builder — Import from Photo / describe your split",
+  "verdict": "NEEDS_SERVER",
+  "gap": "Needs a vision model behind an endpoint that takes the image and returns days and lifts, plus the consent step for an image leaving the device. The whole local half is built: choosing the image, a real preview of the chosen file with its size, a note field, a clear, and a type check. Nothing uploads, nothing encodes, and there is no button that pretends to read the picture — the screen says plainly that reading it is not in this build, and offers the one thing that IS local: drafting by rule from the note.",
+  "where": "split-builder.html photoScreen(); the change listener for photo-file; ACTIONS.photo-clear, photo-to-describe",
+  "needs_server": true,
+  "effort": "L",
+  "evidence": "drove it — chose a PNG, saw it previewed with its size, typed a note, and \"Draft from what you typed instead\" carried the note into the rule-based drafter."
+ },
+ {
+  "id": "F-CARDIO-003",
+  "area": "02e-cardio",
+  "name": "Favorites — quick chips (one-tap re-log)",
+  "verdict": "PRESENT",
+  "gap": "",
+  "where": "train.html cardioBlock() quick rows; ACTIONS 'quick-log'",
+  "needs_server": false,
+  "effort": "S",
+  "evidence": "drove it — a stored favourite's row now carries two controls: the name opens the form already answered (the recorded reason for asking stands, because \"logged 30 minutes\" when it was 22 is a wrong number in the record), and a labelled \"Log 30 min\" button beside it writes the session in one tap at the duration that favourite was saved with. It lands on the same Logged sheet a form-logged session ends on, so the figure can be read back. A merely recent activity gets no such button — its duration is last time's, not a decision."
+ },
+ {
+  "id": "F-CARDIO-007",
+  "area": "02e-cardio",
+  "name": "History — group filter chips",
+  "verdict": "PRESENT",
+  "gap": "",
+  "where": "train.html historyView() chips, groupOfSession(), S.cgroup",
+  "needs_server": false,
+  "effort": "M",
+  "evidence": "drove it — under the Cardio segment the history grows a chip row (All 6, Machines 4, Outdoors 2) drawn only from the groups this person's own history actually contains, each with its count, resolved through the catalogue rather than a second table. A session whose activity is not in the catalogue is counted as Other rather than dropped. The chips appear only where they narrow something, and the empty state names the filter that emptied it."
+ },
+ {
+  "id": "F-CARDIO-020",
+  "area": "02e-cardio",
+  "name": "Unit conversion on the way into the engine (`draft`)",
+  "verdict": "PRESENT",
+  "gap": "",
+  "where": "train.html distUnit()/distV()/distIn()/fmtDist(), FIELD.dist type 'dist', the cf-num handler",
+  "needs_server": false,
+  "effort": "M",
+  "evidence": "drove it in pounds — the field is labelled \"Distance (mi)\", 3 typed in miles stores 4.828 km, the Logged sheet reads 3 mi / 10:00 per mi / 6 mph, the history rows read miles, and the bests strip reads Furthest in mi, Best pace per mi and Fastest in mph. The unit comes from the one stored answer, lk_profile.useKg through LKUnits; the model stays metric, so switching units re-reads the history rather than rewriting it."
+ },
+ {
+  "id": "F-CARDIO-021",
+  "area": "02e-cardio",
+  "name": "Log flow — step 4: the summary (\"Logged\")",
+  "verdict": "PRESENT",
+  "gap": "",
+  "where": "train.html loggedSheet(), machineName(), loadHistory()",
+  "needs_server": false,
+  "effort": "S",
+  "evidence": "drove it — a treadmill run logged from this screen no longer reads \"Surface treadrun\". Surface is printed only when a surface was actually asked for, and the machine is printed under its own label, resolved to the catalogue's name; where the machine name would only repeat the session title it is not printed at all. The same resolver fixes the history row's Machine line, which showed the raw category id."
+ },
+ {
+  "id": "F-CARDIO-023",
+  "area": "02e-cardio",
+  "name": "Favourite creation / toggling (star)",
+  "verdict": "PRESENT",
+  "gap": "",
+  "where": "train.html starBtn()/favForAct()/toggleFav()/favFromSession(), activityRow(), favFromHistory()",
+  "needs_server": false,
+  "effort": "M",
+  "evidence": "drove it — every row in the activity picker carries a star that fills when that setup is saved and toggles on tap, and every cardio session in the history carries \"Save this setup as a favourite\" / \"Remove this setup from favourites\" in its expanded detail, built from that session's own answers. Verified against lk_cardioFavorites, and the Favourites sheet still renames, reorders and removes."
+ }
+]

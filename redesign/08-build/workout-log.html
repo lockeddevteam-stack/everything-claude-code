@@ -7,6 +7,9 @@
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
 <script src="theme.js"></script>
+<script src="fixtures.js"></script>
+<script src="store.js"></script>
+<script src="units.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 <script src="session.js"></script>
@@ -152,16 +155,40 @@
   function round(v, step) { return Math.round(v / step) * step; }
   function trim(v) { return String(Math.round(v * 100) / 100); }
 
-  function toDisplay(kgValue) {          /* stored kg -> profile unit */
+  /* ONE LIFT CAN READ IN THE OTHER UNIT. Both unit controls used to call
+     setUnit(), which flips the whole app, so a rack of dumbbells stamped in
+     pounds inside a kilogram session could only be logged by converting it in
+     your head or by flipping every other screen with it. The tools menu still
+     owns the app-wide setting; the exercise sheet now sets an override for
+     that lift alone. The MODEL IS STILL KILOGRAMS everywhere -- the override
+     changes the reading of a row and never what is stored -- and it is kept
+     in lk_exEquip beside the bar weight, because it is the same kind of fact
+     about the lift and it has to be true the next time it comes round. */
+  function unitOf(ex) { return (ex && ex.unit === 'lb') || (ex && ex.unit === 'kg') ? ex.unit : S.unit; }
+  function unitAt(e) { return unitOf(S.exercises[e]); }
+  function toDisplay(kgValue, u) {       /* stored kg -> the unit being read */
     if (kgValue === null || kgValue === undefined || kgValue === '') return null;
-    return S.unit === 'kg' ? Number(kgValue) : Math.round(Number(kgValue) * LB_PER_KG * 10) / 10;
+    return (u || S.unit) === 'kg' ? Number(kgValue) : Math.round(Number(kgValue) * LB_PER_KG * 10) / 10;
   }
-  function toKg(displayValue) {          /* profile unit -> stored kg */
+  function toKg(displayValue, u) {       /* the unit being read -> stored kg */
     if (displayValue === null || displayValue === '' || isNaN(displayValue)) return null;
-    return S.unit === 'kg' ? Number(displayValue) : Math.round((Number(displayValue) / LB_PER_KG) * 100) / 100;
+    return (u || S.unit) === 'kg' ? Number(displayValue) : Math.round((Number(displayValue) / LB_PER_KG) * 100) / 100;
   }
-  function unitLabel() { return S.unit === 'kg' ? 'kg' : 'lb'; }
-  function unitWord() { return S.unit === 'kg' ? 'kilograms' : 'pounds'; }
+  function unitLabel(u) { return (u || S.unit) === 'kg' ? 'kg' : 'lb'; }
+  /* "everywhere" means everywhere. */
+  function setUnit(u) {
+    S.unit = u;
+    if (window.LKUnits) LKUnits.set(u === 'kg');
+  }
+  function unitWord(u) { return (u || S.unit) === 'kg' ? 'kilograms' : 'pounds'; }
+  /* THE PHONE'S OWN CONFIRMATION. A set logged is a thing done with the eyes
+     on the bar, not on the screen, and navigator.vibrate appeared nowhere in
+     the build. Guarded: desktop Safari has no vibrate and iOS ignores it, so
+     the tick still pops and still announces itself. */
+  function buzz(pattern) {
+    try { if (navigator && typeof navigator.vibrate === 'function') navigator.vibrate(pattern); } catch (e) {}
+  }
+
   function clock(s) {
     var m = Math.floor(s / 60), r = s % 60;
     return m + ':' + (r < 10 ? '0' : '') + r;
@@ -183,54 +210,239 @@
       done: !!opts.done,
       warm: !!opts.warm,
       partials: opts.partials || 0,
-      prevKg: opts.prevKg === undefined ? kgValue : opts.prevKg,
-      prevReps: opts.prevReps === undefined ? reps : opts.prevReps
+      /* WHAT YOU LIFTED LAST TIME IS NOT WHAT YOU ARE LIFTING NOW. These
+         defaulted to the set's own figures, so a set seeded with today's
+         work carried today's numbers as its "previous" ones -- and because
+         exFromHistory only fills a previous figure that is still empty, the
+         real ones from the last session never landed. The exercise info
+         sheet's "Last session" line then read today's session back to the
+         lifter: it showed 40 x 10 and 72.5 x 8 where Sep 3's bench was
+         37.5 x 8 warm-up, then 72.5 x 8, 72.5 x 6, 72.5 x 5. A set with no
+         history behind it has none, and says so with a dash. */
+      prevKg: opts.prevKg === undefined ? null : opts.prevKg,
+      prevReps: opts.prevReps === undefined ? null : opts.prevReps
     };
   }
 
+  /* WHAT YOU LIFTED LAST TIME, from the shared history rather than typed
+     here. Two of these were wrong against the fixture -- a 40 kg bench
+     warm-up where the last Push logged 37.5, and a 24 kg shoulder press
+     where it logged 25, a figure that appears in no session and is not even
+     a multiple of the 2.5 kg step Settings says weights round to. The rows
+     a person decides today's load from have to be the rows they actually
+     lifted. */
+  function lastSetsFor(exId) {
+    var FX = window.LKFixtures;
+    if (!FX || !FX.lastTime) return null;
+    var last = FX.lastTime(exId, window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10));
+    if (!last) return null;
+    return last.exercise.sets.filter(function (st) { return st.done; });
+  }
+
+  /* One exercise, with `todaysSets` of its own and the rest filled from the
+     last session. Anything beyond what was done last time gets no previous
+     figure rather than a repeated one. */
+  function exFromHistory(id, name, muscle, note, todaysSets, planned) {
+    var prev = lastSetsFor(id) || [];
+    var work = prev.filter(function (st) { return !st.warm; });
+    var warm = prev.filter(function (st) { return st.warm; });
+    var sets = (todaysSets || []).slice();
+    var wi = 0;
+    sets.forEach(function (st) {
+      /* `== null` rather than `=== undefined`: an empty previous figure is
+          written as null now, and the strict test let today's warm-up keep
+          today's own numbers as last session's. */
+      if (st.warm) { if (warm[0] && st.prevKg == null) { st.prevKg = warm[0].kg; st.prevReps = warm[0].reps; } return; }
+      var p = work[wi++];
+      if (p && st.prevKg == null) { st.prevKg = p.kg; st.prevReps = p.reps; }
+    });
+    while (sets.length < (planned || 0)) {
+      var p2 = work[wi++];
+      sets.push(set(null, null, p2 ? { prevKg: p2.kg, prevReps: p2.reps } : {}));
+    }
+    /* A note stored against this exercise wins over whatever was typed into
+       the seed, because it is the thing the reader actually wrote and it was
+       written to be read next time. */
+    var kept = '';
+    if (window.LKStore) {
+      var all = LKStore.get('lk_exNotes', {}) || {};
+      if (all[id]) kept = all[id];
+    }
+    var eq = equipFor(id) || {};
+    return { id: id, name: name, muscle: muscle, note: kept || note || '', sets: sets,
+             unit: eq.unit === 'lb' || eq.unit === 'kg' ? eq.unit : null };
+  }
+
+  /* The seeded mid-session, for the dev states and for a demo. A build with
+     no seed has no such session: a workout nobody logged is exactly the
+     stranger's training this screen must never show. Without a seed the log
+     opens empty, which is what starting a workout from nothing looks like. */
   function pushDay() {
+    if (!window.LKFixtures) return [];
+    /* The warm-up and the two working sets already logged are today's, and
+       they stay as they are; everything else is last session's figures. */
     return [
-      { id: 111, name: 'Barbell Bench Press', muscle: 'Mid Chest', note: 'Pinkies on rings, feet back', sets: [
+      exFromHistory(111, 'Barbell Bench Press', 'Mid Chest', 'Pinkies on rings, feet back', [
         set(40, 10, { warm: true, done: true, rir: 4 }),
         set(72.5, 8, { done: true }),
-        set(72.5, 7, { done: true }),
-        set(null, null, { prevKg: 72.5, prevReps: 7 })
-      ] },
-      { id: 302, name: 'DB Shoulder Press', muscle: 'Front Delt', sets: [
-        set(null, null, { prevKg: 24, prevReps: 10 }),
-        set(null, null, { prevKg: 24, prevReps: 9 }),
-        set(null, null, { prevKg: 24, prevReps: 8 })
-      ] },
-      { id: 103, name: 'Incline Cable Fly', muscle: 'Upper Chest', sets: [
-        set(null, null, { prevKg: 15, prevReps: 12 }),
-        set(null, null, { prevKg: 15, prevReps: 12 })
-      ] },
-      { id: 311, name: 'Lateral Raise', muscle: 'Side Delt', sets: [
-        set(null, null, { prevKg: 9, prevReps: 15 }),
-        set(null, null, { prevKg: 9, prevReps: 14 }),
-        set(null, null, { prevKg: 9, prevReps: 12 })
-      ] },
-      { id: 411, name: 'Tricep Pushdown', muscle: 'Lateral Head', sets: [
-        set(null, null, { prevKg: 27.5, prevReps: 12 }),
-        set(null, null, { prevKg: 27.5, prevReps: 11 })
-      ] }
+        set(72.5, 7, { done: true })
+      ], 4),
+      exFromHistory(302, 'DB Shoulder Press', 'Front Delt', '', [], 3),
+      exFromHistory(103, 'Incline Cable Fly', 'Upper Chest', '', [], 3),
+      exFromHistory(311, 'Lateral Raise', 'Side Delt', '', [], 3),
+      exFromHistory(411, 'Tricep Pushdown', 'Lateral Head', '', [], 3)
     ];
+  }
+
+  /* THE DAY TRAIN ASKED FOR. Every route into this screen opened the same
+     seeded PPL - Push, twenty-one minutes in with 1,088 kg on it, so
+     "Start Upper A" began somebody else's Push session. lk_startDay carries
+     "<splitId>:<dayId>"; the day it names is built here, empty, at zero. */
+  function splitDayFor(key) {
+    if (!key) return null;
+    var cut = String(key).indexOf(':');
+    if (cut < 0) return null;
+    var wantSplit = String(key).slice(0, cut), wantDay = String(key).slice(cut + 1);
+    var all = (window.LKStore ? window.LKStore.get('lk_splits', null) : null) ||
+              (window.LKFixtures && LKFixtures.splits) || [];
+    for (var i = 0; i < all.length; i++) {
+      if (String(all[i].id) !== wantSplit) continue;
+      var days = all[i].days || [];
+      for (var j = 0; j < days.length; j++) {
+        var slug = String(days[j].name || ('day' + j)).toLowerCase().replace(/\W+/g, '-');
+        if (slug !== wantDay) continue;
+        return { split: all[i].name, day: days[j].name, exercises: days[j].exercises || [] };
+      }
+    }
+    return null;
+  }
+  /* "Do this session again", handed over by workout-detail. The key was
+     written and nothing ever read it, so Repeat opened today's split day
+     instead of the session being read. */
+  function repeatRequested() {
+    if (!window.LKStore) return false;
+    var rec = LKStore.get('lk_repeatWorkout', null);
+    if (!rec || !rec.exercises || !rec.exercises.length) return false;
+    LKStore.remove('lk_repeatWorkout');
+    applyState('mid-session');
+    S.name = rec.name || 'Workout';
+    S.elapsed = 0;
+    S.over = false;
+    S.exercises = rec.exercises.map(function (e) {
+      return exFromHistory(e.id, e.name, e.muscle || '', '', [], e.sets || 3);
+    });
+    return true;
+  }
+
+  /* A new session starts at zero. The live-session record carries the clock
+     once it exists, so starting a day while one is running left the header
+     reading twenty-one minutes into a workout with no sets in it. */
+  function beginFresh() {
+    if (window.LKSession && LKSession.end) LKSession.end();
+    S.elapsed = 0;
+    touchIdle();
+  }
+
+  function startRequested() {
+    if (repeatRequested()) { beginFresh(); return true; }
+    var key = null;
+    try { key = localStorage.getItem('lk_startDay'); } catch (e) {}
+    if (!key) return false;
+    try { localStorage.removeItem('lk_startDay'); } catch (e) {}
+    var d = splitDayFor(key);
+    if (!d) return false;
+    applyState('mid-session');
+    beginFresh();
+    S.name = d.split + ' - ' + d.day;
+    S.elapsed = 0;
+    S.over = false;
+    /* Nothing is logged yet. Each lift carries its planned rows, empty, with
+       last session's figures beside them the way every other card does. */
+    S.exercises = d.exercises.map(function (e) {
+      return exFromHistory(e.id, e.name, e.muscle || '', '', [], 3);
+    });
+    return true;
   }
 
   /* =============================================================
      State
      ============================================================= */
+  /* WHAT THIS LIFT IS LOADED WITH, remembered per exercise. The bar on the
+     rack, the base weight of a plate-loaded machine, the fact that one
+     particular Smith is not counterbalanced: all of it was re-decided every
+     session, so the same lift carried a different total depending on what
+     somebody happened to remember that day.
+
+     lk_exEquip is keyed by exercise id and holds what the library's create
+     sheet already asks for, so a custom exercise made there arrives here
+     knowing its own bar. */
+  function equipFor(id) {
+    if (!window.LKStore || !id) return null;
+    var all = LKStore.get('lk_exEquip', {}) || {};
+    var own = all[id] || all[String(id)];
+    if (own) return own;
+    /* Falling back to the library's own record of it, so the answer given
+       once when the exercise was created is not asked for again here. */
+    var customs = LKStore.get('lk_customEx', []) || [];
+    for (var i = 0; i < customs.length; i++) {
+      if (String(customs[i].id) === String(id)) {
+        return { eq: customs[i].eq || null, base: customs[i].startResist || 0,
+                 noCB: !!customs[i].smithNoCB };
+      }
+    }
+    return null;
+  }
+  function setEquip(id, patch) {
+    if (!window.LKStore || !id) return;
+    var all = LKStore.get('lk_exEquip', {}) || {};
+    var cur = all[id] || all[String(id)] || {};
+    Object.keys(patch).forEach(function (k) { cur[k] = patch[k]; });
+    all[id] = cur;
+    LKStore.set('lk_exEquip', all);
+  }
+  /* The weight before any plates, which is added to what a set says. A set
+     logged as 60 on a 20 kg bar was 60; the badge says which. */
+  function baseOf(ex) {
+    var e = equipFor(ex && ex.id);
+    return e && e.base ? Number(e.base) || 0 : 0;
+  }
+
+  /* The session's own value wins where there is one -- turning auto-rest off
+     mid-workout should not come back on because Settings says so -- and
+     Settings is the default for a session that has not said otherwise. */
+  function readFlag(key, fallback) {
+    if (!window.LKStore) return fallback;
+    var v = window.LKStore.get(key, null);
+    if (v === null || v === undefined) return fallback;
+    return v === true || v === 'true';
+  }
+
+  /* A seeded mid-session, or a new workout. The literals below describe the
+     demo's half-finished Push; with no seed there is no such session, and
+     opening the log means starting one. */
+  var SEEDED = !!window.LKFixtures;
+
   var S = {
-    state: 'mid-session',
-    name: 'PPL - Push',
-    unit: 'kg',              /* lk_profile.useKg === true */
-    elapsed: 1261,           /* 21:01 */
+    state: SEEDED ? 'mid-session' : 'empty',
+    name: SEEDED ? 'PPL - Push' : 'Quick Workout',
+    /* lk_profile.useKg, through LKUnits. This screen's switch was its own:
+       it converted this screen correctly and toasted "Showing lb everywhere"
+       while every other screen stayed in kg, and it opened in kg whatever the
+       profile said. There is one setting now, and this switch writes it. */
+    unit: (window.LKUnits && !LKUnits.useKg()) ? 'lb' : 'kg',
+    elapsed: SEEDED ? 1261 : 0,   /* 21:01 into the demo's session, or a new one */
     exercises: pushDay(),
     blocks: [],
     /* Which exercise the picker is replacing, or null when it is adding. */
     swapAt: null,
-    hidePartials: false,     /* lk_hidePartials */
-    restEnabled: true,       /* lk_restEnabled */
+    /* Settings' defaults, read rather than hardcoded. Settings has a "Rest
+       timer" switch and a "Count partial reps" switch, writes lk_restEnabled
+       and lk_hidePartials, and says of the second "Half reps count towards
+       the set" -- and this screen ignored both, so with partials switched
+       off four partials controls still rendered on every exercise. A switch
+       that changes nothing is worse than no switch. */
+    hidePartials: readFlag('lk_hidePartials', false),
+    restEnabled: readFlag('lk_restEnabled', true),
     restSeconds: 90,
     restLeft: 0,
     restRunning: false,
@@ -238,14 +450,23 @@
     overlay: null,           /* tools | plates | rest | sheet | detail | block | addex | discard */
     overlayEx: 0,
     plate: { total: 20, bar: 20, added: [], perSide: true },
-    aiBusyEx: -1,
     liftedEx: -1,
+    dragEx: -1,               /* the card under a finger, mid-drag */
     toast: null,
     tapCount: 0
   };
 
   var STEPS = { kg: [-5, -2.5, 2.5, 5], lb: [-10, -5, 5, 10] };
   var PLATES = { kg: [1.25, 2.5, 5, 10, 15, 20, 25], lb: [2.5, 5, 10, 25, 35, 45] };
+  /* BARS COME IN REAL SIZES, not in converted ones. The three kg bars were
+     converted for display, so a reader in pounds was offered 44.1, 33.1 and
+     22 lb and a 45 lb bar with two 45s -- the commonest loading there is --
+     could not be made. Each unit gets the bars that exist in it. */
+  var BARS = {
+    kg: [[20, 'Olympic 20 kg'], [15, "Women's 15 kg"], [10, 'EZ bar 10 kg'], [0, 'No bar']],
+    lb: [[20.4117, 'Olympic 45 lb'], [15.8757, "Women's 35 lb"], [9.0718, 'EZ bar 20 lb'], [0, 'No bar']]
+  };
+  function barOptions() { return S.unit === 'kg' ? BARS.kg : BARS.lb; }
 
   /* Applies a named demo state on top of a fresh session. */
   function applyState(name) {
@@ -253,8 +474,9 @@
     S.exercises = pushDay();
     S.blocks = [];
     S.pad = null; S.overlay = null; S.toast = null; S.swapAt = null;
-    S.restRunning = false; S.restLeft = 0; S.aiBusyEx = -1; S.liftedEx = -1;
+    S.restRunning = false; S.restLeft = 0; S.liftedEx = -1; S.dragEx = -1;
     S.tapCount = 0;
+    S.over = false;
     S.elapsed = 1261;
     if (name === 'first-set') {
       S.name = 'Quick Workout';
@@ -275,23 +497,52 @@
       S.restRunning = true; S.restLeft = 84;
     } else if (name === 'plates') {
       S.overlay = 'plates';
-      S.plate = { total: 20, bar: 20, added: [], perSide: true };
+      S.plate = { total: 20, bar: 20, added: [], perSide: true, solveNote: null };
     } else if (name === 'loading') {
-      S.aiBusyEx = 0;
+      /* The screen's one genuine wait: a session still reading its own
+         history. The suggestion button no longer has a loading state
+         because it no longer waits for anything. */
+      S.loading = true;
     } else if (name === 'error') {
       /* Through toast(), so it expires. Set directly it bypassed the timer
          and stayed up for the life of the screen. */
       toast('Could not get a recommendation. Check your connection and retry.', 'error', 'Retry');
     }
     if (name !== 'first-set' && name !== 'empty') S.name = 'PPL - Push';
+    /* Nothing seeded means nothing to be in the middle of. */
+    if (!SEEDED && !S.exercises.length) {
+      S.name = 'Quick Workout';
+      S.elapsed = 0;
+      S.state = 'empty';
+    }
   }
 
   /* =============================================================
-     Derived numbers. Warm-ups count.
+     Derived numbers. WORKING sets, which means warm-ups are counted
+     separately and their load is not in the volume.
+
+     They used to count. That put the header 1 set and 400 kg ahead of the
+     same session on Review, Train, Home and Recap -- every one of which
+     excludes warm-ups, and Review says so on its face ("16 working sets",
+     "Warm-ups excluded"). So the total a person watched climb during the
+     workout dropped the moment they finished it, and a reader counting the
+     numbered rows got 6 where the header said 7.
      ============================================================= */
+  /* A SIDE IS NOT A NEW SET. An exercise tracked left and right carries two
+     rows per set, and both rows are real work -- their load is in the volume
+     -- but three sets each side is three sets, not six. The right-hand row
+     is therefore counted with its set rather than as another one, here and
+     everywhere else that counts: the card's own numbering, Review's set
+     list, and the record that reaches history. */
+  function counts(st) { return !st.warm && st.side !== 'R'; }
   function doneSets() {
     var c = 0;
-    S.exercises.forEach(function (ex) { ex.sets.forEach(function (st) { if (st.done) c++; }); });
+    S.exercises.forEach(function (ex) { ex.sets.forEach(function (st) { if (st.done && counts(st)) c++; }); });
+    return c;
+  }
+  function doneWarmups() {
+    var c = 0;
+    S.exercises.forEach(function (ex) { ex.sets.forEach(function (st) { if (st.done && st.warm) c++; }); });
     return c;
   }
   /* Total sets in the session. The shelf on every other screen counts sets
@@ -302,14 +553,25 @@
      figure is for. */
   function totalSets() {
     var c = 0;
-    S.exercises.forEach(function (ex) { c += ex.sets.length; });
+    S.exercises.forEach(function (ex) { ex.sets.forEach(function (st) { if (counts(st)) c++; }); });
     return c;
   }
 
   function volumeKg() {
     var v = 0;
     S.exercises.forEach(function (ex) {
-      ex.sets.forEach(function (st) { if (st.done && st.kg && st.reps) v += st.kg * st.reps; });
+      ex.sets.forEach(function (st) { if (st.done && !st.warm && st.kg && st.reps) v += st.kg * st.reps; });
+    });
+    return v;
+  }
+  /* The volume as the rows on screen add up, in whatever unit they show. */
+  function displayVolume() {
+    var v = 0;
+    S.exercises.forEach(function (ex) {
+      ex.sets.forEach(function (st) {
+        if (!st.done || st.warm || !st.kg || !st.reps) return;
+        v += Math.round(toDisplay(st.kg) * 10) / 10 * st.reps;
+      });
     });
     return v;
   }
@@ -331,7 +593,11 @@
      ============================================================= */
   function headerHTML() {
     var sets = doneSets();
-    var vol = Math.round(toDisplay(volumeKg()) || 0);
+    var warm = doneWarmups();
+    /* Summed the way the rows are shown, so the header equals the rows it is
+       made of. Converting one kg total once gave 4,602 lb over rows adding to
+       4,601: each row is rounded to 0.1 lb before it is read. */
+    var vol = Math.round(displayVolume());
     return '' +
       '<div class="sess">' +
         /* The metrics are a SIBLING of the title column, not a child of it.
@@ -353,8 +619,9 @@
         '<button class="btn btn--sm ' + (S.exercises.length ? 'btn--primary' : 'btn--secondary') +
           '" type="button" data-act="finish" data-testid="btn-finish">Finish</button>' +
         '<div class="sess__meta">' +
-          '<span class="t-detail sess__time" data-testid="session-timer">' + n(hhmm(S.elapsed)) + '</span>' +
-          '<span class="t-detail muted" data-testid="session-sets">' + n(sets) + ' ' + (sets === 1 ? 'set' : 'sets') + '</span>' +
+          '<span class="t-detail sess__time" data-testid="session-timer">' + n(hhmm(elapsedSec())) + '</span>' +
+          '<span class="t-detail muted" data-testid="session-sets">' + n(sets) + ' working ' +
+            (sets === 1 ? 'set' : 'sets') + (warm ? ' &middot; ' + n(warm) + ' W' : '') + '</span>' +
           '<span class="t-detail muted" data-testid="session-volume">' + n(vol.toLocaleString('en-US')) + ' ' + unitLabel() + '</span>' +
         '</div>' +
       '</div>';
@@ -384,16 +651,27 @@
     /* Weight carries over from last session and is shown, as shipped —
        but in the ghost tone, because it is not yet the lifter's entry.
        Reps start blank, also as shipped. */
+    var u = unitAt(e);
     var raw = own !== null ? own : (field === 'weight' ? prev : null);
-    var shown = field === 'weight' ? toDisplay(raw) : raw;
+    var shown = field === 'weight' ? toDisplay(raw, u) : raw;
     var blank = shown === null || shown === undefined;
     var ghost = blank || own === null;
     var text = blank ? '--' : (field === 'weight' ? trim(shown) : String(shown));
+    /* Partials belong ON the reps, because that is what they are: eight and
+       three halves is one set. They were a separate cell in a separate row
+       and the reps column read 8, so the figure a reader checks the session
+       against left them out. */
+    var partial = (field === 'reps' && !blank && st.partials) ? st.partials : 0;
     var label = 'Set ' + (i + 1) + ' ' + field + (blank ? ', empty'
-      : (ghost ? ', last session ' : ', ') + text + (field === 'weight' ? ' ' + unitWord() : ' reps'));
+      : (ghost ? ', last session ' : ', ') + text + (field === 'weight' ? ' ' + unitWord(u) : ' reps')) +
+      (partial ? ' plus ' + partial + (partial === 1 ? ' partial' : ' partials') : '');
     return '<button class="cell' + (ghost ? ' cell--empty' : '') + (editing ? ' cell--editing' : '') + '" type="button" ' +
       'data-act="edit" data-ex="' + e + '" data-set="' + i + '" data-field="' + field + '" ' +
-      'data-testid="cell-' + e + '-' + i + '-' + field + '" aria-label="' + esc(label) + '">' + n(esc(text)) + '</button>';
+      'data-testid="cell-' + e + '-' + i + '-' + field + '" aria-label="' + esc(label) + '">' +
+      n(esc(text)) +
+      (partial ? '<span class="cell__plus" aria-hidden="true" data-testid="cell-partials-' + e + '-' + i + '">+' +
+        partial + '</span>' : '') +
+      '</button>';
   }
 
   function rirHTML(e, i) {
@@ -406,12 +684,17 @@
       'data-testid="rir-' + e + '-' + i + '" aria-label="Set ' + (i + 1) + ' reps in reserve">' + opts + '</select>';
   }
 
-  function doneHTML(e, i) {
+  function doneHTML(e, i, half) {
     var st = S.exercises[e].sets[i];
     var live = isLive(e, i);
-    return '<button class="done' + (live && !st.done ? ' done--ready' : '') + '" type="button" role="checkbox" aria-checked="' + (st.done ? 'true' : 'false') + '" ' +
+    var label = st.done ? 'Undo set ' + (i + 1) : 'Mark set ' + (i + 1) + ' done';
+    /* Logged, but the other half of the round is not. The set IS done, so
+       aria-checked stays true; the name says what is still outstanding. */
+    if (half) label = 'Undo set ' + (i + 1) + ', waiting on ' + S.exercises[e + 1].name;
+    return '<button class="done' + (live && !st.done ? ' done--ready' : '') + (half ? ' done--half' : '') +
+      '" type="button" role="checkbox" aria-checked="' + (st.done ? 'true' : 'false') + '" ' +
       'data-act="done" data-ex="' + e + '" data-set="' + i + '" ' +
-      'data-testid="done-' + e + '-' + i + '" aria-label="' + (st.done ? 'Undo set ' + (i + 1) : 'Mark set ' + (i + 1) + ' done') + '">' + ICO.check + '</button>';
+      'data-testid="done-' + e + '-' + i + '" aria-label="' + esc(label) + '">' + ICO.check + '</button>';
   }
 
   function partialsHTML(e, i) {
@@ -424,42 +707,238 @@
     '</div>';
   }
 
-  function exerciseHTML(ex, e) {
+  /* W for a warm-up, the set's position for a working set, and the position
+     with the side on it -- 1L, 1R -- for an exercise tracked left and
+     right. */
+  /* W warm-up, D drop set, F to failure, or the set's position. A drop and a
+     failure set are still work, so they keep their number in the count and
+     carry a letter instead of replacing it -- a drop set that vanished from
+     the volume would make the session read light. */
+  /* FOUR STATES, not the shipped three. Normal, warm-up and drop were the
+     cycle; a set taken to failure was logged as a normal one, and it is the
+     set that most changes how the next session should be read -- the same
+     weight for the same reps with nothing left is not the same entry. The
+     fourth state is kept deliberately: it costs one more tap on a control
+     that is already there, and it is the only way a session can say what
+     actually happened. */
+  var SET_KINDS = ['work', 'warm', 'drop', 'fail'];
+  var KIND_WORD = { work: 'working set', warm: 'warm-up', drop: 'drop set', fail: 'set to failure' };
+  function kindOf(st) { return st.warm ? 'warm' : (st.kind || 'work'); }
+  function setNumber(ex, i) {
+    var st = ex.sets[i];
+    if (st.warm) return 'W';
+    var c = 0;
+    for (var k = 0; k <= i; k++) { if (counts(ex.sets[k])) c++; }
+    var mark = st.kind === 'drop' ? 'D' : st.kind === 'fail' ? 'F' : '';
+    return String(c) + (st.side || '') + mark;
+  }
+
+  function setRows(ex, e, letter) {
     var rows = '';
     ex.sets.forEach(function (st, i) {
-      rows += '<div class="setgrid__n' + (st.warm ? ' setgrid__n--warm' : '') + '" aria-hidden="true">' + (st.warm ? 'W' : n(i + 1)) + '</div>' +
+      rows += '<button class="setgrid__n setgrid__n--btn' + (st.warm ? ' setgrid__n--warm' : '') +
+          '" type="button" data-act="set-kind" data-ex="' + e + '" data-set="' + i + '" ' +
+          'data-testid="set-kind-' + e + '-' + i + '" ' +
+          'aria-label="Set ' + (i + 1) + ' is a ' + KIND_WORD[kindOf(st)] + '. Change it.">' +
+          (letter || '') + (st.warm ? 'W' : n(setNumber(ex, i))) + '</button>' +
         cellHTML(e, i, 'weight') +
         cellHTML(e, i, 'reps') +
         rirHTML(e, i) +
         doneHTML(e, i);
       if (!S.hidePartials) rows += partialsHTML(e, i);
     });
-    return '<article class="exc' + (S.liftedEx === e ? ' exc--lifted' : '') + '" data-testid="exercise-card-' + e + '">' +
-      '<div class="exc__head">' +
-        '<button class="exc__grip" type="button" data-act="grip" data-ex="' + e + '" data-testid="grip-' + e + '" ' +
-          'aria-pressed="' + (S.liftedEx === e ? 'true' : 'false') + '" aria-label="Reorder ' + esc(ex.name) + '">' + ICO.grip + '</button>' +
-        '<button class="exc__main" type="button" data-act="exsheet" data-ex="' + e + '" data-testid="exercise-menu-' + e + '" ' +
-          'aria-haspopup="dialog" aria-label="Options for ' + esc(ex.name) + '">' +
-          '<span class="exc__name">' + esc(ex.name) + '</span>' +
-          '<span class="exc__muscle">' + esc(ex.muscle) + '</span>' +
-        '</button>' +
+    return rows;
+  }
+
+  function gridHead(e) {
+    return '<div class="setgrid__head setgrid__head--n">#</div>' +
+      '<div class="setgrid__head setgrid__head--unit" data-testid="unit-head-' + e + '">' +
+        unitLabel(unitAt(e)).toUpperCase() + '</div>' +
+      '<div class="setgrid__head">Reps</div>' +
+      '<div class="setgrid__head">RIR</div>' +
+      '<div class="setgrid__head" aria-hidden="true"></div>';
+  }
+
+  function headBtns(ex, e) {
+    return '<button class="exc__grip" type="button" data-act="grip" data-ex="' + e + '" data-testid="grip-' + e + '" ' +
+        'aria-pressed="' + (S.liftedEx === e ? 'true' : 'false') + '" aria-label="Reorder ' + esc(ex.name) +
+        ', position ' + (e + 1) + ' of ' + S.exercises.length + '">' + ICO.grip + '</button>' +
+      '<button class="exc__main" type="button" data-act="exsheet" data-ex="' + e + '" data-testid="exercise-menu-' + e + '" ' +
+        'aria-haspopup="dialog" aria-label="Options for ' + esc(ex.name) +
+        '. Press and hold, or press Enter." aria-description="Press and hold to open">' +
+        '<span class="exc__name">' + esc(ex.name) + '</span>' +
+        '<span class="exc__muscle">' + esc(ex.muscle) +
+          (ex.unilateral ? ' &middot; left and right' : '') +
+          /* The bar or carriage, where there is one. A set logged as 60 on a
+             20 kg bar was 60, and nothing on the card said which. */
+          (baseOf(ex) ? ' &middot; +' + trim(toDisplay(baseOf(ex), unitOf(ex))) + ' ' + unitLabel(unitOf(ex)) + ' base' : '') +
+          /* How long since this lift was last trained, once that is long
+             enough to be the reason the numbers have not moved. Under a
+             month it is just a rest day and saying so would be noise. */
+          (staleDays(ex) ? ' &middot; <span class="exc__stale" data-testid="stale-' + e + '">last ' +
+            staleDays(ex) + ' days ago</span>' : '') +
+          '</span>' +
+      '</button>';
+  }
+
+  /* Days since this exercise last appeared in a finished session, when that
+     is over a month. Read from lk_history rather than from the split, because
+     a lift can be in the plan and not have been done since March. */
+  var STALE_AFTER = 31;
+  function staleDays(ex) {
+    if (!ex || !ex.id || !window.LKStore) return 0;
+    var today = window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10);
+    var hist = LKStore.get('lk_history', []) || [];
+    var last = null;
+    hist.forEach(function (w) {
+      if (w.kind === 'cardio') return;
+      var iso = String(w.date || w.dateISO || '').slice(0, 10);
+      if (!iso) return;
+      (w.exercises || []).forEach(function (x) {
+        if (String(x.id) !== String(ex.id)) return;
+        if (!last || iso > last) last = iso;
+      });
+    });
+    if (!last) return 0;                   /* never logged is not stale */
+    var d = Math.round((Date.parse(today) - Date.parse(last)) / 86400000);
+    return d >= STALE_AFTER ? d : 0;
+  }
+
+  /* IT IS A RULE, SO IT SAYS SO AND IT IS INSTANT. This was labelled
+     "AI Rec" and showed a spinner reading "Thinking..." for nine hundred
+     milliseconds over arithmetic: last session's top set plus 2.5 kg.
+     Nothing was thinking. A picture of a model deliberating, over a
+     figure this phone already knew, is the exact theatre the build brief
+     forbids -- and mid-set it costs somebody a second of their rest for
+     a number that was ready before they pressed it. */
+  function aiBtn(e, label) {
+    return '<button class="btn btn--sm btn--secondary" type="button" data-act="airec" data-ex="' + e + '" data-testid="btn-ai-rec-' + e + '">' +
+      ICO.spark + '<span class="btn__label">Suggest' + (label ? ' ' + label : '') + '</span>' +
+      '</button>';
+  }
+
+  /* THE MOVE BAR. The grip said "Reordering Barbell Bench Press. Use the
+     grip again to drop it." and nothing on the screen could move: there was
+     no drag, no keyboard path and no control to move anything with. This is
+     split-builder.html's pattern -- tap the grip to lift, Up/Down to move,
+     drag the grip, or arrow keys while it has focus. */
+  function moveBarHTML(e) {
+    return '<div class="logmove" data-testid="movebar-' + e + '">' +
+      '<button class="btn btn--sm btn--secondary" type="button" data-act="move" data-ex="' + e + '" data-dir="-1" ' +
+        'data-testid="move-up-' + e + '"' + (e === 0 ? ' disabled aria-disabled="true"' : '') + '>' +
+        '<span class="btn__label">Up</span></button>' +
+      '<button class="btn btn--sm btn--secondary" type="button" data-act="move" data-ex="' + e + '" data-dir="1" ' +
+        'data-testid="move-down-' + e + '"' + (e === S.exercises.length - 1 ? ' disabled aria-disabled="true"' : '') + '>' +
+        '<span class="btn__label">Down</span></button>' +
+      '<button class="btn btn--sm btn--tertiary" type="button" data-act="move-done" data-ex="' + e + '" ' +
+        'data-testid="move-done-' + e + '"><span class="btn__label">Done</span></button>' +
+    '</div>';
+  }
+
+  /* THE RECORDS SET IN THIS SESSION, read off the sets themselves so they
+     survive a reload with the rows. A record was a four-second toast: beaten
+     in the first exercise, it left no mark anywhere by the time the session
+     ended, and the one place it appeared again was another screen days
+     later. It is marked on the set, badged on the card, and banded across
+     the top of the log for as long as the workout is open. */
+  function sessionPRs() {
+    var out = [];
+    S.exercises.forEach(function (ex) {
+      ex.sets.forEach(function (st, i) {
+        if (st.pr) out.push({ name: ex.name, text: st.prText || '', set: i + 1 });
+      });
+    });
+    return out;
+  }
+  function exHasPR(ex) {
+    for (var i = 0; i < ex.sets.length; i++) if (ex.sets[i].pr) return true;
+    return false;
+  }
+  function prBannerHTML() {
+    var prs = sessionPRs();
+    if (!prs.length) return '';
+    return '<div class="prband" role="status" data-testid="pr-banner" data-count="' + prs.length + '">' +
+      '<span class="badge badge--success">All-time ' + (prs.length === 1 ? 'PR' : 'PRs') + '</span>' +
+      '<div class="prband__main">' +
+        prs.map(function (r) {
+          return '<p class="t-body-em">' + esc(r.name) + '</p>' +
+            '<p class="t-detail muted">' + esc(r.text) + ' Set ' + r.set + ', saved to your records.</p>';
+        }).join('') +
       '</div>' +
-      '<div class="sets"><div class="setgrid">' +
-        '<div class="setgrid__head setgrid__head--n">#</div>' +
-        '<div class="setgrid__head setgrid__head--unit" data-testid="unit-head-' + e + '">' + unitLabel().toUpperCase() + '</div>' +
-        '<div class="setgrid__head">Reps</div>' +
-        '<div class="setgrid__head">RIR</div>' +
-        '<div class="setgrid__head" aria-hidden="true"></div>' +
-        rows +
-      '</div></div>' +
+    '</div>';
+  }
+
+  function exerciseHTML(ex, e) {
+    return '<article class="exc' + (S.liftedEx === e ? ' exc--lifted' : '') +
+        (S.dragEx === e ? ' exc--dragging' : '') + '" data-testid="exercise-card-' + e + '">' +
+      '<div class="exc__head">' + headBtns(ex, e) +
+        (exHasPR(ex) ? '<span class="badge badge--success" data-testid="pr-badge-' + e + '">PR</span>' : '') +
+      '</div>' +
+      '<div class="sets"><div class="setgrid">' + gridHead(e) + setRows(ex, e) + '</div></div>' +
       '<div class="exc__foot">' +
         '<button class="btn btn--sm btn--secondary" type="button" data-act="addset" data-ex="' + e + '" data-testid="btn-add-set-' + e + '">' + ICO.plus + '<span class="btn__label">Add Set</span></button>' +
-        '<button class="btn btn--sm btn--secondary" type="button" data-act="airec" data-ex="' + e + '" data-testid="btn-ai-rec-' + e + '"' +
-          (S.aiBusyEx === e ? ' aria-busy="true"' : '') + '>' +
-          (S.aiBusyEx === e ? '<span class="spinner" aria-hidden="true"></span><span>Thinking…</span>' : ICO.spark + '<span class="btn__label">AI Rec</span>') +
+        aiBtn(e, '') +
+      '</div>' +
+      (S.liftedEx === e ? moveBarHTML(e) : '') +
+    '</article>';
+  }
+
+  /* A SUPERSET IS ONE CARD. "Make it a superset" set a flag no render
+     function read, so the toast said the two lifts were paired and the
+     screen went on drawing them as two unrelated cards with two Add Sets
+     and no order between them. A pair is drawn as it is performed: the rows
+     interleaved A1, B1, A2, B2, one Add Set that lengthens both, and A's
+     tick left half-marked until B's set of the same number is logged, since
+     the round is not finished until both halves are. */
+  function supersetHTML(a, e) {
+    var b = S.exercises[e + 1];
+    var rows = '';
+    var na = a.sets.length, nb = b.sets.length;
+    for (var i = 0; i < Math.max(na, nb); i++) {
+      if (i < na) rows += setRow1(a, e, i, 'A');
+      if (i < nb) rows += setRow1(b, e + 1, i, 'B');
+    }
+    return '<article class="exc' + (S.liftedEx === e ? ' exc--lifted' : '') +
+        (S.dragEx === e ? ' exc--dragging' : '') + '" data-testid="exercise-card-' + e + '" data-superset="true">' +
+      '<div class="exc__head">' + headBtns(a, e) + '<span class="badge" data-testid="superset-badge-' + e + '">Superset</span></div>' +
+      '<div class="exc__head exc__head--b">' +
+        '<span class="exc__grip" aria-hidden="true"></span>' +
+        '<button class="exc__main" type="button" data-act="exsheet" data-ex="' + (e + 1) + '" data-testid="exercise-menu-' + (e + 1) + '" ' +
+          'aria-haspopup="dialog" aria-label="Options for ' + esc(b.name) +
+          '. Press and hold, or press Enter." aria-description="Press and hold to open">' +
+          '<span class="exc__name">' + esc(b.name) + '</span>' +
+          '<span class="exc__muscle">' + esc(b.muscle) + '</span>' +
         '</button>' +
       '</div>' +
+      '<div class="sets"><div class="setgrid">' + gridHead(e) + rows + '</div></div>' +
+      '<div class="exc__foot">' +
+        '<button class="btn btn--sm btn--secondary" type="button" data-act="addset-both" data-ex="' + e + '" data-testid="btn-add-set-' + e + '">' +
+          ICO.plus + '<span class="btn__label">Add Set to both</span></button>' +
+        aiBtn(e, 'A') + aiBtn(e + 1, 'B') +
+      '</div>' +
+      (S.liftedEx === e ? moveBarHTML(e) : '') +
     '</article>';
+  }
+
+  /* One row of the interleaved grid. The row carries its own exercise and
+     set index, so every control on it is the same control as on a plain
+     card and no handler had to learn about supersets. */
+  function setRow1(ex, e, i, letter) {
+    var st = ex.sets[i];
+    return '<div class="setgrid__n' + (st.warm ? ' setgrid__n--warm' : '') + '" aria-hidden="true">' +
+        letter + (st.warm ? 'W' : n(setNumber(ex, i))) + '</div>' +
+      cellHTML(e, i, 'weight') +
+      cellHTML(e, i, 'reps') +
+      rirHTML(e, i) +
+      doneHTML(e, i, letter === 'A' ? waitingOnB(e, i) : false) +
+      (S.hidePartials ? '' : partialsHTML(e, i));
+  }
+
+  /* A's set is logged, B's set of the same number is not. */
+  function waitingOnB(e, i) {
+    var a = S.exercises[e], b = S.exercises[e + 1];
+    if (!a || !b || !a.sets[i] || !a.sets[i].done) return false;
+    return !(b.sets[i] && b.sets[i].done);
   }
 
   function blockHTML(b, i) {
@@ -467,14 +946,40 @@
       '<span class="sheetact__ico">' + ICO.note + '</span>' +
       '<div class="block__main">' +
         '<div class="t-body-em">' + esc(b.title) + '</div>' +
-        (b.notes || b.duration ? '<div class="t-detail muted">' + esc([b.duration, b.notes].filter(Boolean).join(' · ')) + '</div>' : '') +
+        (b.duration ? '<div class="t-detail muted">' + esc(b.duration) + '</div>' : '') +
+        /* Collapsed to its title and length: a block sits between two
+           exercises, and a paragraph of notes there pushes the next lift off
+           the screen. The toggle is offered only when there is something to
+           open. */
+        (b.notes
+          ? '<button class="btn btn--tertiary btn--sm mt-1" type="button" data-act="block-open" ' +
+              'data-i="' + i + '" aria-expanded="' + (!!b.open) + '" ' +
+              'aria-controls="block-notes-' + i + '" data-testid="block-open-' + i + '">' +
+              '<span class="btn__label">' + (b.open ? 'Hide notes' : 'Notes') + '</span></button>' +
+            '<div class="t-detail muted mt-1" id="block-notes-' + i + '" ' +
+              'data-testid="block-note-' + i + '"' + (b.open ? '' : ' hidden') + '>' +
+              esc(b.notes) + '</div>'
+          : '') +
       '</div>' +
       '<button class="iconbtn iconbtn--danger" type="button" data-act="block-remove" data-i="' + i + '" data-testid="block-remove-' + i + '" aria-label="Remove block ' + esc(b.title) + '">' + ICO.trash + '</button>' +
     '</article>';
   }
 
+  /* The gesture has to be taught once. lk_holdTipSeen is the shipped app's
+     own key for exactly this, and it is set the first time a hold lands. */
+  function holdTipSeen() {
+    return !!(window.LKStore && LKStore.get('lk_holdTipSeen', false));
+  }
+  function markHoldTipSeen() {
+    if (window.LKStore && !holdTipSeen()) LKStore.set('lk_holdTipSeen', true);
+  }
+
   function bodyHTML() {
-    var out = '';
+    var out = prBannerHTML();
+    if (S.exercises.length && !holdTipSeen()) {
+      out += '<p class="t-detail muted holdtip" data-testid="hold-tip">' +
+        'Hold an exercise name for its options \u2014 swap, warm-ups, equipment, remove.</p>';
+    }
     if (!S.exercises.length && !S.blocks.length) {
       /* The only empty state in the build that pointed at a button instead
          of being one. Every other one carries the way out; this one said
@@ -487,7 +992,11 @@
           ICO.plus + '<span class="btn__label">Add the first exercise</span></button>' +
       '</div>';
     } else {
-      S.exercises.forEach(function (ex, e) { out += exerciseHTML(ex, e); });
+      for (var e = 0; e < S.exercises.length; e++) {
+        var ex = S.exercises[e];
+        if (ex.superset && S.exercises[e + 1]) { out += supersetHTML(ex, e); e++; continue; }
+        out += exerciseHTML(ex, e);
+      }
       S.blocks.forEach(function (b, i) { out += blockHTML(b, i); });
     }
     out += '<div class="addrow">' +
@@ -515,10 +1024,11 @@
   function openPadFor(e, i, field) {
     var st = S.exercises[e].sets[i];
     var own = field === 'weight' ? st.kg : st.reps;
+    var u = unitAt(e);
     var raw = own !== null ? own : (field === 'weight' ? st.prevKg : null);
-    var shown = field === 'weight' ? toDisplay(raw) : raw;
+    var shown = field === 'weight' ? toDisplay(raw, u) : raw;
     return {
-      ex: e, set: i, field: field,
+      ex: e, set: i, field: field, unit: u,
       buffer: (shown === null || shown === undefined) ? '' : trim(shown),
       /* THE FIX. The pad opens showing the pending value, as shipped,
          but the first digit replaces it whole instead of appending to
@@ -532,7 +1042,8 @@
   function padHTML() {
     var p = S.pad;
     var isWeight = p.field === 'weight';
-    var steps = isWeight ? STEPS[S.unit] : [-2, -1, 1, 2];
+    var pu = p.unit || S.unit;
+    var steps = isWeight ? STEPS[pu] : [-2, -1, 1, 2];
     var shown = p.buffer === '' ? '0' : p.buffer;
     var pending = p.fromPrev && !p.replaced;
     var keys = '';
@@ -549,7 +1060,7 @@
           '<span class="padsheet__what">' + (isWeight ? 'Weight' : 'Reps') + ' · set ' + (p.set + 1) + '</span>' +
           '<span class="padsheet__figure">' +
             '<span class="padsheet__value' + (pending ? ' padsheet__value--pending' : '') + '" data-testid="pad-value">' + esc(shown) + '</span>' +
-            (isWeight ? '<span class="padsheet__unit" data-testid="pad-unit">' + unitLabel() + '</span>' : '') +
+            (isWeight ? '<span class="padsheet__unit" data-testid="pad-unit">' + unitLabel(pu) + '</span>' : '') +
           '</span>' +
         '</div>' +
         (pending ? '<p class="padsheet__hint" data-testid="pad-hint">Last session. Type to replace it.</p>' : '') +
@@ -581,7 +1092,7 @@
   function padCommit() {
     var p = S.pad, st = S.exercises[p.ex].sets[p.set];
     var v = p.buffer === '' ? null : parseFloat(p.buffer);
-    if (p.field === 'weight') st.kg = v === null || isNaN(v) ? null : toKg(v);
+    if (p.field === 'weight') st.kg = v === null || isNaN(v) ? null : toKg(v, p.unit);
     else st.reps = v === null || isNaN(v) ? null : Math.round(v);
     S.pad = null;
   }
@@ -613,14 +1124,28 @@
   function exSheetHTML() {
     var ex = S.exercises[S.overlayEx];
     if (!ex) return '';
+    var eq = equipFor(ex.id) || {};
     var done = ex.sets.filter(function (s) { return s.done; }).length;
     var items = [
       ['info', ICO.note, 'Info & notes', ''],
       ['swap', ICO.swap, 'Swap exercise', ''],
-      ['unit', ICO.scale, 'Switch to ' + (S.unit === 'kg' ? 'lb' : 'kg'), ''],
+      /* THIS LIFT, not the app. The tools menu keeps the app-wide switch;
+         here the question being asked is about the dumbbells in front of you. */
+      ['unit', ICO.scale, (unitOf(ex) === S.unit
+        ? 'Log this lift in ' + (unitOf(ex) === 'kg' ? 'lb' : 'kg')
+        : 'Back to ' + unitLabel(S.unit) + ', like the rest of the session'), ''],
       ['warmup', ICO.drop, 'Add warm-up sets', ''],
       ['superset', ICO.link, 'Make it a superset', ''],
-      ['sides', ICO.sides, 'Track left & right', ''],
+      /* The key the handler tests. It was emitted as 'sides' and handled as
+         'unilateral', so the row closed the sheet and did nothing at all. */
+      ['unilateral', ICO.sides, 'Track left & right', ''],
+      /* Add Set is one tap on every card and nothing took one off. The only
+         way to shed a set was to delete the whole exercise. */
+      ['delset', ICO.trash, 'Remove the last set', ''],
+      ['delrow', ICO.trash, 'Remove a set by number', ''],
+      ['equip', ICO.note, eq.eq ? 'Equipment \u00b7 ' + eq.eq +
+        (eq.base ? ' \u00b7 ' + trim(toDisplay(eq.base, unitOf(ex))) + ' ' + unitLabel(unitOf(ex)) + ' base' : '')
+        : 'Set the equipment', ''],
       ['remove', ICO.trash, 'Remove exercise', ' sheetact--danger']
     ];
     return '<div class="scrim" data-act="close" data-testid="exsheet-scrim" role="presentation"></div>' +
@@ -655,10 +1180,19 @@
           '</div>' +
           '<div class="card mt-3"><span class="t-label">Watch form</span>' +
             '<p class="t-detail muted mt-2">No form video found for this exercise.</p></div>' +
+          /* READ FROM THE LAST SESSION, not from the per-row hints on today's
+             card. Built from ex.sets[].prevKg, the panel showed only as many
+             of last session's sets as today happens to have rows, so deleting
+             one of today's sets changed what it said had been done weeks ago. */
           '<div class="card mt-3"><span class="t-label">Last session</span>' +
-            '<p class="t-detail muted mt-2">' + ex.sets.map(function (s) {
-              return s.prevKg === null || s.prevKg === undefined ? '--' : trim(toDisplay(s.prevKg)) + unitLabel() + ' x ' + (s.prevReps || '--');
-            }).join(' · ') + '</p></div>' +
+            '<p class="t-detail muted mt-2">' + (function () {
+              var prev = lastSetsFor(ex.id);
+              if (!prev || !prev.length) return 'No earlier session with this lift.';
+              return prev.map(function (st) {
+                return trim(toDisplay(st.kg, unitOf(ex))) + unitLabel(unitOf(ex)) + ' x ' + (st.reps || '--') +
+                  (st.warm ? ' (warm-up)' : '');
+              }).join(' \u00b7 ');
+            })() + '</p></div>' +
         '</div>' +
         '<div class="sheet__foot"><button class="btn btn--block btn--secondary" type="button" data-act="close" data-testid="detail-back">Back</button></div>' +
       '</div>';
@@ -677,6 +1211,29 @@
     return '<svg class="platebar" viewBox="0 0 ' + w + ' 64" role="img" aria-label="Loaded bar diagram">' + out + '</svg>';
   }
 
+  /* Work the plates out from the weight, which is the direction the question
+     is actually asked in. The sheet could only go the other way: tap plates
+     until the number matches, which is arithmetic the calculator was supposed
+     to do. Greedy from the heaviest plate down, which is optimal for a real
+     plate set because every plate divides the ones above it.
+
+     It says what it CAN reach, not what was asked for. A 20 kg bar and a
+     1.25 kg smallest plate cannot make 101 kg, and quietly loading 100 and
+     calling it 101 is how a log stops matching the rack. */
+  function solvePlates(target, bar) {
+    var perSide = (target - bar) / 2;
+    if (perSide < 0) return null;
+    var sizes = PLATES[S.unit].map(function (x) {
+      return S.unit === 'kg' ? x : Math.round((x / LB_PER_KG) * 100) / 100;
+    }).slice().sort(function (a, b) { return b - a; });
+    var out = [], left = perSide;
+    sizes.forEach(function (sz) {
+      while (left >= sz - 0.0001) { out.push(sz); left = Math.round((left - sz) * 1000) / 1000; }
+    });
+    var made = bar + out.reduce(function (a, b) { return a + b; }, 0) * 2;
+    return { plates: out, made: Math.round(made * 100) / 100, exact: Math.abs(made - target) < 0.01 };
+  }
+
   function platesHTML() {
     var pc = S.plate;
     var perSide = pc.added.reduce(function (a, b) { return a + b; }, 0);
@@ -689,7 +1246,7 @@
         '<div class="sheet__head"><h2 class="t-section">Plate calculator</h2>' +
           '<button class="iconbtn" type="button" data-act="close" data-testid="plates-close" aria-label="Close plate calculator">' + ICO.close + '</button></div>' +
         '<div class="sheet__body">' +
-          '<div class="seg seg--lg" role="tablist" aria-label="Bar">' + [[20, 'Olympic 20kg'], [15, "Women's 15kg"], [10, 'EZ bar 10kg'], [0, 'No bar']].map(function (bopt) {
+          '<div class="seg seg--lg" role="tablist" aria-label="Bar">' + barOptions().map(function (bopt) {
             return '<button class="seg__item" type="button" role="tab" data-act="plate-bar" data-bar="' + bopt[0] + '" data-testid="plate-bar-' + bopt[0] + '" aria-selected="' + (pc.bar === bopt[0] ? 'true' : 'false') + '">' + (bopt[0] ? trim(toDisplay(bopt[0])) + unitLabel() : 'None') + '</button>';
           }).join('') + '</div>' +
           '<div class="seg seg--lg mt-2" role="tablist" aria-label="Readout">' +
@@ -708,6 +1265,16 @@
             '<button class="btn btn--secondary" type="button" data-act="plate-undo" data-testid="plates-undo"' + (pc.added.length ? '' : ' disabled') + '>Undo</button>' +
             '<button class="btn btn--secondary" type="button" data-act="plate-clear" data-testid="plates-clear"' + (pc.added.length ? '' : ' disabled') + '>Clear all</button>' +
           '</div>' +
+          '<h3 class="t-label mt-4">Or work it out from the weight</h3>' +
+          '<div class="addrow mt-2">' +
+            '<input class="input num" id="plate-target" type="number" min="0" max="500" step="0.5" ' +
+              'inputmode="decimal" placeholder="' + trim(toDisplay(total)) + '" ' +
+              'aria-label="Target weight in ' + unitWord() + '" data-testid="plate-target">' +
+            '<button class="btn btn--secondary" type="button" data-act="plate-solve" ' +
+              'data-testid="plate-solve">Load it</button>' +
+          '</div>' +
+          (pc.solveNote ? '<p class="t-detail mt-2" data-testid="plate-solved">' +
+            esc(pc.solveNote) + '</p>' : '') +
           (target ? '<div class="card mt-3"><span class="t-label">Next uncompleted set</span>' +
             '<p class="t-body-em mt-2">' + esc(target.name) + '</p>' +
             '<p class="t-detail muted">Set ' + (nx.set + 1) + ' · will receive ' + n(trim(toDisplay(total))) + unitLabel() + '</p></div>' : '') +
@@ -730,7 +1297,101 @@
           '<div class="plates mt-2">' + presets.map(function (p) {
             return '<button class="plate" type="button" data-act="rest-set" data-secs="' + p + '" data-testid="rest-' + p + '" aria-pressed="' + (S.restSeconds === p ? 'true' : 'false') + '">' + n(clock(p)) + '</button>';
           }).join('') + '</div>' +
+          /* Six presets are six opinions about how long a set takes to
+             recover from, and a heavy triple is not on the list. */
+          /* MINUTES AND SECONDS, the way a rest is said. One seconds box
+             meant "two and a half minutes" had to be typed as 150, and it
+             opened empty so the length already set had to be remembered
+             before it could be nudged. Both boxes are seeded from the
+             current target. */
+          '<p class="t-label mt-4">Or a length of your own</p>' +
+          '<div class="restcustom mt-2">' +
+            '<label class="field"><span class="field__label t-label">Minutes</span>' +
+              '<input class="input num" id="rest-min" type="number" min="0" max="15" step="1" ' +
+                'inputmode="numeric" value="' + Math.floor(S.restSeconds / 60) + '" ' +
+                'aria-label="Rest minutes" data-testid="rest-min"></label>' +
+            '<label class="field"><span class="field__label t-label">Seconds</span>' +
+              '<input class="input num" id="rest-sec" type="number" min="0" max="59" step="5" ' +
+                'inputmode="numeric" value="' + (S.restSeconds % 60) + '" ' +
+                'aria-label="Rest seconds" data-testid="rest-sec"></label>' +
+            '<button class="btn btn--secondary" type="button" data-act="rest-custom" ' +
+              'data-testid="rest-custom-set">Use it</button>' +
+          '</div>' +
+          '<p class="t-meta mt-1">Between 5 seconds and 15 minutes. Now: ' + n(clock(S.restSeconds)) + '.</p>' +
+          (S.restError ? '<p class="field__error mt-2" role="alert" data-testid="rest-error">' +
+            esc(S.restError) + '</p>' : '') +
         '</div>' +
+      '</div>';
+  }
+
+  /* Which one. A list of the sets as they read on the card, so the row being
+     removed is identified by what is in it rather than by a number somebody
+     has to count to. */
+  var EQ_KINDS = ['Barbell', 'Dumbbell', 'Machine', 'Cable', 'Smith machine',
+                  'Bodyweight', 'Band', 'Kettlebell', 'Plate-loaded'];
+  function eqTakesBase(k) {
+    return k === 'Barbell' || k === 'Plate-loaded' || k === 'Smith machine';
+  }
+  function equipHTML() {
+    var ex = S.exercises[S.overlayEx];
+    if (!ex) return '';
+    var eq = equipFor(ex.id) || {};
+    return '<div class="scrim" data-act="close" data-testid="equip-scrim" role="presentation"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-label="Equipment" data-testid="equip-sheet">' +
+        '<div class="sheet__grab" aria-hidden="true"></div>' +
+        '<div class="sheet__head"><h2 class="t-section">' + esc(ex.name) + '</h2>' +
+          '<button class="iconbtn" type="button" data-act="close" data-testid="equip-close" aria-label="Close">' + ICO.close + '</button></div>' +
+        '<div class="sheet__body">' +
+          '<p class="t-detail muted">Remembered for this lift, in every session. The bar or ' +
+            'carriage is added to what a set says, so the total matches the rack.</p>' +
+          '<div class="chiprow mt-3">' + EQ_KINDS.map(function (k) {
+            return '<button class="chip' + (eq.eq === k ? ' chip--on' : '') + '" type="button" ' +
+              'data-act="equip-kind" data-v="' + k + '" data-testid="equip-' +
+              k.replace(/\W+/g, '-').toLowerCase() + '">' + k + '</button>';
+          }).join('') + '</div>' +
+          (eqTakesBase(eq.eq)
+            ? '<label class="field mt-4"><span class="field__label t-label">Weight before any plates</span>' +
+                '<input class="input num" id="equip-base" type="number" min="0" max="200" step="0.5" ' +
+                  'inputmode="decimal" value="' + (eq.base || 0) + '" data-testid="equip-base"></label>' +
+              '<p class="t-detail muted mt-1">' + unitWord() + '. Added to every set of this lift.</p>'
+            : '') +
+          (eq.eq === 'Smith machine'
+            ? '<div class="row row--withaside mt-3">' +
+                '<span class="row__main stack">' +
+                  '<span class="row__title" id="eqcb-lbl">No counterbalance</span>' +
+                  '<span class="row__sub">' + (eq.noCB
+                    ? 'The carriage weight counts.'
+                    : 'The carriage is counterbalanced, so only the plates count.') + '</span>' +
+                '</span>' +
+                '<button class="switch" role="switch" aria-checked="' + !!eq.noCB + '" ' +
+                  'aria-labelledby="eqcb-lbl" data-act="equip-cb" data-testid="equip-cb">' +
+                  '<span class="switch__knob"></span></button>' +
+              '</div>'
+            : '') +
+        '</div>' +
+        '<div class="sheet__foot"><button class="btn btn--primary btn--block" type="button" ' +
+          'data-act="equip-save" data-testid="equip-save">Done</button></div>' +
+      '</div>';
+  }
+
+  function pickSetHTML() {
+    var ex = S.exercises[S.overlayEx];
+    if (!ex) return '';
+    return '<div class="scrim" data-act="close" data-testid="pickset-scrim" role="presentation"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-label="Remove a set" data-testid="pickset-sheet">' +
+        '<div class="sheet__grab" aria-hidden="true"></div>' +
+        '<div class="sheet__head"><h2 class="t-section">Remove a set</h2>' +
+          '<button class="iconbtn" type="button" data-act="close" data-testid="pickset-close" aria-label="Close">' + ICO.close + '</button></div>' +
+        '<div class="sheet__body"><div class="sheetlist">' +
+          ex.sets.map(function (st, i) {
+            var w = st.kg !== null ? trim(toDisplay(st.kg, unitOf(ex))) + ' ' + unitLabel(unitOf(ex)) : 'no weight';
+            var r = st.reps !== null ? st.reps + ' reps' : 'no reps';
+            return '<button class="sheetact" type="button" data-act="delrow-go" data-i="' + i + '" ' +
+              'data-testid="pickset-' + i + '">' +
+              '<span class="sheetact__ico">' + (st.warm ? 'W' : n(setNumber(ex, i))) + '</span>' +
+              esc(w + ' \u00d7 ' + r) + (st.done ? ' \u00b7 logged' : '') + '</button>';
+          }).join('') +
+        '</div></div>' +
       '</div>';
   }
 
@@ -744,8 +1405,17 @@
           '<p class="t-detail muted">Add a note, warm-up reminder, or timed section between exercises.</p>' +
           '<label class="field mt-3"><span class="field__label t-label">Title</span>' +
             '<input class="input" id="block-title" data-testid="block-title" placeholder="Shoulder warm-up, stretch, core finisher"></label>' +
-          '<label class="field mt-3"><span class="field__label t-label">Notes or duration</span>' +
-            '<input class="input" id="block-notes" data-testid="block-notes" placeholder="5 min bike, hip openers"></label>' +
+          /* Two fields, not one. "Notes or duration" took both and stored
+             neither as a duration -- `duration` was hard-coded empty -- so a
+             timed section could not be told from a note. */
+          '<label class="field mt-3"><span class="field__label t-label">How long</span>' +
+            '<input class="input num" id="block-mins" data-testid="block-mins" type="number" ' +
+              'min="1" max="180" step="1" inputmode="numeric" placeholder="5"></label>' +
+          '<p class="t-caption-1 quiet mt-1">Minutes. Leave it blank for a block with no set length.</p>' +
+          '<label class="field mt-3"><span class="field__label t-label">Notes</span>' +
+            '<input class="input" id="block-notes" data-testid="block-notes" placeholder="Bike, hip openers"></label>' +
+          (S.blockError ? '<p class="field__error mt-2" role="alert" data-testid="block-error">' +
+            esc(S.blockError) + '</p>' : '') +
         '</div>' +
         '<div class="sheet__foot"><div class="addrow">' +
           '<button class="btn btn--secondary" type="button" data-act="close" data-testid="block-cancel">Cancel</button>' +
@@ -754,25 +1424,69 @@
       '</div>';
   }
 
+  /* THE PICKER'S LIBRARY. Six rows, typed into this file, against a library
+     of 866 -- so "Search all exercises" searched six, and a swap could only
+     ever reach whichever six somebody had chosen months ago. The whole
+     catalogue is fetched the way split-builder.html and the library screen
+     fetch it; from a file:// origin the fetch cannot run, the six below
+     stand, and the sheet says how many it is offering either way. */
+  /* Names and regions read off tests/fixtures/exercise-db.json. Five of the
+     six were wrong: 211 is a Barbell Row, not a Lat Pulldown; 503 a Barbell
+     Curl, not a Cable Curl; 321 a Face Pull. Swapping to one of these put a
+     different lift in the session than the row said, under an id the rest of
+     the app resolves for itself. */
   var LIBRARY = [
-    { id: 211, name: 'Lat Pulldown', muscle: 'Lats' },
+    { id: 202, name: 'Lat Pulldown', muscle: 'Lats' },
     { id: 113, name: 'Machine Chest Press', muscle: 'Mid Chest' },
-    { id: 321, name: 'Rear Delt Fly', muscle: 'Rear Delt' },
-    { id: 503, name: 'Cable Curl', muscle: 'Biceps' },
-    { id: 701, name: 'Back Squat', muscle: 'Quads' },
-    { id: 802, name: 'Leg Curl', muscle: 'Hamstrings' }
+    { id: 321, name: 'Face Pull', muscle: 'Rear Delt' },
+    { id: 503, name: 'Barbell Curl', muscle: 'Long Head' },
+    { id: 701, name: 'Barbell Squat', muscle: 'Quads' },
+    { id: 802, name: 'Lying Leg Curl', muscle: 'Hamstrings' }
   ];
+  var LIBRARY_FULL = false;
+
+  function loadLibrary() {
+    /* Custom exercises a person made are theirs and belong in the picker
+       whether or not the catalogue loads. */
+    function withCustom(rows) {
+      ((window.LKStore ? LKStore.get('lk_customEx', []) : []) || []).forEach(function (c) {
+        rows.push({ id: c.id, name: c.name, muscle: c.muscle || c.sid || c.gid || 'Custom', custom: true });
+      });
+      return rows;
+    }
+    if (location.protocol === 'file:' || typeof fetch !== 'function') {
+      LIBRARY = withCustom(LIBRARY.slice());
+      return;
+    }
+    fetch('../tests/fixtures/exercise-db.json', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
+      .then(function (rows) {
+        if (!Array.isArray(rows) || !rows.length) return;
+        LIBRARY = withCustom(rows.map(function (x) {
+          return { id: x.id, name: x.name, muscle: x.muscle || x.group || '' };
+        }));
+        LIBRARY.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+        LIBRARY_FULL = true;
+        if (S.overlay === 'addex') paint();
+      })
+      .catch(function () { LIBRARY = withCustom(LIBRARY.slice()); });
+  }
 
   function addExHTML() {
     return '<div class="scrim" data-act="close" data-testid="addex-scrim" role="presentation"></div>' +
       '<div class="sheet" role="dialog" aria-modal="true" aria-label="Add exercise" data-testid="addex-sheet">' +
         '<div class="sheet__grab" aria-hidden="true"></div>' +
-        '<div class="sheet__head"><h2 class="t-section">Add exercise</h2>' +
+        '<div class="sheet__head"><h2 class="t-section">' +
+          (S.swapAt !== null && S.exercises[S.swapAt]
+            ? 'Replacing: ' + esc(S.exercises[S.swapAt].name)
+            : 'Add exercise') + '</h2>' +
           '<button class="iconbtn" type="button" data-act="close" data-testid="addex-close" aria-label="Close add exercise">' + ICO.close + '</button></div>' +
         '<div class="search"><span class="search__ico">' + ICO.search + '</span>' +
           '<label class="vis-hidden" for="addex-q">Search all exercises</label>' +
           '<input class="input" id="addex-q" data-act="addex-q" data-testid="addex-search" ' +
             'value="' + esc(S.addexQ || '') + '" autocomplete="off" placeholder="Search all exercises"></div>' +
+        '<p class="t-meta mt-2" data-testid="addex-count">' + n(LIBRARY.length) + ' exercises' +
+          (LIBRARY_FULL ? '' : ', which is all this build could read from here') + '</p>' +
         '<div class="sheet__body mt-3">' + addExList() +
         '</div>' +
       '</div>';
@@ -781,25 +1495,99 @@
   /* The list the search actually filters. It was rendered straight from
      LIBRARY with the field wired to nothing: typing anything left all six
      rows exactly where they were, which is worse than having no field. */
+  var ADDEX_PAGE = 40;
   function addExList() {
     var q = (S.addexQ || '').trim().toLowerCase();
-    var rows = q
+    var all = q
       ? LIBRARY.filter(function (x) {
-          return x.name.toLowerCase().indexOf(q) > -1 || x.muscle.toLowerCase().indexOf(q) > -1;
+          return x.name.toLowerCase().indexOf(q) > -1 || (x.muscle || '').toLowerCase().indexOf(q) > -1;
         })
       : LIBRARY;
-    if (!rows.length) {
+    /* A SWAP WANTS THE SAME MUSCLE. Swapping the bench press opened the
+       library at 3/4 Sit-Up and 45-degree Incline Lateral Raise -- an
+       alphabetical list of 866 lifts, when the question being asked is "what
+       else trains this". Anything hitting the same muscle comes first, and
+       with nothing typed only those are offered, with a way to see the rest.
+       A plain Add is unchanged: there the whole library IS the answer. */
+    var swapping = S.swapAt !== null && S.exercises[S.swapAt];
+    var sameOnly = false;
+    if (swapping && !q) {
+      var want = String(S.exercises[S.swapAt].muscle || '').toLowerCase();
+      var same = all.filter(function (x) {
+        return want && String(x.muscle || '').toLowerCase() === want;
+      });
+      if (same.length && !S.addexAll) { all = same; sameOnly = true; }
+    } else if (swapping && q) {
+      var want2 = String(S.exercises[S.swapAt].muscle || '').toLowerCase();
+      all = all.slice().sort(function (a, b) {
+        var sa = String(a.muscle || '').toLowerCase() === want2 ? 0 : 1;
+        var sb = String(b.muscle || '').toLowerCase() === want2 ? 0 : 1;
+        return sa - sb;
+      });
+    }
+    /* 866 rows in one sheet is a scroll nobody finishes, and it is the
+       search field's job anyway. A page at a time, with the count and a way
+       to see more, so the number offered is never hidden. */
+    var rows = all.slice(0, S.addexN || ADDEX_PAGE);
+    var sameNote = sameOnly
+      ? '<p class="t-detail muted" data-testid="addex-same">' + n(all.length) +
+        (all.length === 1 ? ' lift' : ' lifts') + ' for ' +
+        esc(S.exercises[S.swapAt].muscle) + ', which is what this one trains. ' +
+        '<button class="btn btn--tertiary btn--sm" type="button" data-act="addex-all" ' +
+        'data-testid="addex-all">Show the whole library</button></p>'
+      : '';
+    if (!all.length) {
       return '<div class="empty" data-testid="addex-empty">' +
         '<p class="empty__title">Nothing matches &ldquo;' + esc(S.addexQ.trim()) + '&rdquo;</p>' +
         '<p class="empty__body">Search by the lift or by the muscle it works. ' +
           'The full library has more than this session offers.</p></div>';
     }
-    return '<div class="card card--flush">' + rows.map(function (x) {
+    return sameNote + '<div class="card card--flush' + (sameNote ? ' mt-2' : '') + '">' + rows.map(function (x) {
       var i = LIBRARY.indexOf(x);
       return '<button class="row" type="button" data-act="addex-pick" data-i="' + i + '" data-testid="addex-pick-' + x.id + '">' +
         '<span class="row__main"><span class="row__title">' + esc(x.name) + '</span><span class="row__sub">' + esc(x.muscle) + '</span></span>' +
         '<span class="row__chev">' + ICO.plus + '</span></button>';
-    }).join('') + '</div>';
+    }).join('') + '</div>' +
+    (all.length > rows.length
+      ? '<button class="btn btn--secondary btn--block mt-3" type="button" data-act="addex-more" data-testid="addex-more">' +
+          '<span class="btn__label">Show more (' + (all.length - rows.length) + ' left)</span></button>'
+      : '');
+  }
+
+  /* THE SESSION LEFT OPEN. A workout started and walked away from stays live
+     for ever: the shelf says you are training, Home says you are training, and
+     the next real session either resumes a ghost or starts beside it.
+
+     Forty minutes of nothing, which is long enough that no set of rest reaches
+     it and short enough to catch somebody who left the gym. It asks rather
+     than deciding: ending a session nobody meant to end loses the sets. */
+  var IDLE_MS = 40 * 60 * 1000;
+  var idleTimer = null;
+  function touchIdle() {
+    if (idleTimer) clearTimeout(idleTimer);
+    if (S.over || !S.exercises.length) return;
+    idleTimer = setTimeout(function () {
+      if (S.over || S.overlay === 'idle') return;
+      S.overlay = 'idle';
+      paint();
+    }, IDLE_MS);
+  }
+
+  function idleHTML() {
+    var mins = Math.round(IDLE_MS / 60000);
+    return '<div class="scrim" data-act="idle-stay" data-testid="idle-scrim" role="presentation"></div>' +
+      '<div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="idle-t" data-testid="idle-dialog">' +
+        '<h2 class="t-section" id="idle-t">Still training?</h2>' +
+        '<p class="t-detail muted mt-2">Nothing has been logged for ' + mins + ' minutes. ' +
+          n(doneSets()) + ' sets are saved either way \u2014 this is only about whether the ' +
+          'session stays open.</p>' +
+        '<div class="addrow">' +
+          '<button class="btn btn--secondary" type="button" data-act="idle-stay" data-testid="idle-stay">' +
+            'No, continue</button>' +
+          '<button class="btn btn--primary" type="button" data-act="idle-finish" data-testid="idle-finish">' +
+            'End and review</button>' +
+        '</div>' +
+      '</div>';
   }
 
   function discardHTML() {
@@ -823,6 +1611,9 @@
       case 'plates': return platesHTML();
       case 'rest': return restSettingsHTML();
       case 'block': return blockModalHTML();
+      case 'pickset': return pickSetHTML();
+      case 'equip': return equipHTML();
+      case 'idle': return idleHTML();
       case 'addex': return addExHTML();
       case 'discard': return discardHTML();
       default: return '';
@@ -867,8 +1658,22 @@
      change the session and remembering to write in all eighteen is a thing
      a person forgets once and loses a workout to. Painting is the one thing
      they all do. */
+  /* The one clock. The record's startedAt is the truth once a session is
+     running, and this screen reads it rather than counting: a counter of its
+     own restarted at the fixture's 21:01 on every load, so the header and the
+     shelf for the same session could sit four hours apart on screen. */
+  function elapsedSec() {
+    var r = window.LKSession && LKSession.get();
+    return r ? Math.floor(r.elapsed / 1000) : (S.elapsed || 0);
+  }
+
   function record() {
     if (!window.LKSession) return;
+    /* Finish and discard both end the session. Finish leaves the exercises on
+       screen, so without this the very next paint saw a full workout with no
+       record and started a brand new one -- every screen in the app then
+       offered to Resume the workout you had just finished. */
+    if (S.over) { return; }
     if (!S.exercises.length || S.state === 'empty') { LKSession.end(); return; }
     /* Seeded from the elapsed time already on screen the first time, so a
        session opened twenty-one minutes in does not restart its clock at
@@ -886,8 +1691,66 @@
     LKSession.update({ name: S.name, done: doneSets(), total: totalSets() });
   }
 
+  /* THE SETS, NOT ONLY THE CLOCK. LKSession's record carries the name, the
+     start, and how many sets of how many are done -- it is the shelf's
+     record, and every screen in the app reads it. What it cannot carry is
+     the work: reload the log mid-session and the header kept counting from
+     the right minute while every weight, rep and tick went back to the
+     fixture. The rows live here, under the log's own key, tied to the
+     record's start time so they can never be pasted onto a different
+     session. LKSession itself is shared and was left alone. */
+  var ROWS_KEY = 'lk_liveSessionRows';
+
+  function persistRows() {
+    if (!window.LKStore) return;
+    if (S.over || !S.exercises.length) { LKStore.remove(ROWS_KEY); return; }
+    var r = window.LKSession && LKSession.get();
+    if (!r) return;
+    LKStore.set(ROWS_KEY, {
+      startedAt: r.startedAt,
+      name: S.name,
+      state: S.state,
+      exercises: S.exercises,
+      blocks: S.blocks,
+      /* Auto-rest and the rest length are per-session: turning them off
+         mid-workout should survive a reload of that workout. Partials
+         visibility is not -- it is a preference Settings owns, and storing it
+         per session meant a switch flipped in Settings could never reach a
+         phone that had ever opened this screen. */
+      restEnabled: S.restEnabled,
+      restSeconds: S.restSeconds
+    });
+  }
+
+  function restoreRows() {
+    if (!window.LKStore || !window.LKSession) return false;
+    var live = LKSession.get();
+    if (!live) { LKStore.remove(ROWS_KEY); return false; }
+    var rows = LKStore.get(ROWS_KEY, null);
+    if (!rows || !rows.exercises || !rows.exercises.length) return false;
+    /* A different workout's rows are not this workout's rows. */
+    if (rows.startedAt !== live.startedAt) return false;
+    S.name = rows.name || S.name;
+    S.exercises = rows.exercises;
+    S.blocks = rows.blocks || [];
+    if (rows.restEnabled !== undefined) S.restEnabled = rows.restEnabled;
+    if (rows.restSeconds !== undefined) S.restSeconds = rows.restSeconds;
+    /* The note belongs to the exercise, not to the session's saved rows. A
+       note typed mid-workout was written to lk_exNotes and then read back
+       over by the rows this same workout had saved a moment earlier, so it
+       came back as whatever the seed said. */
+    if (window.LKStore) {
+      var kept = LKStore.get('lk_exNotes', {}) || {};
+      S.exercises.forEach(function (e) {
+        if (e.id && kept[e.id] !== undefined) e.note = kept[e.id];
+      });
+    }
+    return true;
+  }
+
   function paint() {
     record();
+    persistRows();
     var hadOverlay = renderedOverlay;
     var opener = document.activeElement && document.activeElement.dataset
       ? document.activeElement.dataset.testid : null;
@@ -899,6 +1762,17 @@
     put(tabs, tabsHTML());
     put(overlay, overlayHTML());
     put(toastSlot, toastHTML());
+
+    if (S.pop) {
+      var popped = document.querySelector('[data-testid="' + S.pop + '"]');
+      S.pop = null;
+      if (popped) {
+        popped.classList.remove('done--pop');
+        /* Next frame, or the class is added inside the same style pass the
+           element was patched in and the animation never restarts. */
+        requestAnimationFrame(function () { popped.classList.add('done--pop'); });
+      }
+    }
 
     var nowOverlay = !!(S.overlay || S.pad);
     renderedOverlay = nowOverlay;
@@ -946,13 +1820,23 @@
   /* A toast says what happened and gets out of the way; it never sits
      on top of Add Exercise waiting to be dismissed. */
   var toastTimer = null;
-  function toast(text, kind, action) {
-    S.toast = { text: text, kind: kind || 'info', action: action || null };
+  /* `fn` is what the action button does. It used to take a label and nothing
+     else, and the only handler for the button dismissed the toast -- so the
+     Undo on "Exercise removed." threw the exercise away for good under a
+     control whose whole job was to bring it back, and the Retry on the error
+     state did nothing either. A toast that offers an action now has to be
+     handed one. */
+  function toast(text, kind, action, fn) {
+    S.toast = { text: text, kind: kind || 'info', action: action || null, fn: fn || null };
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { S.toast = null; paint(); }, 4000);
   }
 
   document.addEventListener('click', function (ev) {
+    /* Any tap on the screen is somebody still here. The clock restarts on
+       every action rather than on a set being logged, because reading the
+       plate calculator between heavy singles is training too. */
+    touchIdle();
     var t = ev.target.closest('[data-act]');
     if (!t) return;
     var act = t.getAttribute('data-act');
@@ -997,14 +1881,57 @@
 
       case 'done': {
         var st = S.exercises[e].sets[i];
+        if (!st.done) {
+          /* Nothing to log. The tick used to turn a row of dashes into a
+             counted set of 0 kg, which inflated the header, the shelf and the
+             discard warning by tapping. */
+          var fillKg = st.kg !== null ? st.kg : st.prevKg;
+          var fillReps = st.reps !== null ? st.reps : st.prevReps;
+          if (fillKg === null || fillKg === undefined || fillReps === null || fillReps === undefined) {
+            say('Set ' + (i + 1) + ' needs a weight and reps first.');
+            toast('Put a weight and reps in set ' + (i + 1) + ' before logging it.');
+            break;
+          }
+        }
         st.done = !st.done;
         if (st.done) {
           if (st.kg === null) st.kg = st.prevKg;
           if (st.reps === null) st.reps = st.prevReps;
           startRest();
-          say('Set ' + (i + 1) + ' logged. ' + doneSets() + ' sets this session.');
+          /* Felt as well as seen. One short pulse for a set, two for a
+             record, and the tick pops under the thumb. */
+          buzz(12);
+          S.pop = 'done-' + e + '-' + i;
+          /* The moment a best is beaten is the moment to say so. A 100 kg
+             set against a 72.5 kg best produced "Set 4 logged" and nothing
+             else, and the record only appeared days later on another
+             screen. */
+          var pr = prBeaten(S.exercises[e], st);
+          if (pr) {
+            /* WHAT IT BEAT, read BEFORE the new row is written -- once
+               recordPR has run, the best stored for this lift is this set.
+               Review needs it to name the mark, and without it Review could
+               not claim the record at all: it re-derives records from lk_prs,
+               which by then already contains the set it is looking at. */
+            var beat = bestFor(S.exercises[e].id, st.reps) || bestFor(S.exercises[e].id);
+            if (beat) st.prBeat = { kg: beat.w, reps: beat.r, date: beat.date };
+            recordPR(S.exercises[e], st);
+            /* On the set, so the banner and the card badge can be drawn from
+               the session itself and outlive the toast. */
+            st.pr = true;
+            st.prText = pr;
+            buzz([12, 60, 24]);
+            toast('All-time PR. ' + pr, 'info');
+            say(S.exercises[e].name + ', personal best. ' + pr);
+          } else {
+            say('Set ' + (i + 1) + ' logged. ' + doneSets() + ' sets this session.');
+          }
         } else {
           S.restRunning = false;
+          /* Reopening a set takes back what ticking it claimed. The record
+             row already written stands -- it was lifted -- but this session
+             stops announcing it. */
+          st.pr = false; st.prText = ''; st.prBeat = null;
           say('Set ' + (i + 1) + ' reopened');
         }
         break;
@@ -1021,57 +1948,212 @@
         say('Set added to ' + S.exercises[e].name);
         break;
       }
+      /* One Add Set for a pair, because a superset is performed in rounds:
+         adding a round to one half and not the other is not a thing that
+         happens on the gym floor. */
+      case 'addset-both': {
+        [e, e + 1].forEach(function (ix) {
+          var ex2 = S.exercises[ix];
+          if (!ex2) return;
+          var ls = ex2.sets[ex2.sets.length - 1];
+          ex2.sets.push(set(null, null, { prevKg: ls ? ls.kg || ls.prevKg : null,
+                                          prevReps: ls ? ls.prevReps : null,
+                                          rir: ls ? ls.rir : 2 }));
+        });
+        say('A set added to both halves of the superset.');
+        break;
+      }
       case 'airec': {
-        if (S.aiBusyEx === e) break;
-        S.aiBusyEx = e;
         S.toast = null;
-        paint();
-        setTimeout(function () {
-          S.aiBusyEx = -1;
+        {
           var target = null;
           for (var k = 0; k < S.exercises[e].sets.length; k++) { if (!S.exercises[e].sets[k].done) { target = k; break; } }
           if (target === null) { toast('Every set in this exercise is logged.'); paint(); return; }
           var s2 = S.exercises[e].sets[target];
-          s2.prevKg = (s2.prevKg || 20) + 2.5;
-          s2.prevReps = s2.prevReps || 8;
-          toast('Suggested ' + trim(toDisplay(s2.prevKg)) + ' ' + unitLabel() + ' x ' + s2.prevReps + ' for set ' + (target + 1) + '.');
-          say('Recommendation ready');
+          /* A suggestion, on the set, beside the record -- never written into
+             prevKg. Writing it there made the app report a weight nobody had
+             lifted as what was lifted last time, and every further tap added
+             another 2.5 kg to that false record with no ceiling. The base is
+             the last session's top set, so the suggestion is the same figure
+             on every tap rather than an escalation. */
+          var base = s2.prevKg || (S.exercises[e].sets.reduce(function (a, x) {
+            return Math.max(a, x.prevKg || 0);
+          }, 0)) || 20;
+          s2.suggestKg = Math.round((base + 2.5) * 2) / 2;
+          s2.suggestReps = s2.prevReps || 8;
+          toast('Suggested ' + trim(toDisplay(s2.suggestKg, unitAt(e))) + ' ' + unitLabel(unitAt(e)) + ' x ' +
+                s2.suggestReps + ' for set ' + (target + 1) + '. Tap the cell to take it.',
+                'info', 'Take it', function () {
+                  s2.kg = s2.suggestKg; s2.reps = s2.suggestReps;
+                  paint();
+                  say('Set ' + (target + 1) + ' set to the suggestion.');
+                });
           paint();
-        }, 900);
+        }
         return;
       }
 
       /* ---- exercise card ---- */
       case 'grip':
+        /* A drag ends with a click on whatever is under the finger. Without
+           this, finishing a drag immediately lifted some other card. */
+        if (Date.now() - dragEndedAt < 350) return;
         S.liftedEx = S.liftedEx === e ? -1 : e;
-        say(S.liftedEx === e ? 'Reordering ' + S.exercises[e].name + '. Use the grip again to drop it.' : 'Order kept');
+        say(S.liftedEx === e
+          ? 'Reordering ' + S.exercises[e].name + '. Use Up and Down, or drag the grip.'
+          : 'Order kept');
         break;
-      case 'exsheet': S.overlayEx = e; S.overlay = 'sheet'; break;
+      case 'move': {
+        var dir = Number(t.getAttribute('data-dir'));
+        if (moveEx(e, e + dir)) {
+          S.liftedEx = e + dir;
+          say(S.exercises[e + dir].name + ' moved to position ' + (e + dir + 1) +
+              ' of ' + S.exercises.length + '.');
+          refocus('grip-' + (e + dir));
+        }
+        break;
+      }
+      case 'move-done': S.liftedEx = -1; say('Order kept'); refocus('grip-' + e); break;
+      /* THE SHEET IS HELD OPEN, NOT TAPPED OPEN. It opened on a plain tap of
+         the exercise name -- a 44-tall target sitting directly above the set
+         grid, in the middle of a screen people jab at with one hand between
+         sets -- so it fired by accident, and the gesture the shipped app
+         taught was gone. A short press now says how to open it instead of
+         opening it, which is the one thing a tap can do that is neither a
+         surprise nor a dead control. Enter and Space still open it outright,
+         because a keyboard cannot hold. */
+      case 'exsheet':
+        if (heldOpenAt && Date.now() - heldOpenAt < 600) break;   /* the hold already opened it */
+        say('Hold ' + S.exercises[e].name + ' to open its options.');
+        toast('Hold the name to open options for ' + S.exercises[e].name + '.');
+        break;
       case 'exact': {
         var key = t.getAttribute('data-key');
         var cur = S.exercises[S.overlayEx];
         if (key === 'info') { S.overlay = 'detail'; break; }
-        if (key === 'unit') { S.unit = S.unit === 'kg' ? 'lb' : 'kg'; S.overlay = null; toast('Showing ' + unitLabel() + ' everywhere.'); break; }
-        if (key === 'warmup') {
-          cur.sets.unshift(set(cur.sets[0] ? Math.round((cur.sets[0].prevKg || 20) * 0.5 * 2) / 2 : 20, 10, { warm: true, rir: 4 }));
-          S.overlay = null; toast('Warm-up set added.'); break;
+        if (key === 'unit') {
+          /* An override, stored against the lift. Nothing already logged
+             changes: the rows are kilograms and stay kilograms, and only the
+             reading of them moves. */
+          var wasU = unitOf(cur);
+          var nextU = wasU === S.unit ? (S.unit === 'kg' ? 'lb' : 'kg') : null;
+          cur.unit = nextU;
+          if (cur.id) setEquip(cur.id, { unit: nextU });
+          S.overlay = null;
+          toast(nextU
+            ? cur.name + ' reads in ' + unitLabel(nextU) + '. Every other lift stays in ' + unitLabel(S.unit) + '.'
+            : cur.name + ' is back in ' + unitLabel(S.unit) + ', like the rest of the session.');
+          break;
         }
-        if (key === 'remove') { S.exercises.splice(S.overlayEx, 1); S.overlay = null; toast('Exercise removed.', 'info', 'Undo'); break; }
+        if (key === 'warmup') {
+          /* A ramp, not the same set twice. Pressing this twice put two
+             identical 50% warm-ups on the exercise, which is not how anybody
+             warms up: the rungs are 50, 70 and 85 per cent of the working
+             weight, inserted in order, with the reps coming down as the
+             weight goes up. Past three it stops, because a fourth warm-up on
+             one lift is a different session. */
+          var RAMP = [[0.5, 10], [0.7, 6], [0.85, 3]];
+          var warms = cur.sets.filter(function (x) { return x.warm; }).length;
+          if (warms >= RAMP.length) {
+            S.overlay = null;
+            toast('Three warm-ups is the most this adds. Edit one, or add a plain set.');
+            break;
+          }
+          var work = null;
+          cur.sets.forEach(function (x) {
+            if (x.warm || work !== null) return;
+            work = x.kg !== null ? x.kg : x.prevKg;
+          });
+          if (work === null || work === undefined) work = 20;
+          var rung = RAMP[warms];
+          var at = 0;
+          /* After the warm-ups already there, before the first working set,
+             so the ramp reads in the order it is performed. */
+          while (at < cur.sets.length && cur.sets[at].warm) at++;
+          cur.sets.splice(at, 0, set(Math.round(work * rung[0] * 2) / 2, rung[1],
+                                     { warm: true, rir: 4 }));
+          S.overlay = null;
+          toast('Warm-up at ' + trim(toDisplay(Math.round(work * rung[0] * 2) / 2, unitOf(cur))) + ' ' +
+                unitLabel(unitOf(cur)) + ' added.');
+          break;
+        }
+        /* Any set, not only the last. delset pops, so shedding the second of
+           four meant deleting two and retyping one. */
+        if (key === 'equip') { S.overlay = 'equip'; break; }
+        if (key === 'delrow') {
+          if (cur.sets.length <= 1) { S.overlay = null; toast('An exercise keeps at least one set.'); break; }
+          S.overlay = 'pickset';
+          break;
+        }
+        if (key === 'delset') {
+          if (cur.sets.length <= 1) { S.overlay = null; toast('An exercise keeps at least one set.'); break; }
+          var lastIx = cur.sets.length - 1, goneSet = cur.sets.pop();
+          S.overlay = null;
+          toast('Last set removed from ' + cur.name + '.', 'info', 'Undo', function () {
+            cur.sets.splice(lastIx, 0, goneSet);
+            paint();
+            say('Set ' + (lastIx + 1) + ' is back.');
+          });
+          break;
+        }
+        if (key === 'remove') {
+          var at = S.overlayEx, gone = S.exercises.splice(at, 1)[0];
+          S.overlay = null;
+          toast('Exercise removed.', 'info', 'Undo', function () {
+            S.exercises.splice(at, 0, gone);
+            paint();
+            say(gone.name + ' is back, with its sets.');
+          });
+          break;
+        }
         /* Swap REPLACES. It opened the add picker, which pushes -- so
            "Swap exercise" left the original in place and appended the new
            one beside it: five exercises became six. S.swapAt records which
            one is being replaced, and the picker reads it. */
-        if (key === 'swap') { S.swapAt = S.overlayEx; S.overlay = 'addex'; break; }
+        if (key === 'swap') {
+          S.swapAt = S.overlayEx; S.addexAll = false; S.addexQ = ''; S.addexN = ADDEX_PAGE;
+          S.overlay = 'addex'; break;
+        }
         if (key === 'superset') {
+          /* A superset is with the NEXT exercise, so the last one has
+             nothing to pair with and the sheet used to say it had. */
+          if (!cur.superset && !S.exercises[S.overlayEx + 1]) {
+            S.overlay = null;
+            toast('Nothing after ' + cur.name + ' to superset it with. Add the other exercise first.');
+            break;
+          }
           cur.superset = !cur.superset;
           S.overlay = null;
-          toast(cur.superset ? 'Supersetted with the next exercise.' : 'Superset off.');
+          toast(cur.superset
+            ? 'Supersetted with ' + S.exercises[S.overlayEx + 1].name + '.'
+            : 'Superset off.');
           break;
         }
         if (key === 'unilateral') {
           cur.unilateral = !cur.unilateral;
+          /* The flag alone changed nothing on screen. Turning it on splits
+             every set into the two rows it is actually performed in, and
+             turning it off folds them back onto the left-hand row -- which
+             is the row that already holds the weight and reps, so nothing a
+             person typed is lost either way. */
+          if (cur.unilateral) {
+            var out = [];
+            cur.sets.forEach(function (st) {
+              st.side = 'L';
+              out.push(st);
+              var r = JSON.parse(JSON.stringify(st));
+              r.side = 'R'; r.done = false; r.partials = 0;
+              out.push(r);
+            });
+            cur.sets = out;
+          } else {
+            cur.sets = cur.sets.filter(function (st) { return st.side !== 'R'; });
+            cur.sets.forEach(function (st) { delete st.side; });
+          }
           S.overlay = null;
-          toast(cur.unilateral ? 'Left and right tracked separately.' : 'Tracked as one side.');
+          toast(cur.unilateral
+            ? 'Left and right tracked separately. Each set is two rows now.'
+            : 'Tracked as one side. The right-hand rows are gone.');
           break;
         }
         S.overlay = null;
@@ -1082,7 +2164,7 @@
       case 'tools': S.overlay = 'tools'; break;
       case 'tool': {
         var tool = t.getAttribute('data-tool');
-        if (tool === 'unit') { S.unit = S.unit === 'kg' ? 'lb' : 'kg'; S.overlay = null; toast('Showing ' + unitLabel() + ' everywhere.'); }
+        if (tool === 'unit') { setUnit(S.unit === 'kg' ? 'lb' : 'kg'); S.overlay = null; toast('Showing ' + unitLabel() + ' everywhere.'); }
         else S.overlay = tool;
         break;
       }
@@ -1093,6 +2175,7 @@
          is gone and it is not. The session empties and the screen says so;
          Undo is not offered, because the dialog already asked. */
       case 'discard-confirm':
+        S.over = true;
         S.overlay = null;
         S.exercises = [];
         S.blocks = [];
@@ -1108,6 +2191,8 @@
          it here is what stops a finished workout following you around the
          app on a shelf that says Resume. */
       case 'finish':
+        S.over = true;
+        handOff();
         if (window.LKSession) LKSession.end();
         location.href = 'review.html';
         break;
@@ -1130,13 +2215,15 @@
           var total = S.plate.bar + S.plate.added.reduce(function (a, b) { return a + b; }, 0) * 2;
           S.exercises[target2.ex].sets[target2.set].kg = total;
           S.overlay = null;
-          toast(trim(toDisplay(total)) + unitLabel() + ' applied to set ' + (target2.set + 1) + '.');
+          var au = unitAt(target2.ex);
+          toast(trim(toDisplay(total, au)) + unitLabel(au) + ' applied to set ' + (target2.set + 1) + '.');
         }
         break;
       }
 
       /* ---- add exercise, block ---- */
-      case 'addex': S.overlay = 'addex'; break;
+      case 'addex': S.overlay = 'addex'; S.addexN = ADDEX_PAGE; break;
+      case 'addex-more': S.addexN = (S.addexN || ADDEX_PAGE) + ADDEX_PAGE; break;
       case 'addex-pick': {
         var pick = LIBRARY[Number(t.getAttribute('data-i'))];
         if (S.swapAt !== null && S.exercises[S.swapAt]) {
@@ -1145,34 +2232,441 @@
              throwing them away to change a name would be the worse bug. */
           var was = S.exercises[S.swapAt];
           was.id = pick.id; was.name = pick.name; was.muscle = pick.muscle;
-          S.overlay = null;
+          /* The sets stay; the OTHER lift's history does not. A swapped-in
+             machine press kept the cable fly's "last session 15 kg", and
+             because ticking a blank set commits prevKg, one stray tap logged
+             15 kg x 12 of a movement never performed. */
+          was.sets.forEach(function (st) {
+            st.prevKg = null; st.prevReps = null; st.suggestKg = null; st.suggestReps = null;
+          });
+          S.overlay = null; S.addexQ = '';
           var from = S.swapAt; S.swapAt = null;
           toast('Swapped to ' + pick.name + '.', 'info');
           break;
         }
-        S.exercises.push({ id: pick.id, name: pick.name, muscle: pick.muscle, note: '', sets: [set(null, null, {}), set(null, null, {}), set(null, null, {})] });
-        S.overlay = null;
+        var keptNote = '';
+        if (window.LKStore) {
+          var allN = LKStore.get('lk_exNotes', {}) || {};
+          if (allN[pick.id]) keptNote = allN[pick.id];
+        }
+        S.exercises.push({ id: pick.id, name: pick.name, muscle: pick.muscle, note: keptNote, sets: [set(null, null, {}), set(null, null, {}), set(null, null, {})] });
+        S.overlay = null; S.addexQ = '';
         toast(pick.name + ' added.');
         break;
       }
       case 'block': S.overlay = 'block'; break;
+      /* Cycles rather than opening a menu: four states, one tap each, on a
+         control that is already on every row. A menu for a four-way choice
+         is a sheet to open, read and dismiss for something that takes a
+         tap. */
+      case 'rest-custom': {
+        var mf = document.getElementById('rest-min');
+        var sf = document.getElementById('rest-sec');
+        var mins = mf ? parseInt(mf.value, 10) : NaN;
+        var secs0 = sf ? parseInt(sf.value, 10) : NaN;
+        if (isNaN(mins)) mins = 0;
+        if (isNaN(secs0)) secs0 = 0;
+        if (mins < 0 || secs0 < 0 || secs0 > 59) {
+          S.restError = 'Minutes, then seconds under 60.';
+          break;
+        }
+        var secs = mins * 60 + secs0;
+        if (secs < 5 || secs > 900) {
+          S.restError = 'Between 5 seconds and 15 minutes.';
+          break;
+        }
+        S.restSeconds = secs;
+        S.restError = null;
+        /* A rest already running takes the new length too, or the setting
+           would only apply from the next set and the sheet would look as
+           though it had done nothing. */
+        if (S.restRunning) S.restLeft = secs;
+        toast('Rest set to ' + clock(secs) + '.');
+        break;
+      }
+      case 'set-kind': {
+        var ke = Number(t.getAttribute('data-ex')), ki = Number(t.getAttribute('data-set'));
+        var kex = S.exercises[ke], ks = kex.sets[ki];
+        var at = SET_KINDS.indexOf(kindOf(ks));
+        var next = SET_KINDS[(at + 1) % SET_KINDS.length];
+        ks.warm = next === 'warm';
+        ks.kind = next === 'warm' ? null : next;
+        /* A DROP SET IS THE SET ABOVE IT, LIGHTER. That is the whole reason
+           the state exists, and the weight was left to be typed by hand in
+           the one moment nobody has a free hand: straight off a set, with the
+           bar still loaded. Three quarters of the preceding set's load,
+           rounded to the half, and only into a row nobody has typed into --
+           a figure already entered is the lifter's and is never overwritten.
+           An undone row can be re-filled; a logged one cannot. */
+        if (next === 'drop' && !ks.done) {
+          var above = null;
+          for (var kk = ki - 1; kk >= 0; kk--) {
+            var cand = kex.sets[kk];
+            var load = cand.kg !== null && cand.kg !== undefined ? cand.kg : cand.prevKg;
+            if (load !== null && load !== undefined) { above = { kg: load, reps: cand.reps }; break; }
+          }
+          if (above) {
+            ks.kg = Math.round(above.kg * 0.75 * 2) / 2;
+            if (ks.reps === null || ks.reps === undefined) ks.reps = above.reps;
+            var du = unitOf(kex);
+            toast('Drop set at ' + trim(toDisplay(ks.kg, du)) + ' ' + unitLabel(du) +
+                  ', three quarters of set ' + (ki) + '. Type over it if it was not.');
+          }
+        }
+        say('Set ' + (ki + 1) + ' is a ' + KIND_WORD[next] + '.');
+        break;
+      }
+      case 'equip-kind': {
+        var ee = S.exercises[S.overlayEx];
+        if (ee) setEquip(ee.id, { eq: t.getAttribute('data-v') });
+        break;
+      }
+      case 'equip-cb': {
+        var ec = S.exercises[S.overlayEx];
+        if (ec) setEquip(ec.id, { noCB: !(equipFor(ec.id) || {}).noCB });
+        break;
+      }
+      case 'equip-save': {
+        var es = S.exercises[S.overlayEx];
+        var bf = document.getElementById('equip-base');
+        if (es && bf) {
+          var bv = parseFloat(bf.value);
+          setEquip(es.id, { base: isNaN(bv) || bv < 0 ? 0 : Math.min(200, bv) });
+        }
+        S.overlay = null;
+        toast('Saved for ' + (es ? es.name : 'this lift') + '.');
+        break;
+      }
+      case 'idle-stay': { S.overlay = null; touchIdle(); break; }
+      case 'idle-finish': {
+        S.over = true;
+        handOff();
+        if (window.LKSession) LKSession.end();
+        location.href = 'review.html';
+        return;
+      }
+      case 'addex-all': { S.addexAll = true; S.addexN = ADDEX_PAGE; break; }
+      case 'delrow-go': {
+        var dre = S.overlayEx, dri = Number(t.getAttribute('data-i'));
+        var dex = S.exercises[dre];
+        if (!dex || dex.sets.length <= 1) { S.overlay = null; break; }
+        var goneRow = dex.sets.splice(dri, 1)[0];
+        S.overlay = null;
+        toast('Set removed.', 'info', 'Undo', function () {
+          dex.sets.splice(dri, 0, goneRow);
+          paint();
+        });
+        break;
+      }
+      case 'plate-solve': {
+        var tf = document.getElementById('plate-target');
+        var want = tf ? parseFloat(tf.value) : NaN;
+        if (isNaN(want) || want <= 0) { S.plate.solveNote = 'Type the weight you want on the bar.'; break; }
+        var wantKg = S.unit === 'kg' ? want : want / LB_PER_KG;
+        var sol = solvePlates(wantKg, S.plate.bar);
+        if (!sol) { S.plate.solveNote = 'That is less than the bar on its own.'; break; }
+        S.plate.added = sol.plates;
+        if (sol.exact) {
+          S.plate.solveNote = 'Per side: ' + sol.plates.map(function (x) {
+            return trim(toDisplay(x));
+          }).join(' + ') + ' ' + unitLabel() + '.';
+        } else {
+          /* Named, not silently rounded. */
+          S.plate.solveNote = 'The nearest this bar and these plates can make is ' +
+            trim(toDisplay(sol.made)) + ' ' + unitLabel() + ', not ' + trim(toDisplay(wantKg)) + ' ' + unitLabel() +
+            '. Per side: ' + (sol.plates.length
+              ? sol.plates.map(function (x) { return trim(toDisplay(x)); }).join(' + ') + ' ' + unitLabel()
+              : 'nothing, the bar alone') + '.';
+        }
+        break;
+      }
       case 'block-add': {
         var ti = document.getElementById('block-title');
         var no = document.getElementById('block-notes');
-        S.blocks.push({ title: (ti && ti.value.trim()) || 'Block', notes: no ? no.value.trim() : '', duration: '' });
+        var title = ti ? ti.value.trim() : '';
+        /* An untitled block called "Block" is a row that says nothing, in a
+           list whose whole job is to say what is next. It silently accepted
+           an empty title and named it for you. */
+        if (!title) {
+          S.blockError = 'Give the block a name, so the row says what it is.';
+          paint();
+          if (ti) ti.focus();
+          return;
+        }
+        /* Blank is fine -- not every block is timed. A number that is not a
+           number of minutes is not. */
+        var mi = document.getElementById('block-mins');
+        var raw = mi ? mi.value.trim() : '';
+        var mins = raw === '' ? null : Number(raw);
+        if (raw !== '' && (!isFinite(mins) || mins < 1 || mins > 180)) {
+          S.blockError = 'A length between 1 and 180 minutes, or leave it blank.';
+          paint();
+          if (mi) mi.focus();
+          return;
+        }
+        S.blocks.push({ title: title, notes: no ? no.value.trim() : '',
+                        duration: mins === null ? '' : Math.round(mins) + ' min',
+                        open: false });
+        S.blockError = null;
         S.overlay = null;
         toast('Block added.');
         break;
       }
-      case 'block-remove': S.blocks.splice(Number(t.getAttribute('data-i')), 1); break;
+      /* Undoable, not confirmed. Every other destructive control in this
+         build offers the thing back; this one deleted on the tap and left
+         nothing to press. */
+      case 'block-open': {
+        var oi = Number(t.getAttribute('data-i'));
+        if (S.blocks[oi]) S.blocks[oi].open = !S.blocks[oi].open;
+        break;
+      }
+      case 'block-remove': {
+        var bi = Number(t.getAttribute('data-i'));
+        var goneB = S.blocks.splice(bi, 1)[0];
+        if (goneB) {
+          toast('\u201c' + goneB.title + '\u201d removed.', 'Undo', function () {
+            S.blocks.splice(bi, 0, goneB);
+            paint();
+          });
+        }
+        break;
+      }
 
-      case 'toast-action': S.toast = null; break;
+      case 'toast-action': {
+        var tf = S.toast && S.toast.fn;
+        S.toast = null;
+        if (tf) tf();
+        break;
+      }
       /* swapAt goes with the picker. Left set, the next plain "Add
          Exercise" would replace instead of adding. */
-      case 'close': S.overlay = null; S.swapAt = null; break;
+      case 'close': S.overlay = null; S.swapAt = null; S.addexQ = ''; break;
       default: break;
     }
     paint();
+  });
+
+  /* =============================================================
+     Reordering. Three ways in, one function: Up/Down on the move bar,
+     the arrow keys while a grip has focus, and dragging the grip.
+     ============================================================= */
+  function moveEx(from, to) {
+    if (to < 0 || to >= S.exercises.length || from === to) return false;
+    /* Pairing is by adjacency, so moving one half of a superset past
+       something else would silently pair it with whatever landed beside it.
+       Both flags that touch the moved card are dropped instead, and the
+       toast says so rather than leaving a pair nobody made. */
+    var broke = !!(S.exercises[from].superset ||
+                   (S.exercises[from - 1] && S.exercises[from - 1].superset));
+    S.exercises[from].superset = false;
+    if (S.exercises[from - 1]) S.exercises[from - 1].superset = false;
+    var it = S.exercises.splice(from, 1)[0];
+    S.exercises.splice(to, 0, it);
+    if (broke) toast('Superset undone: the two lifts are no longer next to each other.');
+    return true;
+  }
+
+  var dragEndedAt = 0;
+
+  /* ---- press and hold, on the exercise name ---------------------------
+     450ms, the shipped app's own dwell. The card squeezes while the finger
+     is down so the gesture is visible before it fires, the phone taps back
+     the moment it does, and a finger that slides more than a few pixels is
+     a scroll rather than a hold. Nothing inside the card can start one: the
+     grip, the cells, the ticks and the foot buttons are all their own
+     controls, and this only ever begins on .exc__main itself. */
+  var HOLD_MS = 450;
+  var holdTimer = null;
+  var heldOpenAt = 0;
+  function cancelHold(el) {
+    if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+    if (el && el.classList) el.classList.remove('exc__main--holding');
+    Array.prototype.forEach.call(document.querySelectorAll('.exc__main--holding'), function (nd) {
+      nd.classList.remove('exc__main--holding');
+    });
+  }
+  document.addEventListener('pointerdown', function (ev) {
+    var main = ev.target.closest ? ev.target.closest('.exc__main[data-act="exsheet"]') : null;
+    if (!main) return;
+    /* A control inside the card that happens to sit over the name -- there
+       are none today, and there must not be one tomorrow either. */
+    if (ev.target.closest('[data-act]') !== main) return;
+    var ie = Number(main.getAttribute('data-ex'));
+    var x0 = ev.clientX, y0 = ev.clientY;
+    main.classList.add('exc__main--holding');
+    cancelHoldOnMove = function (e2) {
+      if (Math.abs(e2.clientX - x0) > 8 || Math.abs(e2.clientY - y0) > 8) done();
+    };
+    function done() {
+      cancelHold(main);
+      document.removeEventListener('pointermove', cancelHoldOnMove);
+      document.removeEventListener('pointerup', done);
+      document.removeEventListener('pointercancel', done);
+    }
+    document.addEventListener('pointermove', cancelHoldOnMove);
+    document.addEventListener('pointerup', done);
+    document.addEventListener('pointercancel', done);
+    holdTimer = setTimeout(function () {
+      holdTimer = null;
+      cancelHold(main);
+      buzz(18);
+      markHoldTipSeen();
+      heldOpenAt = Date.now();
+      lastOpener = 'exercise-menu-' + ie;
+      S.overlayEx = ie;
+      S.overlay = 'sheet';
+      paint();
+    }, HOLD_MS);
+  });
+  var cancelHoldOnMove = function () {};
+
+  /* A keyboard has no hold. Enter and Space open it outright. */
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+    var main = ev.target.closest ? ev.target.closest('.exc__main[data-act="exsheet"]') : null;
+    if (!main) return;
+    ev.preventDefault();
+    heldOpenAt = Date.now();
+    markHoldTipSeen();
+    lastOpener = main.dataset.testid;
+    S.overlayEx = Number(main.getAttribute('data-ex'));
+    S.overlay = 'sheet';
+    paint();
+  });
+
+  document.addEventListener('pointerdown', function (ev) {
+    var grip = ev.target.closest ? ev.target.closest('[data-act="grip"]') : null;
+    if (!grip) return;
+    var index = Number(grip.getAttribute('data-ex'));
+    var startY = ev.clientY;
+    var moved = false;
+    function rectsNow() {
+      return [].slice.call(body.querySelectorAll('.exc')).map(function (nd) {
+        return nd.getBoundingClientRect();
+      });
+    }
+    var rects = rectsNow();
+    try { grip.setPointerCapture(ev.pointerId); } catch (e2) {}
+
+    function onMove(e2) {
+      if (!moved && Math.abs(e2.clientY - startY) < 6) return;
+      if (!moved) { moved = true; S.dragEx = index; S.liftedEx = -1; paint(); }
+      var target = index;
+      for (var k = 0; k < rects.length; k++) {
+        var c = rects[k].top + rects[k].height / 2;
+        if (k < index && e2.clientY < c) { target = k; break; }
+        if (k > index && e2.clientY > c) { target = k; }
+      }
+      if (target !== index && moveEx(index, target)) {
+        index = target;
+        S.dragEx = index;
+        paint();
+        rects = rectsNow();
+      }
+    }
+    function onUp() {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+      if (!moved) return;
+      dragEndedAt = Date.now();
+      S.dragEx = -1;
+      paint();
+      say(S.exercises[index].name + ' moved to position ' + (index + 1) +
+          ' of ' + S.exercises.length + '.');
+    }
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+  });
+
+  /* lk_prs comes in two shapes and both are real. The seed is a flat array of
+     {exId, kg, reps, date}; once Progress has written, it is a map of exercise
+     id to a list of {r, w, date}. Reading one and ignoring the other is how a
+     personal best goes missing, so this normalises both to one list and the
+     writer puts back the map shape, carrying the seed's records into it. */
+  function prMap() {
+    if (!window.LKStore) return {};
+    var raw = LKStore.get('lk_prs', null);
+    if (!raw) return {};
+    if (!Array.isArray(raw)) return raw;
+    var map = {};
+    raw.forEach(function (r) {
+      var k = String(r.exId);
+      (map[k] = map[k] || []).push({ r: r.reps, w: r.kg, date: r.date });
+    });
+    return map;
+  }
+
+  function bestFor(exId, reps) {
+    if (!exId) return null;
+    var map = prMap();
+    var list = map[exId] || map[String(exId)] || [];
+    var best = null;
+    list.forEach(function (r) {
+      if (reps !== undefined && r.r < reps) return;
+      if (!best || r.w > best.w) best = r;
+    });
+    return best;
+  }
+
+  /* Beaten means more weight at the same reps or better, or the same weight
+     for more reps. The same rule Progress uses to refuse a junk record. */
+  /* In the unit the row is being read in. It printed "kg" whatever the
+     screen said, so a lifter working in pounds was told they had just put
+     165 kg over their head. */
+  function prBeaten(ex, st) {
+    if (!ex || !ex.id || st.warm) return null;
+    if (st.kg === null || st.reps === null) return null;
+    var u = unitOf(ex);
+    var w = function (v) { return trim(toDisplay(v, u)) + ' ' + unitLabel(u); };
+    var b = bestFor(ex.id, st.reps);
+    if (!b) {
+      var any = bestFor(ex.id);
+      if (!any) return null;              /* nothing to beat: not a claim */
+      if (st.kg > any.w) return w(st.kg) + ' for ' + st.reps + ', past ' + w(any.w) + ' for ' + any.r + '.';
+      return null;
+    }
+    if (st.kg > b.w) return w(st.kg) + ' for ' + st.reps + ', past ' + w(b.w) + '.';
+    if (st.kg === b.w && st.reps > b.r) return w(st.kg) + ' for ' + st.reps + ', past ' + b.r + ' reps.';
+    return null;
+  }
+
+  /* Appended as a row, in the one shape lk_prs holds everywhere. This used
+     to write back the lookup map prMap() builds, which carries no name,
+     group or muscle -- so a bench record set here read on Progress as three
+     records fewer than before it was set. */
+  function recordPR(ex, st) {
+    if (!window.LKStore || !ex.id) return;
+    var raw = LKStore.get('lk_prs', null);
+    var rows = [];
+    if (Array.isArray(raw)) rows = raw.slice();
+    else if (raw && typeof raw === 'object') {
+      Object.keys(raw).forEach(function (k) {
+        (raw[k] || []).forEach(function (r) {
+          rows.push({ exId: Number(k), name: '', group: '', muscle: '',
+                      kg: r.w, reps: r.r, date: r.date });
+        });
+      });
+    }
+    rows.unshift({ exId: ex.id, name: ex.name || '', group: ex.group || '',
+                   muscle: ex.muscle || '', kg: st.kg, reps: st.reps,
+                   date: window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10) });
+    LKStore.set('lk_prs', rows);
+  }
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown') return;
+    var grip = ev.target.closest ? ev.target.closest('[data-act="grip"]') : null;
+    if (!grip) return;
+    ev.preventDefault();
+    var from = Number(grip.getAttribute('data-ex'));
+    var to = from + (ev.key === 'ArrowUp' ? -1 : 1);
+    if (!moveEx(from, to)) return;
+    S.liftedEx = to;
+    paint();
+    say(S.exercises[to].name + ' moved to position ' + (to + 1) + ' of ' + S.exercises.length + '.');
+    refocus('grip-' + to);
   });
 
   document.addEventListener('change', function (ev) {
@@ -1184,23 +2678,130 @@
   });
   document.addEventListener('input', function (ev) {
     var t = ev.target.closest('[data-act="note"]');
-    if (t) { S.exercises[S.overlayEx].note = t.value; return; }
+    if (t) {
+      var exn = S.exercises[S.overlayEx];
+      exn.note = t.value;
+      /* Per exercise, not per session. The sheet asks "what to remember next
+         time", and the note lived only in this workout's rows: next time was
+         exactly when it was gone. lk_exNotes is keyed by exercise id, so the
+         note comes back the next time that lift is opened, in any session. */
+      if (window.LKStore && exn.id) {
+        var notes = LKStore.get('lk_exNotes', {}) || {};
+        if (t.value.trim()) notes[exn.id] = t.value.trim();
+        else delete notes[exn.id];
+        LKStore.set('lk_exNotes', notes);
+      }
+      return;
+    }
     var q = ev.target.closest('[data-act="addex-q"]');
-    if (q) { S.addexQ = q.value; paint(); }
+    if (q) { S.addexQ = q.value; S.addexN = ADDEX_PAGE; paint(); }
   });
   document.addEventListener('keydown', function (ev) {
-    if (ev.key !== 'Escape') return;
-    if (S.pad) { S.pad = null; paint(); }
-    else if (S.overlay) { S.overlay = null; paint(); }
+    if (ev.key === 'Escape') {
+      if (S.pad) { S.pad = null; paint(); }
+      else if (S.overlay) { S.overlay = null; paint(); }
+      return;
+    }
+    /* A modal that Tab walks out of is not modal. Fourteen presses inside
+       the plate sheet landed in the dev menu behind it, which is the whole
+       screen a dialog exists to keep you out of. Escape closed it; Tab did
+       not respect it. */
+    if (ev.key !== 'Tab') return;
+    var host = document.getElementById('overlay');
+    if (!host || (!S.overlay && !S.pad)) return;
+    var f = host.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), ' +
+      'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+    if (!f.length) return;
+    var first = f[0], last = f[f.length - 1];
+    if (!host.contains(document.activeElement)) { ev.preventDefault(); first.focus(); return; }
+    if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+    else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
   });
+
+  /* What Review reviews. Review used to hold a fixed 16-set, 4,383 kg Push
+     with a bench PR in it, and the log navigated to it without handing
+     anything over -- so a session of seven sets, and a session of none at
+     all, both produced the same review with the same invented record.
+     Written on Finish, read once by Review. */
+  function handOff() {
+    var lifts = [], exercises = [];
+    S.exercises.forEach(function (ex) {
+      var vol = 0, top = null, sets = 0;
+      /* THE ROWS, not only the totals. The hand-over carried five numbers
+         per lift, so Review could say the volume moved and could not show
+         one set, and the record it saved to history had no sets in it --
+         a workout you could never open again and read. */
+      var rows = [];
+      ex.sets.forEach(function (st) {
+        if (!st.done || st.kg == null || st.reps == null) return;
+        rows.push({ kg: st.kg, reps: st.reps, rir: st.rir, warm: !!st.warm,
+                    partials: st.partials || 0, done: true, pr: !!st.pr,
+                    prBeat: st.prBeat || null });
+        if (st.warm) return;
+        sets++; vol += st.kg * st.reps;
+        if (!top || st.kg > top[0] || (st.kg === top[0] && st.reps > top[1])) top = [st.kg, st.reps];
+      });
+      if (!rows.length) return;
+      if (sets) lifts.push({ id: ex.id, name: ex.name, sets: sets, vol: Math.round(vol), top: top });
+      exercises.push({ id: ex.id, name: ex.name, muscle: ex.muscle || '', sets: rows });
+    });
+    var rec = {
+      title: S.name,
+      dateISO: window.LKStore ? LKStore.today() : null,
+      sets: doneSets(),
+      warmups: doneWarmups(),
+      volumeKg: Math.round(volumeKg()),
+      minutes: Math.max(0, Math.round(elapsedSec() / 60)),
+      lifts: lifts,
+      exercises: exercises
+    };
+    if (window.LKStore) LKStore.set('lk_lastSession', rec);
+    else { try { localStorage.setItem('lk_lastSession', JSON.stringify(rec)); } catch (e) {} }
+  }
+
+  /* In the demo the router claims the Finish click in the capture phase --
+     it has to, because the handler above leaves with location.href -- so the
+     hand-over never ran and Review opened on a session nobody had done. The
+     router announces the crossing first and this does the handing over. */
+  document.addEventListener('lk:handoff', function (e) {
+    var d = e.detail || {};
+    if (d.selector !== '[data-testid="btn-finish"]') return;
+    S.over = true;
+    handOff();
+  });
+
+  /* Entered, rather than merely still on screen. In the demo the log stays
+     mounted for the life of the page, so after Finish, Train's "Start today's
+     session" dropped the reader back into the workout they had just saved --
+     sets still ticked, clock still running past the finish. */
+  document.addEventListener('lk:enter', function () {
+    /* A day asked for from Train wins: it is a new session, not this one. */
+    if (startRequested()) { paintMenu(); paint(); return; }
+    if (!S.over) return;
+    applyState('mid-session');
+    paint();
+  });
+
+  /* The record can end from outside this screen -- the demo's router ends it
+     on Finish, because it has to swallow the click that would otherwise
+     navigate the whole demo away, and a stale shelf's Finish ends it from
+     another screen entirely. Either way this screen is now looking at a
+     workout that is over, and the next paint would helpfully start a brand
+     new session from the exercises still on the page. */
+  if (window.LKSession) {
+    LKSession.onChange(function (r) { if (!r) S.over = true; });
+  }
 
   /* Clocks. One interval, no per-row timers. */
   setInterval(function () {
     var dirty = false;
-    S.elapsed++;
+    /* Only the fallback counter ticks. With a record running, elapsed is
+       derived from startedAt and incrementing here would double-count. */
+    if (!(window.LKSession && LKSession.get())) S.elapsed++;
     if (S.restRunning && S.restLeft > 0) { S.restLeft--; dirty = true; if (S.restLeft === 0) { S.restRunning = false; say('Rest done'); } }
     var el = document.querySelector('[data-testid="session-timer"] .num');
-    if (el) el.textContent = hhmm(S.elapsed);
+    if (el) el.textContent = hhmm(elapsedSec());
     var rl = document.querySelector('[data-testid="rest-remaining"] .num');
     if (rl) rl.textContent = clock(S.restLeft);
     if (dirty && !S.restRunning) paint();
@@ -1240,8 +2841,20 @@
     paint();
   });
 
+  loadLibrary();
+
+  /* A workout already running gets its own rows back, not the fixture's.
+     This is the whole point of writing them down. */
+  /* A day asked for from Train replaces the seeded session outright, and it
+     is not something to "pick up where you left off" from. */
+  var asked = startRequested();
+  var restored = asked ? false : restoreRows();
+
   paintMenu();
   paint();
+  /* The idle clock starts with the session. */
+  touchIdle();
+  if (restored) say('Picked up where you left off.');
   window.__LK = { state: S, apply: function (s) { applyState(s); paintMenu(); paint(); } };
 })();
 </script>

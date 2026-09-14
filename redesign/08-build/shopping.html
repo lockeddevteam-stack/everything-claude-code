@@ -7,6 +7,9 @@
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
 <script src="theme.js"></script>
+<script src="fixtures.js"></script>
+<script src="store.js"></script>
+<script src="units.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 <script src="session.js"></script>
@@ -108,8 +111,17 @@
   var hdrCount = document.getElementById('hdr-count');
 
   /* One item is not "1 items". The toast had this and the dialog above it
-     did not, so the same act was counted two ways on one screen. */
-  function plural(n, word) { return n === 1 ? word : word + 's'; }
+     did not, so the same act was counted two ways on one screen.
+
+     A bare + 's' is not a plural rule. "search" came out "searchs" on screen
+     the moment this was used for a word that does not take a plain s, so the
+     three English endings that actually matter here are handled. */
+  function plural(n, word) {
+    if (n === 1) return word;
+    if (/(s|x|z|ch|sh)$/.test(word)) return word + 'es';
+    if (/[^aeiou]y$/.test(word)) return word.slice(0, -1) + 'ies';
+    return word + 's';
+  }
 
   function esc(s) {
     return String(s).replace(/[&<>"]/g, function (c) {
@@ -119,7 +131,6 @@
   /* Money is formatted in one place. A screen that writes "$" + n.toFixed(2)
      in fourteen places has fourteen chances to disagree with itself. */
   function usd(v) { return '$' + Number(v).toFixed(2); }
-  function usd0(v) { return '$' + Math.round(Number(v)); }
 
   var ICO = {
     chev:  '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg>',
@@ -137,19 +148,57 @@
      --------------------------------------------------------------- */
 
   /* The picks the live app ships, in its order, with its quantities. */
+  /* In the units the rest of the app uses. These were in pounds, ounces and
+     cups while the stored list is in kilos, grams and pieces, so adding a
+     shortcut put a second unit system on the same list. */
   var PICKS = [
-    { icon: '🍗', name: 'Chicken breast', qty: 2,  unit: 'lb' },
-    { icon: '🥚', name: 'Eggs',           qty: 12, unit: 'qty' },
-    { icon: '🥛', name: 'Greek yogurt',   qty: 16, unit: 'oz' },
-    { icon: '🐟', name: 'Salmon',         qty: 1,  unit: 'lb' },
-    { icon: '🥦', name: 'Broccoli',       qty: 2,  unit: 'qty' },
-    { icon: '🍚', name: 'Brown rice',     qty: 2,  unit: 'cup' },
-    { icon: '🍠', name: 'Sweet potato',   qty: 3,  unit: 'qty' },
-    { icon: '🥣', name: 'Oats',           qty: 2,  unit: 'cup' },
-    { icon: '🥑', name: 'Avocado',        qty: 2,  unit: 'qty' },
-    { icon: '🧀', name: 'Cottage cheese', qty: 16, unit: 'oz' },
-    { icon: '🥜', name: 'Almonds',        qty: 4,  unit: 'oz' },
-    { icon: '🥩', name: 'Ground beef',    qty: 1,  unit: 'lb' }
+    { icon: '🍗', name: 'Chicken thighs',  qty: 1,   unit: 'kg' },
+    { icon: '🥚', name: 'Eggs',            qty: 12,  unit: 'pcs' },
+    { icon: '🥛', name: 'Greek yogurt',    qty: 2,   unit: 'tubs' },
+    { icon: '🐟', name: 'Salmon',          qty: 500, unit: 'g' },
+    { icon: '🥦', name: 'Broccoli',        qty: 2,   unit: 'pcs' },
+    { icon: '🍚', name: 'Rice',            qty: 2,   unit: 'kg' },
+    { icon: '🍠', name: 'Sweet potato',    qty: 1,   unit: 'kg' },
+    { icon: '🥣', name: 'Oats',            qty: 1,   unit: 'kg' },
+    { icon: '🥑', name: 'Avocado',         qty: 2,   unit: 'pcs' },
+    { icon: '🧀', name: 'Cottage cheese',  qty: 500, unit: 'g' },
+    { icon: '🥜', name: 'Almonds',         qty: 1,   unit: 'bag' },
+    { icon: '🥩', name: 'Ground beef',     qty: 500, unit: 'g' }
+  ];
+
+  /* The live app's own food table, name and calories per 100 g. The add-item
+     typeahead searched the twelve fitness picks above instead, so "spin" and
+     "ban" matched nothing while Spinach and Bananas were sitting on the list
+     in front of you. It searches all 111 rows now. */
+  var FOODS = [
+    ['Chicken Breast', 165], ['Chicken Thigh', 209], ['Ground Beef 80/20', 254],
+    ['Ground Beef 93/7', 171], ['Ground Turkey', 170], ['Steak', 271], ['Salmon', 208],
+    ['Tuna Canned', 116], ['Turkey Breast', 135], ['Shrimp', 99], ['Tilapia', 128],
+    ['Cod', 105], ['Sardines Canned', 208], ['Pork Loin', 185], ['Bacon', 541],
+    ['Ham', 145], ['Egg', 155], ['Egg White', 52], ['Greek Yogurt', 59],
+    ['Cottage Cheese', 90], ['Whole Milk', 61], ['Skim Milk', 35], ['Almond Milk', 15],
+    ['Oat Milk', 46], ['Cheddar Cheese', 403], ['Mozzarella', 280], ['Cream Cheese', 342],
+    ['Butter', 717], ['White Rice', 130], ['Brown Rice', 111], ['Oats', 379],
+    ['Pasta', 158], ['Whole Wheat Pasta', 124], ['White Bread', 265],
+    ['Whole Wheat Bread', 247], ['Sweet Potato', 90], ['White Potato', 93], ['Quinoa', 120],
+    ['Black Beans', 132], ['Lentils', 116], ['Chickpeas', 164], ['Kidney Beans', 127],
+    ['Bagel', 257], ['Tortilla', 303], ['Corn Tortilla', 218], ['Granola', 471],
+    ['English Muffin', 227], ['Pita Bread', 275], ['Rice Cakes', 387],
+    ['Whole Grain Crackers', 450], ['Banana', 89], ['Apple', 52], ['Orange', 47],
+    ['Strawberries', 32], ['Blueberries', 57], ['Mango', 60], ['Grapes', 67],
+    ['Pineapple', 50], ['Watermelon', 30], ['Peach', 39], ['Pear', 57], ['Raspberries', 52],
+    ['Grapefruit', 42], ['Broccoli', 34], ['Spinach', 23], ['Kale', 49],
+    ['Mixed Vegetables', 65], ['Carrots', 41], ['Tomato', 18], ['Bell Pepper', 31],
+    ['Cucumber', 15], ['Green Beans', 31], ['Mushroom', 22], ['Cauliflower', 25],
+    ['Asparagus', 20], ['Zucchini', 17], ['Corn', 86], ['Onion', 40], ['Peas', 81],
+    ['Edamame', 122], ['Celery', 16], ['Lettuce', 15], ['Tofu', 76], ['Olive Oil', 884],
+    ['Coconut Oil', 862], ['Avocado', 160], ['Almonds', 579], ['Walnuts', 654],
+    ['Cashews', 553], ['Peanuts', 567], ['Peanut Butter', 588], ['Almond Butter', 614],
+    ['Chia Seeds', 486], ['Flaxseed', 534], ['Sunflower Seeds', 584], ['Whey Protein', 400],
+    ['Casein Protein', 370], ['Protein Bar', 333], ['Mass Gainer', 350],
+    ['Coffee Black', 2], ['Orange Juice', 45], ['Sports Drink', 23], ['Ketchup', 112],
+    ['Mayo', 680], ['Honey', 304], ['Maple Syrup', 260], ['Soy Sauce', 53],
+    ['Pizza Slice', 266], ['Burger', 295], ['French Fries', 312], ['Granola Bar', 411]
   ];
 
   /* Three meals worth prepping, each one a whole shop rather than an
@@ -171,85 +220,240 @@
     { id: 'other',   label: 'Other' }
   ];
 
-  var STORES = [
-    { id: 'wal', name: 'Walmart',      hue: 'var(--id-1)' },
-    { id: 'tgt', name: 'Target',       hue: 'var(--id-4)' },
-    { id: 'cos', name: 'Costco',       hue: 'var(--id-2)' }
-  ];
+  /* The units the stored list actually uses. Four of them -- pcs, tubs, bag
+     and bottle -- were missing, so six of the ten seeded rows could not be
+     described by this control at all: adding twelve more eggs offered to
+     make it "12 pcs and 12 qty" as two rows, because the merge path can only
+     add up two quantities in the same unit. */
+  var UNITS = ['qty', 'pcs', 'kg', 'g', 'lb', 'oz', 'cup', 'tbsp', 'tsp', 'bag', 'bottle', 'tubs'];
 
-  var UNITS = ['qty', 'kg', 'g', 'lb', 'oz', 'cup', 'tbsp', 'tsp'];
+  /* Title-cases every word, the way the shipped app's normaliseName does, so
+     "olive oil", "Olive oil" and "OLIVE OIL" are one row on the list rather
+     than three. Capitalising the first letter only left the other two as
+     separate rows that looked like duplicates. */
+  function normaliseName(s) {
+    return String(s).trim().replace(/\s+/g, ' ').replace(/\S+/g, function (w) {
+      return w.charAt(0).toUpperCase() + w.slice(1);
+    });
+  }
 
-  var LIST = [
-    { id: 'i1', name: 'Chicken breast', qty: 2,  unit: 'lb',  cat: 'meat',    done: false },
-    { id: 'i2', name: 'Ground beef',    qty: 1,  unit: 'lb',  cat: 'meat',    done: true  },
-    { id: 'i3', name: 'Salmon',         qty: 1,  unit: 'lb',  cat: 'meat',    done: false },
-    { id: 'i4', name: 'Greek yogurt',   qty: 16, unit: 'oz',  cat: 'dairy',   done: false },
-    { id: 'i5', name: 'Cottage cheese', qty: 16, unit: 'oz',  cat: 'dairy',   done: true  },
-    { id: 'i6', name: 'Broccoli',       qty: 2,  unit: 'qty', cat: 'produce', done: false },
-    { id: 'i7', name: 'Spinach',        qty: 1,  unit: 'qty', cat: 'produce', done: false },
-    { id: 'i8', name: 'Avocado',        qty: 2,  unit: 'qty', cat: 'produce', done: false },
-    { id: 'i9', name: 'Brown rice',     qty: 2,  unit: 'cup', cat: 'pantry',  done: false },
-    { id: 'i10', name: 'Oats',          qty: 2,  unit: 'cup', cat: 'pantry',  done: true  },
-    { id: 'i11', name: 'Olive oil',     qty: 1,  unit: 'qty', cat: 'pantry',  done: false },
-    { id: 'i12', name: 'Almonds',       qty: 4,  unit: 'oz',  cat: 'snacks',  done: false }
-  ];
+  /* F-FUEL-425. THE INGREDIENT PARSER.
 
-  var BUDGET = {
-    weeklyTarget: 120,
-    history: [
-      { id: 'h1', store: 'Costco',  when: 'Sat, Sep 5',  daysAgo: 2,  total: 52.4,  source: 'receipt',
-        items: [{ n: 'Chicken breast', q: 2, p: 18.4 }, { n: 'Eggs', q: 1, p: 6.2 },
-                { n: 'Greek yogurt', q: 2, p: 9.8 }, { n: 'Brown rice', q: 1, p: 8.0 },
-                { n: 'Almonds', q: 1, p: 10.0 }] },
-      { id: 'h2', store: 'Walmart', when: 'Thu, Sep 3',  daysAgo: 4,  total: 21.0,  source: 'manual',
-        items: [{ n: 'Ground beef', q: 1, p: 8.5 }, { n: 'Broccoli', q: 2, p: 4.5 },
-                { n: 'Sweet potato', q: 3, p: 8.0 }] },
-      { id: 'h3', store: 'Target',  when: 'Tue, Sep 1',  daysAgo: 6,  total: 13.0,  source: 'list',
-        items: [{ n: 'Oats', q: 2, p: 7.0 }, { n: 'Olive oil', q: 1, p: 6.0 }] },
-      { id: 'h4', store: 'Costco',  when: 'Sat, Aug 23', daysAgo: 15, total: 61.2, source: 'receipt',
-        items: [{ n: 'Chicken breast', q: 3, p: 27.6 }, { n: 'Salmon', q: 2, p: 21.0 },
-                { n: 'Cottage cheese', q: 2, p: 12.6 }] },
-      { id: 'h5', store: 'Walmart', when: 'Wed, Aug 12', daysAgo: 26, total: 34.8, source: 'manual',
-        items: [{ n: 'Ground beef', q: 2, p: 17.0 }, { n: 'Brown rice', q: 2, p: 9.8 },
-                { n: 'Avocado', q: 4, p: 8.0 }] }
-    ],
-    compare: [
-      { store: 'Costco',  product: 'Chicken breast, 6 lb pack', price: 3.29, note: 'per lb, bulk only' },
-      { store: 'Walmart', product: 'Chicken breast, family pack', price: 3.68, note: '' },
-      { store: 'Target',  product: 'Chicken breast, 2 lb',        price: 4.49, note: '' }
-    ],
-    swaps: [
-      { from: 'Almonds',       to: 'Peanuts',            store: 'Costco',  saves: '$4.10' },
-      { from: 'Greek yogurt',  to: 'Plain yogurt, 32 oz', store: 'Walmart', saves: '$2.35' }
-    ]
+     "2 kg chicken thighs" typed into the name box used to go on the list as
+     an item called "2 Kg Chicken Thighs", quantity 1, unit qty -- so the one
+     thing a shopping list has to get right, how much to buy, was inside the
+     name where nothing could add it up or merge it. A recipe line pasted in
+     was worse: every line became its own unnameable row.
+
+     This reads the leading quantity and unit off the text and hands back the
+     three parts. It is deliberately narrow: a number, an optional unit that
+     has to be one this screen actually stores, and the rest is the name. A
+     word it does not recognise as a unit stays in the name, because
+     "2 chicken thighs" means two of them and not two chickens of thighs. */
+  var UNIT_WORDS = {
+    kg: 'kg', kgs: 'kg', kilo: 'kg', kilos: 'kg', kilogram: 'kg', kilograms: 'kg',
+    g: 'g', gram: 'g', grams: 'g',
+    lb: 'lb', lbs: 'lb', pound: 'lb', pounds: 'lb',
+    oz: 'oz', ounce: 'oz', ounces: 'oz',
+    cup: 'cup', cups: 'cup',
+    tbsp: 'tbsp', tablespoon: 'tbsp', tablespoons: 'tbsp',
+    tsp: 'tsp', teaspoon: 'tsp', teaspoons: 'tsp',
+    pc: 'pcs', pcs: 'pcs', piece: 'pcs', pieces: 'pcs',
+    bag: 'bag', bags: 'bag',
+    bottle: 'bottle', bottles: 'bottle',
+    tub: 'tubs', tubs: 'tubs'
   };
+  function parseIngredient(text) {
+    var s = String(text || '').trim();
+    var m = s.match(/^(\d+(?:[.,]\d+)?)\s*(?:x\s+|x(?=[a-zA-Z]))?\s*([a-zA-Z]+)?\.?\s*(.*)$/);
+    if (!m) return null;
+    var qty = parseFloat(String(m[1]).replace(',', '.'));
+    if (!isFinite(qty) || qty <= 0) return null;
+    var word = (m[2] || '').toLowerCase();
+    var unit = UNIT_WORDS[word] || null;
+    var name = (unit ? m[3] : ((m[2] || '') + (m[3] ? ' ' + m[3] : ''))).trim();
+    if (!name) return null;
+    /* A fractional count of something counted in pieces is a typo, not a
+       quantity: the list would print "2.5 pcs eggs". */
+    if (!unit && qty !== Math.round(qty)) return null;
+    return { qty: unit === 'pcs' || !unit ? Math.round(qty) : qty, unit: unit || 'qty',
+             name: normaliseName(name) };
+  }
 
-  /* Read once, so a receipt confirm shows the same numbers a person saw when
-     they took the photo. */
-  var RECEIPT = {
-    store: '',
-    total: 52.4,
-    items: [
-      { n: 'Chicken breast', q: 2, p: 18.4 },
-      { n: 'Eggs',           q: 1, p: 6.2 },
-      { n: 'Greek yogurt',   q: 2, p: 9.8 },
-      { n: 'Brown rice',     q: 1, p: 8.0 },
-      { n: 'Almonds',        q: 1, p: 10.0 }
-    ]
+  /* F-FUEL-425 and F-SHOP-018. WHERE EACH SHOP PUTS ITS SEARCH.
+
+     One generic /search?q= stood in for every retailer, and it 404s at most
+     of them: Amazon searches at /s?k=, Target at /s?searchTerm=, Costco at
+     /CatalogSearch. A shortcut that lands on a not-found page is worse than
+     no shortcut, because you only find out in the shop.
+
+     Only patterns that are actually these retailers' own are here. A host
+     that is not in this table -- including a shop somebody typed in -- falls
+     back to /search?q=, which is the commonest convention and is the honest
+     guess; it is never presented as more than a search. */
+  var STORE_SEARCH = {
+    'walmart.com':          '/search?q=',
+    'amazon.com':           '/s?k=',
+    'target.com':           '/s?searchTerm=',
+    'costco.com':           '/CatalogSearch?dept=All&keyword=',
+    'wholefoodsmarket.com': '/search?text=',
+    'kroger.com':           '/search?query=',
+    'instacart.com':        '/store/s?k=',
+    'traderjoes.com':       '/home/search?q=',
+    'safeway.com':          '/shop/search-results.html?q='
   };
+  function searchPattern(host) {
+    var h = String(host || '').toLowerCase().replace(/^www\./, '');
+    if (STORE_SEARCH[h]) return STORE_SEARCH[h];
+    var keys = Object.keys(STORE_SEARCH);
+    for (var i = 0; i < keys.length; i++) {
+      if (h === keys[i] || h.slice(-(keys[i].length + 1)) === '.' + keys[i]) return STORE_SEARCH[keys[i]];
+    }
+    return '/search?q=';
+  }
+
+  /* Everything on this screen is lk_shoppingList, lk_pantryItems,
+     lk_budgetData and lk_myStores. It used to be a hand-typed twelve-item
+     list in pounds and ounces, a seven-item pantry and five invented
+     purchases -- a set of data that shared nothing with the ten-item list in
+     kilos and grams every other part of the app is built from, and whose
+     totals no other screen could reproduce. */
+  var FXS = window.LKFixtures || {};
+
+  /* This build has a fixed today, so the same seed renders the same figures
+     on every run. Everything that asks what day it is asks NOW. */
+  var TODAY_MS = Date.UTC(2026, 8, 9);
+  var NOW = TODAY_MS;
+  var NOW_ISO = new Date(NOW).toISOString();
+
+  /* Calendar periods, not a rolling day offset. "This week" is the week you
+     are standing in, Sunday to Saturday, the way the shipped app anchors it,
+     and "this month" is since the 1st. Counting back seven and thirty-one
+     days from today made the week swallow the Thursday before it -- $48.50
+     for a week that holds $19.70 -- and the month swallow 30 August, $60.70
+     for a September that holds $48.50. Five figures on this screen, and both
+     history filters, were wrong from that one mistake. */
+  var WEEK_START = NOW - new Date(NOW).getUTCDay() * 86400000;
+  var MONTH_START = Date.UTC(new Date(NOW).getUTCFullYear(), new Date(NOW).getUTCMonth(), 1);
+
+  var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var MONS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function dayOf(ms) {
+    var d = new Date(ms);
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  }
+  /* Whole days between two calendar days. Subtracting the timestamps counted
+     a purchase made at four in the afternoon two days ago as one day ago. */
+  function agoOf(iso) {
+    return Math.max(0, Math.round((NOW - dayOf(Date.parse(iso))) / 86400000));
+  }
+  function whenOf(iso) {
+    var ago = agoOf(iso);
+    if (ago === 0) return 'Today';
+    if (ago === 1) return 'Yesterday';
+    var d = new Date(iso);
+    return DOW[d.getUTCDay()] + ', ' + MONS[d.getUTCMonth()] + ' ' + d.getUTCDate();
+  }
+
+  /* THE FIXTURE IS THE SEED, THE STORE IS THE TRUTH.
+
+     Nothing on this screen survived a reload. The list, the pantry, the
+     budget and the stores were four arrays on this page: ticking an item off
+     in a shop, logging a purchase, adding a store and marking something out
+     of stock all worked until you navigated away, and then none of them had
+     happened. They go through LKStore now, under the shipped app's own keys
+     and in the shipped app's own shape, so a screen reading lk_shoppingList
+     reads what this one wrote.
+
+     Each pair below is one mapping: `from` turns what is stored into what
+     this screen renders, `toStored` turns it back. */
+  function listFrom(arr) {
+    return (arr || []).map(function (x) {
+      return { id: x.id, name: x.itemName, qty: x.quantity, unit: x.unit,
+               cat: x.category, added: x.dateAdded || NOW_ISO, done: !!x.checked };
+    });
+  }
+  function toStoredList() {
+    return LIST.map(function (i) {
+      return { id: i.id, itemName: i.name, quantity: i.qty, unit: i.unit,
+               category: i.cat, dateAdded: i.added || NOW_ISO, checked: !!i.done };
+    });
+  }
 
   /* Pantry. What is already in the house, so the list only carries what is
      not. A staple is an item that restocks itself: when its interval elapses
-     it rejoins the list without being asked. */
-  var PANTRY = [
-    { id: 'p1', name: 'Chicken breast', qty: 2, cat: 'meat',    store: 'Costco',  staple: true,  every: 7,  empty: false },
-    { id: 'p2', name: 'Eggs',           qty: 12, cat: 'dairy',  store: 'Walmart', staple: true,  every: 10, empty: false },
-    { id: 'p3', name: 'Greek yogurt',   qty: 1, cat: 'dairy',   store: 'Costco',  staple: false, every: 7,  empty: true  },
-    { id: 'p4', name: 'Spinach',        qty: 1, cat: 'produce', store: '',        staple: false, every: 7,  empty: false },
-    { id: 'p5', name: 'Brown rice',     qty: 3, cat: 'pantry',  store: 'Costco',  staple: true,  every: 30, empty: false },
-    { id: 'p6', name: 'Olive oil',      qty: 1, cat: 'pantry',  store: '',        staple: false, every: 7,  empty: true  },
-    { id: 'p7', name: 'Almonds',        qty: 1, cat: 'snacks',  store: 'Target',  staple: false, every: 7,  empty: false }
-  ];
+     it rejoins the list without being asked, which is what lastBought and
+     lastAutoAdded are for. */
+  function pantryFrom(arr) {
+    return (arr || []).map(function (x) {
+      return { id: x.id, name: x.name, qty: x.quantity, cat: x.category, store: x.store || '',
+               staple: !!x.staple, every: x.intervalDays || 0, empty: !!x.empty,
+               added: x.dateAdded || NOW_ISO, lastBought: x.lastBought || '',
+               lastAutoAdded: x.lastAutoAdded || '' };
+    });
+  }
+  function toStoredPantry() {
+    return PANTRY.map(function (i) {
+      return { id: i.id, name: i.name, quantity: i.qty, unit: '', store: i.store,
+               category: i.cat, dateAdded: i.added || NOW_ISO, empty: !!i.empty,
+               staple: !!i.staple, intervalDays: i.every || 0,
+               lastBought: i.lastBought || '', lastAutoAdded: i.lastAutoAdded || '' };
+    });
+  }
+
+  /* The purchase keeps its own date. The screen used to map it away into a
+     label and a day count on the way in, which is exactly the information a
+     calendar week needs back. */
+  function budgetFrom(b) {
+    b = b || {};
+    return {
+      weeklyTarget: b.weeklyTarget || 0,
+      /* F-BUDG-007. pendingItems was written as an empty array on every save
+         and read by nothing, so the one thing it is for -- taking what you
+         ticked off in the shop and turning it into the purchase you are
+         about to type prices into -- did not exist. It is the key's own
+         field, kept rather than blanked. */
+      pending: (b.pendingItems || []).map(function (i, k) {
+        return { id: i.id || ('pend' + k), name: i.name || i.itemName || '',
+                 qty: i.qty || i.quantity || 1, price: i.price === undefined ? null : i.price };
+      }).filter(function (i) { return !!i.name; }),
+      history: (b.history || []).map(function (h) {
+        return { id: h.id, store: h.store, date: h.date, ms: Date.parse(h.date),
+                 when: whenOf(h.date), total: h.total, source: h.source,
+                 items: (h.items || []).map(function (i) { return { n: i.name, q: i.qty, p: i.price }; }) };
+      })
+    };
+  }
+  function toStoredBudget() {
+    return {
+      weeklyTarget: BUDGET.weeklyTarget,
+      history: BUDGET.history.map(function (h) {
+        return { id: h.id, store: h.store, date: h.date, total: h.total, source: h.source,
+                 items: h.items.map(function (i) { return { name: i.n, qty: i.q, price: i.p }; }) };
+      }),
+      pendingItems: BUDGET.pending.map(function (i) {
+        return { id: i.id, name: i.name, qty: i.qty, price: i.price };
+      })
+    };
+  }
+
+  function storesFrom(arr) {
+    return (arr || []).map(function (st, i) {
+      return { id: st.id, name: st.name,
+               host: String(st.url || '').replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''),
+               about: st.description || '', hue: st.hue || HUES[i % HUES.length],
+               on: st.enabled !== false };
+    });
+  }
+  function toStoredStores() {
+    return MYSTORES.map(function (s) {
+      return { id: s.id, name: s.name, url: 'https://' + s.host,
+               description: s.about, enabled: !!s.on, hue: s.hue };
+    });
+  }
+
+  var LIST = [], PANTRY = [], MYSTORES = [];
+  var BUDGET = budgetFrom(null);
 
   /* The stores the live app offers, in its order, with its descriptions. */
   var PRESETS = [
@@ -264,11 +468,47 @@
     { name: "Trader Joe's",  host: 'traderjoes.com',        about: 'specialty grocery with unique private-label products' },
     { name: 'Safeway',       host: 'safeway.com',           about: 'large supermarket chain' }
   ];
-  var MYSTORES = [
-    { id: 's1', name: 'Walmart', host: 'walmart.com', about: 'large general merchandise and grocery retailer', hue: 'var(--id-1)', on: true },
-    { id: 's2', name: 'Target',  host: 'target.com',  about: 'general merchandise and grocery retailer',        hue: 'var(--id-4)', on: true },
-    { id: 's3', name: 'Costco',  host: 'costco.com',  about: 'warehouse club, bulk items',                      hue: 'var(--id-2)', on: false }
-  ];
+  var HUES = ['var(--id-1)', 'var(--id-4)', 'var(--id-2)', 'var(--id-3)', 'var(--id-5)'];
+
+  function fill(arr, next) { arr.length = 0; Array.prototype.push.apply(arr, next); }
+
+  /* `fresh` is the dev switcher rebuilding a state from the fixture. It must
+     not read a person's stored data back over the state it is showing. */
+  function load(fresh) {
+    var st = window.LKStore;
+    var rd = function (k, fx) { return (st && !fresh) ? st.get(k, fx) : fx; };
+    fill(LIST, listFrom(rd('lk_shoppingList', FXS.shoppingList)));
+    fill(PANTRY, pantryFrom(rd('lk_pantryItems', FXS.pantry)));
+    fill(MYSTORES, storesFrom(rd('lk_myStores', FXS.stores)));
+    BUDGET = budgetFrom(rd('lk_budgetData', FXS.budget));
+  }
+
+  /* In the demo every screen is mounted at boot and this one's data was read
+     once, then. A meal logged in Fuel wrote lk_pantryItems and lk_shoppingList
+     and Shop still showed the fixture, so Home and Shop disagreed in the same
+     session. Re-read whenever the route is entered. */
+  document.addEventListener('lk:enter', function () {
+    if (S.state !== 'populated') return;
+    load(false);
+    render();
+  });
+
+  /* Write on the action. Every action on this screen goes through the one
+     click handler at the bottom of this file, so this is the one place that
+     writes, and it writes all four keys: a purchase moves the pantry, a
+     pantry row moves the list, and a half-written pair of keys is worse than
+     none. A dev state is a picture of a data condition rather than the
+     reader's data, so once one has been shown this page stops writing: the
+     empty state is not an instruction to delete anybody's list. */
+  var demo = false;
+  function persist() {
+    var st = window.LKStore;
+    if (!st || demo) return;
+    st.set('lk_shoppingList', toStoredList());
+    st.set('lk_pantryItems', toStoredPantry());
+    st.set('lk_budgetData', toStoredBudget());
+    st.set('lk_myStores', toStoredStores());
+  }
 
   var PANELS = [
     ['list',   'List'],
@@ -277,17 +517,18 @@
     ['budget', 'Budget']
   ];
 
-  var FIXTURE = {
-    list: LIST.slice(), pantry: PANTRY.slice(), stores: MYSTORES.slice()
-  };
-
   var S = {
     state: 'populated',
     panel: 'list',
     sheet: null,
     editTarget: false,
+    targetError: null,
     addOpen: false,
-    receipt: null,          /* null | 'ok' | 'none' | 'down' */
+    readState: 'idle', readWhy: null, readLines: null, readStore: null,
+    photo: null,            /* a receipt photo chosen on this device */
+    compare: null,          /* the last comparison, over what you have paid */
+    compareError: null,
+    swaps: null,            /* null until Find swaps has been run */
     histFilter: 'week',
     query: ''
   };
@@ -298,24 +539,32 @@
      eventually disagrees with itself.
      --------------------------------------------------------------- */
   function left()     { return LIST.filter(function (i) { return !i.done; }).length; }
+  function done()     { return LIST.filter(function (i) { return i.done; }).length; }
   function stapleN()  { return PANTRY.filter(function (i) { return i.staple; }).length; }
   function emptyN()   { return PANTRY.filter(function (i) { return i.empty; }); }
   function onStores() { return MYSTORES.filter(function (s) { return s.on; }); }
   /* Read from the history rather than stored beside it: a deleted receipt
      used to leave the week's total exactly where it was, which is the sort
      of disagreement that makes somebody stop trusting the figure. */
-  function weekSpent()  { return sumSince(7); }
-  function monthSpent() { return sumSince(31); }
-  function sumSince(days) {
+  function weekSpent()  { return sumFrom(WEEK_START); }
+  function monthSpent() { return sumFrom(MONTH_START); }
+  function sumFrom(ms) {
     return BUDGET.history.reduce(function (a, h) {
-      return h.daysAgo <= days ? a + h.total : a;
+      return h.ms >= ms ? a + h.total : a;
     }, 0);
   }
+  function weekBuys() {
+    return BUDGET.history.filter(function (h) { return h.ms >= WEEK_START; });
+  }
   function overBudget() { return BUDGET.weeklyTarget > 0 && weekSpent() > BUDGET.weeklyTarget; }
+  /* The bar is clamped; the FIGURE is not. They were one number, so a week
+     at $180 against a $120 target read "100%" beside "$60.00 over budget" --
+     the one line that could have said how far over said it was exactly on. */
   function budgetPct()  {
     if (!BUDGET.weeklyTarget) return 0;
-    return Math.min(100, weekSpent() / BUDGET.weeklyTarget * 100);
+    return weekSpent() / BUDGET.weeklyTarget * 100;
   }
+  function budgetBarPct() { return Math.min(100, budgetPct()); }
 
   /* ---------------------------------------------------------------
      Segment. Four panels, one control, and the count of what is still to
@@ -335,12 +584,21 @@
   function headerCount() {
     if (S.state !== 'populated') return '';
     if (S.panel === 'list')   return left() + ' to get';
-    if (S.panel === 'pantry') return PANTRY.length + ' in stock';
+    /* In stock means in stock. It counted every pantry row, so the header
+       said "7 in stock" directly above a banner saying two of them were out. */
+    if (S.panel === 'pantry') {
+      var inStock = PANTRY.filter(function (i) { return !i.empty; }).length;
+      var out = PANTRY.length - inStock;
+      return inStock + ' in stock' + (out ? ', ' + out + ' out' : '');
+    }
     if (S.panel === 'stores') return onStores().length + ' of ' + MYSTORES.length + ' on';
     if (!BUDGET.weeklyTarget) return 'No target';
+    /* The same figure as the card. Rounding to whole dollars here put
+       "$72 left" in the header above "$71.50 remaining" on the card, and a
+       reader has no way to tell which of the two is the real number. */
     return overBudget()
-      ? usd0(weekSpent() - BUDGET.weeklyTarget) + ' over'
-      : usd0(BUDGET.weeklyTarget - weekSpent()) + ' left';
+      ? usd(weekSpent() - BUDGET.weeklyTarget) + ' over'
+      : usd(BUDGET.weeklyTarget - weekSpent()) + ' left';
   }
 
   /* ---------------------------------------------------------------
@@ -387,6 +645,16 @@
         '<button class="btn btn--secondary grow" type="button" data-action="export" data-testid="export">' +
           ICO.share + '<span class="btn__label">Export</span></button>' +
       '</div>' +
+      /* F-BUDG-007. What you ticked off is what you bought, so it goes to
+         the Budget panel as a purchase waiting for its prices. The list is
+         left exactly as it was: clearing it is a separate decision and this
+         one must not make it for you. */
+      (done()
+        ? '<div class="hstack hstack--3 mt-2">' +
+            '<button class="btn btn--secondary grow" type="button" data-action="to-budget" data-testid="to-budget">' +
+              ICO.cart + '<span class="btn__label">Send ' + done() + ' to Budget</span></button>' +
+          '</div>'
+        : '') +
       '<div class="hstack hstack--3 mt-2">' +
         '<button class="btn btn--secondary grow" type="button" data-action="clear-done" data-testid="clear-done">' +
           '<span class="btn__label">Clear done</span></button>' +
@@ -399,12 +667,14 @@
   function addItemCard() {
     var q = S.query.trim();
     /* Two characters, because one character matches most of the table and a
-       list of everything is not a suggestion. */
-    var sugg = q.length >= 2 ? PICKS.filter(function (p) {
-      return p.name.toLowerCase().indexOf(q.toLowerCase()) === 0;
-    }).concat(PICKS.filter(function (p) {
-      var l = p.name.toLowerCase();
-      return l.indexOf(q.toLowerCase()) > 0;
+       list of everything is not a suggestion. Prefix matches first, then
+       anything containing it: typing "oat" should offer Oats before Oat
+       Milk, and both before nothing at all. */
+    var lq = q.toLowerCase();
+    var sugg = q.length >= 2 ? FOODS.filter(function (f) {
+      return f[0].toLowerCase().indexOf(lq) === 0;
+    }).concat(FOODS.filter(function (f) {
+      return f[0].toLowerCase().indexOf(lq) > 0;
     })).slice(0, 3) : [];
 
     return '<div class="card mt-4" data-testid="add-card">' +
@@ -413,16 +683,25 @@
       '<input class="input mt-2" id="add-name" type="text" autocomplete="off" spellcheck="false" ' +
         'enterkeyhint="done" placeholder="e.g. Chicken breast" value="' + esc(S.query) + '" data-testid="add-name">' +
       (sugg.length
-        ? '<div class="card card--sunken card--flush mt-2" role="listbox" aria-label="Suggestions" data-testid="suggestions">' +
-            sugg.map(function (p) {
+        ? '<div class="card card--sunken card--flush mt-2" role="listbox" ' +
+            'aria-label="Suggestions, with calories per 100 g" data-testid="suggestions">' +
+            sugg.map(function (f) {
               return '<button class="row" type="button" role="option" aria-selected="false" ' +
-                'data-action="suggest" data-name="' + esc(p.name) + '" data-testid="suggest-' +
-                p.name.toLowerCase().replace(/\W+/g, '-') + '">' +
-                '<span class="row__main"><span class="row__title">' + esc(p.name) + '</span></span>' +
-                '<span class="badge">' + p.qty + ' ' + p.unit + '</span></button>';
+                'data-action="suggest" data-name="' + esc(f[0]) + '" data-testid="suggest-' +
+                f[0].toLowerCase().replace(/\W+/g, '-') + '">' +
+                '<span class="row__main"><span class="row__title">' + esc(f[0]) + '</span></span>' +
+                '<span class="badge num">' + f[1] + ' cal / 100 g</span></button>';
             }).join('') +
           '</div>'
         : '') +
+      /* What the line was read as, before it is added rather than after. */
+      (function () {
+        var pr = parseIngredient(S.query);
+        if (!pr) return '';
+        return '<p class="t-meta mt-2" data-testid="parse-hint">Reads as <span class="num">' +
+          pr.qty + (pr.unit === 'qty' ? '' : ' ' + pr.unit) + '</span> ' + esc(pr.name) +
+          '. The boxes below are for a line with no quantity in it.</p>';
+      })() +
       '<div class="hstack hstack--3 mt-3">' +
         '<div class="field" style="width: 88px">' +
           '<label class="t-label field__label" for="add-qty">Qty</label>' +
@@ -441,13 +720,34 @@
     '</div>';
   }
 
-  /* The row does one thing: tick it off. Everything else about the item —
-     where to buy it, what it costs, removing it — is behind the row, because
-     ticking happens in a shop with one hand and the rest happens at home.
-     A strip of store shortcuts under every row would triple the height of
-     the list for a job nobody does while walking it. */
+  /* The row ticks off, and the rest of the item is behind it.
+
+     F-SHOP-018, and a design decision reversed. This used to read "a strip
+     of store shortcuts under every row would triple the height of the list
+     for a job nobody does while walking it", and the search moved into the
+     item's sheet: two taps to reach it. The sign-off called that right and
+     the reasoning wrong. Searching a shop is what somebody does when they
+     are NOT in it -- ordering a delivery, or checking a price before they
+     go -- and at two taps an item at a time nobody does it at all. The chips
+     are back, under the rows that still need buying only, capped at three
+     shops, and a ticked-off row loses them: it is bought, so there is
+     nothing left to search for. The sheet keeps the full list. */
+  function storeChips(it) {
+    if (it.done) return '';
+    var stores = onStores().slice(0, 3);
+    if (!stores.length) return '';
+    return '<div class="item__stores">' + stores.map(function (s) {
+      return '<button class="storechip" type="button" data-action="find-store" data-id="' + s.id +
+        '" data-item="' + esc(it.id) + '" data-testid="chip-' + s.id + '-' + it.id + '" ' +
+        'aria-label="Search ' + esc(s.name) + ' for ' + esc(it.name) + '">' +
+        '<span class="storechip__dot" style="color:' + s.hue + '; width: var(--sp-2); height: var(--sp-2)" aria-hidden="true"></span>' +
+        esc(s.name) + '</button>';
+    }).join('') + '</div>';
+  }
   function itemRow(it) {
-    return '<div class="item' + (it.done ? ' item--done' : '') + '" data-testid="item-' + it.id + '">' +
+    var chips = storeChips(it);
+    return '<div class="item' + (it.done ? ' item--done' : '') + (chips ? ' item--chips' : '') +
+      '" data-testid="item-' + it.id + '">' +
       '<button class="tick" type="button" aria-pressed="' + it.done + '" data-action="tick" data-id="' + it.id +
         '" aria-label="' + (it.done ? 'Mark as not picked up' : 'Mark as picked up') + ', ' + esc(it.name) + '">' +
         '<span class="tick__box">' + (it.done ? ICO.tick : '') + '</span></button>' +
@@ -456,6 +756,7 @@
         '<span class="item__name">' + it.qty + (it.unit === 'qty' ? '' : ' ' + it.unit) + ' ' + esc(it.name) + '</span>' +
       '</button>' +
       '<span class="row__chev" aria-hidden="true">' + ICO.chev + '</span>' +
+      chips +
     '</div>';
   }
 
@@ -518,12 +819,14 @@
         '<input class="input num" id="target" type="number" min="0" step="0.01" inputmode="decimal" ' +
           'value="' + BUDGET.weeklyTarget.toFixed(2) + '" data-testid="target-input">' +
         '<p class="field__help">Zero or more. Set it to zero to stop comparing against a target without losing the history.</p>' +
+        (S.targetError ? '<p class="field__error" role="alert" data-testid="target-error">' +
+          esc(S.targetError) + '</p>' : '') +
         '<button class="btn btn--primary btn--block mt-3" type="button" data-action="save-target" data-testid="save-target">' +
           '<span class="btn__label">Save target</span></button>' +
       '</div>';
     }
 
-    var pct = budgetPct(), over = overBudget();
+    var pct = budgetPct(), barPct = budgetBarPct(), over = overBudget();
     var mClass = over ? ' meter--over' : (pct >= 75 ? ' meter--warn' : '');
     return '<div class="card" data-testid="budget-card">' +
       '<div class="section__head"><h2 class="t-label">Weekly budget</h2>' +
@@ -534,7 +837,7 @@
       '</div>' +
       (BUDGET.weeklyTarget
         ? '<div class="meter mt-3' + mClass + '" role="img" aria-label="' + usd(weekSpent()) +
-            ' of ' + usd(BUDGET.weeklyTarget) + ' spent this week"><span class="meter__fill" style="width:' + pct + '%"></span></div>' +
+            ' of ' + usd(BUDGET.weeklyTarget) + ' spent this week"><span class="meter__fill" style="width:' + barPct + '%"></span></div>' +
           '<div class="hstack hstack--3 mt-2">' +
             '<p class="t-detail grow' + (over ? '" style="color: var(--error)' : '') + '">' +
               (over ? usd(weekSpent() - BUDGET.weeklyTarget) + ' over budget'
@@ -545,9 +848,8 @@
       '<div class="tiles mt-4">' +
         '<div class="tile"><span class="t-label">This month</span>' +
           '<span class="tile__value" data-testid="month-spent">' + usd(monthSpent()) + '</span></div>' +
-        '<div class="tile"><span class="t-label">Purchases</span>' +
-          '<span class="tile__value" data-testid="week-count">' +
-            BUDGET.history.filter(function (h) { return h.daysAgo <= 7; }).length + '</span></div>' +
+        '<div class="tile"><span class="t-label">Purchases this week</span>' +
+          '<span class="tile__value" data-testid="week-count">' + weekBuys().length + '</span></div>' +
       '</div>' +
     '</div>';
   }
@@ -557,14 +859,69 @@
       '<button class="btn btn--secondary btn--block" type="button" data-action="add-purchase" ' +
         'aria-expanded="' + S.addOpen + '" data-testid="add-purchase">' + ICO.plus +
         '<span class="btn__label">Log a purchase</span></button>' +
-      '<h2 class="t-label mt-4">Scan a receipt</h2>' +
-      '<p class="t-detail">The whole shop in one photo, itemised. What it reads goes to the pantry as well as to the history.</p>' +
+      '<h2 class="t-label mt-4">Keep the receipt</h2>' +
+      /* This said "the whole shop in one photo, itemised", and what it
+         produced was the last receipt in the fixture read back as if a
+         parser had just read it off your photo -- a fabricated result
+         presented as a measurement, which then wrote itself into the history
+         and the pantry. There is no parser in this build and no server to
+         run one, so the photo is kept and the lines are typed. */
+      '<p class="t-detail">Photograph it in the shop and type the total in while you still have it. Nothing is read off the photo for you: the lines are typed in, and the photo does not leave this device.</p>' +
       '<div class="hstack hstack--3 mt-3">' +
         '<button class="btn btn--secondary grow" type="button" data-action="scan-cam" data-testid="scan-cam">' +
           ICO.cam + '<span class="btn__label">Camera</span></button>' +
         '<button class="btn btn--secondary grow" type="button" data-action="scan-lib" data-testid="scan-lib">' +
           ICO.lib + '<span class="btn__label">Library</span></button>' +
       '</div>' +
+      /* Two real file inputs, because a file input is the only control that
+         can open a camera or a photo library and a <button> cannot be one.
+         They are off-screen rather than absent, and the buttons above are
+         the controls: capture="environment" asks a phone for the back
+         camera, the other opens the library. */
+      '<input class="shop-file" id="r-cam" type="file" accept="image/*" capture="environment" ' +
+        'tabindex="-1" aria-hidden="true" data-testid="file-cam">' +
+      '<input class="shop-file" id="r-lib" type="file" accept="image/*" ' +
+        'tabindex="-1" aria-hidden="true" data-testid="file-lib">' +
+    '</div>';
+  }
+
+  /* F-BUDG-007, the other half. What came over from the list, waiting for
+     its prices. Nothing is invented: a row with no price typed is not
+     guessed at and is not written into the history -- it stays here. */
+  function pendingCard() {
+    if (!BUDGET.pending.length) return '';
+    var rows = BUDGET.pending.map(function (i) {
+      return '<div class="row row--static" data-testid="pend-' + i.id + '">' +
+        '<span class="row__main stack">' +
+          '<span class="row__title">' + esc(i.name) + '</span>' +
+          '<span class="row__sub num">' + i.qty + '&times;</span>' +
+        '</span>' +
+        '<label class="vis-hidden" for="pp-' + i.id + '">Price for ' + esc(i.name) + '</label>' +
+        '<input class="input num" id="pp-' + i.id + '" type="number" min="0" step="0.01" ' +
+          'inputmode="decimal" placeholder="0.00" style="width: 96px" value="' +
+          (i.price === null ? '' : i.price) + '" data-testid="pp-' + i.id + '">' +
+        '<button class="iconbtn iconbtn--danger-quiet" type="button" data-action="pend-drop" data-id="' + i.id +
+          '" aria-label="Take ' + esc(i.name) + ' off this purchase" data-testid="pend-drop-' + i.id + '">' +
+          '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+        '</button>' +
+      '</div>';
+    }).join('');
+    return '<div class="card mt-3" data-testid="pending-card">' +
+      '<div class="section__head"><h2 class="t-label">From your list</h2>' +
+        '<span class="t-meta num">' + BUDGET.pending.length + ' ' + plural(BUDGET.pending.length, 'item') + '</span></div>' +
+      '<p class="t-detail">What you ticked off in the shop. Type what each one cost and it becomes one purchase in your history. Anything you leave blank stays here.</p>' +
+      '<div class="card card--flush mt-3">' + rows + '</div>' +
+      '<label class="t-label field__label mt-3" for="pend-store">Store</label>' +
+      '<select class="input" id="pend-store" data-testid="pend-store">' +
+        '<option value="">Select a store</option>' +
+        MYSTORES.map(function (s) { return '<option value="' + s.id + '">' + esc(s.name) + '</option>'; }).join('') +
+        '<option value="other">Other</option>' +
+      '</select>' +
+      (S.pendError ? '<p class="field__error mt-2" role="alert" data-testid="pend-error">' + esc(S.pendError) + '</p>' : '') +
+      '<button class="btn btn--primary btn--block mt-3" type="button" data-action="save-pending" data-testid="save-pending">' +
+        '<span class="btn__label">Add to history</span></button>' +
+      '<button class="btn btn--tertiary btn--block mt-2" type="button" data-action="pend-clear" data-testid="pend-clear">' +
+        '<span class="btn__label">Discard these</span></button>' +
     '</div>';
   }
 
@@ -594,100 +951,189 @@
     '</div>';
   }
 
-  /* A receipt that could not be read says which of the three things went
-     wrong, because "try again" is only useful advice for one of them. */
-  var SCAN_FAIL = {
-    none: 'No items were found on that photo. A flatter, brighter shot of the whole receipt usually reads.',
-    down: 'The receipt reader is not answering. Nothing was lost, and logging by hand still works.'
-  };
-
+  /* The photo, kept beside the form you type it into. What stood here was a
+     confirmation screen for a parse that never happened: it listed the items
+     off a fixture, totalled them, and "Confirm and save" wrote that invented
+     receipt into your history and your pantry. */
   function receiptCard() {
-    if (!S.receipt) return '';
-    if (S.receipt !== 'ok') {
-      return '<div class="card card--unverified mt-3" data-testid="receipt-card">' +
-        '<div class="banner banner--error">' + ICO.alert + '<span>' + SCAN_FAIL[S.receipt] + '</span></div>' +
-        '<div class="hstack hstack--3 mt-3">' +
-          '<button class="btn btn--secondary grow" type="button" data-action="scan-cancel" data-testid="receipt-cancel">' +
-            '<span class="btn__label">Cancel</span></button>' +
-          '<button class="btn btn--secondary grow" type="button" data-action="scan-cam" data-testid="receipt-retry">' +
-            '<span class="btn__label">Try another photo</span></button>' +
-        '</div>' +
-      '</div>';
-    }
-    return '<div class="card mt-3" style="box-shadow: inset 0 0 0 2px var(--accent-text)" data-testid="receipt-card">' +
-      '<h2 class="t-label">Confirm receipt</h2>' +
-      '<label class="t-label field__label mt-2" for="r-store">Store</label>' +
-      '<select class="input" id="r-store" data-testid="r-store">' +
-        '<option value="">Unknown store</option>' +
-        MYSTORES.map(function (s) { return '<option value="' + s.id + '">' + esc(s.name) + '</option>'; }).join('') +
-      '</select>' +
-      '<div class="mt-3">' + RECEIPT.items.map(function (it) {
-        return '<div class="hstack hstack--3" style="min-height: var(--sp-6)">' +
-          '<span class="t-body grow num">' + it.q + '&times; ' + esc(it.n) + '</span>' +
-          '<span class="t-body-em num">' + usd(it.p) + '</span></div>';
-      }).join('') + '</div>' +
-      '<div class="hstack hstack--3 mt-3" style="box-shadow: inset 0 1px 0 var(--hairline); padding-top: var(--sp-3)">' +
-        '<span class="t-section grow">Total</span>' +
-        '<span class="t-section num" data-testid="receipt-total">' + usd(RECEIPT.total) + '</span></div>' +
-      '<div class="hstack hstack--3 mt-4">' +
-        '<button class="btn btn--secondary grow" type="button" data-action="scan-cancel" data-testid="receipt-cancel">' +
-          '<span class="btn__label">Cancel</span></button>' +
-        '<button class="btn btn--primary grow" type="button" data-action="receipt-save" data-testid="receipt-save">' +
-          '<span class="btn__label">Confirm and save</span></button>' +
+    if (!S.photo) return '';
+    return '<div class="card mt-3" data-testid="receipt-card">' +
+      '<div class="section__head"><h2 class="t-label">Receipt photo</h2>' +
+        '<span class="t-meta">' + esc(S.photo.name) + '</span></div>' +
+      '<img class="shop-photo mt-2" src="' + S.photo.url + '" alt="The receipt photo you just chose" data-testid="receipt-photo">' +
+      (S.readState === 'reading'
+        ? '<div class="hstack hstack--3 mt-3" role="status" aria-live="polite" data-testid="receipt-reading">' +
+            '<span class="spinner"></span><span class="t-detail">Reading the lines.</span></div>'
+        : S.readWhy
+        ? '<p class="t-detail mt-3" data-testid="receipt-why">' + esc(S.readWhy) + '</p>'
+        : '<p class="t-detail mt-3">The photo is downscaled here and read. Every line comes back ' +
+          'as a reading: check it against the paper before you save it.</p>') +
+      /* WHAT IT READ, BEFORE ANYTHING IS SAVED. The lines are shown and
+         each one can be dropped, because a receipt read by a model gets
+         a price wrong sooner or later and the only place to catch that is
+         here, against the paper still in somebody's hand. */
+      (S.readLines && S.readLines.length
+        ? '<div class="card card--flush mt-3" data-testid="receipt-lines">' +
+            S.readLines.map(function (l, i) {
+              return '<div class="row row--withaside">' +
+                '<span class="row__main stack"><span class="row__title">' + esc(l.name) + '</span>' +
+                  '<span class="row__sub">' + (l.qty > 1 ? l.qty + ' \u00d7 ' : '') +
+                  usd(l.price) + '</span></span>' +
+                '<button class="iconbtn" type="button" data-action="line-drop" data-i="' + i + '" ' +
+                  'aria-label="Not on this receipt: ' + esc(l.name) + '" data-testid="line-drop-' + i + '">' +
+                  '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
+              '</div>';
+            }).join('') + '</div>' +
+          '<p class="t-detail mt-2" data-testid="receipt-read-total">' +
+            S.readLines.length + (S.readLines.length === 1 ? ' line, ' : ' lines, ') +
+            usd(S.readLines.reduce(function (a, l) { return a + (l.price * (l.qty || 1)); }, 0)) +
+            '<span class="quiet"> read from the photo, not typed.</span></p>'
+        : '') +
+      '<div class="hstack hstack--3 mt-3">' +
+        '<button class="btn btn--secondary grow" type="button" data-action="photo-discard" data-testid="receipt-discard">' +
+          '<span class="btn__label">Discard photo</span></button>' +
+        (S.readLines && S.readLines.length
+          ? '<button class="btn btn--primary grow" type="button" data-action="lines-save" data-testid="receipt-save">' +
+              '<span class="btn__label">Save these lines</span></button>'
+          : '<button class="btn btn--primary grow" type="button" data-action="photo-type" data-testid="receipt-type">' +
+              '<span class="btn__label">Type it in</span></button>') +
       '</div>' +
     '</div>';
+  }
+
+  /* What you have actually paid for the thing you typed, per shop, cheapest
+     first. Three invented prices for chicken thighs stood here whatever you
+     typed and whichever shops you had, and the Compare button wrote
+     S.compared, which nothing read -- so the one control on the card could
+     not have changed it anyway. There is no network in this build, so a
+     quote is a figure it cannot honestly print; its own history is one it
+     can. */
+  function paidFor(q) {
+    var n = q.toLowerCase();
+    var best = {};
+    BUDGET.history.forEach(function (h) {
+      h.items.forEach(function (i) {
+        var ln = i.n.toLowerCase();
+        if (ln.indexOf(n) < 0 && n.indexOf(ln) < 0) return;
+        var cur = best[h.store];
+        if (!cur || i.p < cur.price) {
+          best[h.store] = { store: h.store, product: i.n, price: i.p, when: h.when };
+        }
+      });
+    });
+    return Object.keys(best).map(function (k) { return best[k]; })
+      .sort(function (a, b) { return a.price - b.price; });
   }
 
   function compareCard() {
-    if (onStores().length < 2) return '';
+    var c = S.compare;
+    /* The enabled shops you have no price for. The comparison is over your
+       shops, so the ones it cannot say anything about are part of the
+       answer rather than an omission. */
+    var blank = c ? onStores().filter(function (s) {
+      return !c.rows.some(function (r) { return r.store === s.name; });
+    }) : [];
     return '<div class="card mt-3" data-testid="compare-card">' +
-      '<h2 class="t-label">Price comparison</h2>' +
+      '<h2 class="t-label">What you have paid</h2>' +
       '<div class="hstack hstack--3 mt-2">' +
         '<div class="field grow"><label class="vis-hidden" for="cmp">Item to compare</label>' +
-          '<input class="input" id="cmp" type="text" enterkeyhint="search" placeholder="e.g. chicken breast" data-testid="cmp-input"></div>' +
+          '<input class="input" id="cmp" type="text" enterkeyhint="search" placeholder="e.g. chicken thighs" ' +
+            'value="' + esc(c ? c.q : '') + '" data-testid="cmp-input"></div>' +
         '<button class="btn btn--secondary" type="button" data-action="compare" data-testid="compare">' +
           '<span class="btn__label">Compare</span></button>' +
       '</div>' +
-      '<div class="mt-3">' + BUDGET.compare.map(function (r, i) {
-        return '<div class="row" style="padding-left: 0; padding-right: 0; background: none">' +
-          '<span class="row__main stack">' +
-            '<span class="row__title">' + esc(r.store) +
-              (i === 0 ? ' <span class="badge badge--success">Best</span>' : '') + '</span>' +
-            '<span class="row__sub">' + esc(r.product) + (r.note ? ' &middot; ' + esc(r.note) : '') + '</span>' +
-          '</span>' +
-          '<span class="row__value num"' + (i === 0 ? ' style="color: var(--success)"' : '') + '>' + usd(r.price) + '</span>' +
-        '</div>';
-      }).join('') + '</div>' +
+      (S.compareError
+        ? '<p class="field__error" role="alert" data-testid="cmp-error">' + esc(S.compareError) + '</p>'
+        : '') +
+      (c
+        ? (c.rows.length
+            ? '<div class="mt-3" data-testid="cmp-rows">' + c.rows.map(function (r, i) {
+                return '<div class="row" style="padding-left: 0; padding-right: 0; background: none">' +
+                  '<span class="row__main stack">' +
+                    '<span class="row__title">' + esc(r.store) +
+                      (i === 0 && c.rows.length > 1 ? ' <span class="badge badge--success">Cheapest</span>' : '') + '</span>' +
+                    '<span class="row__sub">' + esc(r.product) + ' &middot; ' + esc(r.when) + '</span>' +
+                  '</span>' +
+                  '<span class="row__value num"' + (i === 0 && c.rows.length > 1 ? ' style="color: var(--success)"' : '') +
+                    '>' + usd(r.price) + '</span>' +
+                '</div>';
+              }).join('') + '</div>'
+            : '<p class="t-detail mt-3" data-testid="cmp-none">Nothing in your history matches ' +
+                esc(c.q) + '. Log a purchase with that name in it and this fills itself in.</p>') +
+          '<p class="t-meta mt-2" data-testid="cmp-note">' +
+            (blank.length
+              ? 'No price on record at ' + esc(blank.map(function (s) { return s.name; }).join(', ')) + '. '
+              : '') +
+            'These are prices you paid, not quotes. LOCKED does not read live shop prices.</p>'
+        : '<p class="t-detail mt-3">Type something you buy to see what it cost you at each shop, and when.</p>') +
     '</div>';
   }
 
+  /* A swap this build can stand behind: something bought this week that the
+     same history shows cheaper at another shop. Two invented savings stood
+     here -- "save $4.40" at a shop the reader may not even have added -- and
+     Find swaps set S.swapsShown, which nothing read, so the button was inert
+     under a result that was never about your week anyway. The card is gated
+     on the week having a shop in it, because a week with no purchases has
+     nothing to find a swap for. */
+  function swapsFor() {
+    var out = [];
+    weekBuys().forEach(function (h) {
+      h.items.forEach(function (i) {
+        var cheapest = null;
+        BUDGET.history.forEach(function (o) {
+          if (o.store === h.store) return;
+          o.items.forEach(function (j) {
+            if (j.n.toLowerCase() !== i.n.toLowerCase() || j.p >= i.p) return;
+            if (!cheapest || j.p < cheapest.price) {
+              cheapest = { price: j.p, store: o.store, when: o.when };
+            }
+          });
+        });
+        if (cheapest) {
+          out.push({ name: i.n, paid: i.p, at: h.store, price: cheapest.price,
+                     store: cheapest.store, when: cheapest.when });
+        }
+      });
+    });
+    return out;
+  }
+
   function swapsCard() {
+    if (!weekBuys().length) return '';
     return '<div class="card mt-3" data-testid="swaps-card">' +
       '<div class="section__head"><h2 class="t-label">Cheaper swaps</h2>' +
         '<button class="hdr__action" type="button" data-action="find-swaps" data-testid="find-swaps">Find swaps</button></div>' +
-      (BUDGET.swaps.length
-        ? BUDGET.swaps.map(function (s) {
-            return '<div class="row" style="padding-left: 0; padding-right: 0; background: none">' +
-              '<span class="row__main stack">' +
-                '<span class="row__title">' + esc(s.to) + '</span>' +
-                '<span class="row__sub">instead of ' + esc(s.from) + ' &middot; at ' + esc(s.store) + '</span>' +
-              '</span>' +
-              '<span class="row__value num" style="color: var(--success)">save ' + esc(s.saves) + '</span>' +
-            '</div>';
-          }).join('')
-        : '<p class="t-detail mt-2">Nothing cheaper found for this week. You are already shopping well.</p>') +
+      (S.swaps
+        ? (S.swaps.length
+            ? '<div data-testid="swap-rows">' + S.swaps.map(function (s) {
+                return '<div class="row" style="padding-left: 0; padding-right: 0; background: none">' +
+                  '<span class="row__main stack">' +
+                    '<span class="row__title">' + esc(s.name) + ' at ' + esc(s.store) + '</span>' +
+                    '<span class="row__sub">' + usd(s.price) + ' there on ' + esc(s.when) +
+                      ', against ' + usd(s.paid) + ' at ' + esc(s.at) + ' this week</span>' +
+                  '</span>' +
+                  '<span class="row__value num" style="color: var(--success)">save ' +
+                    usd(s.paid - s.price) + '</span>' +
+                '</div>';
+              }).join('') + '</div>'
+            : '<p class="t-detail mt-2" data-testid="swaps-none">Nothing you bought this week is cheaper anywhere else in your history. This compares what you have actually paid; it does not read live shop prices.</p>')
+        : '<p class="t-detail mt-2">Checks this week\'s shop against every price already in your history. It does not read live shop prices.</p>') +
     '</div>';
   }
 
   var FILTERS = [['week', 'Week'], ['month', 'Month'], ['all', 'All'], ['receipts', 'Receipts']];
 
   function historyCard() {
-    var WINDOW = { week: 7, month: 31 };
+    /* The same calendar periods as the card above. Both filters counted back
+       a fixed number of days instead, so Month and All held exactly the same
+       rows on this seed and neither of them was a month. */
+    var FROM = { week: WEEK_START, month: MONTH_START };
     var rows = S.histFilter === 'receipts'
       ? BUDGET.history.filter(function (h) { return h.source === 'receipt'; })
       : BUDGET.history.filter(function (h) {
-          var d = WINDOW[S.histFilter];
-          return !d || h.daysAgo <= d;
+          var from = FROM[S.histFilter];
+          return !from || h.ms >= from;
         });
     var SRC = { receipt: 'Receipt', list: 'List', manual: 'Manual' };
     return '<div class="card mt-3" data-testid="history-card">' +
@@ -727,7 +1173,7 @@
 
   function panelBudget() {
     return '<div style="padding: 0 var(--page-x)">' +
-      budgetCard() + actionsCard() + logPurchaseCard() + receiptCard() +
+      budgetCard() + pendingCard() + actionsCard() + receiptCard() + logPurchaseCard() +
       compareCard() + swapsCard() + historyCard() + '</div>';
   }
 
@@ -748,7 +1194,10 @@
   function pantryRow(it) {
     var bits = [it.qty + ' left'];
     if (it.store) bits.push(it.store);
-    if (it.staple) bits.push('restocks every ' + it.every + ' days');
+    /* When it is next due, not how often it is due. The promise the sheet
+       makes is about a date -- "it rejoins the list on its own, before you
+       run out" -- and "restocks every 30 days" is not one. */
+    if (it.staple) bits.push(dueText(it));
     return '<div class="item' + (it.empty ? ' item--done' : '') + '" data-testid="pan-' + it.id + '">' +
       '<button class="item__main" type="button" data-action="pan-open" data-id="' + it.id +
         '" data-testid="pan-open-' + it.id + '" style="text-align: left; min-height: var(--tap)">' +
@@ -758,6 +1207,79 @@
       (it.empty ? '<span class="badge badge--est" data-testid="out-' + it.id + '">Out</span>' : '') +
       '<span class="row__chev" aria-hidden="true">' + ICO.chev + '</span>' +
     '</div>';
+  }
+
+  /* A staple's cycle runs from when it was last bought, or from when it was
+     added if it never has been. */
+  function dueMs(it) {
+    var since = Date.parse(it.lastBought || it.added || '');
+    if (isNaN(since)) since = NOW;
+    return since + (it.every || 7) * 86400000;
+  }
+  function dueText(it) {
+    var days = Math.round((dueMs(it) - NOW) / 86400000);
+    if (days > 1) return 'back on the list in ' + days + ' days';
+    if (days === 1) return 'back on the list tomorrow';
+    if (days === 0) return 'due today';
+    return (-days) + ' ' + plural(-days, 'day') + ' overdue';
+  }
+
+  /* THE PROMISE THE PANTRY SHEET MAKES.
+
+     "It rejoins the list on its own, before you run out" was a sentence and
+     nothing else: no staple ever rejoined anything, whatever its interval
+     said. This runs on load and whenever a staple or its interval changes.
+     An overdue staple that is not already on the list is added, and every
+     one it looks at is stamped with lastAutoAdded, so a staple is added once
+     per cycle rather than once per render. */
+  function autoAddDueStaples() {
+    var added = [];
+    PANTRY.forEach(function (i) {
+      if (!i.staple || !i.every || dueMs(i) > NOW) return;
+      var stamped = Date.parse(i.lastAutoAdded || '') || 0;
+      var bought = Date.parse(i.lastBought || '') || 0;
+      if (stamped > bought) return;      /* already put on the list this cycle */
+      var n = i.name.toLowerCase();
+      /* The same loose match the shipped app uses, so "Whey protein" does
+         not join a list that already says "Whey protein powder". */
+      var on = LIST.some(function (x) {
+        var l = x.name.toLowerCase();
+        return l === n || l.indexOf(n) > -1 || n.indexOf(l) > -1;
+      });
+      if (!on) {
+        LIST.push({ id: 'a' + NOW + '-' + i.id, name: i.name, qty: i.qty || 1,
+                    unit: 'qty', cat: i.cat, added: NOW_ISO, done: false });
+        added.push(i.name);
+      }
+      i.lastAutoAdded = NOW_ISO;
+    });
+    return added;
+  }
+
+  /* F-SHOP-028. How often this actually gets bought, from the gaps between
+     the purchases in the budget history whose names match, discarding gaps
+     under two days and clamping the answer to somewhere between three days
+     and two months. Null when the history cannot say. */
+  function suggestRestockInterval(name) {
+    var n = name.toLowerCase();
+    var dates = [];
+    BUDGET.history.forEach(function (h) {
+      var hit = h.items.some(function (i) {
+        var ln = i.n.toLowerCase();
+        return ln.indexOf(n) > -1 || n.indexOf(ln) > -1;
+      });
+      if (hit) dates.push(h.ms);
+    });
+    if (dates.length < 2) return null;
+    dates.sort(function (a, b) { return a - b; });
+    var gaps = [];
+    for (var i = 1; i < dates.length; i++) {
+      var g = (dates[i] - dates[i - 1]) / 86400000;
+      if (g >= 2) gaps.push(g);
+    }
+    if (!gaps.length) return null;
+    var mean = gaps.reduce(function (a, b) { return a + b; }, 0) / gaps.length;
+    return Math.max(3, Math.min(60, Math.round(mean)));
   }
 
   /* The pantry item's own sheet. Five things, each one a full row, none of
@@ -785,7 +1307,7 @@
               '<span class="row__main stack">' +
                 '<span class="row__title">' + (it.staple ? 'Stop restocking it' : 'Restock it on a schedule') + '</span>' +
                 '<span class="row__sub">' + (it.staple
-                  ? 'Currently rejoins the list every ' + it.every + ' days'
+                  ? 'Currently rejoins the list every ' + (it.every || 7) + ' days, ' + dueText(it)
                   : 'It rejoins the list on its own, before you run out') + '</span>' +
               '</span></button>' +
             (it.staple
@@ -796,7 +1318,7 @@
                   '</span>' +
                   '<label class="vis-hidden" for="iv-' + it.id + '">Restock interval in days</label>' +
                   '<input class="input num" id="iv-' + it.id + '" type="number" min="1" max="365" step="1" ' +
-                    'inputmode="numeric" value="' + it.every + '" style="width: 88px" data-testid="iv-' + it.id + '">' +
+                    'inputmode="numeric" value="' + (it.every || 7) + '" style="width: 88px" data-testid="iv-' + it.id + '">' +
                   '<button class="btn btn--secondary" type="button" data-action="pan-interval-save" data-id="' + it.id +
                     '" data-testid="iv-save-' + it.id + '"><span class="btn__label">Set</span></button>' +
                 '</div>' +
@@ -824,10 +1346,29 @@
 
     var head = '<div style="padding: 0 var(--page-x)">' +
       (out.length
-        ? '<div class="banner banner--warn" data-testid="out-banner">' + ICO.alert +
-            '<span><strong>' + out.length + ' out of stock</strong>' +
-            out.map(function (i) { return esc(i.name); }).join(', ') +
-            '. Already added to the list.</span></div>'
+        /* Whether each one is ON the list, checked rather than asserted. The
+           banner claimed every out-of-stock item had already been added, for
+           items that were not on the list at all -- so the one thing it was
+           there to prompt was the thing it talked you out of. */
+        ? (function () {
+            var on = {};
+            LIST.forEach(function (i) { on[i.name.toLowerCase()] = true; });
+            var added = out.filter(function (i) { return on[i.name.toLowerCase()]; });
+            var missing = out.filter(function (i) { return !on[i.name.toLowerCase()]; });
+            var say = [];
+            if (added.length) say.push(added.map(function (i) { return esc(i.name); }).join(', ') +
+              (added.length === 1 ? ' is' : ' are') + ' already on the list.');
+            if (missing.length) say.push(missing.map(function (i) { return esc(i.name); }).join(', ') +
+              (missing.length === 1 ? ' is' : ' are') + ' not.');
+            return '<div class="banner banner--warn" data-testid="out-banner">' + ICO.alert +
+              '<span><strong>' + out.length + ' out of stock</strong>' + say.join(' ') +
+              (missing.length
+                ? ' <button class="btn btn--tertiary btn--sm" type="button" data-action="pan-add-missing" ' +
+                  'data-testid="pan-add-missing">Add ' + (missing.length === 1 ? 'it' : 'them') +
+                  ' to the list</button>'
+                : '') +
+              '</span></div>';
+          })()
         : '') +
       '<div class="chiprow' + (out.length ? ' mt-4' : '') + '">' +
         '<button class="chip" type="button" aria-pressed="' + !S.staplesOnly + '" data-action="pan-filter" data-f="all" data-testid="pan-all">' +
@@ -846,6 +1387,12 @@
           '<div class="field" style="width: 88px"><label class="vis-hidden" for="pan-qty">Quantity</label>' +
             '<input class="input num" id="pan-qty" type="number" min="1" step="1" inputmode="numeric" value="1" data-testid="pan-qty"></div>' +
         '</div>' +
+        /* Says why. A blank name returned silently: the button did nothing,
+           the field stayed empty, and nothing on screen said the add had
+           been refused. Every other form on this screen says so. */
+        (S.pantryError
+          ? '<p class="field__error" role="alert" data-testid="pan-error">' + esc(S.pantryError) + '</p>'
+          : '') +
         '<button class="btn btn--secondary btn--block mt-3" type="button" data-action="pan-add" data-testid="pan-add">' +
           '<span class="btn__label">Add</span></button>' +
       '</div>' +
@@ -931,6 +1478,12 @@
         '<label class="t-label field__label mt-3" for="cs-about">What it is</label>' +
         '<input class="input" id="cs-about" type="text" placeholder="Optional, e.g. local organic grocer" data-testid="cs-about">' +
         '<p class="field__help">Optional, and only used to tell two shops apart in a list.</p>' +
+        /* Says which of the two is missing. A blank name or a blank website
+           returned silently, so the only difference between a shop that was
+           added and one that was refused was whether a row appeared. */
+        (S.storeError
+          ? '<p class="field__error" role="alert" data-testid="cs-error">' + esc(S.storeError) + '</p>'
+          : '') +
         '<button class="btn btn--secondary btn--block mt-3" type="button" data-action="add-custom" data-testid="add-custom">' +
           '<span class="btn__label">Add shop</span></button>' +
       '</div>' +
@@ -971,6 +1524,27 @@
     return (VIEWS[S.panel] || panelList)();
   }
 
+  /* One place builds a store search URL. The item sheet and the "Shop at"
+     sheet each had their own idea of what a store row did, and only one of
+     them was wired to anything at all. */
+  function storeSearchUrl(st, name) {
+    return 'https://' + st.host + searchPattern(st.host) + encodeURIComponent(name);
+  }
+  /* The window handle, or null when the browser blocked the tab.
+
+     Not the 'noopener' feature string: it makes window.open return null by
+     spec, so there is no way left to tell a blocked pop-up from an opened
+     one. The opener is cleared on the handle instead, which is the same
+     protection with an answer. */
+  function openSearch(url) {
+    var win = null;
+    try {
+      win = window.open(url, '_blank');
+      if (win) { try { win.opener = null; } catch (e) {} }
+    } catch (e) {}
+    return win;
+  }
+
   /* ---------------------------------------------------------------
      Sheets and dialogs
 
@@ -989,8 +1563,9 @@
               '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
             '</button></div>' +
           '<div class="sheet__body">' +
-            '<p class="t-detail">Opens a search for the next thing on your list. ' +
-              (left() ? left() + ' still to get.' : 'Nothing left to get.') + '</p>' +
+            '<p class="t-detail">Opens a search for everything still on your list, ten at most. ' +
+              (left() ? left() + ' still to get.' : 'Nothing left to get.') +
+              ' A browser will usually block all but the first tab, and this will say how many it opened.</p>' +
             '<div class="card card--flush mt-3">' + onStores().map(function (s) {
               return '<button class="row" type="button" data-action="search-store" data-id="' + s.id +
                 '" data-testid="sa-' + s.id + '">' +
@@ -1025,7 +1600,11 @@
             (stores.length
               ? '<h3 class="t-label mt-4">Search for it</h3>' +
                 '<div class="card card--flush mt-2">' + stores.map(function (s) {
-                  return '<button class="row" type="button" data-action="close" data-testid="find-' + s.id + '">' +
+                  /* These rows are labelled as a search and carried
+                     data-action="close": tapping one shut the sheet, which
+                     is the only thing that happened. They search now. */
+                  return '<button class="row" type="button" data-action="find-store" data-id="' + s.id +
+                    '" data-item="' + esc(it.id) + '" data-testid="find-' + s.id + '">' +
                     '<span class="storechip__dot" style="color:' + s.hue + '; width: var(--sp-3); height: var(--sp-3)" aria-hidden="true"></span>' +
                     '<span class="row__main"><span class="row__title">' + esc(s.name) + '</span></span>' +
                     '<span class="row__chev">' + ICO.chev + '</span></button>';
@@ -1124,6 +1703,16 @@
     undoTimer = setTimeout(function () { S.toast = null; undo = null; render(); }, 6000);
   }
 
+  /* A message with nothing to undo, on a timer of its own. Several of these
+     were written straight into S.toast with no timer at all, so "Nothing is
+     ticked off yet." sat on the screen until something else replaced it. */
+  function flash(msg) {
+    undo = null;
+    S.toast = msg;
+    if (undoTimer) clearTimeout(undoTimer);
+    undoTimer = setTimeout(function () { S.toast = null; render(); }, 5000);
+  }
+
   function toastHTML() {
     if (!S.toast) return '';
     return '<div class="toast toast--nonav" role="status" data-testid="toast">' +
@@ -1175,14 +1764,18 @@
       var p = PICKS.filter(function (x) { return x.name === el.dataset.name; })[0];
       if (!p) return;
       LIST.push({ id: 'n' + Date.now(), name: p.name, qty: p.qty, unit: p.unit,
-                  cat: categorise(p.name), done: false });
+                  cat: categorise(p.name), added: NOW_ISO, done: false });
     },
     suggest: function (el) { S.query = el.dataset.name; },
     'add-item': function () {
-      var name = S.query.trim();
+      /* What was typed wins over the boxes: somebody who writes "2 kg
+         chicken thighs" has already said the quantity, and the card says so
+         under the field before they tap. */
+      var parsed = parseIngredient(S.query);
+      var name = parsed ? parsed.name : normaliseName(S.query);
       if (!name) return;
-      var qty = parseInt(document.getElementById('add-qty').value, 10) || 1;
-      var unit = document.getElementById('add-unit').value;
+      var qty = parsed ? parsed.qty : (parseInt(document.getElementById('add-qty').value, 10) || 1);
+      var unit = parsed ? parsed.unit : document.getElementById('add-unit').value;
       /* An item already on the list is a decision, not an error, so it asks
          rather than silently adding a duplicate row. */
       var ex = LIST.filter(function (i) { return i.name.toLowerCase() === name.toLowerCase(); })[0];
@@ -1191,8 +1784,8 @@
         S.sheet = 'merge';
         return;
       }
-      LIST.push({ id: 'n' + Date.now(), name: name.charAt(0).toUpperCase() + name.slice(1),
-                  qty: qty, unit: unit, cat: categorise(name), done: false });
+      LIST.push({ id: 'n' + Date.now(), name: name, qty: qty, unit: unit,
+                  cat: categorise(name), added: NOW_ISO, done: false });
       S.query = '';
     },
     'add-meal': function (el) {
@@ -1200,7 +1793,7 @@
         if (LIST.some(function (i) { return i.name.toLowerCase() === n.toLowerCase(); })) return;
         var p = PICKS.filter(function (x) { return x.name.toLowerCase() === n.toLowerCase(); })[0];
         LIST.push({ id: 'n' + Date.now() + n, name: n, qty: p ? p.qty : 1,
-                    unit: p ? p.unit : 'qty', cat: categorise(n), done: false });
+                    unit: p ? p.unit : 'qty', cat: categorise(n), added: NOW_ISO, done: false });
       });
     },
     tick: function (el) {
@@ -1219,44 +1812,73 @@
       undo = null; S.toast = null;
       if (undoTimer) clearTimeout(undoTimer);
     },
-    'clear-done': function () { S.sheet = 'clear-done'; },
+    'clear-done': function () {
+      /* Nothing to clear is not a dialog. It opened a confirm sheet asking
+         whether to remove zero items. */
+      if (!LIST.filter(function (i) { return i.done; }).length) {
+        flash('Nothing is ticked off yet.');
+        return;
+      }
+      S.sheet = 'clear-done';
+    },
     'clear-all':  function () { S.sheet = 'clear-all'; },
     'shop-at':    function () { S.sheet = 'shop-at'; },
 
-    /* One search, for the next unchecked item. The copy used to promise ten
-       tabs "one at a time" and every row was data-action="close" -- the whole
-       My Stores panel, chips and toggles and the custom-store form, had no
-       consequence anywhere in the app.
+    /* F-SHOP-019. Every unchecked item, capped at ten, at the shop you
+       picked. It opened one search, for the first item, under copy that
+       promised the list; before that every row was data-action="close" and
+       the whole My Stores panel had no consequence anywhere in the app.
 
-       One tab, not ten: ten is a thing a page does to you, and the next item
-       is the one you are standing in front of the shelf for. */
+       The tabs are opened inside the tap, not on a stagger of timers: a
+       deferred window.open is outside the gesture and every mainstream
+       blocker refuses it. Blockers refuse most of these too, which is why
+       the count of what actually opened is what the toast reports rather
+       than an assumption that they all did. */
     'search-store': function (el) {
       var st = MYSTORES.filter(function (x) { return x.id === el.getAttribute('data-id'); })[0];
       if (!st) return;
-      var next = LIST.filter(function (i) { return !i.done; })[0];
+      var todo = LIST.filter(function (i) { return !i.done; });
       S.sheet = null;
-      if (!next) { S.toast = 'Nothing left to get.'; return; }
-      var url = 'https://' + st.host + '/search?q=' + encodeURIComponent(next.name);
-      var win = null;
-      /* Not the 'noopener' feature string: it makes window.open return null
-         by spec, so there is no way left to tell a blocked pop-up from an
-         opened one. The opener is cleared on the handle instead, which is
-         the same protection with an answer. */
+      if (!todo.length) { flash('Nothing left to get.'); return; }
+      var batch = todo.slice(0, 10);
+      var urls = batch.map(function (i) { return storeSearchUrl(st, i.name); });
+      var opened = 0;
+      urls.forEach(function (u) { if (openSearch(u)) opened++; });
+      var capped = todo.length > 10 ? ' The first 10 of ' + todo.length + '.' : '';
+      if (opened === batch.length) {
+        flash('Opened ' + opened + ' ' + plural(opened, 'search') + ' at ' + st.name + '.' + capped);
+        return;
+      }
+      /* A blocked pop-up is a normal outcome, on a file:// page especially,
+         so the fallback is the addresses themselves rather than silence. The
+         clipboard can be refused too -- it is a permission -- and a rejected
+         promise is not an error the reader should see in a console. */
+      flash(opened
+        ? 'Opened ' + opened + ' of ' + batch.length + '. Your browser blocked the rest.'
+        : 'Your browser blocked the tabs. Search ' + st.host + ' for ' + batch[0].name + '.');
       try {
-        win = window.open(url, '_blank');
-        if (win) { try { win.opener = null; } catch (e) {} }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(urls.join('\n')).then(function () {
+            flash((opened ? 'Opened ' + opened + ' of ' + batch.length + '. ' : 'Your browser blocked the tabs. ') +
+              batch.length + ' ' + st.name + ' search ' + plural(batch.length, 'link') + ' copied.');
+            render();
+          }, function () {});
+        }
       } catch (e) {}
-      if (win) { S.toast = 'Searching ' + esc(st.name) + ' for ' + esc(next.name) + '.'; return; }
+    },
 
-      /* A blocked pop-up is a normal outcome from a file:// page, so the
-         fallback is the address itself rather than silence. The clipboard
-         can be refused too -- it is a permission -- and a rejected promise
-         is not an error the reader should see in a console. */
-      S.toast = 'Your browser blocked the tab. Search ' + esc(st.host) + ' for ' + esc(next.name) + '.';
+    /* F-SHOP-018. One item, one shop, from the item's own sheet. */
+    'find-store': function (el) {
+      var st = MYSTORES.filter(function (x) { return x.id === el.getAttribute('data-id'); })[0];
+      var it = LIST.filter(function (x) { return x.id === el.getAttribute('data-item'); })[0];
+      if (!st || !it) return;
+      var url = storeSearchUrl(st, it.name);
+      if (openSearch(url)) { flash('Searching ' + st.name + ' for ' + it.name + '.'); return; }
+      flash('Your browser blocked the tab. Search ' + st.host + ' for ' + it.name + '.');
       try {
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(url).then(function () {
-            S.toast = 'Your browser blocked the tab. The ' + esc(st.name) + ' search link is copied.';
+            flash('Your browser blocked the tab. The ' + st.name + ' search link is copied.');
             render();
           }, function () {});
         }
@@ -1295,14 +1917,14 @@
       var m = S.merge;
       S.sheet = null; S.merge = null;
       if (!m) return;
-      LIST.push({ id: 'n' + Date.now(), name: m.name.charAt(0).toUpperCase() + m.name.slice(1),
-                  qty: m.qty, unit: m.unit, cat: categorise(m.name), done: false });
+      LIST.push({ id: 'n' + Date.now(), name: normaliseName(m.name), qty: m.qty, unit: m.unit,
+                  cat: categorise(m.name), added: NOW_ISO, done: false });
       S.query = '';
     },
 
-    /* Export writes a plain-text list to the clipboard, which is the whole
-       feature: a shopping list you can paste into a message. It said nothing
-       and did nothing before. */
+    /* Export is a shopping list you can send somebody: the share sheet where
+       there is one, the clipboard where there is not. It said nothing and did
+       nothing before, and then it copied without saying so. */
     export: function () {
       var by = {};
       LIST.forEach(function (i) { (by[i.cat] = by[i.cat] || []).push(i); });
@@ -1311,27 +1933,122 @@
           return '  ' + (i.done ? '[x] ' : '[ ] ') + i.qty + (i.unit === 'qty' ? '' : ' ' + i.unit) + ' ' + i.name;
         }).join('\n');
       }).join('\n\n');
-      var done = function () { S.toast = 'List copied. ' + LIST.length + ' items, ready to paste.'; render(); };
-      var fail = function () { S.toast = 'Could not reach the clipboard. Nothing was lost.'; render(); };
-      try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(text).then(done, fail);
-        } else { fail(); }
-      } catch (e) { fail(); }
-      if (undoTimer) clearTimeout(undoTimer);
-      undo = null;
-      undoTimer = setTimeout(function () { S.toast = null; render(); }, 5000);
+      var copy = function () {
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function () {
+              flash('List copied. ' + LIST.length + ' items, ready to paste.');
+              render();
+            }, function () {
+              flash('Could not reach the clipboard. Nothing was lost.');
+              render();
+            });
+            return;
+          }
+        } catch (e) {}
+        flash('Could not reach the clipboard. Nothing was lost.');
+        render();
+      };
+      /* A cancelled share is not a failure and must not be reported as one:
+         the reader closed the sheet on purpose. */
+      if (navigator.share) {
+        try {
+          navigator.share({ title: 'Shopping list', text: text }).then(function () {
+            flash('List shared. ' + LIST.length + ' items.');
+            render();
+          }, function (err) {
+            if (err && err.name === 'AbortError') { flash('Nothing was shared.'); render(); return; }
+            copy();
+          });
+          return;
+        } catch (e) {}
+      }
+      copy();
     },
 
-    'edit-target': function () { S.editTarget = !S.editTarget; },
+    /* F-BUDG-007. List to budget, and back out again.
+
+       The rows are copied, not moved: what you have picked up is still on
+       the list until you clear it, which is what the list is for while you
+       are still walking round the shop. */
+    'to-budget': function () {
+      var have = {};
+      BUDGET.pending.forEach(function (i) { have[i.name.toLowerCase()] = true; });
+      var added = [];
+      LIST.forEach(function (i) {
+        if (!i.done || have[i.name.toLowerCase()]) return;
+        var row = { id: 'pend' + Date.now() + '-' + added.length, name: i.name, qty: i.qty, price: null };
+        BUDGET.pending.push(row); added.push(row);
+      });
+      if (!added.length) { flash('Everything you ticked off is already waiting on the Budget panel.'); return; }
+      S.panel = 'budget';
+      body.scrollTop = 0;
+      offerUndo(added.length + ' ' + plural(added.length, 'item') + ' moved over. Type what they cost.',
+        function () {
+          added.forEach(function (row) {
+            var k = BUDGET.pending.indexOf(row);
+            if (k > -1) BUDGET.pending.splice(k, 1);
+          });
+        });
+    },
+    'pend-drop': function (el) {
+      var k = BUDGET.pending.map(function (i) { return i.id; }).indexOf(el.dataset.id);
+      if (k < 0) return;
+      var gone = BUDGET.pending.splice(k, 1)[0];
+      offerUndo(gone.name + ' taken off the purchase.', function () { BUDGET.pending.splice(k, 0, gone); });
+    },
+    'pend-clear': function () {
+      var gone = BUDGET.pending.slice();
+      BUDGET.pending.length = 0;
+      offerUndo(gone.length + ' ' + plural(gone.length, 'item') + ' discarded. Your list is untouched.',
+        function () { Array.prototype.push.apply(BUDGET.pending, gone); });
+    },
+    'save-pending': function () {
+      /* Read every price out of the form first, so a typo in one row does
+         not lose what was typed into the others. */
+      BUDGET.pending.forEach(function (i) {
+        var el = document.getElementById('pp-' + i.id);
+        if (!el) return;
+        var v = parseFloat(el.value);
+        i.price = (isNaN(v) || v < 0) ? null : v;
+      });
+      var sel = document.getElementById('pend-store');
+      var store = !sel ? '' : sel.value === 'other' ? 'Other'
+        : (MYSTORES.filter(function (x) { return x.id === sel.value; })[0] || {}).name || '';
+      var priced = BUDGET.pending.filter(function (i) { return i.price !== null; });
+      if (!priced.length) { S.pendError = 'Type what at least one of them cost.'; return; }
+      if (!store) { S.pendError = 'Pick a store, or Other.'; return; }
+      S.pendError = null;
+      var total = priced.reduce(function (a, i) { return a + i.price * i.qty; }, 0);
+      BUDGET.history.unshift({
+        id: 'l' + Date.now(), store: store, date: NOW_ISO, ms: NOW, when: whenOf(NOW_ISO),
+        total: Math.round(total * 100) / 100,
+        /* Its own source, so the history says where the purchase came
+           from. The filter chips already know this word. */
+        source: 'list',
+        items: priced.map(function (i) { return { n: i.name, q: i.qty, p: i.price }; })
+      });
+      priced.forEach(function (i) { intoPantry(i.name, i.qty, store); });
+      BUDGET.pending = BUDGET.pending.filter(function (i) { return i.price === null; });
+      flash(usd(total) + ' at ' + store + ' logged from your list.' +
+        (BUDGET.pending.length ? ' ' + BUDGET.pending.length + ' with no price ' +
+          (BUDGET.pending.length === 1 ? 'is' : 'are') + ' still waiting.' : ''));
+    },
+
+    'edit-target': function () { S.editTarget = !S.editTarget; S.targetError = null; },
     'save-target': function () {
       var v = parseFloat(document.getElementById('target').value);
-      if (isNaN(v) || v < 0) return;
-      BUDGET.weeklyTarget = v; S.editTarget = false;
+      /* Says why. A negative or empty target used to return silently: the
+         button did nothing, the form stayed open, and nothing on screen said
+         the save had been refused or what would be accepted. */
+      if (isNaN(v)) { S.targetError = 'Put a number in, or zero for no target.'; return; }
+      if (v < 0) { S.targetError = 'A weekly target cannot be negative. Zero means no target.'; return; }
+      BUDGET.weeklyTarget = v; S.editTarget = false; S.targetError = null;
     },
     /* The form opens clean. The error sentence survived a collapse and a
        reopen, so an untouched form said "What did you buy?" before the
        reader had a chance to buy anything. */
+
     'add-purchase': function () { S.addOpen = !S.addOpen; S.purchaseError = null; },
     /* Writes. It closed the form and wrote nothing, so the history and the
        week's total both stayed exactly where they were. */
@@ -1351,33 +2068,96 @@
       if (!name) { S.purchaseError = 'What did you buy?'; return; }
       if (isNaN(price) || price < 0) { S.purchaseError = 'A price, so the week adds up.'; return; }
       if (!store) { S.purchaseError = 'Pick a store, or Other.'; return; }
-      BUDGET.history.unshift({ id: 'p' + Date.now(), store: store, when: 'Today', daysAgo: 0,
-        total: price * qty, source: 'manual', items: [{ n: name, q: qty, p: price * qty }] });
+      /* The line total went into the item's PRICE, so a purchase of two
+         tubs of yogurt at $3.50 rendered as "2x Greek yogurt -- $7.00" in a
+         history whose seeded rows are unit prices. The total is the line
+         total; the price is what one of them cost. */
+      BUDGET.history.unshift({ id: 'p' + Date.now(), store: store, date: NOW_ISO, ms: NOW,
+        when: whenOf(NOW_ISO), total: price * qty,
+        /* A purchase typed off a photographed receipt is a receipt, and the
+           Receipts filter is the one place it can be found again. */
+        source: S.photo ? 'receipt' : 'manual',
+        items: [{ n: name, q: qty, p: price }] });
+
+      /* What you bought is now in the house, so the pantry hears it too, and
+         a staple's restock clock starts again from this purchase. The
+         pantry only used to hear about invented receipts. */
+      intoPantry(name, qty, store);
+      var hadPhoto = !!S.photo;
+      discardPhoto();
       S.addOpen = false; S.purchaseError = null;
+      flash(usd(price * qty) + ' at ' + store + ' logged, and ' + name + ' is in your pantry.' +
+        (hadPhoto ? ' The photo is done with.' : ''));
     },
-    'scan-cam': function () { S.receipt = 'ok'; },
-    'scan-lib': function () { S.receipt = 'none'; },
-    'scan-cancel': function () { S.receipt = null; },
-    'receipt-save': function () {
-      var sel = document.getElementById('r-store');
-      var store = (MYSTORES.filter(function (x) { return x.id === sel.value; })[0] || {}).name || 'Unknown store';
-      BUDGET.history.unshift({ id: 'r' + Date.now(), store: store, when: 'Today', daysAgo: 0,
-        total: RECEIPT.total, source: 'receipt',
-        items: RECEIPT.items.map(function (i) { return { n: i.n, q: i.q, p: i.p }; }) });
-      /* A receipt says what is now in the house, so the pantry hears it too. */
-      RECEIPT.items.forEach(function (i) {
-        var have = PANTRY.filter(function (x) { return x.name.toLowerCase() === i.n.toLowerCase(); })[0];
-        if (have) { have.qty = i.q; have.empty = false; have.store = store; }
-        else PANTRY.push({ id: 'p' + Date.now() + i.n, name: i.n, qty: i.q, cat: categorise(i.n),
-                           store: store, staple: false, every: 7, empty: false });
+
+    /* F-BUDG-005. The buttons are the controls; the file inputs behind them
+       are what can actually open a camera or a photo library. */
+    'scan-cam': function () { var i = document.getElementById('r-cam'); if (i) i.click(); },
+    'scan-lib': function () { var i = document.getElementById('r-lib'); if (i) i.click(); },
+    'photo-discard': function () { discardPhoto(); flash('Photo discarded. It was never sent anywhere.'); },
+    'photo-type': function () { S.addOpen = true; S.purchaseError = null; },
+
+    /* A line the reader says is not on the paper. A receipt read by a
+       model gets one wrong sooner or later, and the only moment anybody
+       can catch it is here, with the paper still in their hand. */
+    'line-drop': function (el) {
+      var i = Number(el.getAttribute('data-i'));
+      if (!S.readLines || !S.readLines[i]) return;
+      S.readLines = S.readLines.filter(function (_, k) { return k !== i; });
+      if (!S.readLines.length) {
+        S.readState = 'empty';
+        S.readWhy = 'Every line was dropped. Type it in instead, or discard the photo.';
+      }
+    },
+
+    /* WHAT WAS READ, WRITTEN, ONLY WHEN ASKED. Nothing lands in the
+       history or the pantry until this is pressed: a receipt that saved
+       itself on arrival would put a model's reading of somebody's
+       shopping into their spending with no step in between. It writes the
+       same two places a typed purchase does, and says it came from a
+       receipt so the history can tell them apart. */
+    'lines-save': function () {
+      if (!S.readLines || !S.readLines.length) return;
+      /* The store the receipt names, but only if it is one of theirs. A
+         name the app has never seen is not invented into the history:
+         the shop it defaults to is one they actually use. */
+      var named = null;
+      if (S.readStore) {
+        var want = String(S.readStore).toLowerCase();
+        MYSTORES.forEach(function (m) {
+          if (!named && String(m.name).toLowerCase().indexOf(want) !== -1) named = m.name;
+          if (!named && want.indexOf(String(m.name).toLowerCase()) !== -1) named = m.name;
+        });
+      }
+      var store = named || (onStores()[0] && onStores()[0].name) ||
+                  (MYSTORES[0] && MYSTORES[0].name) || 'Unknown store';
+      var total = S.readLines.reduce(function (a, l) { return a + l.price * l.qty; }, 0);
+      BUDGET.history.unshift({
+        id: 'r' + Date.now(), store: store, date: NOW_ISO, ms: NOW, when: whenOf(NOW_ISO),
+        total: Math.round(total * 100) / 100,
+        source: 'receipt',
+        items: S.readLines.map(function (l) { return { n: l.name, q: l.qty, p: l.price }; })
       });
-      S.receipt = null;
+      S.readLines.forEach(function (l) { intoPantry(l.name, l.qty, store); });
+      var n = S.readLines.length;
+      discardPhoto();
+      flash(usd(total) + ' at ' + store + ' saved from the receipt, ' + n +
+        (n === 1 ? ' line' : ' lines') + ', and the pantry updated.');
     },
-    /* Both read the fixture rather than the network — there is no network in
-       this build — but they say so and they render, instead of being a
-       button that swallows a tap. */
-    compare: function () { S.compared = document.getElementById('cmp').value.trim() || 'chicken breast'; },
-    'find-swaps': function () { S.swapsShown = true; },
+
+    /* Both of these read this screen's own history rather than the network,
+       because there is no network in this build. They render what they find
+       and say what they cannot know, instead of writing a flag nothing read:
+       S.compared and S.swapsShown were both written by a button and read by
+       nothing at all. */
+    compare: function () {
+      var q = (document.getElementById('cmp') || {}).value || '';
+      q = q.trim();
+      if (!q) { S.compare = null; S.compareError = 'Type something you buy, and this says what you paid.'; return; }
+      S.compareError = null;
+      S.compare = { q: q, rows: paidFor(q) };
+    },
+    'find-swaps': function () { S.swaps = swapsFor(); },
     'del-hist': function (el) {
       var k = BUDGET.history.map(function (h) { return h.id; }).indexOf(el.dataset.id);
       if (k < 0) return;
@@ -1396,33 +2176,95 @@
         i.empty = !i.empty;
         var k = LIST.map(function (x) { return x.name.toLowerCase(); }).indexOf(i.name.toLowerCase());
         /* Running out puts it on the list. Restocking takes it off, because
-           the reason it was on the list has gone. */
-        if (i.empty && k < 0) LIST.push({ id: 'n' + Date.now(), name: i.name, qty: i.qty, unit: 'qty', cat: i.cat, done: false });
-        if (!i.empty && k > -1) LIST.splice(k, 1);
+           the reason it was on the list has gone -- but taking a row off the
+           shopping list is a delete, and it happened silently under a row
+           labelled "I have restocked it". Every other delete on this screen
+           is undoable; so is this one. */
+        if (i.empty && k < 0) {
+          LIST.push({ id: 'n' + Date.now(), name: i.name, qty: i.qty, unit: 'qty',
+                      cat: i.cat, added: NOW_ISO, done: false });
+          S.sheet = null;
+          offerUndo(i.name + ' added to the list.', function () {
+            i.empty = false;
+            var j = LIST.map(function (x) { return x.name.toLowerCase(); }).indexOf(i.name.toLowerCase());
+            if (j > -1) LIST.splice(j, 1);
+          });
+          return;
+        }
+        /* Restocking is the purchase this staple's cycle runs from. Without
+           it a staple that had just been restocked was still overdue, and
+           rejoined the list the moment it came off it. */
+        if (!i.empty) i.lastBought = NOW_ISO;
+        if (!i.empty && k > -1) {
+          var gone = LIST.splice(k, 1)[0];
+          S.sheet = null;
+          offerUndo(gone.name + ' taken off the list.', function () {
+            i.empty = true;
+            LIST.splice(k, 0, gone);
+          });
+          return;
+        }
       });
       S.sheet = null;
     },
+
+    /* Puts the out-of-stock items that are NOT on the list onto it. The
+       banner used to assert they were already there. */
+    'pan-add-missing': function () {
+      var on = {};
+      LIST.forEach(function (i) { on[i.name.toLowerCase()] = true; });
+      var added = [];
+      PANTRY.forEach(function (i) {
+        if (!i.empty || on[i.name.toLowerCase()]) return;
+        var row = { id: 'n' + Date.now() + '-' + added.length, name: i.name, qty: i.qty || 1,
+                    unit: 'qty', cat: i.cat, added: NOW_ISO, done: false };
+        LIST.push(row); added.push(row);
+      });
+      if (!added.length) { flash('They are all on the list already.'); return; }
+      offerUndo(added.length === 1 ? added[0].name + ' added to the list.'
+                                   : added.length + ' items added to the list.',
+        function () {
+          added.forEach(function (row) {
+            var j = LIST.indexOf(row);
+            if (j > -1) LIST.splice(j, 1);
+          });
+        });
+    },
     'pan-staple': function (el) {
-      PANTRY.forEach(function (i) { if (i.id === el.dataset.id) i.staple = !i.staple; });
+      PANTRY.forEach(function (i) {
+        if (i.id !== el.dataset.id) return;
+        i.staple = !i.staple;
+        /* F-SHOP-028. How often you actually buy it, from the gaps between
+           the matching purchases in your history; a week when the history
+           cannot say. The interval is kept when it is switched off, so
+           switching it back on does not forget what was set. */
+        if (i.staple && !i.every) i.every = suggestRestockInterval(i.name) || 7;
+      });
+      staplesDue();
     },
     'pan-interval-save': function (el) {
       var v = parseInt(document.getElementById('iv-' + el.dataset.id).value, 10);
       if (isNaN(v) || v < 1 || v > 365) { S.intervalError = el.dataset.id; return; }
       PANTRY.forEach(function (i) { if (i.id === el.dataset.id) i.every = v; });
       S.intervalError = null;
+      /* A shorter interval can make it overdue as you set it. */
+      staplesDue();
     },
     'pan-to-list': function (el) {
       var it = PANTRY.filter(function (i) { return i.id === el.dataset.id; })[0];
       S.sheet = null;
       if (!it || LIST.some(function (i) { return i.name.toLowerCase() === it.name.toLowerCase(); })) return;
-      LIST.push({ id: 'n' + Date.now(), name: it.name, qty: it.qty, unit: 'qty', cat: it.cat, done: false });
+      LIST.push({ id: 'n' + Date.now(), name: it.name, qty: it.qty, unit: 'qty',
+                  cat: it.cat, added: NOW_ISO, done: false });
     },
     'pan-add': function () {
-      var n = document.getElementById('pan-name').value.trim();
-      if (!n) return;
-      PANTRY.unshift({ id: 'p' + Date.now(), name: n.charAt(0).toUpperCase() + n.slice(1),
+      var n = normaliseName(document.getElementById('pan-name').value);
+      if (!n) { S.pantryError = 'What is it called?'; return; }
+      S.pantryError = null;
+      PANTRY.unshift({ id: 'p' + Date.now(), name: n,
         qty: parseInt(document.getElementById('pan-qty').value, 10) || 1,
-        cat: categorise(n), store: '', staple: false, every: 7, empty: false });
+        cat: categorise(n), store: '', staple: false, every: 0, empty: false,
+        added: NOW_ISO, lastBought: '', lastAutoAdded: '' });
     },
     'pan-remove': function (el) {
       var k = PANTRY.map(function (i) { return i.id; }).indexOf(el.dataset.id);
@@ -1451,10 +2293,18 @@
     'add-custom': function () {
       var n = document.getElementById('cs-name').value.trim();
       var u = document.getElementById('cs-url').value.trim();
-      if (!n || !u) return;
-      MYSTORES.push({ id: 's' + Date.now(), name: n, host: u.replace(/^https?:\/\//, ''),
+      if (!n && !u) { S.storeError = 'A name and a website, so the list can search it.'; return; }
+      if (!n) { S.storeError = 'What is the shop called?'; return; }
+      if (!u) { S.storeError = 'Its website, so your list can search it. Just the address is enough.'; return; }
+      S.storeError = null;
+      MYSTORES.push({ id: 's' + Date.now(), name: n,
+        host: u.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''),
         about: document.getElementById('cs-about').value.trim(),
         hue: nextHue(), on: true });
+      document.getElementById('cs-name').value = '';
+      document.getElementById('cs-url').value = '';
+      document.getElementById('cs-about').value = '';
+      flash(n + ' added. Every item on your list can search it now.');
     },
 
     close: function () { S.sheet = null; },
@@ -1467,6 +2317,123 @@
       setTimeout(function () { S.state = 'populated'; render(); }, 700);
     }
   };
+
+  /* The photo is this session's, not the reader's data: it is never written
+     to the store, and the object URL it is drawn from is handed back to the
+     browser when it goes. */
+  /* A purchase lands in the pantry, whichever form it was typed into: it is
+     in the house now, and a staple's restock clock starts again from it.
+     Both the single-purchase form and the list import write through here, so
+     the two cannot come to mean different things. */
+  function intoPantry(name, qty, store) {
+    var have = PANTRY.filter(function (x) { return x.name.toLowerCase() === name.toLowerCase(); })[0];
+    if (have) {
+      have.qty = (have.qty || 0) + qty;
+      have.empty = false;
+      have.store = store;
+      have.lastBought = NOW_ISO;
+      return have;
+    }
+    var row = { id: 'p' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), name: name,
+                qty: qty, cat: categorise(name), store: store, staple: false, every: 0,
+                empty: false, added: NOW_ISO, lastBought: NOW_ISO, lastAutoAdded: '' };
+    PANTRY.unshift(row);
+    return row;
+  }
+
+  function discardPhoto() {
+    if (S.photo && S.photo.url) {
+      try { URL.revokeObjectURL(S.photo.url); } catch (e) {}
+    }
+    S.photo = null;
+    S.readState = 'idle'; S.readWhy = null; S.readLines = null;
+  }
+
+  /* Downscaled before it goes: a receipt photo is several megabytes and
+     the lines are legible long before that. */
+  function shrinkShot(file, cb) {
+    try {
+      var img = new Image();
+      var url = URL.createObjectURL(file);
+      img.onload = function () {
+        try {
+          var max = 1400;              /* taller than a plate: the text has to stay readable */
+          var w = img.width, h = img.height;
+          var f = Math.min(1, max / Math.max(w, h));
+          var cv = document.createElement('canvas');
+          cv.width = Math.round(w * f); cv.height = Math.round(h * f);
+          cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+          cb(cv.toDataURL('image/jpeg', 0.85));
+        } catch (e) { cb(null); }
+        try { URL.revokeObjectURL(url); } catch (e) {}
+      };
+      img.onerror = function () { try { URL.revokeObjectURL(url); } catch (e) {} cb(null); };
+      img.src = url;
+    } catch (e) { cb(null); }
+  }
+
+  function readReceipt(file) {
+    var C = window.LKCloud;
+    if (!C || !C.ready() || !C.vision) {
+      S.readState = 'nosrv';
+      S.readWhy = 'Reading a receipt needs a server, and this build reaches none. ' +
+                  'The photo has not left this phone; type the lines in beside it.';
+      render();
+      return;
+    }
+    S.readState = 'reading'; S.readWhy = null; S.readLines = null; render();
+    shrinkShot(file, function (dataUrl) {
+      if (!dataUrl) {
+        S.readState = 'error';
+        S.readWhy = 'That photo could not be opened on this phone, so nothing was sent.';
+        render();
+        return;
+      }
+      C.vision('receipt', dataUrl).then(function (r) {
+        if (!S.photo) return;                 /* discarded while it was reading */
+        if (!r || !r.ok) {
+          S.readState = 'error';
+          S.readWhy = (r && r.message) || 'The read did not come back. Type the lines in instead.';
+          render();
+          return;
+        }
+        var d = r.data || {};
+        var items = Array.isArray(d.items) ? d.items : Array.isArray(d) ? d : [];
+        S.readLines = items.slice(0, 60).map(function (it) {
+          return {
+            name: String(it.name || 'Item').slice(0, 60),
+            price: Math.max(0, Math.round((Number(it.price) || 0) * 100) / 100),
+            qty: Math.max(1, Math.min(99, parseInt(it.qty, 10) || 1))
+          };
+        }).filter(function (l) { return l.price > 0; });
+        /* The store the receipt names, if the screen knows it. A store it
+           has never seen is not invented into the list. */
+        if (d.store) S.readStore = String(d.store).slice(0, 40);
+        S.readState = S.readLines.length ? 'done' : 'empty';
+        if (!S.readLines.length) {
+          S.readWhy = 'Nothing on that photo read as a priced line. Type them in instead.';
+        }
+        render();
+      }, function () {
+        if (!S.photo) return;
+        S.readState = 'error';
+        S.readWhy = 'The read could not be reached. Type the lines in instead.';
+        render();
+      });
+    });
+  }
+
+  /* Runs the staple check and says what it did. Silence would be wrong here:
+     a row appearing on your list without being asked for needs a sentence
+     saying why it is there. */
+  function staplesDue() {
+    var due = autoAddDueStaples();
+    if (!due.length) return due;
+    flash(due.length === 1
+      ? due[0] + ' is due and has rejoined your list.'
+      : due.length + ' staples are due and have rejoined your list.');
+    return due;
+  }
 
   /* The lowest hue nobody is using. Deriving it from the list's LENGTH looked
      equivalent and was not: the three seeded stores are id-1, id-4 and id-2,
@@ -1513,8 +2480,29 @@
     var a = el.getAttribute('data-action');
     fn(el);
     if (a === 'retry') return;
-    /* An action that only opens or closes an overlay repaints the overlay. */
+    /* An action that only opens or closes an overlay repaints the overlay,
+       and changes nothing there is to write down. */
     if (OVERLAY_ONLY[a]) { renderOverlay(); return; }
+    persist();
+    render();
+  });
+
+  /* The receipt photo. Nothing is uploaded and nothing is read off it: the
+     file is turned into a URL this page can draw and that is the whole of
+     it. The input is cleared so that choosing the same file twice in a row
+     still fires a change. */
+  document.addEventListener('change', function (e) {
+    var el = e.target;
+    if (!el || (el.id !== 'r-cam' && el.id !== 'r-lib')) return;
+    var f = el.files && el.files[0];
+    el.value = '';
+    if (!f) return;
+    discardPhoto();
+    var url = '';
+    try { url = URL.createObjectURL(f); } catch (err) {}
+    if (!url) { flash('That file could not be opened. Nothing was lost.'); render(); return; }
+    S.photo = { name: f.name || 'Receipt photo', url: url };
+    readReceipt(f);
     render();
   });
 
@@ -1527,7 +2515,12 @@
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && S.sheet) { S.sheet = null; render(); }
     if (e.key === 'Enter' && e.target && e.target.id === 'add-name') {
-      e.preventDefault(); ACT['add-item'](); render();
+      e.preventDefault(); ACT['add-item'](); persist(); render();
+    }
+    /* Enter in a search box searches. It did nothing, which on a field with
+       enterkeyhint="search" is a promise the screen did not keep. */
+    if (e.key === 'Enter' && e.target && e.target.id === 'cmp') {
+      e.preventDefault(); ACT.compare(); render();
     }
   });
 
@@ -1543,25 +2536,43 @@
     menu.hidden = !open;
     this.setAttribute('aria-expanded', String(open));
   });
-  /* Switching states rebuilds the fixture rather than hiding it, so anything
-     added from the empty state stays added and the screen actually leaves
-     that state. */
-  function setState(name) {
+  /* Switching states rebuilds from the fixture rather than hiding it, so
+     every panel can be seen full and empty and the screen actually leaves
+     the state it is in.
+
+     `fresh` says the dev switcher asked for it. A dev state is a picture of
+     a data condition rather than the reader's data, so it is built from the
+     fixture and nothing is read back from the store over it -- and from that
+     point on this page stops writing, because the empty state is not an
+     instruction to delete anybody's list. */
+  function setState(name, fresh) {
     S.state = name;
     S.sheet = null;
-    LIST.length = 0; PANTRY.length = 0; MYSTORES.length = 0;
-    if (name !== 'empty') {
-      Array.prototype.push.apply(LIST, FIXTURE.list.map(function (x) { return Object.assign({}, x); }));
-      Array.prototype.push.apply(PANTRY, FIXTURE.pantry.map(function (x) { return Object.assign({}, x); }));
-      Array.prototype.push.apply(MYSTORES, FIXTURE.stores.map(function (x) { return Object.assign({}, x); }));
-    }
+    if (fresh || name !== 'populated') demo = true;
+    load(fresh);
+    if (name === 'empty') { LIST.length = 0; PANTRY.length = 0; MYSTORES.length = 0; }
+    else if (staplesDue().length) persist();
     render();
   }
 
   menu.addEventListener('click', function (e) {
     var b = e.target.closest('.dev__item');
     if (!b) return;
-    setState(b.dataset.state);
+    setState(b.dataset.state, true);
+  });
+
+  /* F-SHARED-004. The boundary. A throw anywhere on this screen used to
+     leave it frozen mid-shop with no way forward; it now lands in the error
+     state this screen already has, which says the list is on the device and
+     is not lost -- because it is, and it is not. */
+  window.addEventListener('error', function (e) {
+    /* Only when this screen is the one on screen: in the demo every screen
+       shares one window, and another screen's throw is not this screen's
+       error. A hidden screen's root has no client rects. */
+    if (!screen.getClientRects().length) return;
+    if (!e || !e.message || S.state === 'error') return;
+    S.state = 'error';
+    try { render(); } catch (err) {}
   });
 
   var q = new URLSearchParams(location.search);

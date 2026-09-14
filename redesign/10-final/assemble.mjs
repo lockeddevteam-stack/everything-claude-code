@@ -42,7 +42,28 @@ const MANIFEST = {
      objects for every screen, exactly as the two stylesheets are one parsed
      copy adopted by every root. Order matters: bodymap.js reads the art at
      load and throws if it is not there yet. */
-  js: ['theme.js', 'app.js', 'chrome.js', 'vendor/body-art.js', 'bodymap.js'],
+  /* session.js and fixtures.js belong here for the same reason: they define
+     one global each (LKSession, LKFixtures) that sixteen screens read. Both
+     were linked by the standalone screens and missing from this list, so in
+     the demo every `if (window.LKSession)` guard failed silently and the
+     session shelf did not exist on any route. */
+  /* cloud-config.js before cloud.js: the seam reads window.LK_CLOUD on
+     every call, but a screen that asks ready() during its own load would
+     get false and paint the no-server state permanently.
+     tutor-steps.js before tutor.js, and both at page level rather than
+     inside a screen: the walkthrough is a layer ABOVE every shadow root
+     and reaches into them, so it cannot live in one of them.
+     store.js before cloud.js: the cloud seam reads the session out of the
+     store on load. coach-actions.js before any screen that renders a coach
+     card, for the same reason.
+     exercises.js before store.js: store.js runs the migrations as it
+     loads, and the one that puts a name on a record and on a split day
+     reads the catalogue. Loaded after, the catalogue is not there when it
+     is wanted and the migration has to wait for the next boot. */
+  js: ['theme.js', 'app.js', 'chrome.js', 'vendor/body-art.js', 'bodymap.js',
+       'session.js', 'fixtures.js', 'exercises.js', 'store.js', 'units.js',
+       'cloud-config.js', 'cloud.js', 'coach-actions.js',
+       'tutor-steps.js', 'tutor.js'],
 
   /* Files in srcDir that are not app screens. */
   exclude: [/^mockup-/],
@@ -98,15 +119,25 @@ const MANIFEST = {
      source screen's shadow root; the demo takes the click before the screen's
      own handler sees it. */
   nav: [
-    { from: 'home', selector: '[data-testid="primary-action"]', to: 'train', mode: 'tab' },
+    { from: 'home', selector: '[data-testid="primary-action"]', to: 'workout-log', mode: 'push' },
     { from: 'home', selector: '[data-testid="action-choose-session"]', to: 'train', mode: 'tab' },
-    { from: 'home', selector: '[data-testid="row-last-session"]', to: 'train', mode: 'tab' },
+    /* Both rows name one session and open it. row-last-session went to the
+       list of every session instead, and row-recent and See all were in no
+       manifest row at all -- so in the demo they left for a file that is not
+       beside locked-demo.html and the whole demo died on the tap. */
+    { from: 'home', selector: '[data-testid="row-last-session"]', to: 'workout-detail', mode: 'push' },
+    { from: 'home', selector: '[data-testid="row-recent"]', to: 'workout-detail', mode: 'push' },
+    { from: 'home', selector: '[data-testid="recent-see-all"]', to: 'train', mode: 'tab' },
     { from: 'home', selector: '[data-testid="row-climbing-lift"]', to: 'progress', mode: 'push' },
     { from: 'home', selector: '[data-testid="row-recap"]', to: 'recap', mode: 'push' },
     /* Every session row on the recap, at all three scales, opens that
        session. Same destination as a history row on Train. */
     { from: 'recap', selector: '[data-action="open-session"]', to: 'workout-detail', mode: 'push' },
     { from: 'fuel', selector: '[data-testid="chip-stack"]', to: 'stack', mode: 'push' },
+    /* Into the walkthrough from Settings' Help row, which is the only route
+       to it: nothing opened tutorial.html at all. */
+    { from: 'settings', selector: '[data-testid="row-tutorial"]', to: 'tutorial', mode: 'push' },
+    { from: 'settings', selector: '[data-testid="row-tutorial-tour"]', to: 'tutorial', mode: 'push' },
     { from: 'tutorial', selector: '[data-testid="tut-skip"]', to: 'home', mode: 'tab' },
     { from: 'tutorial', selector: '[data-testid="tut-finish"]', to: 'home', mode: 'tab' },
     { from: 'train', selector: '[data-action="open-library"]', to: 'exercise-library', mode: 'push' },
@@ -114,14 +145,41 @@ const MANIFEST = {
     { from: 'train', selector: '[data-action="edit-split"]', to: 'split-builder', mode: 'push' },
     { from: 'coach', selector: '[data-act="open-split"]', to: 'split-builder', mode: 'push' },
     { from: 'coach', selector: '[data-testid="plan-start"]', to: 'train', mode: 'tab' },
+    /* The plan-binding toast's own action. On the shared toast-action id this
+       crossing could not be declared without claiming every Undo on the
+       screen, so it was not declared and its raw location.href took the demo
+       with it. */
+    { from: 'coach', selector: '[data-testid="toast-open-train"]', to: 'train', mode: 'tab' },
     { from: 'home', selector: '[data-testid="open-account"]', to: 'settings', mode: 'push' },
     { from: 'train', selector: '[data-action="start-today"]', to: 'workout-log', mode: 'push' },
-    { from: 'workout-log', selector: '[data-testid="btn-finish"]', to: 'review', mode: 'push' },
+    /* endsSession: the router swallows this click before the screen's own
+       handler runs -- it has to, because that handler navigates with
+       location.href and would take the whole demo with it. But that handler is
+       also what ends the live session, so swallowing it left every route
+       offering to Resume the workout you had just finished. The router does
+       the ending itself instead. */
+    { from: 'workout-log', selector: '[data-testid="btn-finish"]', to: 'review', mode: 'push', endsSession: true },
     { from: 'fuel', selector: '[data-testid="chip-more"]', to: 'shopping', mode: 'push' },
     { from: 'progress', selector: '[data-testid="empty-action"]', to: 'train', mode: 'tab' },
     { from: 'profile', selector: '[data-testid="open-settings"]', to: 'settings', mode: 'push' },
     /* Onboarding is a seventeen-step flow that nothing pushed. A guest had
        no way to become an account holder from inside the app. */
+    /* Out of onboarding and into the app. The last screen's two controls
+       carried no handler, so the flow ended there with the app behind them. */
+    { from: 'onboarding', selector: '[data-testid="overview-start"]', to: 'workout-log', mode: 'push' },
+    { from: 'onboarding', selector: '[data-testid="overview-freestyle"]', to: 'workout-log', mode: 'push' },
+    { from: 'onboarding', selector: '[data-testid="overview-week"]', to: 'train', mode: 'tab' },
+    /* Settings' guest card offers the same upgrade Profile's does, and it
+       navigates for real now rather than toasting. */
+    /* Cycle's rough-day card offers to open Train, which is the point of it:
+       the guidance is about today's session. */
+    { from: 'cycle', selector: '[data-testid="open-train"]', to: 'train', mode: 'tab' },
+    /* Out of onboarding and back to the app, for a reader who opened it
+       from Settings or Profile and already has one. Hidden on a genuine
+       first run, where there is nothing behind it. */
+    { from: 'onboarding', selector: '[data-testid="welcome-back"]', to: 'home', mode: 'tab' },
+    { from: 'settings', selector: '[data-testid="create-account"]', to: 'onboarding', mode: 'push' },
+    { from: 'settings', selector: '[data-testid="sign-in"]', to: 'onboarding', mode: 'push' },
     { from: 'profile', selector: '[data-testid="signup"]', to: 'onboarding', mode: 'push' },
     { from: 'profile', selector: '[data-testid="start-first"]', to: 'onboarding', mode: 'push' },
     /* The session shelf exists so a running session is not lost. It used to
@@ -137,6 +195,11 @@ const MANIFEST = {
     { from: 'coach', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'profile', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'progress', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    /* The library's own way out. Without it the screen could only be left
+       with the browser's back gesture, which an installed app does not have. */
+    { from: 'exercise-library', selector: '[data-testid="library-exit"]', to: 'train', mode: 'tab' },
+    /* Progress had no exit of its own either. Same arrow, same place. */
+    { from: 'progress', selector: '[data-action="progress-back"]', to: 'home', mode: 'tab' },
     { from: 'exercise-library', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'shopping', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'cycle', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
@@ -144,6 +207,10 @@ const MANIFEST = {
     { from: 'split-builder', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'workout-detail', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'review', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
+    /* Save used to end on a disabled button. Done is the way out of a
+       finished session, and it goes to Home rather than back to the log,
+       because the log is the thing that just ended. */
+    { from: 'review', selector: '[data-testid="action-done"]', to: 'home', mode: 'tab' },
     { from: 'recap', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     { from: 'stack', selector: '[data-testid="shelf-resume"]', to: 'workout-log', mode: 'push' },
     /* Coach's "open this lift in Progress", and Train's session-picker day.
@@ -459,6 +526,44 @@ const RUNTIME = String.raw`
     return rec;
   }
 
+  function failBoundary(rec, err) {
+    try {
+      var label = (rec.label || rec.id || 'This screen');
+      var host = document.createElement('div');
+      host.setAttribute('data-testid', 'screen-error');
+      host.setAttribute('role', 'alert');
+      host.style.cssText = 'padding:24px;display:flex;flex-direction:column;gap:12px;' +
+        'align-items:flex-start;font:15px/1.4 -apple-system,BlinkMacSystemFont,system-ui,sans-serif';
+      var h = document.createElement('p');
+      h.style.cssText = 'font-weight:600;margin:0';
+      h.textContent = label + ' could not start.';
+      var p1 = document.createElement('p');
+      p1.style.cssText = 'margin:0;opacity:.7';
+      p1.textContent = 'Nothing you have saved is affected, and the other screens still work. ' +
+        'The tab bar below will take you to them.';
+      var p2 = document.createElement('p');
+      p2.style.cssText = 'margin:0;opacity:.55;font-size:13px;font-family:ui-monospace,monospace';
+      p2.textContent = String((err && err.message) || err || 'Unknown error');
+      var b2 = document.createElement('button');
+      b2.type = 'button';
+      b2.setAttribute('data-testid', 'screen-error-retry');
+      b2.style.cssText = 'min-height:44px;padding:0 18px;border-radius:10px;border:1px solid currentColor;' +
+        'background:none;color:inherit;font:inherit';
+      b2.textContent = 'Try again';
+      b2.addEventListener('click', function () {
+        rec.booted = false;
+        if (rec.root) rec.root.innerHTML = '';
+        boot(rec);
+      });
+      host.appendChild(h); host.appendChild(p1); host.appendChild(p2); host.appendChild(b2);
+      if (rec.root) { rec.root.innerHTML = ''; rec.root.appendChild(host); }
+    } catch (e2) {
+      /* The boundary itself must never throw, or the failure it is reporting
+         becomes two failures and the page goes blank. */
+      console.error('[demo] error boundary failed', e2);
+    }
+  }
+
   function boot(rec) {
     if (rec.booted || !defs[rec.id]) { rec.booted = true; return; }
     rec.booted = true;
@@ -468,6 +573,14 @@ const RUNTIME = String.raw`
       defs[rec.id](doc, scopedWindow(rec, doc), window.location, scopedFetch(rec.id));
     } catch (err) {
       console.error('[demo] ' + rec.id + ' failed to boot', err);
+      /* SOMETHING ON THE SCREEN. A screen that threw on boot left its root
+         empty, so the page rendered the word "SCREENS" and the error went to
+         a console nobody on a phone can open. A reader cannot tell that from
+         a screen that has genuinely finished loading and has nothing to say.
+
+         The rest of the app keeps working: one screen failing is not a
+         reason to take the other seventeen down with it. */
+      failBoundary(rec, err);
     }
     var after = Object.getOwnPropertyNames(window);
     for (var i = 0; i < after.length; i++) {
@@ -506,6 +619,14 @@ const RUNTIME = String.raw`
   function parseHash(h) {
     var raw = (h === undefined ? (location.hash || '') : (h || '')).replace(/^#\/?/, '');
     var parts = raw.split('/').filter(Boolean);
+    /* A bare screen id in the first segment is a pushed screen over its own
+       parent tab. Only a tab id was accepted here, so #/onboarding -- which
+       is exactly what the first-run gate sets -- fell back to Home and a
+       brand-new reader landed on a stranger's five weeks of training. */
+    if (parts[0] && !tabOf(parts[0]) && screens[parts[0]]) {
+      var owner = (PUSHED[parts[0]] && PUSHED[parts[0]].parent) || TABS[0].id;
+      return { base: tabOf(owner) ? owner : TABS[0].id, top: parts[0] };
+    }
     var base = tabOf(parts[0]) ? parts[0] : TABS[0].id;
     var top = parts[1] && screens[parts[1]] ? parts[1] : null;
     return { base: base, top: top };
@@ -537,6 +658,16 @@ const RUNTIME = String.raw`
     current = id;
     /* Charts and any other size-derived drawing redraw once visible. */
     window.dispatchEvent(new Event('resize'));
+    /* A screen is entered, not merely un-hidden. In the demo every screen
+       stays mounted for the life of the page, so a screen with a lifecycle --
+       the workout log, which has to know it is being opened for a new session
+       rather than still showing a finished one -- has no other way to hear it.
+       Screens listen with document.addEventListener('lk:enter'), which their
+       scoped document routes to their own root. */
+    var er = screens[id];
+    if (er && er.booted && er.root) {
+      try { er.root.dispatchEvent(new CustomEvent('lk:enter', { detail: { id: id } })); } catch (e) {}
+    }
   }
 
   function syncTabs(route) {
@@ -639,8 +770,20 @@ const RUNTIME = String.raw`
       for (var i = 0; i < CFG.nav.length; i++) {
         var n = CFG.nav[i];
         if (n.from !== rec.id) continue;
-        if (hit(n.selector)) {
+        var crossed = hit(n.selector);
+        if (crossed) {
           e.preventDefault(); e.stopPropagation();
+          /* The screen's own handler is never going to run -- it navigates
+             with location.href and would take the demo with it -- so tell the
+             screen the crossing is happening and let it hand over first.
+             Without this the log's Finish wrote no lk_lastSession and Review
+             opened on a session nobody had done. */
+          try {
+            rec.root.dispatchEvent(new CustomEvent('lk:handoff', {
+              detail: { selector: n.selector, from: n.from, to: n.to, el: crossed }
+            }));
+          } catch (err) {}
+          if (n.endsSession && window.LKSession) window.LKSession.end();
           if (n.mode === 'push') push(n.to); else goTab(n.to);
           return;
         }
@@ -767,7 +910,32 @@ const RUNTIME = String.raw`
       walked();
       render();
     });
-    if (!location.hash) location.replace(location.href.split('#')[0] + '#/' + TABS[0].id);
+    /* FIRST RUN GOES TO ONBOARDING. A cleared phone landed on Home, which is
+       a screen about training somebody has not done, with a split they have
+       not built, under a name the app does not know. lk_onboarded is written
+       when setup finishes; without it, and with nothing else stored either,
+       the first screen is the one that asks.
+
+       Gated on BOTH, so a reader upgrading from a build that predates the
+       marker is not sent back through setup on top of their own data. */
+    if (!location.hash) {
+      var first = TABS[0].id;
+      try {
+        var done = window.localStorage.getItem('lk_onboarded');
+        var used = window.localStorage.getItem('lk_profile') ||
+                   window.localStorage.getItem('lk_splits') ||
+                   window.localStorage.getItem('lk_history');
+        if (!done && !used && screens.onboarding) first = 'onboarding';
+        /* Setup done, the walkthrough not yet seen: show it once. tutorial.html
+           writes lk_tutorialSeen on both finish and skip and nothing read it,
+           so the walkthrough was built, animated, and never shown to anybody
+           who had not gone looking for it in Settings. */
+        else if (done && !window.localStorage.getItem('lk_tutorialSeen') && screens.tutorial) {
+          first = 'tutorial';
+        }
+      } catch (e) {}
+      location.replace(location.href.split('#')[0] + '#/' + first);
+    }
     render();
   }
 
@@ -783,6 +951,35 @@ const RUNTIME = String.raw`
   };
 })();
 `;
+
+/* A square mark rather than a letter: an icon is what somebody taps for on a
+   crowded home screen, and a glyph at 48px is a smudge. Inlined as an SVG
+   data URL so the build stays one file with no assets beside it. */
+const APP_ICON = 'data:image/svg+xml,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">' +
+  '<rect width="512" height="512" rx="114" fill="#0b0b0c"/>' +
+  '<rect x="150" y="150" width="212" height="212" rx="46" fill="none" stroke="#f2f2f4" stroke-width="34"/>' +
+  '<rect x="222" y="222" width="68" height="68" rx="18" fill="#f2f2f4"/>' +
+  '</svg>');
+
+function manifest() {
+  return {
+    name: 'LOCKED',
+    short_name: 'LOCKED',
+    description: 'Training, food and recovery, on your phone, on your device.',
+    start_url: './',
+    scope: './',
+    display: 'standalone',
+    orientation: 'portrait',
+    background_color: '#0b0b0c',
+    theme_color: '#0b0b0c',
+    categories: ['health', 'fitness'],
+    icons: [
+      { src: APP_ICON, sizes: '512x512', type: 'image/svg+xml', purpose: 'any' },
+      { src: APP_ICON, sizes: '512x512', type: 'image/svg+xml', purpose: 'maskable' }
+    ]
+  };
+}
 
 function demoCss() {
   return `
@@ -996,6 +1193,23 @@ function build() {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>LOCKED demo</title>
+<!-- Installable, and it says what it is on the home screen. None of this
+     existed: a web app with no manifest and no apple metas installs as a
+     browser bookmark with a screenshot for an icon and a browser chrome
+     around it, which is a different product from the one being built. The
+     manifest is inlined as a data URL so the whole build stays one file. -->
+<link rel="manifest" href="data:application/manifest+json,${encodeURIComponent(JSON.stringify(manifest()))}">
+<meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f7f7f8" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LOCKED">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="color-scheme" content="dark light">
+<meta name="format-detection" content="telephone=no">
+<meta name="description" content="LOCKED. Training, food and recovery, on your phone, on your device.">
+<link rel="apple-touch-icon" href="${APP_ICON}">
+<link rel="icon" href="${APP_ICON}">
 <!--
   Generated by 10-final/assemble.mjs. Do not hand-edit: run the assembler.
 
@@ -1048,8 +1262,141 @@ window.__DEMO_CFG__ = ${jsonForScript(cfg)};
 ${definitions}
 
 <script>DEMO.start();</script>
+<script>
+/* Registered only where a service worker can actually run: a secure origin,
+   and not from disk. Opened as a file the demo has no worker and claims
+   none. A failed registration is not worth a word on screen -- the page
+   works either way, and offline is the only thing that changes. */
+(function () {
+  if (!('serviceWorker' in navigator)) return;
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost' &&
+      location.hostname !== '127.0.0.1') return;
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  });
+}());
+</script>
 </body>
 </html>
+`;
+}
+
+/* THE SERVICE WORKER. One page, no network calls of its own, so caching it
+   is the whole job: fetch from the network, fall back to the copy, and keep
+   one version's files and nothing else. It is a separate file because a
+   service worker cannot be inlined -- which also means the single-file demo
+   opened from disk has none, and says nothing about having one.
+
+   The version string is the build's own byte length, so a rebuilt demo
+   invalidates the cache without anybody remembering to bump a number. */
+function serviceWorker(version) {
+  return `/* LOCKED — generated by 10-final/assemble.mjs. Do not edit. */
+var CACHE = 'locked-${version}';
+var FILES = ['./', './index.html'];
+
+self.addEventListener('install', function (e) {
+  e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(FILES); })
+    .then(function () { return self.skipWaiting(); }));
+});
+
+/* One version's cache and nothing else: an old build's files are deleted
+   rather than left to fill the quota. */
+self.addEventListener('activate', function (e) {
+  e.waitUntil(caches.keys().then(function (keys) {
+    return Promise.all(keys.map(function (k) {
+      return k === CACHE ? null : caches.delete(k);
+    }));
+  }).then(function () { return self.clients.claim(); }));
+});
+
+/* Network first, so a rebuilt demo is never served stale while online, and
+   the cached copy answers when there is no network. Only GETs on this
+   origin: anything else is none of this worker's business. */
+/* ---- reminders ----------------------------------------------------
+   A push subscription with no push handler is a subscription that does
+   nothing: the reminder arrives, the worker ignores it, and the browser
+   shows its own "this site was updated in the background" notice instead
+   -- which is the penalty for a userVisibleOnly subscription that fails
+   to be visible. Settings says "this phone is registered for reminders",
+   so it has to be.
+
+   The server sends { type, title, body, url }. Nothing is invented here:
+   a payload that will not parse gets the one generic line rather than a
+   guess at what the reminder was about. */
+self.addEventListener('push', function (e) {
+  var d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (err) { d = {}; }
+  var title = d.title || 'LOCKED';
+  var body = d.body || 'A reminder from LOCKED.';
+  e.waitUntil(self.registration.showNotification(title, {
+    body: body,
+    tag: d.type || 'lk',
+    renotify: false,
+    data: { url: d.url || './', type: d.type || '' }
+  }));
+});
+
+/* WHERE A REMINDER GOES WHEN IT IS TAPPED. The server addresses screens
+   as ?open=workout; this app routes by hash, so the two are mapped here
+   rather than leaving every reminder to land on Home and make the person
+   find the thing it was about. An already-open window is focused and
+   told where to go, because opening a second copy of an installed app
+   loses whatever was on the first. */
+var OPENS = {
+  workout: '#/train/workout-log',
+  checkin: '#/coach',
+  fuel: '#/fuel',
+  train: '#/train',
+  progress: '#/home/progress'
+};
+
+self.addEventListener('notificationclick', function (e) {
+  e.notification.close();
+  /* Built against the registration's own scope, not against the origin.
+     The app is not necessarily at the root, and a relative './#/fuel'
+     resolves against whatever page is open -- so a reminder tapped from
+     a pushed screen would have gone somewhere neither of us chose. */
+  var base = self.registration.scope;
+  var raw = (e.notification.data && e.notification.data.url) || '';
+  var want = base;
+  try {
+    var u = new URL(raw, base);
+    var open = u.searchParams.get('open');
+    var hash = OPENS[open] || u.hash || '';
+    want = base + hash;
+  } catch (err) { want = base; }
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    .then(function (list) {
+      for (var i = 0; i < list.length; i++) {
+        var c = list[i];
+        if (c.url.indexOf(base) === 0 && 'focus' in c) {
+          /* An installed app has one window and whatever was on it. Opening
+             a second copy loses that, so the open one is told where to go. */
+          if ('navigate' in c) { try { c.navigate(want); } catch (err2) {} }
+          return c.focus();
+        }
+      }
+      return self.clients.openWindow(want);
+    }));
+});
+
+self.addEventListener('fetch', function (e) {
+  var url = new URL(e.request.url);
+  if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
+  e.respondWith(
+    fetch(e.request).then(function (res) {
+      if (res && res.ok) {
+        var copy = res.clone();
+        caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
+      }
+      return res;
+    }).catch(function () {
+      return caches.match(e.request).then(function (hit) {
+        return hit || caches.match('./index.html');
+      });
+    })
+  );
+});
 `;
 }
 
@@ -1069,3 +1416,11 @@ const web = join(HERE, '..', '..', 'demo', 'index.html');
 mkdirSync(dirname(web), { recursive: true });
 writeFileSync(web, html);
 console.log(`wrote ${web} (${kb} KB)`);
+
+/* Beside it, because a service worker has to be a file of its own and has to
+   sit at or above the scope it claims. The single-file demo never registers
+   one -- a worker cannot run from file:// and claiming otherwise would be
+   the build lying about what it does offline. */
+const sw = join(dirname(web), 'sw.js');
+writeFileSync(sw, serviceWorker(Buffer.byteLength(html)));
+console.log(`wrote ${sw}`);

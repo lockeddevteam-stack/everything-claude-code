@@ -1838,9 +1838,13 @@ select.input::-ms-expand, select.cell::-ms-expand { display: none; }
   min-width: max-content;
   /* minmax, not fixed: at AX5 a 24px set-number column clipped "#" and "W".
      The floor is the figure the default ladder wants; auto is what a reader
-     who has asked for 53px type needs. */
+     who has asked for 53px type needs.
+
+     The floor is a tap, not sp-5, because the set number became a control:
+     it cycles working, warm-up, drop set, to failure, and a 24px-wide button
+     is a target nobody can hit. */
   grid-template-columns:
-    minmax(var(--sp-5), auto) 1fr 1fr
+    minmax(var(--tap), auto) 1fr 1fr
     minmax(calc(var(--sp-6) + var(--sp-5)), auto) minmax(var(--tap), auto);
   gap: var(--sp-2);
   align-items: center;
@@ -2616,6 +2620,58 @@ button.card:active { background: var(--fill-press); }
   animation: shelfPulse 2s var(--ease) infinite;
 }
 @keyframes shelfPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+/* A stale shelf is a group, not one button: the strip taps back into the
+   log and the trailing control finishes. Both need their own hit area and
+   their own press state, so .shelf carries no press when it is the group. */
+.shelf__grab {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: var(--sp-3);
+  min-height: var(--tap);
+  text-align: left;
+  color: inherit;
+  border-radius: var(--r-2);
+}
+.shelf__grab:active { background: var(--fill-press); }
+.shelf > button.shelf__action {
+  min-height: var(--tap);
+  min-width: var(--tap);
+  padding: 0 var(--sp-2);
+  color: var(--accent-text);
+  border-radius: var(--r-2);
+}
+.shelf > button.shelf__action:active { background: var(--fill-press); }
+/* Coach's "Jump to latest". It sits above the composer, not in it: the
+   composer is where you type and a pill inside it competes with the field. */
+.jump {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--nav-h) + var(--sp-12) + var(--safe-bottom));
+  transform: translateX(-50%);
+  min-height: var(--tap);
+  padding: 0 var(--sp-4);
+  border-radius: var(--r-full);
+  background: var(--fill-raised);
+  color: var(--accent-text);
+  font-size: var(--type-13);
+  line-height: var(--lh-13);
+  font-weight: var(--w-semibold);
+  box-shadow: 0 4px 14px -6px rgb(0 0 0 / 0.5);
+  z-index: 3;
+}
+.jump:active { background: var(--fill-press); }
+
+/* The chat receipt's expanded list. */
+.receipt { padding: 0 var(--sp-4) var(--sp-3); }
+.receipt > p { margin-top: var(--sp-1); }
+
+/* A row whose main area is a button and which carries a trailing control. */
+.row--withaside { display: flex; align-items: center; gap: var(--sp-2); padding-right: var(--sp-2); }
+.row__main--btn { flex: 1; min-width: 0; text-align: left; min-height: var(--tap); display: flex; align-items: center; }
+.row__main--btn:active { background: var(--fill-press); }
+
+/* The split builder's per-day volume note. Quiet: it is a remark, not an
+   error, and it sits between the day's head and its exercises. */
+.daycard__note { padding: 0 var(--sp-4) var(--sp-2); }
 .shelf__main { flex: 1; min-width: 0; }
 .shelf__title { display: block; font-size: var(--type-15); line-height: var(--lh-15); letter-spacing: var(--tr-15); font-weight: var(--w-semibold); }
 .shelf__sub { display: block; font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
@@ -2818,3 +2874,680 @@ button.shelf:active { background: var(--fill-press); }
 }
 .badge-face--locked { background: var(--fill); color: var(--text-tertiary); }
 
+
+/* ---------------------------------------------------------------
+   workout-detail.html, review.html, workout-log.html — classes these
+   three screens needed and the file did not have. Appended, never
+   edited in place, because this file is shared.
+   --------------------------------------------------------------- */
+
+/* workout-detail: the session editor. One row per set, laid out on the
+   same five columns the read-only set grid uses, so switching into edit
+   mode does not move the numbers sideways. */
+.editsets { padding: 0 var(--sp-3) var(--sp-2); }
+.editset {
+  display: grid;
+  grid-template-columns: minmax(var(--sp-5), auto) 1fr 1fr minmax(var(--sp-6), auto) var(--tap);
+  gap: var(--sp-2);
+  align-items: center;
+}
+.editset + .editset { margin-top: var(--sp-2); }
+.editset--head { padding-bottom: var(--sp-1); }
+.editset--head .t-meta { text-align: center; }
+.editset .input { min-height: var(--tap); text-align: center; padding: 0 var(--sp-1); font-variant-numeric: tabular-nums; }
+/* The set number doubles as the warm-up toggle: a set that was typed in as
+   working and was really a warm-up had no way back short of deleting it. */
+.editset__n {
+  min-height: var(--tap); min-width: var(--sp-5);
+  border-radius: var(--r-sm);
+  corner-shape: var(--corner-smooth);
+  background: var(--fill);
+  color: var(--text-secondary);
+  font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13);
+  font-weight: var(--w-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.editset__n[aria-pressed="true"] { background: var(--accent-quiet); color: var(--accent-text); }
+.editset__n:active { background: var(--fill-press); }
+
+/* review: the five one-to-five reflection ratings, and the per-exercise set
+   list under the comparison. */
+.rate { display: flex; align-items: center; gap: var(--sp-3); min-height: var(--tap); }
+.rate + .rate { border-top: 1px solid var(--border); }
+.rate__label { flex: 1; min-width: 0; }
+.rate__dots { display: flex; gap: var(--sp-2); }
+.rate__dot {
+  width: var(--tap); height: var(--tap);
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-full);
+  corner-shape: round;
+  background: var(--fill);
+  color: var(--text-secondary);
+  font-size: var(--type-15); line-height: var(--lh-15); letter-spacing: var(--tr-15);
+  font-weight: var(--w-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.rate__dot:active { background: var(--fill-press); }
+/* A tint, not a fill: the one accent fill on this screen stays on Save. */
+.rate__dot[aria-pressed="true"] { background: var(--accent-quiet); color: var(--accent-text); }
+.rsetline { display: flex; align-items: baseline; gap: var(--sp-3); min-height: var(--sp-6); }
+.rsetline__n {
+  min-width: var(--sp-5);
+  font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.rsetline__n--warm { color: var(--text-secondary); }
+.rsetline .t-meta { margin-left: auto; }
+
+/* ===============================================================
+   Home's card stack, and the onboarding review list.
+   home.html, recap.html, onboarding.html, tutorial.html
+   =============================================================== */
+
+/* The stack of situational cards under the answer card. Cards come and go
+   with the data behind them, so the gap lives on the container rather than
+   on the cards: a `+` rule leaves a phantom space when the first card is
+   the one that did not render. */
+.feed { display: flex; flex-direction: column; gap: var(--sp-3); }
+.feedcard {
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  corner-shape: var(--corner-smooth);
+  padding: var(--sp-4);
+}
+.feedcard__head { display: flex; align-items: center; gap: var(--sp-3); }
+/* The dismiss sits in the header's own row rather than floating over the
+   card's top-right corner, where it would land on the title at large type
+   sizes. It keeps the full 44px target. */
+.feedcard__dismiss { flex: none; margin: calc(var(--sp-2) * -1) calc(var(--sp-2) * -1) calc(var(--sp-2) * -1) 0; }
+/* Putting a card away is a decision, not a deletion: the way back is on
+   the stack itself, because nothing else in this build can unhide a Home
+   block and a card with no way back is a card that is gone. */
+.feed__restore { align-self: flex-start; }
+
+/* The streak, beside the week line. Not a chip: a chip is a control and
+   this one is a reading, so it takes no pressed state and no target size. */
+.streakpill {
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  margin-left: auto;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--r-full);
+  background: var(--accent-quiet);
+  color: var(--accent-text);
+  font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13);
+  font-weight: var(--w-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.streakpill .ico { width: var(--sp-4); height: var(--sp-4); }
+
+/* Onboarding's program preview: one line per split day, with the count of
+   exercises on it. The count is the thing being compared down the list, so
+   it is tabular and it does not move when a day name is long. */
+.preview__count { flex: none; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+/* The boot error panel. A screen that throws used to log to the console and
+   leave the reader a black rectangle; this is what it leaves instead. */
+.crash { padding: var(--sp-5) var(--page-x); }
+.crash__detail {
+  margin-top: var(--sp-3); padding: var(--sp-3);
+  border-radius: var(--r-md); corner-shape: var(--corner-smooth);
+  background: var(--surface-sunken);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--type-13); line-height: var(--lh-13);
+  color: var(--text-secondary);
+  overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+}
+
+/* workout-log: the move bar under a lifted exercise card, the card being
+   dragged, the second head of a superset card, and the half-marked tick on
+   the A side of a superset round. */
+.logmove { display: flex; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-3) var(--sp-3); }
+.logmove .btn { flex: 1; }
+.exc--dragging { opacity: 0.4; }
+.exc__head--b { padding-top: 0; }
+/* Logged, but the round is not finished until the other half is. A ring in
+   the same green as a completed set, with no fill: the set IS done, and the
+   round is not. */
+.done--half[aria-checked="true"] {
+  background: none;
+  box-shadow: inset 0 0 0 2px var(--success);
+  color: var(--success);
+}
+.done--half[aria-checked="true"]:active { background: var(--fill-press); filter: none; }
+
+/* ---------------------------------------------------------------
+   Shop. Two controls this screen needs and no other does: the file inputs
+   behind the receipt buttons, which are the only kind of control that can
+   open a camera or a photo library, and the preview of the photo they
+   chose. The input is off-screen rather than hidden, because a display:
+   none input cannot be opened by its button in every browser.
+   --------------------------------------------------------------- */
+.shop-file {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  clip-path: inset(50%);
+  overflow: hidden; white-space: nowrap;
+}
+.shop-photo {
+  display: block;
+  width: 100%; max-height: 320px;
+  object-fit: cover;
+  border-radius: var(--r-md);
+  corner-shape: var(--corner-smooth);
+  background: var(--surface-sunken);
+}
+
+/* ===============================================================
+   Added for Cycle. Tokens only, no new values.
+
+   The screen had one component of its own, the 28-day strip. It now has a
+   ring you can drag, a quick-action grid, two inline scales, twelve
+   severity rows, a painted month and an accordion, so they are here rather
+   than as inline styles on a screen nobody could restyle.
+   =============================================================== */
+
+/* The ring. 272px is the design's figure; it shrinks with the viewport
+   rather than overflowing a 320px screen, and the centre is positioned
+   inside the stroke so the text never sits on the arcs. */
+.cycring { display: flex; justify-content: center; }
+.cycring__box {
+  position: relative;
+  width: min(272px, 100%);
+  aspect-ratio: 1;
+  /* The ring is dragged, so the browser must not claim the gesture for a
+     scroll first. */
+  touch-action: none;
+  border-radius: var(--r-full);
+  corner-shape: round;
+}
+.cycring__box:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+.cycring__svg { width: 100%; height: 100%; display: block; }
+.cycring__centre {
+  position: absolute; inset: 20%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; text-align: center;
+}
+.cycring__day {
+  font-size: var(--type-28); line-height: var(--lh-28); letter-spacing: var(--tr-28);
+  font-weight: var(--w-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Four actions, two up. A tile is a control, so it clears the tap floor
+   with room for its second line. */
+.cycq { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
+.cycq__btn {
+  min-height: calc(var(--tap) + var(--sp-3));
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
+  gap: 2px;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-md);
+  corner-shape: var(--corner-smooth);
+  background: var(--fill);
+  color: var(--text);
+  text-align: left;
+}
+.cycq__btn:active { background: var(--fill-press); }
+.cycq__t { font-size: var(--type-15); line-height: var(--lh-15); letter-spacing: var(--tr-15); font-weight: var(--w-semibold); }
+.cycq__s { font-size: var(--type-11); line-height: var(--lh-11); letter-spacing: var(--tr-11); color: var(--text-secondary); }
+
+/* A one-tap scale: flow, energy, sleep. Not a segmented control, because
+   these wrap rather than scroll: five labels at AX5 do not fit a row and a
+   scale that scrolls hides its own top end. */
+.cycscale { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+.cycscale__b {
+  flex: 1 1 3.5em; min-width: 3.5em; min-height: var(--tap);
+  border-radius: var(--r-sm);
+  corner-shape: var(--corner-smooth);
+  background: var(--fill);
+  color: var(--text-secondary);
+  font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13);
+  font-weight: var(--w-medium);
+}
+.cycscale__b:active { background: var(--fill-press); }
+.cycscale__b[aria-checked="true"] {
+  background: var(--accent-quiet); color: var(--accent-text); font-weight: var(--w-semibold);
+}
+
+/* Setup progress. Dots, not a bar: six steps is countable and a bar at six
+   steps reads as a loading spinner. */
+.cycdots { display: flex; gap: var(--sp-2); align-items: center; }
+.cycdots__d { width: var(--sp-2); height: var(--sp-2); border-radius: var(--r-full); corner-shape: round; background: var(--fill); }
+.cycdots__d[data-on="true"] { background: var(--text); }
+
+/* One symptom, one severity. The name sits above its own radio group so
+   the group has a label and the row still fits a narrow screen. */
+.cycsev { display: flex; flex-direction: column; gap: var(--sp-1); }
+.cycsev__n { display: block; }
+
+/* The science accordion. */
+.cycacc__h {
+  display: flex; align-items: center; gap: var(--sp-3);
+  width: 100%; min-height: var(--tap);
+  padding: var(--sp-3) var(--sp-4);
+  text-align: left;
+  background: none;
+  color: var(--text);
+  font-size: var(--type-15); line-height: var(--lh-15); letter-spacing: var(--tr-15);
+  font-weight: var(--w-medium);
+}
+.cycacc__h + .cycacc__panel + .cycacc__h { box-shadow: inset 0 1px 0 var(--hairline); }
+.cycacc__h:active { background: var(--fill-press); }
+.cycacc__chev { flex: none; color: var(--text-tertiary); display: flex; transition: transform var(--dur-slow) var(--ease); }
+.cycacc__chev[data-open="true"] { transform: rotate(180deg); }
+.cycacc__panel { padding: 0 var(--sp-4) var(--sp-4); }
+@media (prefers-reduced-motion: reduce) { .cycacc__chev { transition: none; } }
+
+/* The painted month. The flow wash is a child rather than the button's own
+   background, because the button already carries --fill and the wash has to
+   be able to sit at a fraction of an opacity without taking the number with
+   it. */
+.cyccal__d { position: relative; }
+.cyccal__d > .cal__n { position: relative; z-index: 1; }
+.cyccal__flow {
+  position: absolute; inset: 0;
+  border-radius: var(--r-md);
+  corner-shape: var(--corner-smooth);
+  background: var(--id-1);
+}
+/* Predictions are drawn, never filled: a filled day is a day you logged,
+   and the difference between what happened and what is guessed is the one
+   distinction this screen cannot afford to blur. */
+.cyccal-pred { box-shadow: inset 0 0 0 1.5px var(--id-1); }
+.cyccal-fert { box-shadow: inset 0 0 0 1.5px var(--id-3); }
+.cyccal-ov   { box-shadow: inset 0 0 0 2.5px var(--id-5); }
+.cyccal-pms  { box-shadow: inset 0 0 0 1.5px var(--id-4); }
+
+.cycleg { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); }
+.cycleg__i { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.cycleg__sw {
+  width: var(--sp-4); height: var(--sp-4); flex: none;
+  border-radius: var(--r-sm);
+  corner-shape: var(--corner-smooth);
+}
+
+/* --- The diary, grouped by part of the day -------------------------------
+   A heading inside a flush card, and a footer under each group carrying that
+   group's calories and macros. The diary used to be one flat list in log
+   order, so nothing on the screen could answer "what did breakfast come to".
+
+   The heading sits inside the card rather than above it because the groups
+   are one list read in parts, not four separate lists: pulling them apart
+   into four cards makes a day look like a form to fill in. */
+.section__sub {
+  padding: var(--sp-3) var(--sp-4) var(--sp-1);
+  background: var(--surface);
+  color: var(--text-secondary);
+}
+.section__sub + .row { box-shadow: none; }
+.row + .section__sub { box-shadow: inset 0 1px 0 var(--hairline); }
+/* Not a row: it is a total, so it never looks pressable and it sits quieter
+   than the meals above it. */
+.row--foot {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: 0 var(--sp-4) var(--sp-3);
+  background: var(--surface);
+}
+.row--foot .row__sub { margin-top: 0; }
+
+/* The target on an intake chart. Dashed, because it is a line somebody chose
+   rather than a line the data drew, and the two must not read the same. */
+.chart__target { stroke: var(--text-tertiary); stroke-width: 1; stroke-dasharray: 3 3; }
+/* Body weight over the same days, on its own scale: a kilo and a kilocalorie
+   are not comparable, and one scale would flatten the weight to a flat line.
+   Lighter than the energy line, since it is the second reading, not the first. */
+.chart__line--weight { stroke: var(--text-tertiary); stroke-width: 1.5; stroke-dasharray: 5 3; }
+
+/* The top-ranked search result. A word, not a star: a star beside one row of
+   eight reads as "favourited", which is a different claim. */
+.pill {
+  display: inline-block;
+  padding: .1em .5em;
+  border-radius: 999px;
+  font-size: var(--type-11);
+  line-height: var(--lh-11);
+  letter-spacing: var(--tr-11);
+  vertical-align: middle;
+}
+.pill--best {
+  background: var(--accent-quiet);
+  color: var(--accent);
+  font-weight: var(--w-semibold);
+}
+
+/* --- An accordion head inside a sheet ------------------------------------
+   A day of a plan, carrying its own total, so the thing most people came for
+   is readable without opening anything. Rounded on its own because it is a
+   card of one row rather than the top of a list. */
+.row--head { border-radius: var(--r-lg); corner-shape: var(--corner-smooth); background: var(--surface); }
+.row--now { box-shadow: inset 0 0 0 1px var(--accent-quiet); }
+.row--now .row__title { font-weight: var(--w-semibold); }
+/* The chevron turns rather than swapping for a different glyph: it is the
+   same control in a different state, and a swap reads as a different button. */
+.row__chev--open { transform: rotate(90deg); }
+
+/* The scanner at rest. A framed barcode glyph rather than a live viewfinder,
+   because this build carries no decoder and a viewfinder that never resolves
+   anything is worse than an honest box. */
+.fuel-scanbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  border-radius: var(--r-lg);
+  corner-shape: var(--corner-smooth);
+  background: var(--fill);
+  color: var(--text-tertiary);
+}
+.fuel-scanbox .ico { width: 56px; height: 56px; }
+
+/* The photo, at the top of the sheet that is about it. A fixed aspect box so
+   a portrait and a landscape shot give the sheet the same shape and the
+   controls under it do not jump when a picture lands. */
+.fuel-shot {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-width: 100%;
+  border-radius: var(--r-lg);
+  corner-shape: var(--corner-smooth);
+  overflow: hidden;
+  background: var(--fill);
+}
+.fuel-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fuel-shot--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+}
+.fuel-shot--empty .ico { width: 48px; height: 48px; }
+
+/* A recipe's method. Numbered, because the order is the whole instruction,
+   and spaced so a step can be found again after looking away at a pan. */
+.fuel-steps { padding-left: var(--sp-5); margin: 0; }
+.fuel-steps li { margin-top: var(--sp-2); }
+.fuel-steps li::marker { color: var(--text-tertiary); }
+
+/* A logged day in discreet mode: it happened, and that is all it says. No
+   flow level, no phase colour -- the whole point of the mode is that somebody
+   holding the phone learns nothing from the grid. */
+.cyccal-quiet { box-shadow: inset 0 0 0 1px var(--border); }
+
+/* The set-number cell, once it became a control. It cycles working, warm-up,
+   drop set, to failure -- four states, one tap each, on a target that is
+   already on every row. It still has to read as the row's number first and a
+   button second, so it takes the tap height without taking the emphasis. */
+.setgrid__n--btn {
+  min-height: var(--tap);
+  width: 100%;
+  background: none;
+  color: var(--text-tertiary);
+}
+.setgrid__n--btn:active { background: var(--fill-press); }
+
+/* --- The supplement history grid ----------------------------------------
+   Fourteen days, seven to a row, so a fortnight reads as two weeks stacked
+   and a gap in the middle of a week is visible as a gap rather than as a
+   position in a list. */
+.suppgrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--sp-2); }
+.suppday {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: var(--sp-2) 0;
+  border-radius: var(--r-sm);
+  background: var(--fill);
+  color: var(--text-tertiary);
+}
+.suppday--on { background: var(--accent-quiet); color: var(--accent); }
+.suppday__mark { display: flex; min-height: var(--sp-5); align-items: center; }
+.suppday__d { font-size: var(--type-11); line-height: var(--lh-11); letter-spacing: var(--tr-11); font-variant-numeric: tabular-nums; }
+/* A streak worth mentioning. Quieter than the best-match pill, because it is
+   a fact about a habit rather than an answer to a question. */
+.pill--streak { background: var(--fill); color: var(--text-secondary); }
+/* A row whose thing is done for today. The name is not struck through: a
+   supplement taken is finished, not cancelled. */
+.row--done .row__title { color: var(--text-secondary); }
+
+/* Per-muscle recovery. The word is the state, the number is the volume, and
+   the bar is each group against the hardest-worked one rather than against a
+   target: the screen has no opinion about how much is right for a reader. */
+.recrow { display: block; }
+/* The muscle name sits beside a word and a count. `grow` is flex: 1 with a
+   zero basis, so at the largest accessibility size the name was squeezed
+   under its own width and "Back" and "Core" were clipped. Sized to its
+   content instead, the row wraps rather than cutting the word. */
+.recrow__name { flex: 1 1 auto; min-width: 0; }
+.rec--fresh { color: var(--accent); }
+.rec--ready { color: var(--text-secondary); }
+.rec--stale { color: var(--warning); font-weight: var(--w-semibold); }
+.rec--none { color: var(--text-tertiary); }
+
+/* Partials, on the reps they belong to. Eight and three halves is one set,
+   and a reader checking the session against the card should not have to add
+   a second column to get the figure. */
+.cell__plus {
+  font-size: var(--type-11);
+  line-height: 1;
+  vertical-align: super;
+  margin-left: 1px;
+  color: var(--text-tertiary);
+}
+
+/* A lift nobody has trained in over a month. Marked, not hidden: it is often
+   the answer to why the numbers on it have not moved. */
+.exc__stale { color: var(--warning); }
+
+/* -------------------------------------------------------------------
+   chrome.js — what the on-screen keyboard covers.
+
+   --lk-kb is the height the keyboard takes from the visible viewport,
+   published by LKChrome.watchKeyboard(). It is 0 on every device and
+   browser without visualViewport, so these rules are inert there.
+
+   Everything pinned to the bottom lifts by it, because on iOS the
+   keyboard slides over the layout viewport rather than resizing it, and
+   the control somebody is typing towards was the one underneath.
+   ------------------------------------------------------------------- */
+:root { --lk-kb: 0px; }
+
+.tabbar { bottom: calc(var(--sp-3) + var(--safe-bottom) + var(--lk-kb)); }
+
+/* A tab bar over a keyboard is a row of destinations nobody is going to,
+   taking the space the thing being typed into needs. */
+:root[data-keyboard="open"] .tabbar { opacity: 0; pointer-events: none; }
+
+.actionbar { padding-bottom: calc(var(--sp-3) + var(--safe-bottom) + var(--lk-kb)); }
+.sheet__foot { padding-bottom: var(--lk-kb); }
+
+/* =============================================================
+   WORKOUT LOG (wp4) — the record, the gesture, the pop.
+   ============================================================= */
+
+/* A set logged pops under the thumb. 220ms, once, on the control that was
+   pressed: the tick is performed every ninety seconds and it is the one
+   action on the screen that has to feel like it landed. */
+@keyframes lk-done-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+.done--pop { animation: lk-done-pop 220ms cubic-bezier(.22,1,.36,1); }
+
+/* The exercise name, squeezing while it is held. The gesture has to be
+   visible BEFORE it fires, or a sheet that opens after half a second reads
+   as the screen doing something on its own. */
+.exc__main--holding { transform: scale(.975); transition: transform 420ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .done--pop { animation: none; }
+  .exc__main--holding { transform: none; transition: none; }
+}
+
+/* Taught once. Removed for good the first time a hold lands. */
+.holdtip { padding: 0 var(--sp-1) var(--sp-2); }
+
+/* AN ALL-TIME RECORD, for as long as the session is open. A four-second
+   toast is gone by the next set; this is the mark the workout carries. */
+.prband {
+  display: flex; gap: var(--sp-3); align-items: flex-start;
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-3);
+  border-radius: var(--r-lg);
+  corner-shape: var(--corner-smooth);
+  background: var(--success-quiet);
+}
+.prband__main { min-width: 0; flex: 1 1 auto; }
+.prband__main p + p { margin-top: 2px; }
+
+/* Minutes, then seconds, then the control that takes them. Wraps to one
+   column before either field is squeezed narrower than its own digits. */
+.restcustom { display: flex; gap: var(--sp-2); align-items: flex-end; flex-wrap: wrap; }
+.restcustom .field { flex: 1 1 96px; min-width: 96px; }
+.restcustom .btn { flex: 0 0 auto; min-height: var(--tap); }
+
+/* ===============================================================
+   COACH — the check-in's fourteen-day dot row.
+   One dot a day, newest last, filled where a reading was saved. A dot
+   with nothing behind it is not a button: there is nothing to open, and
+   a tappable blank is a promise of a day that was never recorded.
+   =============================================================== */
+.cdots { display: flex; gap: var(--sp-2); align-items: center; justify-content: space-between; }
+.cdots__d {
+  flex: 1 1 0;
+  max-width: var(--sp-4);
+  aspect-ratio: 1;
+  min-height: var(--sp-3);
+  border: 0; padding: 0;
+  border-radius: var(--r-full);
+  corner-shape: round;
+  background: var(--fill);
+}
+.cdots__d[data-on="true"] { background: var(--text); }
+.cdots__d[data-sel="true"] { box-shadow: 0 0 0 2px var(--accent); }
+.cdots__d[disabled] { opacity: 0.55; }
+
+/* =============================================================
+   PROGRESS — goals (wp4). A goal is opened, not only listed.
+   ============================================================= */
+
+/* The ring. One figure, drawn as the fraction it is: the percentage was a
+   number beside a bar in a list nobody could open. */
+.goalring { display: block; margin: 0 auto; max-width: 100%; }
+.goalring__track { stroke: var(--fill); }
+.goalring__fill { stroke: var(--accent); }
+.goalring__num {
+  fill: var(--text);
+  font-size: 24px; font-weight: var(--w-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A goal row carries a bar under its own two lines, so the list answers
+   "how far" without opening anything. */
+.row--goal .meter { width: 100%; }
+.meter__fill--done { background: var(--success); }
+
+/* A chip that states rather than does. Same shape as the pressable one, no
+   hit area, no press state: a deadline is a fact, not a control. */
+.chip--static {
+  display: inline-block;
+  padding: 2px var(--sp-2);
+  border-radius: var(--r-full);
+  background: var(--fill);
+  color: var(--text-secondary);
+  font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13);
+}
+
+/* ── Train — cardio quick rows, and the favourite star ────────────────
+   Added for F-CARDIO-003 and F-CARDIO-023. A favourite is a SAVED SETUP,
+   so its row carries two controls rather than one: the name and duration
+   open the form already answered, and the button beside it logs the saved
+   duration in one tap. That means the row is a container and its main area
+   is the control, so the main area needs a button's reset and nothing else.
+   The star is a plain icon button that fills when the setup is saved; it
+   takes --text rather than the accent, because the accent on Train belongs
+   to Start. */
+.trainrow__main {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  flex: 1 1 0%;
+  min-width: min(100%, 7em);
+  /* A full target in its own right: it is the control that opens the form,
+     and .row's own min-height belongs to the container, not to this. */
+  min-height: var(--tap);
+  justify-content: center;
+}
+.trainrow__main:active { opacity: 0.55; }
+.iconbtn--on { color: var(--text); }
+.iconbtn--on .ico { fill: currentColor; }
+
+/* ===============================================================
+   SHOP — the per-row store chips (F-SHOP-018).
+   .item is a single flex row; the chips are a second line inside it,
+   so the hairline between rows still belongs to the row above and a
+   ticked-off item simply loses them. Added here rather than by
+   editing .item, which every other list on the screen shares.
+   =============================================================== */
+.item--chips { flex-wrap: wrap; }
+.item--chips .item__stores { flex-basis: 100%; margin-top: var(--sp-1); }
+/* A shortcut is still a target: .storechip was drawn at 32px for a strip
+   that was never built, and 32px is under the floor every other control on
+   this screen keeps. */
+.item--chips .storechip { min-height: var(--tap); padding: 0 var(--sp-3); }
+
+/* ===============================================================
+   FUEL — the trend sheet's daily averages
+   Added by the Fuel package. Six figures that have to be readable
+   side by side on a 320px sheet: two columns on a phone, three
+   where there is room, and every tile the same height so the row
+   of labels lines up. .statrow is a wrapping flex row and gave
+   six ragged columns.
+   =============================================================== */
+.statgrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3) var(--sp-4);
+  margin-top: var(--sp-3);
+}
+@media (min-width: 380px) {
+  .statgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.statgrid__i { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+/* ===============================================================
+   SETTINGS — a preference's own detail row
+   Added by the Settings package. Each notification preference now
+   carries either its own send time or a line saying what triggers
+   it, and that belongs UNDER its switch rather than beside it: at
+   the same rank the two read as two preferences. Indented to the
+   switch's label, with the hairline suppressed so the pair is one
+   block, and still a full-height target where it is a button.
+   =============================================================== */
+.row--sub {
+  padding-top: 0;
+  padding-left: var(--sp-4);
+  min-height: var(--tap);
+}
+.row--sub.row + .row--sub { box-shadow: none; }
+.row + .row--sub { box-shadow: none; }
+.row--sub .row__title {
+  font-size: var(--type-13);
+  line-height: var(--lh-13);
+  letter-spacing: var(--tr-13);
+  font-weight: var(--w-regular);
+  color: var(--text-secondary);
+}
+.row--sub .row__sub { color: var(--text-tertiary); }
