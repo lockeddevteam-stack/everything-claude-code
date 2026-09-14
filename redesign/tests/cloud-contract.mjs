@@ -109,6 +109,18 @@ const server = http.createServer(async (req, res) => {
     return send(200, { ok: true, prefs: json.prefs });
   }
   if (url.pathname === '/push/unsubscribe') return send(200, { ok: true });
+  if (url.pathname === '/analyze-meal') {
+    return send(200, { content: [{ type: 'text', text: 'Here you go: [{"name":"Rice","cal":310,"pro":6,"carb":68,"fat":2}]' }] });
+  }
+  if (url.pathname === '/parse-receipt') {
+    return send(200, { content: [{ type: 'text', text: '{"store":"Aldi","items":[{"name":"Oats","price":1.29,"qty":1}],"total":1.29}' }] });
+  }
+  if (url.pathname === '/analyze-physique') {
+    return send(200, { error: 'Daily limit reached', gated: true });
+  }
+  if (url.pathname === '/scan-pantry') {
+    return send(200, { content: [{ type: 'text', text: 'not json at all' }] });
+  }
   if (url.pathname === '/food-search') {
     /* The Worker answers per 100 g, with brand and type alongside. */
     return send(200, { items: [
@@ -400,6 +412,29 @@ ok((await P.subscribe()).error === 'not_configured', 'with no server subscribing
 ok((await P.prefs({})).error === 'not_configured', 'with no server the schedule refuses');
 ok((await P.unsubscribe()).ok === true, 'and unsubscribing still succeeds locally');
 global.window.LK_CLOUD = had;
+
+/* ---- 9d. reading a photo -------------------------------------------- */
+let v = await C.vision('meal', 'data:image/jpeg;base64,AAAA');
+ok(v.ok && Array.isArray(v.data) && v.data[0].name === 'Rice',
+   'a plate comes back as items, read out of the prose around them', JSON.stringify(v.data));
+
+v = await C.vision('receipt', 'data:image/jpeg;base64,AAAA');
+ok(v.ok && v.data && v.data.store === 'Aldi' && v.data.items.length === 1,
+   'a receipt comes back as a store, its lines and a total', JSON.stringify(v.data));
+
+v = await C.vision('physique', 'data:image/jpeg;base64,AAAA');
+ok(!v.ok && v.gated === true,
+   'a spent free allowance is said as itself, not as a failure', v.message);
+
+v = await C.vision('pantry', 'data:image/jpeg;base64,AAAA');
+ok(!v.ok && v.error === 'unreadable',
+   'an answer that will not parse is refused rather than guessed at', v.message);
+
+v = await C.vision('meal', '');
+ok(!v.ok && v.error === 'empty', 'nothing to read is not a request');
+
+v = await C.vision('nonsense', 'data:image/jpeg;base64,AAAA');
+ok(!v.ok && v.error === 'unknown', 'and there are only four things it can read');
 
 /* ---- 10. signing out ------------------------------------------------- */
 await C.signOut();

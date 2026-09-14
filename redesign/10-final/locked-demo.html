@@ -13375,19 +13375,25 @@ window.LK_CLOUD = {
         }
         if (d.error) return { ok: false, error: 'server', message: d.error };
         var text = (d.content && d.content[0] && d.content[0].text) || '';
-        var items = null;
-        try {
-          var a = text.indexOf('['), b = text.lastIndexOf(']');
-          items = JSON.parse(a >= 0 && b > a ? text.slice(a, b + 1) : text);
-        } catch (e) { items = null; }
-        if (!Array.isArray(items)) {
-          /* The answer did not parse. Saying so beats showing a guess at
-             what it might have meant. */
+        /* A plate and a pantry come back as an array of items; a receipt
+           comes back as an object with a store, its lines and a total.
+           Both are read out of prose the same way, and neither is guessed
+           at: an answer that will not parse says so. */
+        var parsed = null;
+        function cut(open, close) {
+          var a = text.indexOf(open), b = text.lastIndexOf(close);
+          if (a < 0 || b <= a) return null;
+          try { return JSON.parse(text.slice(a, b + 1)); } catch (e) { return null; }
+        }
+        try { parsed = JSON.parse(text); } catch (e) { parsed = null; }
+        if (parsed === null) parsed = cut('[', ']');
+        if (parsed === null) parsed = cut('{', '}');
+        if (parsed === null || typeof parsed !== 'object') {
           return { ok: false, error: 'unreadable',
                    message: 'The reading came back in a shape this screen could not use.',
                    raw: text };
         }
-        return { ok: true, data: items, raw: text };
+        return { ok: true, data: parsed, raw: text };
       });
     },
 
@@ -44475,6 +44481,7 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     editTarget: false,
     targetError: null,
     addOpen: false,
+    readState: 'idle', readWhy: null, readLines: null, readStore: null,
     photo: null,            /* a receipt photo chosen on this device */
     compare: null,          /* the last comparison, over what you have paid */
     compareError: null,
@@ -44911,12 +44918,42 @@ DEMO.define("shopping", function (document, window, location, fetch) {
       '<div class="section__head"><h2 class="t-label">Receipt photo</h2>' +
         '<span class="t-meta">' + esc(S.photo.name) + '</span></div>' +
       '<img class="shop-photo mt-2" src="' + S.photo.url + '" alt="The receipt photo you just chose" data-testid="receipt-photo">' +
-      '<p class="t-detail mt-3">Nothing has left this device, and nothing has read it. The lines are typed in. The photo stays here while you do it, and is not saved when you leave.</p>' +
+      (S.readState === 'reading'
+        ? '<div class="hstack hstack--3 mt-3" role="status" aria-live="polite" data-testid="receipt-reading">' +
+            '<span class="spinner"></span><span class="t-detail">Reading the lines.</span></div>'
+        : S.readWhy
+        ? '<p class="t-detail mt-3" data-testid="receipt-why">' + esc(S.readWhy) + '</p>'
+        : '<p class="t-detail mt-3">The photo is downscaled here and read. Every line comes back ' +
+          'as a reading: check it against the paper before you save it.</p>') +
+      /* WHAT IT READ, BEFORE ANYTHING IS SAVED. The lines are shown and
+         each one can be dropped, because a receipt read by a model gets
+         a price wrong sooner or later and the only place to catch that is
+         here, against the paper still in somebody's hand. */
+      (S.readLines && S.readLines.length
+        ? '<div class="card card--flush mt-3" data-testid="receipt-lines">' +
+            S.readLines.map(function (l, i) {
+              return '<div class="row row--withaside">' +
+                '<span class="row__main stack"><span class="row__title">' + esc(l.name) + '</span>' +
+                  '<span class="row__sub">' + (l.qty > 1 ? l.qty + ' \u00d7 ' : '') +
+                  usd(l.price) + '</span></span>' +
+                '<button class="iconbtn" type="button" data-action="line-drop" data-i="' + i + '" ' +
+                  'aria-label="Not on this receipt: ' + esc(l.name) + '" data-testid="line-drop-' + i + '">' +
+                  '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
+              '</div>';
+            }).join('') + '</div>' +
+          '<p class="t-detail mt-2" data-testid="receipt-read-total">' +
+            S.readLines.length + (S.readLines.length === 1 ? ' line, ' : ' lines, ') +
+            usd(S.readLines.reduce(function (a, l) { return a + (l.price * (l.qty || 1)); }, 0)) +
+            '<span class="quiet"> read from the photo, not typed.</span></p>'
+        : '') +
       '<div class="hstack hstack--3 mt-3">' +
         '<button class="btn btn--secondary grow" type="button" data-action="photo-discard" data-testid="receipt-discard">' +
           '<span class="btn__label">Discard photo</span></button>' +
-        '<button class="btn btn--primary grow" type="button" data-action="photo-type" data-testid="receipt-type">' +
-          '<span class="btn__label">Type it in</span></button>' +
+        (S.readLines && S.readLines.length
+          ? '<button class="btn btn--primary grow" type="button" data-action="lines-save" data-testid="receipt-save">' +
+              '<span class="btn__label">Save these lines</span></button>'
+          : '<button class="btn btn--primary grow" type="button" data-action="photo-type" data-testid="receipt-type">' +
+              '<span class="btn__label">Type it in</span></button>') +
       '</div>' +
     '</div>';
   }
@@ -46017,6 +46054,54 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     'photo-discard': function () { discardPhoto(); flash('Photo discarded. It was never sent anywhere.'); },
     'photo-type': function () { S.addOpen = true; S.purchaseError = null; },
 
+    /* A line the reader says is not on the paper. A receipt read by a
+       model gets one wrong sooner or later, and the only moment anybody
+       can catch it is here, with the paper still in their hand. */
+    'line-drop': function (el) {
+      var i = Number(el.getAttribute('data-i'));
+      if (!S.readLines || !S.readLines[i]) return;
+      S.readLines = S.readLines.filter(function (_, k) { return k !== i; });
+      if (!S.readLines.length) {
+        S.readState = 'empty';
+        S.readWhy = 'Every line was dropped. Type it in instead, or discard the photo.';
+      }
+    },
+
+    /* WHAT WAS READ, WRITTEN, ONLY WHEN ASKED. Nothing lands in the
+       history or the pantry until this is pressed: a receipt that saved
+       itself on arrival would put a model's reading of somebody's
+       shopping into their spending with no step in between. It writes the
+       same two places a typed purchase does, and says it came from a
+       receipt so the history can tell them apart. */
+    'lines-save': function () {
+      if (!S.readLines || !S.readLines.length) return;
+      /* The store the receipt names, but only if it is one of theirs. A
+         name the app has never seen is not invented into the history:
+         the shop it defaults to is one they actually use. */
+      var named = null;
+      if (S.readStore) {
+        var want = String(S.readStore).toLowerCase();
+        MYSTORES.forEach(function (m) {
+          if (!named && String(m.name).toLowerCase().indexOf(want) !== -1) named = m.name;
+          if (!named && want.indexOf(String(m.name).toLowerCase()) !== -1) named = m.name;
+        });
+      }
+      var store = named || (onStores()[0] && onStores()[0].name) ||
+                  (MYSTORES[0] && MYSTORES[0].name) || 'Unknown store';
+      var total = S.readLines.reduce(function (a, l) { return a + l.price * l.qty; }, 0);
+      BUDGET.history.unshift({
+        id: 'r' + Date.now(), store: store, date: NOW_ISO, ms: NOW, when: whenOf(NOW_ISO),
+        total: Math.round(total * 100) / 100,
+        source: 'receipt',
+        items: S.readLines.map(function (l) { return { n: l.name, q: l.qty, p: l.price }; })
+      });
+      S.readLines.forEach(function (l) { intoPantry(l.name, l.qty, store); });
+      var n = S.readLines.length;
+      discardPhoto();
+      flash(usd(total) + ' at ' + store + ' saved from the receipt, ' + n +
+        (n === 1 ? ' line' : ' lines') + ', and the pantry updated.');
+    },
+
     /* Both of these read this screen's own history rather than the network,
        because there is no network in this build. They render what they find
        and say what they cannot know, instead of writing a flag nothing read:
@@ -46218,6 +46303,81 @@ DEMO.define("shopping", function (document, window, location, fetch) {
       try { URL.revokeObjectURL(S.photo.url); } catch (e) {}
     }
     S.photo = null;
+    S.readState = 'idle'; S.readWhy = null; S.readLines = null;
+  }
+
+  /* Downscaled before it goes: a receipt photo is several megabytes and
+     the lines are legible long before that. */
+  function shrinkShot(file, cb) {
+    try {
+      var img = new Image();
+      var url = URL.createObjectURL(file);
+      img.onload = function () {
+        try {
+          var max = 1400;              /* taller than a plate: the text has to stay readable */
+          var w = img.width, h = img.height;
+          var f = Math.min(1, max / Math.max(w, h));
+          var cv = document.createElement('canvas');
+          cv.width = Math.round(w * f); cv.height = Math.round(h * f);
+          cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+          cb(cv.toDataURL('image/jpeg', 0.85));
+        } catch (e) { cb(null); }
+        try { URL.revokeObjectURL(url); } catch (e) {}
+      };
+      img.onerror = function () { try { URL.revokeObjectURL(url); } catch (e) {} cb(null); };
+      img.src = url;
+    } catch (e) { cb(null); }
+  }
+
+  function readReceipt(file) {
+    var C = window.LKCloud;
+    if (!C || !C.ready() || !C.vision) {
+      S.readState = 'nosrv';
+      S.readWhy = 'Reading a receipt needs a server, and this build reaches none. ' +
+                  'The photo has not left this phone; type the lines in beside it.';
+      render();
+      return;
+    }
+    S.readState = 'reading'; S.readWhy = null; S.readLines = null; render();
+    shrinkShot(file, function (dataUrl) {
+      if (!dataUrl) {
+        S.readState = 'error';
+        S.readWhy = 'That photo could not be opened on this phone, so nothing was sent.';
+        render();
+        return;
+      }
+      C.vision('receipt', dataUrl).then(function (r) {
+        if (!S.photo) return;                 /* discarded while it was reading */
+        if (!r || !r.ok) {
+          S.readState = 'error';
+          S.readWhy = (r && r.message) || 'The read did not come back. Type the lines in instead.';
+          render();
+          return;
+        }
+        var d = r.data || {};
+        var items = Array.isArray(d.items) ? d.items : Array.isArray(d) ? d : [];
+        S.readLines = items.slice(0, 60).map(function (it) {
+          return {
+            name: String(it.name || 'Item').slice(0, 60),
+            price: Math.max(0, Math.round((Number(it.price) || 0) * 100) / 100),
+            qty: Math.max(1, Math.min(99, parseInt(it.qty, 10) || 1))
+          };
+        }).filter(function (l) { return l.price > 0; });
+        /* The store the receipt names, if the screen knows it. A store it
+           has never seen is not invented into the list. */
+        if (d.store) S.readStore = String(d.store).slice(0, 40);
+        S.readState = S.readLines.length ? 'done' : 'empty';
+        if (!S.readLines.length) {
+          S.readWhy = 'Nothing on that photo read as a priced line. Type them in instead.';
+        }
+        render();
+      }, function () {
+        if (!S.photo) return;
+        S.readState = 'error';
+        S.readWhy = 'The read could not be reached. Type the lines in instead.';
+        render();
+      });
+    });
   }
 
   /* Runs the staple check and says what it did. Silence would be wrong here:
@@ -46299,6 +46459,7 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     try { url = URL.createObjectURL(f); } catch (err) {}
     if (!url) { flash('That file could not be opened. Nothing was lost.'); render(); return; }
     S.photo = { name: f.name || 'Receipt photo', url: url };
+    readReceipt(f);
     render();
   });
 

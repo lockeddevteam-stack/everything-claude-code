@@ -552,19 +552,25 @@
         }
         if (d.error) return { ok: false, error: 'server', message: d.error };
         var text = (d.content && d.content[0] && d.content[0].text) || '';
-        var items = null;
-        try {
-          var a = text.indexOf('['), b = text.lastIndexOf(']');
-          items = JSON.parse(a >= 0 && b > a ? text.slice(a, b + 1) : text);
-        } catch (e) { items = null; }
-        if (!Array.isArray(items)) {
-          /* The answer did not parse. Saying so beats showing a guess at
-             what it might have meant. */
+        /* A plate and a pantry come back as an array of items; a receipt
+           comes back as an object with a store, its lines and a total.
+           Both are read out of prose the same way, and neither is guessed
+           at: an answer that will not parse says so. */
+        var parsed = null;
+        function cut(open, close) {
+          var a = text.indexOf(open), b = text.lastIndexOf(close);
+          if (a < 0 || b <= a) return null;
+          try { return JSON.parse(text.slice(a, b + 1)); } catch (e) { return null; }
+        }
+        try { parsed = JSON.parse(text); } catch (e) { parsed = null; }
+        if (parsed === null) parsed = cut('[', ']');
+        if (parsed === null) parsed = cut('{', '}');
+        if (parsed === null || typeof parsed !== 'object') {
           return { ok: false, error: 'unreadable',
                    message: 'The reading came back in a shape this screen could not use.',
                    raw: text };
         }
-        return { ok: true, data: items, raw: text };
+        return { ok: true, data: parsed, raw: text };
       });
     },
 
