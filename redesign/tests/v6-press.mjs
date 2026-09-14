@@ -37,7 +37,7 @@ await new Promise((r) => setTimeout(r, 900));
 
 const HOLES = /(undefined|NaN|\[object Object\]|Infinity|Invalid Date)/;
 
-let fails = 0, pressed = 0;
+let fails = 0, pressed = 0, filled = 0;
 const ok = (pass, name, detail) => {
   if (!pass) fails++;
   if (!pass) console.log('FAIL ' + name + (detail ? ' — ' + detail : ''));
@@ -109,6 +109,67 @@ for (const [who, data] of Object.entries(ALL)) {
       const text = await p.evaluate(() => (document.body.innerText || '').replace(/STATE[\s\S]*$/i, ''));
       const h = text.match(HOLES);
       ok(!h, `${who} · ${file} · ${a} — leaves no hole on screen`, h ? `found "${h[0]}"` : '');
+
+      /* AND FILL WHATEVER THE PRESS PUT ON SCREEN. Most fields in this
+         build live inside a sheet, so a sweep that only fills what is
+         visible at load reaches almost none of them -- 23 across every
+         screen and account, against 38 in Fuel alone. A press is what
+         opens the sheet, so the typing belongs here rather than in a
+         pass of its own.
+
+         A field that refuses the value is not a defect. A screen that
+         throws or prints a hole because of one is. */
+      const fields = await p.evaluate(() => {
+        const out = [];
+        document.querySelectorAll('input, textarea, select').forEach((el, i) => {
+          if (el.closest('.dev')) return;
+          if (el.disabled || el.readOnly) return;
+          const t = (el.type || '').toLowerCase();
+          if (/^(hidden|file|checkbox|radio|submit|button|image|color)$/.test(t)) return;
+          const r = el.getBoundingClientRect();
+          if (r.width < 4 || r.height < 4) return;
+          el.setAttribute('data-v6f', String(i));
+          out.push({ sel: '[data-v6f="' + i + '"]', tag: el.tagName, type: t,
+                     name: (el.name || el.id || el.getAttribute('data-testid') ||
+                            el.getAttribute('placeholder') || '').toLowerCase() });
+        });
+        return out;
+      });
+
+      for (const f of fields) {
+        errs.length = 0;
+        let val = '12';
+        if (f.type === 'date') val = '2026-09-10';
+        else if (f.type === 'time') val = '07:30';
+        else if (/search|find|food|exercise|name|note|title/.test(f.name)) val = 'press';
+        else if (f.tag === 'TEXTAREA') val = 'A note somebody typed.';
+
+        const put = await p.evaluate(({ sel, val }) => {
+          const el = document.querySelector(sel);
+          if (!el) return 'gone';
+          try {
+            if (el.tagName === 'SELECT') {
+              const opts = [...el.options].filter((o) => !o.disabled);
+              if (opts.length < 2) return 'gone';
+              el.value = opts[opts.length - 1].value;
+            } else { el.focus(); el.value = val; }
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            return 'ok';
+          } catch (e) { return 'threw: ' + e.message; }
+        }, { sel: f.sel, val });
+        if (put === 'gone') continue;
+        filled++;
+        await p.waitForTimeout(120);
+        if (f.tag !== 'SELECT') { await p.keyboard.press('Enter').catch(() => {}); await p.waitForTimeout(120); }
+        ok(put === 'ok' && !errs.length,
+           `${who} · ${file} · ${a} › ${f.name || f.type || f.tag} — typing throws nothing`,
+           (put !== 'ok' ? put : errs[0]) || '');
+        const t2 = await p.evaluate(() => (document.body.innerText || '').replace(/STATE[\s\S]*$/i, ''));
+        const h2 = t2.match(HOLES);
+        ok(!h2, `${who} · ${file} · ${a} › ${f.name || f.type || f.tag} — leaves no hole`,
+           h2 ? `found "${h2[0]}"` : '');
+      }
       /* Back to a known state: a press can open a sheet that swallows the
          next one, and that would hide the rest rather than test them. */
       await p.keyboard.press('Escape').catch(() => {});
@@ -122,9 +183,9 @@ await br.close();
 srv.kill();
 
 console.log('');
-console.log(`${pressed} presses across ${Object.keys(ALL).length} accounts x ${files.length} screens`);
+console.log(`${pressed} presses and ${filled} fields filled across ${Object.keys(ALL).length} accounts x ${files.length} screens`);
 if (fails) {
   console.log(`${fails} failed — an upgrading reader does this by tapping`);
   process.exit(1);
 }
-console.log('every control is safe to press on the data the shipped app left behind');
+console.log('every control is safe to press, and every field it opens safe to fill, on the data the shipped app left behind');
