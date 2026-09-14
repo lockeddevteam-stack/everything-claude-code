@@ -127,8 +127,28 @@ wrong merge loses work in a way a person cannot see.
 
 ## Still to do at cutover
 
-- `USDA_KEY` on the existing `lockedapi` Worker, and drop its `|| "DEMO_KEY"`
-  fallback. See `../14-signoff/WORKER-USDA-KEY.md`.
+- ~~`USDA_KEY` on the existing `lockedapi` Worker~~ — set. Reported by the
+  owner; not verifiable from here, and that is not a gap in the reporting:
+  Cloudflare does not serve secret values back through its API, which is
+  the correct behaviour, and outbound to `workers.dev` is blocked by this
+  environment's egress proxy, so neither the binding nor a live call can
+  be read. It is taken as set.
+
+  One line of hygiene is left, and this half IS checked: the deployed
+  bundle was read back from Cloudflare and still carries the fallback at
+  line 1542, so the source at `lockeddevteam-stack/locked`
+  `worker/worker.js:953` is what is running. It reads
+
+      var USDA_KEY = env.USDA_KEY || "DEMO_KEY";
+
+  The fallback is harmless while the secret is bound — `env.USDA_KEY`
+  wins — so this is not urgent and nothing here depends on it. It is
+  worth removing anyway: with the fallback in place, a secret that is
+  ever dropped or renamed does not fail, it silently degrades to a key
+  rate-limited at roughly thirty requests an hour, shared with every
+  other project that never set one. Food search would simply stop
+  finding things, for everybody, with nothing in the logs saying why.
+  Deleting `|| "DEMO_KEY"` turns that into an error somebody can see.
 - The payment provider and the webhook that writes `entitlements`.
 - Push: a `subscriptions` table and the send path. The client half is built and
   says what is missing.
@@ -202,9 +222,22 @@ reads back shapes it did not write:
 | `lk_fuelLog[day].meals` | a list | it reads buckets. **Not** convertible back |
 
 So: `lk_prs` and `lk_fuelLog` do not survive a trip back to the shipped
-app. Everything else does. Plan the release as a cutover rather than a
-parallel run, or accept that a reader who moves back and forth loses
-sight of their records and their food log in the old build.
+app. Everything else does.
+
+**This build assumes a cutover, and that is a decision, not an
+oversight.** The brief was a transition of data from the hosted version
+to this one, which is a migration: the new build replaces the old rather
+than standing beside it. Every migration here is written for that, and
+the two keys above are the price of it.
+
+If the release is ever meant to run both at once, that is a different
+piece of work and it is not small. `lk_prs` would have to stay the map
+the shipped app reads, with the flat array this build wants derived on
+read in `recap.html` and `review.html` — `profile.html`, `coach.html`
+and `progress.html` already read both shapes — and `lk_fuelLog` would
+have to keep its buckets with the list derived the same way. A value
+cannot be a map and an array at the same time, and JSON cannot carry
+both, so there is no version of this that is only a migration change.
 
 Where a migration adds a field it keeps the old one beside it: `vol` and
 `dur` on a session, `w` and `r` on a set, `exIds` on a split day, `water`
