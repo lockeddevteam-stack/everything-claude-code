@@ -565,7 +565,20 @@
         }
         return P.key().then(function (k) {
           if (!k.ok) return k;
-          return g.navigator.serviceWorker.ready.then(function (reg) {
+          /* Raced against a deadline on purpose. serviceWorker.ready does
+           not reject when there is no worker to be ready -- it waits, and
+           a screen waiting on it waits with it. Eight seconds is longer
+           than a registration takes and shorter than somebody's patience. */
+        var ready = new Promise(function (resolve, reject) {
+          var done = false;
+          g.navigator.serviceWorker.ready.then(function (reg) {
+            if (!done) { done = true; resolve(reg); }
+          });
+          setTimeout(function () {
+            if (!done) { done = true; reject(new Error('NoServiceWorker')); }
+          }, 8000);
+        });
+        return ready.then(function (reg) {
             return reg.pushManager.subscribe({
               userVisibleOnly: true,
               applicationServerKey: b64url(k.data)
@@ -580,7 +593,11 @@
             /* A refusal and a failure are different, and a screen that
                says "something went wrong" to somebody who pressed Block
                is telling them to retry a decision they made. */
-            var why = String(e && e.name || e);
+            var why = String((e && (e.name || e.message)) || e);
+            if (why === 'NoServiceWorker') {
+              return { ok: false, error: 'unsupported',
+                       message: 'Reminders need LOCKED added to your home screen.' };
+            }
             return { ok: false, error: why === 'NotAllowedError' ? 'denied' : 'browser',
                      message: why === 'NotAllowedError'
                        ? 'This phone is set to block notifications from LOCKED.'

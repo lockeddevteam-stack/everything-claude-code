@@ -13388,7 +13388,20 @@ window.LK_CLOUD = {
         }
         return P.key().then(function (k) {
           if (!k.ok) return k;
-          return g.navigator.serviceWorker.ready.then(function (reg) {
+          /* Raced against a deadline on purpose. serviceWorker.ready does
+           not reject when there is no worker to be ready -- it waits, and
+           a screen waiting on it waits with it. Eight seconds is longer
+           than a registration takes and shorter than somebody's patience. */
+        var ready = new Promise(function (resolve, reject) {
+          var done = false;
+          g.navigator.serviceWorker.ready.then(function (reg) {
+            if (!done) { done = true; resolve(reg); }
+          });
+          setTimeout(function () {
+            if (!done) { done = true; reject(new Error('NoServiceWorker')); }
+          }, 8000);
+        });
+        return ready.then(function (reg) {
             return reg.pushManager.subscribe({
               userVisibleOnly: true,
               applicationServerKey: b64url(k.data)
@@ -13403,7 +13416,11 @@ window.LK_CLOUD = {
             /* A refusal and a failure are different, and a screen that
                says "something went wrong" to somebody who pressed Block
                is telling them to retry a decision they made. */
-            var why = String(e && e.name || e);
+            var why = String((e && (e.name || e.message)) || e);
+            if (why === 'NoServiceWorker') {
+              return { ok: false, error: 'unsupported',
+                       message: 'Reminders need LOCKED added to your home screen.' };
+            }
             return { ok: false, error: why === 'NotAllowedError' ? 'denied' : 'browser',
                      message: why === 'NotAllowedError'
                        ? 'This phone is set to block notifications from LOCKED.'
@@ -25284,8 +25301,8 @@ DEMO.define("fuel", function (document, window, location, fetch) {
           'aria-labelledby="sp-rem-lbl" data-action="supp-remind" data-testid="sp-remind">' +
           '<span class="switch__knob"></span></button>' +
       '</div>' +
-      '<p class="t-caption-1 quiet mt-2">A card on Home, not a push notification. Push needs a ' +
-        'server and a permission this build does not ask for.</p>' +
+      '<p class="t-caption-1 quiet mt-2">A card on Home, not a push notification: supplement ' +
+        'times are not part of the reminder schedule.</p>' +
       (f.error ? '<p class="field__error mt-2" role="alert" data-testid="sp-error">' +
         esc(f.error) + '</p>' : '');
     return suppShell(editing ? 'Edit supplement' : 'Add a supplement', body,
@@ -25768,8 +25785,8 @@ DEMO.define("fuel", function (document, window, location, fetch) {
               ? coachRecipes().length + ' of these came from your coach and are marked. They are ' +
                 'read-only here: a coach\u2019s recipe is theirs to change.'
               : 'A coach can send you recipes, and they would be listed here, marked and ' +
-                'read-only. None have arrived \u2014 they travel over the same account sync as ' +
-                'their plan, which needs the server this build does not have.') + '</p>' +
+                'read-only. None have arrived \u2014 they travel over the same account sync ' +
+                'as their plan.') + '</p>' +
           '</div>' +
         '</div>';
     }
@@ -33343,8 +33360,10 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
      and what it ignored, so the difference between the two is on screen
      rather than hidden behind a spinner.
 
-     The half that would take a free description and actually understand it is
-     a model, and a model needs a server. Nothing here pretends otherwise. */
+     The half that would take a free description and actually understand it
+     is a model. There is a server now and LKCloud.ask reaches one, but this
+     drafter has not been given to it: it is still the rule, and it still
+     says so in those words rather than implying otherwise. */
   var READS = [
     'How many days a week',
     'Equipment you named \u2014 dumbbells, machines, cables, barbell, bodyweight',
@@ -33479,9 +33498,9 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
           (ignored.length
             ? '<p class="t-label mt-3">Not read</p><ul class="t-detail" data-testid="ai-ignored">' +
               ignored.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') +
-              '</ul><p class="t-caption-1 quiet mt-2">Reading a description the way a person would ' +
-              'needs a model, and a model needs a server this build has no connection to. ' +
-              'Swap any lift below by hand instead.</p>'
+              '</ul><p class="t-caption-1 quiet mt-2">This drafter is a rule on your phone, ' +
+              'not a model, so it reads the short list above and nothing else. Swap any lift ' +
+              'below by hand instead.</p>'
             : '') +
         '</div>' +
       '</div>' +
@@ -39205,8 +39224,11 @@ DEMO.define("settings", function (document, window, location, fetch) {
           tag: 'lk-test'
         });
       }).then(function () {
-        toast('Sent by the service worker, now. A reminder that arrives later needs a push ' +
-          'subscription and a server, and this build has neither.');
+        toast(pushReady()
+          ? 'Sent by the service worker, now. The scheduled ones come from the server at ' +
+            'the times above.'
+          : 'Sent by the service worker, now. A reminder that arrives later needs a push ' +
+            'subscription and a server, and this build has neither.');
       }, function () {
         toast('Your browser would not show it. Nothing was sent.');
       });
@@ -39214,7 +39236,10 @@ DEMO.define("settings", function (document, window, location, fetch) {
     }
     try {
       new Notification('LOCKED', { body: 'This is what one looks like. Sent from this phone, by this page.' });
-      toast('Sent from this page, now. Nothing is scheduled: a reminder that arrives later needs a push subscription and a server.');
+      toast(pushReady()
+        ? 'Sent from this page, now. The scheduled ones come from the server.'
+        : 'Sent from this page, now. Nothing is scheduled: a reminder that arrives later ' +
+          'needs a push subscription and a server.');
     } catch (e) {
       /* Chrome refuses a page-constructed Notification on some origins and
          tells you to use a service worker. That is the truth about this
@@ -46809,8 +46834,8 @@ DEMO.define("review", function (document, window, location, fetch) {
       inner = d.insight
         ? '<p class="t-detail" data-testid="ai-text">' + d.insight + '</p>'
         : '<p class="t-detail" data-testid="ai-text">Nothing was written about this session. ' +
-          'The figures above are yours and are computed on this phone; a read on them is not, ' +
-          'and this build does not fetch one.</p>';
+          'The figures above are yours and are computed on this phone. Nothing wrote a ' +
+          'read on them for this session.</p>';
     }
     return '' +
       '<div class="section">' +
@@ -50055,9 +50080,10 @@ DEMO.define("cycle", function (document, window, location, fetch) {
             '</button>' +
           '</div>' +
 
-          '<p class="t-caption-1 quiet mt-4">Everything here is on this phone, backup switch or ' +
-            'not: this build has no server to send it to. Deleting removes the log and the ' +
-            'settings and cannot be undone.</p>' +
+          '<p class="t-caption-1 quiet mt-4">Everything here stays on this phone unless you ' +
+            'turn the backup switch on, and the sync refuses these three keys in both ' +
+            'directions while it is off. Deleting removes the log and the settings and ' +
+            'cannot be undone.</p>' +
         '</div>' +
         '<div class="sheet__foot">' +
           '<div class="stack stack--2">' +
