@@ -34540,6 +34540,20 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
      A delegated listener on the container cannot stack: the container is
      bound once, before any render, and the handler reads which control was
      hit at the time of the event. */
+  /* A write per keystroke is wasteful and a write per step is too late.
+     250ms after the typing stops is neither, and a blur or a step change
+     flushes it immediately so nothing is ever waiting on a timer that a
+     closing tab will never run. */
+  var draftTimer = null;
+  function draftSoon() {
+    if (draftTimer) clearTimeout(draftTimer);
+    draftTimer = setTimeout(function () { draftTimer = null; saveDraft(); }, 250);
+  }
+  function draftNow() {
+    if (draftTimer) { clearTimeout(draftTimer); draftTimer = null; }
+    saveDraft();
+  }
+
   (function bindSetupOnce() {
     var host = $('#setup-step');
     if (!host) return;
@@ -34549,11 +34563,27 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
       if (!st || st.kind !== 'text') return;
       if (e.target.id !== (st.field || ('setup-' + st.id))) return;
       S.answers[st.id] = e.target.value;
+      /* AND IT IS WRITTEN DOWN AS IT IS TYPED. The draft was saved from
+         renderSetup, which runs when a step CHANGES -- so a name typed
+         and then interrupted was still in memory only, and the draft
+         restored whatever the step held before it. That is the one
+         moment the draft exists for. saveDraft only writes; it does not
+         render, so it cannot take the caret. It is debounced so a long
+         answer is one write rather than one per keystroke. */
+      draftSoon();
       /* The username is the one text answer with a rule, so it says whether
          what is typed passes it as it is typed. Re-rendering on every
          keystroke would take the caret, so only the message is touched. */
       if (st.id === 'username') paintUsernameError();
     });
+    /* Leaving the field, and the app being put away, both flush. A
+       debounce that never fires is the same as no draft at all. */
+    host.addEventListener('focusout', draftNow);
+    window.addEventListener('pagehide', draftNow);
+    window.addEventListener('visibilitychange', function () {
+      if (document.hidden) draftNow();
+    });
+
     host.addEventListener('click', function (e) {
       var step = STEPS[Math.max(0, Math.min(S.step, STEPS.length - 1))];
       if (!step) return;
