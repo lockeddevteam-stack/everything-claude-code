@@ -12,6 +12,9 @@
 <script src="units.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
+<script src="exercises.js"></script>
+<script src="cloud-config.js"></script>
+<script src="cloud.js"></script>
 <script src="session.js"></script>
 </head>
 <body>
@@ -1957,12 +1960,187 @@
     ['How much to trust it', 'Lighting, angle and pump move an estimate more than a month ' +
       'of training does. The qualifier says by how much.']
   ];
+  /* THE MOST SENSITIVE THING THIS APP SENDS. The consent sheet before it
+     names the photo in those words, and nothing is sent until it is
+     pressed. The photo already lives as a downscaled thumbnail, so what
+     goes up is what the grid shows and not the original off the camera. */
+  function readPhysique() {
+    var ph = PHOTOS[S.photoIdx];
+    var C = window.LKCloud;
+    S.analysed = S.photoIdx;
+    S.sheet = 'photo';
+    S.analysis = null;
+    if (!ph || !ph.thumb) {
+      S.analysisBusy = false;
+      S.analysisWhy = 'This photo has no copy on the device to send, so nothing was sent.';
+      render();
+      return;
+    }
+    if (!C || !C.ready() || !C.vision) {
+      S.analysisBusy = false;
+      S.analysisWhy = 'Reading a photo needs a server, and this build reaches none. ' +
+                      'No photo has left this device.';
+      render();
+      return;
+    }
+    S.analysisBusy = true; S.analysisWhy = null; render();
+    C.vision('physique', ph.thumb).then(function (r) {
+      S.analysisBusy = false;
+      if (!r || !r.ok) {
+        S.analysisWhy = (r && r.message) || 'The reading did not come back. Nothing was stored.';
+        render();
+        return;
+      }
+      var d = r.data;
+      if (Array.isArray(d) || !d || !d.summary) {
+        S.analysisWhy = 'The reading came back in a shape this screen could not use.';
+        render();
+        return;
+      }
+      S.analysis = d;
+      render();
+    }, function () {
+      S.analysisBusy = false;
+      S.analysisWhy = 'The reading could not be reached. Nothing was stored.';
+      render();
+    });
+  }
+
+  /* ADD TO SPLIT. It writes the lifts that survived the catalogue check
+     into the active split's day for that muscle -- and only into a day
+     that already exists, because inventing a training day from a photo is
+     a bigger decision than a button on a card should make. Anything
+     already in the day is left alone. */
+  function addWeakPoint(i) {
+    var a = S.analysis;
+    var w = a && Array.isArray(a.weakPoints) ? a.weakPoints[i] : null;
+    if (!w) return;
+    var r = resolveIds(w.prescription && w.prescription.exercises);
+    if (!r.lifts.length) { S.toast = 'Nothing to add: none of those lifts are in the catalogue.'; render(); return; }
+
+    var splits = get('lk_splits', []) || [];
+    var sp = null;
+    for (var k = 0; k < splits.length; k++) if (splits[k].active) sp = splits[k];
+    if (!sp) sp = splits[0];
+    if (!sp || !Array.isArray(sp.days) || !sp.days.length) {
+      S.toast = 'No split to add to yet. Build one first and these will have somewhere to go.';
+      render();
+      return;
+    }
+    /* The day whose name or contents already mention this muscle, so the
+       lifts land where they belong rather than on day one. */
+    var want = String(w.muscle || '').toLowerCase();
+    var day = null;
+    sp.days.forEach(function (d) {
+      if (day) return;
+      var hay = String(d.name || '').toLowerCase() + ' ' +
+        (d.exercises || []).map(function (e) { return (e.muscle || '') + ' ' + (e.group || ''); }).join(' ').toLowerCase();
+      if (want && hay.indexOf(want) !== -1) day = d;
+    });
+    if (!day) day = sp.days[0];
+    day.exercises = day.exercises || [];
+
+    var added = 0;
+    r.lifts.forEach(function (l) {
+      var have = false;
+      day.exercises.forEach(function (e) { if (e.id === l.id) have = true; });
+      if (have) return;
+      day.exercises.push({ id: l.id, name: l.name, group: l.group, muscle: l.muscle, sets: 3, reps: 10 });
+      added++;
+    });
+    put('lk_splits', splits);
+    S.toast = added
+      ? added + (added === 1 ? ' lift' : ' lifts') + ' added to ' + (day.name || 'your split') + '.'
+      : 'Those lifts are already in ' + (day.name || 'that day') + '.';
+    render();
+  }
+
+  /* EVERY EXERCISE THE READING NAMES IS RESOLVED AGAINST THE REAL
+     CATALOGUE. The endpoint asks for bare numeric ids from a short list,
+     and a model asked for ids returns one that does not exist sooner or
+     later. An unresolvable id is dropped and counted rather than drawn as
+     a lift nobody can do -- and ADD TO SPLIT writes only what survived,
+     so nothing invented can reach somebody's training. */
+  function resolveIds(ids) {
+    var out = [], lost = 0;
+    if (!window.LKExercises) return { lifts: [], lost: (ids || []).length, noCatalogue: true };
+    var all = LKExercises.all();
+    (ids || []).forEach(function (raw) {
+      var id = parseInt(raw, 10);
+      var hit = null;
+      for (var i = 0; i < all.length && !hit; i++) if (all[i].id === id) hit = all[i];
+      if (hit) out.push(hit); else lost++;
+    });
+    return { lifts: out, lost: lost, noCatalogue: false };
+  }
+
+  function weakCard(w, i) {
+    var r = resolveIds(w.prescription && w.prescription.exercises);
+    var sets = Math.max(0, Math.min(40, parseInt(w.prescription && w.prescription.setsPerWeek, 10) || 0));
+    return '<div class="card mt-3" data-testid="weak-' + i + '">' +
+      '<div class="spread"><span class="t-label">' + esc(String(w.muscle || 'Focus').slice(0, 40)) + '</span>' +
+        (sets ? '<span class="t-meta num">' + sets + ' sets a week</span>' : '') + '</div>' +
+      (w.evidence ? '<p class="t-detail mt-2">' + esc(String(w.evidence).slice(0, 300)) + '</p>' : '') +
+      (r.lifts.length
+        ? '<div class="card card--flush mt-2">' + r.lifts.map(function (l) {
+            return '<div class="row row--static"><span class="row__main stack">' +
+              '<span class="row__title">' + esc(l.name) + '</span>' +
+              '<span class="row__sub">' + esc(l.muscle || l.group) + '</span></span></div>';
+          }).join('') + '</div>' +
+          '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="weak-add" ' +
+            'data-i="' + i + '" data-testid="weak-add-' + i + '">' +
+            '<span class="btn__label">Add to split</span></button>'
+        : '<p class="t-detail quiet mt-2" data-testid="weak-none-' + i + '">' +
+          (r.noCatalogue
+            ? 'The exercise catalogue has not loaded, so none of these can be checked.'
+            : 'None of the lifts it named are in the catalogue, so there is nothing to add.') +
+          '</p>') +
+      (r.lost && r.lifts.length
+        ? '<p class="t-caption-1 quiet mt-2" data-testid="weak-lost-' + i + '">' + r.lost +
+          (r.lost === 1 ? ' lift it named is' : ' lifts it named are') +
+          ' not in the catalogue and were left out.</p>'
+        : '') +
+    '</div>';
+  }
+
   function analysisPanel() {
+    var a = S.analysis;
+    if (a) {
+      var rows = [
+        ['Summary', a.summary],
+        ['Composition', a.bodyComposition],
+        ['Observations', Array.isArray(a.observations) ? a.observations.join(' ') : a.observations],
+        ['Strengths', Array.isArray(a.strengths) ? a.strengths.join(' ') : a.strengths],
+        ['Focus', a.focus],
+        ['How much to trust it', a.qualifier]
+      ].filter(function (p) { return p[1]; });
+      return '<div class="card card--unverified mt-4" data-testid="analysis-panel">' +
+        '<div class="spread"><span class="t-label">Analysis</span>' +
+          '<span class="badge">Read from a photo, not measured</span></div>' +
+        '<div class="card card--flush mt-3">' +
+          rows.map(function (pl, i) {
+            return '<div class="row row--static" data-testid="analysis-panel-' + i + '">' +
+              '<span class="row__main stack">' +
+                '<span class="row__title">' + esc(pl[0]) + '</span>' +
+                '<span class="row__sub">' + esc(String(pl[1]).slice(0, 400)) + '</span>' +
+              '</span></div>';
+          }).join('') +
+        '</div>' +
+        (Array.isArray(a.weakPoints) && a.weakPoints.length
+          ? a.weakPoints.slice(0, 2).map(weakCard).join('')
+          : '') +
+      '</div>';
+    }
     return '<div class="card card--unverified mt-4" data-testid="analysis-panel">' +
       '<div class="spread"><span class="t-label">Analysis</span>' +
-        '<span class="badge">Needs the server</span></div>' +
-      '<p class="t-detail mt-2">Nothing was sent and nothing came back. This is what the ' +
-        'analysis is made of, so the shape of it can be read:</p>' +
+        '<span class="badge">' + (S.analysisBusy ? 'Reading' : 'Nothing read yet') + '</span></div>' +
+      (S.analysisBusy
+        ? '<div class="hstack hstack--3 mt-3" role="status" aria-live="polite" data-testid="analysis-reading">' +
+            '<span class="spinner"></span><span class="t-detail">Reading the photo.</span></div>'
+        : S.analysisWhy
+        ? '<p class="t-detail mt-2" data-testid="analysis-why">' + esc(S.analysisWhy) + '</p>'
+        : '<p class="t-detail mt-2">Nothing was sent and nothing came back. This is what the ' +
+          'analysis is made of, so the shape of it can be read:</p>') +
       '<div class="card card--flush mt-3">' +
         ANALYSIS_PANELS.map(function (pl, i) {
           return '<div class="row row--static" data-testid="analysis-panel-' + i + '">' +
@@ -2083,13 +2261,10 @@
     } else if (a === 'analyse-no') {
       openSheet('photo');
     } else if (a === 'analyse-go') {
-      S.analysed = S.photoIdx;
-      S.sheet = 'photo'; render();
-      /* It says what this build does, which is nothing. The old wording
-         claimed a photo had been sent somewhere and a reply was coming; no
-         request is made, and telling somebody their body photo has left the
-         device when it has not is the worst direction for that error. */
-      S.toast = 'Not in this build. No photo has left this device.'; render();
+      readPhysique();
+      return;
+    } else if (a === 'weak-add') {
+      addWeakPoint(Number(t.getAttribute('data-i')));
       return;
     } else if (a === 'del-photo') {
       if (!S.confirmDel) { S.confirmDel = true; render(); return; }
