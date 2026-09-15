@@ -357,7 +357,22 @@
           var cycleOk2 = !!(mc2 && mc2.cloudBackup);
           var mine = {};
           S.syncKeys().forEach(function (k) { mine[k] = 1; });
+          var refused = 0;
           rows.forEach(function (row) {
+            /* A ROW THAT IS NOT A ROW LOSES ONLY ITSELF. This read
+               row.key straight off whatever the array held, so a single
+               null in the answer threw inside the loop and took the
+               whole sync with it -- every later row unapplied, and the
+               same throw on every pull afterwards, because the row is
+               still on the server. A pull has to be able to skip what it
+               cannot read and go on.
+
+               Rows like that are not exotic: a sync that died halfway, a
+               row hand-edited in the dashboard, or one written by the
+               reader's own second phone running a build this one has
+               never seen. They all come through this door. */
+            if (!row || typeof row !== 'object') { refused++; return; }
+            if (typeof row.key !== 'string' || !row.key) { refused++; return; }
             /* A key this build does not sync is left alone rather than
                written. The table outlives any one version of the app, and
                a row from a newer build is not this build's to interpret. */
@@ -373,8 +388,17 @@
             /* A null value is a tombstone. The row stays so the deletion
                itself syncs; treating it as a value would restore a thing
                somebody deleted on their other phone. */
-            if (row.value === null || row.value === undefined) S.remove(row.key);
-            else S.set(row.key, row.value);
+            if (row.value === null || row.value === undefined) { S.remove(row.key); applied++; return; }
+            /* AND A VALUE OF THE WRONG SHAPE IS NOT WRITTEN AT ALL. This
+               wrote whatever arrived, so a history that came back as a
+               string replaced a phone's real sessions with nineteen
+               characters. get() would then hand every screen the empty
+               fallback instead -- the screens survive, the work does not.
+               Keeping what is on the phone is the only safe answer: the
+               local copy is real work, and the server's is known to be
+               unreadable. */
+            if (!S.shapeOk(row.key, row.value)) { refused++; return; }
+            S.set(row.key, row.value);
             applied++;
           });
           /* WHAT ARRIVED IS NOT NECESSARILY WHAT THIS BUILD READS. These
@@ -383,7 +407,11 @@
              migrations already know how to convert them; they had simply
              already run, at boot, before any of this existed. */
           if (applied) { try { S.remigrate(); } catch (e) {} }
-          return { ok: true, data: { applied: applied, rows: rows.length } };
+          /* `refused` is reported rather than swallowed. A row the phone
+             cannot read is a real fact about the account, and a sync that
+             silently drops work looks exactly like one that had nothing
+             to do. */
+          return { ok: true, data: { applied: applied, rows: rows.length, refused: refused } };
         });
     },
 

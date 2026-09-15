@@ -414,6 +414,25 @@
        they were set on and must not follow somebody to another one. */
     syncKeys: function () { return SYNC_KEYS.slice(); },
 
+    /* IS THIS VALUE THE RIGHT SHAPE FOR THIS KEY. get() already refuses
+       to hand a reader a list that is not a list, which protects every
+       screen -- but it protects them by throwing the data away on every
+       read, and the wrong value stays in storage and keeps going back to
+       the server. The place to refuse it is the door it came in through,
+       which is why this is public: a pull can ask before it writes.
+
+       A key with no declared shape answers true. This says nothing about
+       whether the value is MEANINGFUL, only that a reader iterating it
+       will not fall over. */
+    shapeOk: function (key, value) {
+      if (LIST_KEYS[key]) return Array.isArray(value);
+      if (MAP_KEYS[key]) {
+        return value !== null && typeof value === 'object' && !Array.isArray(value);
+      }
+      if (SCALAR_KEYS[key]) return value === null || typeof value !== 'object';
+      return true;
+    },
+
     /* SCHEMA MIGRATIONS. A product gets upgraded under people who already
        have data, and a shape that changes without a migration reads as an
        empty screen to exactly the users who have the most to lose. Each
@@ -527,6 +546,20 @@
   /* Same rule: lk_fuelLog, lk_profile, lk_customEx and lk_coachMemory are
      all read by a migration in a shape this build does not otherwise
      accept, so none of them is guarded. */
+  /* Settings that are one value, not a collection. A pull wrote whatever
+     arrived, so a theme could come back as an object and the switch that
+     reads it compared a string to {} forever after. Listed rather than
+     inferred, because "not a list and not a map" is also true of every
+     key nobody has classified yet, and guessing at those would refuse
+     data this build simply does not know about. */
+  var SCALAR_KEYS = asSet([
+    'lk_theme', 'lk_onboarded', 'lk_tutorialSeen', 'lk_tutorialTrack',
+    'lk_notifOn', 'lk_reminderOn', 'lk_reminderAt', 'lk_restEnabled',
+    'lk_restSec', 'lk_restSound', 'lk_startDay', 'lk_weekStart',
+    'lk_plateKg', 'lk_hidePartials', 'lk_libraryShort', 'lk_gamingLayer',
+    'lk_fuelNumbers', 'lk_homeLayout'
+  ]);
+
   var MAP_KEYS = asSet([
     'lk_exNotes', 'lk_exEquip', 'lk_changedAt',
     'lk_fuelTargets', 'lk_suppLog', 'lk_notifPrefs', 'lk_rest'
