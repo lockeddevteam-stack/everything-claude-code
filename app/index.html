@@ -4608,6 +4608,35 @@ button.shelf:active { background: var(--fill-press); }
     0 0 26px rgba(217, 45, 45, calc(var(--peril, 0) * 0.5));
 }
 
+/* --- A row in the order step -------------------------------------------
+   Sets on the left, the lift in the middle, remove and grip on the right.
+   The stepper sits first because it is the one thing here you might change
+   on every row, and a control you reach for repeatedly belongs where the
+   eye lands rather than where there happens to be room. */
+.ordrow { gap: var(--sp-2); }
+.ordrow__sets {
+  flex: none;
+  display: flex; align-items: center; gap: var(--sp-1);
+  min-width: 92px;
+}
+.ordrow__sets .num { min-width: 1.5ch; text-align: center; }
+.ordrow__arrows { display: flex; flex-direction: column; }
+.ordrow__arrows .iconbtn { height: 22px; min-height: 22px; }
+.ordrow__grip { flex: none; touch-action: none; }
+
+/* Lifted, and the rest of the list saying it can be moved. Same wiggle as
+   the workout log, because it is the same gesture on the same kind of
+   list, and two surfaces that feel different for no reason are two
+   surfaces to learn. */
+.ordrow--lift:not(.ordrow--drag) {
+  animation: lk-wiggle 0.24s linear infinite;
+  animation-delay: calc(var(--wiggle-i, 0) * -60ms);
+}
+.ordrow--drag { opacity: 0.96; }
+@media (prefers-reduced-motion: reduce) {
+  .ordrow--lift:not(.ordrow--drag) { animation: none; }
+}
+
 
 /* THE DEV STATE SWITCHER IS NOT A PRODUCT CONTROL. Every screen carries
    one so a reviewer can jump to its empty, loading and error states. It is
@@ -34129,6 +34158,7 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
        allowed on purpose: benching twice in one session is a real thing. */
     picks: PICKJOB ? PICKJOB.picks.slice() : [],
     ordering: false,
+    dragI: -1,            /* the order row under a finger, mid-drag */
     status: 'ready',      /* ready | loading | error */
     source: 'inline',     /* inline | fetch */
     raw: [],
@@ -34889,22 +34919,54 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
           (S.picks.length
             ? '<div class="card card--flush" data-testid="order-list">' +
                 S.picks.map(function (p, i) {
-                  return '<div class="row" data-testid="order-row-' + i + '">' +
+                  var sets = p.sets || 3;
+                  return '<div class="row ordrow' + (S.dragI === i ? ' ordrow--drag' : '') +
+                      (S.dragI !== -1 ? ' ordrow--lift' : '') + '" ' +
+                      'style="--wiggle-i:' + i + '" data-ord="' + i + '" data-testid="order-row-' + i + '">' +
+                    /* HOW MANY SETS, decided here or not at all. Blank is a
+                       real answer -- three is what the log opens with and
+                       most people never think about it -- so this is a
+                       stepper rather than a field, and it starts where the
+                       log would have started anyway. */
+                    '<span class="ordrow__sets">' +
+                      '<button class="iconbtn" type="button" data-action="order-sets" data-i="' + i + '" ' +
+                        'data-d="-1" ' + (sets <= 1 ? 'disabled aria-disabled="true" ' : '') +
+                        'aria-label="One less set of ' + esc(p.name) + '" ' +
+                        'data-testid="order-sets-down-' + i + '">' +
+                        '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>' +
+                      '<span class="t-body-em num" data-testid="order-sets-' + i + '">' + sets + '</span>' +
+                      '<button class="iconbtn" type="button" data-action="order-sets" data-i="' + i + '" ' +
+                        'data-d="1" ' + (sets >= 10 ? 'disabled aria-disabled="true" ' : '') +
+                        'aria-label="One more set of ' + esc(p.name) + '" ' +
+                        'data-testid="order-sets-up-' + i + '">' +
+                        '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>' +
+                    '</span>' +
                     '<span class="row__main stack">' +
                       '<span class="row__title">' + esc(p.name) + '</span>' +
-                      '<span class="row__sub">' + esc(p.muscle || '') + '</span>' +
+                      '<span class="row__sub">' + esc(p.muscle || '') + ' \u00b7 ' + sets + ' ' +
+                        LKPlural(sets, 'set') + '</span>' +
                     '</span>' +
-                    '<button class="iconbtn" type="button" data-action="order-up" data-i="' + i + '" ' +
-                      (i === 0 ? 'disabled aria-disabled="true" ' : '') +
-                      'aria-label="Move ' + esc(p.name) + ' up" data-testid="order-up-' + i + '">' +
-                      '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 14l6-6 6 6"/></svg></button>' +
-                    '<button class="iconbtn" type="button" data-action="order-down" data-i="' + i + '" ' +
-                      (i === S.picks.length - 1 ? 'disabled aria-disabled="true" ' : '') +
-                      'aria-label="Move ' + esc(p.name) + ' down" data-testid="order-down-' + i + '">' +
-                      '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 10l6 6 6-6"/></svg></button>' +
                     '<button class="iconbtn iconbtn--danger-quiet" type="button" data-action="order-drop" ' +
                       'data-i="' + i + '" aria-label="Remove ' + esc(p.name) + '" ' +
                       'data-testid="order-drop-' + i + '">' + ico('close') + '</button>' +
+                    /* The grip carries the drag and the arrows both: a
+                       keyboard and a screen reader have no pointer, and a
+                       gesture nobody can see is not an interface on its
+                       own. Hold it to drag, or use the arrows. */
+                    '<button class="iconbtn ordrow__grip" type="button" data-action="order-grip" ' +
+                      'data-i="' + i + '" data-testid="order-grip-' + i + '" ' +
+                      'aria-label="Reorder ' + esc(p.name) + ', ' + (i + 1) + ' of ' +
+                      S.picks.length + '. Hold and drag, or use the arrows.">' + ico('grip') + '</button>' +
+                    '<span class="ordrow__arrows">' +
+                      '<button class="iconbtn" type="button" data-action="order-up" data-i="' + i + '" ' +
+                        (i === 0 ? 'disabled aria-disabled="true" ' : '') +
+                        'aria-label="Move ' + esc(p.name) + ' up" data-testid="order-up-' + i + '">' +
+                        '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 14l6-6 6 6"/></svg></button>' +
+                      '<button class="iconbtn" type="button" data-action="order-down" data-i="' + i + '" ' +
+                        (i === S.picks.length - 1 ? 'disabled aria-disabled="true" ' : '') +
+                        'aria-label="Move ' + esc(p.name) + ' down" data-testid="order-down-' + i + '">' +
+                        '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 10l6 6 6-6"/></svg></button>' +
+                    '</span>' +
                   '</div>';
                 }).join('') + '</div>' +
               '<button class="btn btn--tertiary btn--block mt-3" type="button" data-action="order-close" ' +
@@ -35172,6 +35234,14 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
       if (i < 0 || i >= S.picks.length - 1) return;
       var m = S.picks.splice(i, 1)[0];
       S.picks.splice(i + 1, 0, m);
+      saveQuickDraft(); render();
+    },
+    'order-sets': function (el) {
+      var i = Number(el.getAttribute('data-i'));
+      var d = Number(el.getAttribute('data-d'));
+      var p = S.picks[i];
+      if (!p) return;
+      p.sets = Math.max(1, Math.min(10, (p.sets || 3) + d));
       saveQuickDraft(); render();
     },
     'order-drop': function (el) {
@@ -35593,6 +35663,110 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
     syncEntry();
     rebuild();
   }
+  /* ---- DRAGGING THE ORDER ------------------------------------------------
+     The same gesture as the workout log, because it is the same job on the
+     same kind of list and two surfaces that feel different for no reason
+     are two surfaces to learn. Hold the grip for 350ms and the row lifts;
+     move and the others open a gap; let go and it lands.
+
+     The hold matters: without it a drag down the sheet picks a row up
+     instead of scrolling, which is the thing that makes a list like this
+     unusable on a phone. Ten pixels of movement before the hold completes
+     hands the gesture back to the scroller.
+
+     The arrows beside the grip do the same job for anybody without a
+     pointer, and they are not a fallback -- they are the only way to do
+     this from a keyboard. */
+  var ORD_HOLD_MS = 350, ORD_ESCAPE = 10;
+  var ODRAG = null, oHold = null, oWatch = null;
+
+  function ordRows() {
+    return Array.prototype.slice.call(layer.querySelectorAll('[data-ord]'));
+  }
+  function clearOrdHold() {
+    if (oHold) { clearTimeout(oHold); oHold = null; }
+    if (oWatch) { document.removeEventListener('pointermove', oWatch); oWatch = null; }
+  }
+  function buzz(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
+
+  function endOrdDrag(commit) {
+    if (!ODRAG) return;
+    var d = ODRAG; ODRAG = null;
+    d.rows.forEach(function (r) {
+      r.style.transition = ''; r.style.transform = ''; r.style.zIndex = '';
+    });
+    S.dragI = -1;
+    if (commit && d.to !== null && d.to !== d.from) {
+      var moved = S.picks.splice(d.from, 1)[0];
+      var to = d.to > d.from ? d.to - 1 : d.to;
+      S.picks.splice(to, 0, moved);
+      buzz(12);
+      saveQuickDraft();
+    }
+    render();
+  }
+
+  document.addEventListener('pointerdown', function (ev) {
+    if (!S.ordering) return;
+    var grip = ev.target.closest ? ev.target.closest('[data-action="order-grip"]') : null;
+    if (!grip) return;
+    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+    var i = Number(grip.getAttribute('data-i'));
+    if (isNaN(i) || !S.picks[i]) return;
+    var y0 = ev.clientY;
+    oWatch = function (m) {
+      if (Math.abs(m.clientY - y0) > ORD_ESCAPE) clearOrdHold();
+    };
+    document.addEventListener('pointermove', oWatch);
+    oHold = setTimeout(function () {
+      clearOrdHold();
+      /* Marked as lifting first, then measured: the rows change height
+         when the class lands, and geometry read before that puts every
+         drop target where the rows used to be. */
+      S.dragI = i;
+      render();
+      var rows = ordRows();
+      var row = rows[i];
+      if (!row) { S.dragI = -1; render(); return; }
+      var boxes = rows.map(function (r) {
+        var b = r.getBoundingClientRect();
+        return { mid: b.top + b.height / 2, h: b.height };
+      });
+      ODRAG = { from: i, to: i, y0: y0, rows: rows, boxes: boxes, h: boxes[i].h };
+      row.style.zIndex = '20';
+      buzz(30);
+    }, ORD_HOLD_MS);
+  });
+
+  document.addEventListener('pointermove', function (ev) {
+    if (!ODRAG) return;
+    ev.preventDefault();
+    var dy = ev.clientY - ODRAG.y0;
+    var row = ODRAG.rows[ODRAG.from];
+    row.style.transition = 'none';
+    row.style.transform = 'translateY(' + dy + 'px) scale(1.03)';
+    var y = ODRAG.boxes[ODRAG.from].mid + dy;
+    var to = ODRAG.boxes.length;
+    for (var i = 0; i < ODRAG.boxes.length; i++) {
+      if (y < ODRAG.boxes[i].mid) { to = i; break; }
+    }
+    if (to === ODRAG.from + 1) to = ODRAG.from;
+    if (to !== ODRAG.to) {
+      if (ODRAG.to !== null) buzz(10);
+      ODRAG.to = to;
+      ODRAG.rows.forEach(function (r, k) {
+        if (k === ODRAG.from) return;
+        var shift = 0;
+        if (to <= ODRAG.from && k >= to && k < ODRAG.from) shift = ODRAG.h;
+        if (to > ODRAG.from && k > ODRAG.from && k < to) shift = -ODRAG.h;
+        r.style.transition = 'transform var(--dur-quick, .18s) var(--spring-soft, ease)';
+        r.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
+      });
+    }
+  });
+  document.addEventListener('pointerup', function () { clearOrdHold(); endOrdDrag(true); });
+  document.addEventListener('pointercancel', function () { clearOrdHold(); endOrdDrag(false); });
+
   /* The router claims this click in the capture phase and leaves with the
      crossing, so what the log needs is written on the announcement rather
      than in the handler below, which would run too late or not at all. */

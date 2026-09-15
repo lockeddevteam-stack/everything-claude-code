@@ -211,6 +211,69 @@ await page.waitForTimeout(300);
 const firstAfter = await textOf(page, 'exercise-library', 'order-row-0');
 ok(firstBefore !== firstAfter, 'and it can be reordered', firstBefore + ' -> ' + firstAfter);
 
+console.log('\n   ---- how many sets, and dragging the order ----\n');
+
+/* Three is what the log opens with, so that is where this starts. */
+ok((await textOf(page, 'exercise-library', 'order-sets-0')) === '3',
+   'each lift starts at the three sets the log would have given it',
+   await textOf(page, 'exercise-library', 'order-sets-0'));
+await tap(page, 'exercise-library', 'order-sets-up-0');
+await tap(page, 'exercise-library', 'order-sets-up-0');
+await page.waitForTimeout(300);
+ok((await textOf(page, 'exercise-library', 'order-sets-0')) === '5',
+   'and it steps', await textOf(page, 'exercise-library', 'order-sets-0'));
+const savedSets = await page.evaluate(() => {
+  try { return JSON.parse(localStorage.getItem('lk_quickDraft')).picks[0].sets; }
+  catch (e) { return -1; }
+});
+ok(savedSets === 5, 'kept in the draft with everything else', String(savedSets));
+
+/* The drag: hold the grip past 350ms, then carry it past the next row's
+   middle. Without the hold this would be a scroll, which is the whole
+   reason the hold is there. */
+const before0 = await textOf(page, 'exercise-library', 'order-row-0');
+const gripBox = await page.evaluate(() => {
+  const rec = window.DEMO.screens['exercise-library'];
+  const root = rec.root || rec.host.shadowRoot;
+  const g = root.querySelector('[data-testid="order-grip-0"]');
+  const b = g.getBoundingClientRect();
+  const rows = [...root.querySelectorAll('[data-ord]')].map((r) => {
+    const x = r.getBoundingClientRect();
+    return x.top + x.height / 2;
+  });
+  return { x: b.x + b.width / 2, y: b.y + b.height / 2, gap: Math.ceil(rows[1] - rows[0]) + 14 };
+});
+await page.mouse.move(gripBox.x, gripBox.y);
+await page.mouse.down();
+await page.waitForTimeout(80);
+const notYet = await page.evaluate(() => {
+  const rec = window.DEMO.screens['exercise-library'];
+  const root = rec.root || rec.host.shadowRoot;
+  return !!root.querySelector('.ordrow--drag');
+});
+ok(!notYet, 'a tap on the grip lifts nothing');
+await page.waitForTimeout(400);
+const lifted = await page.evaluate(() => {
+  const rec = window.DEMO.screens['exercise-library'];
+  const root = rec.root || rec.host.shadowRoot;
+  return { drag: !!root.querySelector('.ordrow--drag'),
+           wiggling: [...root.querySelectorAll('.ordrow--lift')]
+             .filter((r) => !r.classList.contains('ordrow--drag'))
+             .every((r) => getComputedStyle(r).animationName === 'lk-wiggle') };
+});
+ok(lifted.drag, 'holding it does');
+ok(lifted.wiggling, 'and the rest of the list says it can be moved');
+
+const step = Math.ceil(gripBox.gap / 12);
+for (let k = 1; k <= 12; k++) {
+  await page.mouse.move(gripBox.x, gripBox.y + k * step);
+  await page.waitForTimeout(16);
+}
+await page.mouse.up();
+await page.waitForTimeout(500);
+const after0 = await textOf(page, 'exercise-library', 'order-row-0');
+ok(before0 !== after0, 'dragging it down moves it', before0.slice(0, 24) + ' -> ' + after0.slice(0, 24));
+
 await tap(page, 'exercise-library', 'order-drop-2');
 await page.waitForTimeout(300);
 const left = await page.evaluate(() => {
@@ -237,6 +300,19 @@ const cards = await page.evaluate(() => {
     });
 });
 ok(cards.length === 2, 'the lifts arrive pre-loaded', JSON.stringify(cards));
+
+/* The sets asked for are the rows waiting in the log. A planner that
+   collects a number and then ignores it is worse than one that never
+   asked. */
+const rowsPerCard = await page.evaluate(() => {
+  const rec = window.DEMO.screens['workout-log'];
+  const root = rec.root || rec.host.shadowRoot;
+  return [...root.querySelectorAll('[data-testid^="exercise-card-"]')]
+    .map((c) => c.querySelectorAll('[data-ex][data-set][data-testid^="done-"]').length);
+});
+ok(rowsPerCard.some((n) => n === 5),
+   'and the lift set to five sets has five rows waiting',
+   JSON.stringify(rowsPerCard));
 
 const orderKept = await page.evaluate(() => {
   try {
