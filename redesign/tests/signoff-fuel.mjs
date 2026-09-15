@@ -30,6 +30,7 @@ await p.click('[data-testid=chip-trends]');
 out((await txt('[data-testid=sheet-trends]')).replace(/\n/g, ' | '));
 out('svg polyline pts:', await p.locator('[data-testid=sheet-trends] polyline').first().getAttribute('points'));
 await p.keyboard.press('Escape');
+await gone('[data-testid=sheet-trends]');
 
 out('\n== WATER ==');
 await p.click('[data-testid=chip-water]');
@@ -89,11 +90,17 @@ await p.click('[data-testid=undo]');
 out('after undo hero:', await txt('[data-testid=hero-value]'), 'rows', await p.locator('[data-testid^=meal-]').count());
 
 out('\n== OFTEN/MEALS ==');
-await p.click('[data-testid=open-meals]');
-out((await txt('[data-testid=sheet-meals]')).replace(/\n/g, ' | '));
+/* Meals used to be a sheet off a chip. It is a view of the tab now, behind
+   the segmented control at the top, and the choice is remembered -- so this
+   reads the view rather than a sheet that no longer exists. */
+await p.click('[data-testid=fuel-view-meals]');
+out((await txt('[data-testid=often-list]')).replace(/\n/g, ' | '));
 const h0 = await txt('[data-testid=hero-value]');
-await p.click('[data-testid=often-0]');
+await p.click('[data-testid=meals-often-0]');
 out('toast:', await txt('[data-testid=toast]'), 'hero', h0, '->', await txt('[data-testid=hero-value]'));
+/* The badge is on the logged row, which is in the Log view -- reading it
+   from Meals was reading a list that does not carry badges at all. */
+await p.click('[data-testid=fuel-view-log]');
 out('last row badge:', await txt('[data-testid^=badge-repeat]'));
 
 out('\n== RECIPES ==');
@@ -109,8 +116,9 @@ await p.click('[data-testid=recipe-0]');
 await p.click('[data-testid=recipe-back]');
 out('back to list works:', await has('[data-testid=sheet-recipes]'));
 await p.click('[data-testid=new-recipe]');
-out('new-recipe toast:', await txt('[data-testid=toast]'));
+out('new-recipe opens the builder:', await has('[data-testid=sheet-build-recipe]'));
 await p.keyboard.press('Escape');
+await gone('[data-testid=sheet-build-recipe]');
 
 out('\n== PLAN ==');
 await p.click('[data-testid=chip-plan]');
@@ -120,10 +128,17 @@ const h2 = await txt('[data-testid=hero-value]');
 // Wed is index 2 in PLAN; find a not-logged slot today
 await p.click('[data-testid=plan-2-3]');
 out('plan-2-3 toast:', await txt('[data-testid=toast]'), 'hero', h2, '->', await txt('[data-testid=hero-value]'));
-await p.click('[data-testid=chip-plan]');
+/* Logging a slot leaves the plan open, which is right -- you log two or
+   three in a row -- so the sheet is not reopened, it never closed. */
+/* Only today's day is open in the accordion, so Monday has to be
+   expanded before any of its slots exist. */
+await p.click('[data-testid=plan-day-0]');
 await p.click('[data-testid=plan-0-0]');
 out('past-day slot toast:', await txt('[data-testid=toast]'));
-await p.keyboard.press('Escape');
+/* Escape is not what closes this one on a file:// page with no shell
+   around it, so the sheet's own close button is used. */
+await p.click('[data-testid=plan-close]');
+await gone('[data-testid=sheet-plan]');
 
 out('\n== TARGETS ==');
 await p.click('[data-testid=macros]');
@@ -145,6 +160,10 @@ out('\n== SCAN ==');
 await p.reload(); await p.waitForFunction(() => window.__ready);
 await p.click('[data-testid=log-scan]');
 out((await txt('[data-testid=sheet-scan]')).replace(/\n/g, ' | '));
+/* The sheet opens on the barcode field. A code has to resolve before
+   there is anything to set the servings of -- the script used to start
+   at a state two steps in. */
+await p.click('[data-testid=scan-try-0]');
 await p.fill('[data-testid=scan-servings]', '2');
 out('kcal at 2 servings:', await txt('[data-testid=scan-kcal]'));
 out('sheet at 2:', (await txt('[data-testid=sheet-scan]')).replace(/\n/g, ' | '));
@@ -157,6 +176,9 @@ out('\n== MIC ==');
 await p.reload(); await p.waitForFunction(() => window.__ready);
 await p.click('[data-testid=log-mic]');
 out((await txt('[data-testid=sheet-mic]')).replace(/\n/g, ' | '));
+/* The button reads "Nothing to log yet" until a sentence has been read
+   into items, so a sentence goes in first. */
+await p.fill('[data-testid=mic-text]', '2 eggs and toast');
 const h4 = await txt('[data-testid=hero-value]');
 await p.click('[data-testid=mic-confirm]');
 out('toast:', await txt('[data-testid=toast]'), 'hero', h4, '->', await txt('[data-testid=hero-value]'));
@@ -166,13 +188,20 @@ out('\n== CAM ==');
 await p.reload(); await p.waitForFunction(() => window.__ready);
 await p.click('[data-testid=log-cam]');
 out((await txt('[data-testid=sheet-cam]')).replace(/\n/g, ' | '));
-await p.click('[data-testid=cam-a1]');
-out('after none-oil:', (await txt('[data-testid=sheet-cam]')).replace(/\n/g, ' | '));
-await p.click('[data-testid=cam-a3]');
-out('after lot-oil:', (await txt('[data-testid=sheet-cam]')).replace(/\n/g, ' | '));
-const h5 = await txt('[data-testid=hero-value]');
-await p.click('[data-testid=cam-confirm]');
-out('toast:', await txt('[data-testid=toast]'), 'hero', h5, '->', await txt('[data-testid=hero-value]'));
+/* The oil chips are gone. The flow is take a photo, wait for the read,
+   then the items with their total. */
+/* Take a photo is a file input, so a file goes in rather than a click. */
+await p.setInputFiles('[data-testid=cam-take]', '/tmp/claude-0/shot.png');
+await p.locator('[data-testid=cam-items], [data-testid=cam-none]')
+  .first().waitFor({ timeout: 20000 });
+/* There is no server behind a file:// page, so the read comes back with
+   nothing on the plate. What matters here is that the screen says so and
+   refuses to log: a photo that could not be read must not become a meal
+   with invented figures. */
+out('after the read:', (await txt('[data-testid=cam-items]')).replace(/\n/g, ' | '));
+out('says nothing was read:', await has('[data-testid=cam-none]'));
+out('and will not log it:',
+    await p.locator('[data-testid=cam-confirm]').isDisabled());
 
 out('\n== STATES ==');
 for (const st of ['hidden', 'empty', 'first-weeks', 'loading', 'error']) {
