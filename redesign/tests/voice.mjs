@@ -276,6 +276,57 @@ ok(!stillOn, 'the recorder is not left running behind a closed sheet');
 ok(errs.length === 0, 'and no screen threw', errs.join(' | '));
 await ctx.close();
 
+console.log('\n=== driven badly on purpose ===\n');
+
+/* Thumbs double-tap, phones ring, and people leave a screen before it
+   has finished. None of those may leave a recorder running, send a clip
+   twice, or bring a discarded transcript back on the next visit. */
+plan = {};
+({ ctx, page, errs } = await open(true));
+await click(page, 'log-mic');
+await waitFor(page, 'sheet-mic');
+
+let sent = 0;
+page.on('request', (r) => { if (r.url().indexOf('/voice') > -1 && r.method() === 'POST') sent++; });
+
+await click(page, 'mic-rec');
+await click(page, 'mic-rec').catch(() => {});
+await waitFor(page, 'mic-level', 8000);
+await page.waitForTimeout(1200);
+ok(await page.evaluate(() => window.LKVoice.recording()),
+   'a double tap on start is one recording, not two');
+
+await click(page, 'mic-rec');
+await click(page, 'mic-rec').catch(() => {});
+await page.waitForFunction(() => {
+  const el = window.DEMO.screens.fuel.root.querySelector('[data-testid="mic-text"]');
+  return el && el.value.length > 0;
+}, null, { timeout: 15000 });
+ok(sent === 1, 'and a double tap on stop sends the clip once', sent + ' uploads');
+
+/* Leaving while it is being written down. */
+await click(page, 'mic-rec');
+await waitFor(page, 'mic-level', 8000);
+await page.waitForTimeout(900);
+await click(page, 'mic-rec');
+await click(page, 'mic-close');
+await page.waitForTimeout(2500);
+ok(!(await page.evaluate(() => window.LKVoice.recording())),
+   'closing mid-send leaves nothing recording');
+ok(!(await has(page, 'sheet-mic')), 'and the sheet is actually gone');
+
+await click(page, 'log-mic');
+await waitFor(page, 'sheet-mic');
+ok(await value(page, 'mic-text') === '',
+   'reopening does not bring back the transcript of a discarded recording',
+   JSON.stringify(await value(page, 'mic-text')));
+ok(!(await page.evaluate(() => {
+  const el = window.DEMO.screens.fuel.root.querySelector('[data-testid="mic-rec"]');
+  return el ? el.disabled : true;
+})), 'and the button is pressable again rather than stuck mid-send');
+ok(errs.length === 0, 'none of that threw', errs.join(' | '));
+await ctx.close();
+
 await br.close();
 api.close(); site.close();
 console.log('');
