@@ -587,10 +587,35 @@
           /* Normalised to the shape the food table already uses, per 100 g,
              which is what the endpoint returns. Nothing is invented: a row
              with no calories is dropped rather than shown as zero. */
+          /* FIBRE, SUGAR, SATURATED FAT AND SODIUM, which this used to
+             drop on the floor.
+
+             Fuel tracks four micros and shows them against a target on
+             the day screen. The shipped food table carries them, so a
+             food typed by hand had them and a food from a database never
+             did -- the row arrived with them and this mapping kept four
+             fields out of eight. Nothing reported it: the micro row just
+             read zero, which is a number, and looked like a food with no
+             sodium in it rather than like a figure nobody had.
+
+             Named differently by different sources, so both spellings are
+             read. A missing one stays missing rather than becoming zero,
+             because "no data" and "none of it" are not the same claim and
+             the screen already knows how to say the first. */
+          var micro = function (it, names) {
+            for (var i = 0; i < names.length; i++) {
+              var v = it[names[i]];
+              if (typeof v === 'number' && isFinite(v)) return Math.round(v * 10) / 10;
+              if (typeof v === 'string' && v !== '' && isFinite(Number(v))) {
+                return Math.round(Number(v) * 10) / 10;
+              }
+            }
+            return undefined;
+          };
           return { ok: true, data: items.map(function (it) {
             var kcal = Math.round(Number(it.cal) || 0);
             if (!kcal) return null;
-            return {
+            var row = {
               name: String(it.name || '').slice(0, 80),
               kcal: kcal,
               pro: Math.round((Number(it.pro) || 0) * 10) / 10,
@@ -608,6 +633,15 @@
               sourceName: SOURCE_NAME[it.src] || '',
               src: 'table'
             };
+            var fib = micro(it, ['fibre', 'fiber', 'fib']);
+            var sug = micro(it, ['sugar', 'sugars', 'sug']);
+            var sat = micro(it, ['satfat', 'sat_fat', 'saturated', 'saturatedFat']);
+            var sod = micro(it, ['sodium', 'sod', 'salt_mg']);
+            if (fib !== undefined) row.fibre = fib;
+            if (sug !== undefined) row.sugar = sug;
+            if (sat !== undefined) row.satfat = sat;
+            if (sod !== undefined) row.sodium = sod;
+            return row;
           }).filter(Boolean) };
         }, function (e) {
           /* NOT THE SAME AS "NOTHING MATCHED". This returned an empty

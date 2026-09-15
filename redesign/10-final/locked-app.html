@@ -4755,6 +4755,105 @@ textarea,
   stroke-width: 3;
 }
 
+/* ---- THE AMOUNT DIAL -------------------------------------------------
+   A watch bezel, because a bezel is the one dial everybody can already
+   use: a ring of ticks, a marker at twelve, long ticks every fifth. It
+   is drawn in the app's own surfaces rather than in steel, so it reads
+   as this product with a watch's manners, not as a watch face dropped
+   into a fitness app. */
+.dial {
+  position: relative;
+  width: min(240px, 62vw);
+  aspect-ratio: 1;
+  margin: var(--sp-3) auto 0;
+  touch-action: none;            /* the page must not scroll while turning */
+  user-select: none;
+}
+.dial__face { width: 100%; height: 100%; display: block; cursor: grab; }
+.dial[data-turning] .dial__face { cursor: grabbing; }
+
+.dial__bezel {
+  fill: var(--surface-2, #17181D);
+  stroke: color-mix(in srgb, var(--text, #fff) 10%, transparent);
+  stroke-width: 1;
+}
+.dial__plate { stroke: color-mix(in srgb, #000 55%, transparent); stroke-width: 1; }
+
+.dial__tick {
+  stroke: color-mix(in srgb, var(--text, #fff) 34%, transparent);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.dial__tick--major {
+  stroke: color-mix(in srgb, var(--text, #fff) 72%, transparent);
+  stroke-width: 3;
+}
+/* The ring turns under the finger. No CSS transition on it: the rotation
+   follows the thumb, and easing a value that is being dragged makes the
+   control feel like it is arguing with you.
+
+   AND NO transform-origin HERE. Under SVG2 the transform presentation
+   attribute IS the CSS transform property, so a transform-origin in CSS
+   applies on top of the rotate(angle cx cy) the attribute already
+   carries -- and that form has the centre baked into it. Setting both
+   applied the origin twice and threw the ticks clean out of the dial:
+   the first of them measured at x=551 in a viewport 393 wide, which is
+   why the face rendered as a plain disc with no marks on it at all.
+   Computed style said the ticks were white and visible, and they were,
+   somewhere off the side of the phone. */
+.dial__ring { transform-box: view-box; }
+
+.dial__marker { fill: var(--accent, #FF8A3D); }
+
+.dial__read {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  pointer-events: none;
+  gap: 2px;
+}
+.dial__value {
+  font-size: 40px; line-height: 1; font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+/* Not uppercased. A unit set in caps reads as a label, and "G" alone
+   under a number is a letter rather than grams. */
+.dial__unit { color: var(--text-2, #9A9AA2); letter-spacing: .04em; }
+
+/* THE KEYBOARD'S WAY IN. A dial is a picture to a screen reader, so the
+   real control is a slider sitting on it: invisible, full size, and
+   focusable. Not display:none, which would take it out of the tab order
+   and leave the dial unusable without a pointer. */
+.dial__slider {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  opacity: 0;
+  margin: 0;
+  cursor: inherit;
+  /* KEYBOARD ONLY. Stretched over the dial and invisible, this sat on top
+     of the face and took every pointer event before the SVG saw one: a
+     range input sets its value from where along its width you press, so
+     dragging the bezel set the amount by how far right your thumb was.
+     Turning it twelve steps put 1715 g in a field that should have read
+     160, and no pointermove ever reached the dial at all.
+     pointer-events: none hands the pointer back to the face and leaves
+     the input focusable, tabbable and arrow-keyed, which is the only
+     thing it was ever for. */
+  pointer-events: none;
+}
+.dial__slider:focus-visible { opacity: 0; }
+.dial:has(.dial__slider:focus-visible) .dial__bezel {
+  stroke: var(--accent, #FF8A3D);
+  stroke-width: 3;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dial__ring { transition: none; }
+}
+
+/* The step toggle under it: how much one click of the bezel is worth. */
+.dial__steps { display: flex; justify-content: center; gap: var(--sp-2); margin-top: var(--sp-3); }
+
 
 /* THE DEV STATE SWITCHER IS NOT A PRODUCT CONTROL. Every screen carries
    one so a reviewer can jump to its empty, loading and error states. It is
@@ -9939,6 +10038,279 @@ textarea,
 
 </script>
 <script>
+/* dial.js — inlined verbatim from 08-build/dial.js */
+/* ===================================================================
+   LKDial — the amount, as a dial.
+
+   A number field is the right control for a number you already know and
+   the wrong one for a number you are deciding. Logging food is deciding:
+   you know roughly what a portion is and you want to move around it, not
+   type it, and every time you type it the keyboard covers the figures you
+   are typing it against.
+
+   So this is a dial. It reads as a watch bezel because a bezel is the one
+   dial everybody already knows how to use: a ring of ticks, a marker at
+   twelve, minute ticks between the hour ticks, and the numbers where a
+   watch puts its numbers. It turns under a finger, it steps rather than
+   slides, and every step answers with a tick you can feel.
+
+   WHAT IT IS NOT. It is not a replacement for the field. The field stays
+   underneath, because a dial cannot be typed into, cannot be read by a
+   screen reader as a number, and is a bad way to enter 237. The dial is
+   the fast way and the field is the exact way, and they hold the same
+   value.
+
+   STEPPING. The default step is 5, because food is a thing you weigh to
+   about five grams and a dial that moved one gram at a time would need
+   twenty turns to cross a portion. Finer is a toggle rather than a
+   gesture, since a control that changes what it does depending on how
+   fast you moved is a control you cannot trust.
+
+   =================================================================== */
+(function (global) {
+  'use strict';
+
+  var NS = 'http://www.w3.org/2000/svg';
+  var uid = 0;
+
+  function el(tag, attrs, doc) {
+    var n = (doc || document).createElementNS(NS, tag);
+    for (var k in attrs) if (attrs[k] != null) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  /* Floating point steps of 0.1 do not land on 0.1. Every value is rounded
+     to the step's own precision as it is produced, so the readout never
+     shows 1.7999999999999998 and the logged figure is the one on screen. */
+  function quantise(v, step, min, max) {
+    var n = Math.round((v - min) / step) * step + min;
+    var dp = (String(step).split('.')[1] || '').length;
+    n = Number(n.toFixed(dp));
+    return clamp(n, min, max);
+  }
+
+  function mount(host, opts) {
+    opts = opts || {};
+    var doc = host.ownerDocument || document;
+    var id = ++uid;
+
+    var state = {
+      value: 0,
+      step: opts.step || 5,
+      min: opts.min != null ? opts.min : 0,
+      max: opts.max != null ? opts.max : 1000,
+      unit: opts.unit || 'g'
+    };
+
+    /* HOW MUCH TURN IS ONE STEP. A bezel has sixty ticks and food does not
+       stop at sixty grams, so the ring is not a scale of the whole range:
+       it is a rate. Six degrees per step is one minute-tick on a watch,
+       which is the rotation a thumb makes without thinking. */
+    var DEG_PER_STEP = 6;
+
+    var wrap = doc.createElement('div');
+    wrap.className = 'dial';
+    wrap.setAttribute('data-testid', opts.testid || 'dial');
+
+    var svg = el('svg', { viewBox: '0 0 200 200', class: 'dial__face',
+      'aria-hidden': 'true' }, doc);
+
+    /* The bezel, drawn once. A dark ring with a hairline inside it, the
+       way a steel bezel has a polished edge against a brushed face. */
+    var grad = el('radialGradient', { id: 'dialface-' + id, cx: '50%', cy: '38%', r: '72%' }, doc);
+    grad.appendChild(el('stop', { offset: '0%', 'stop-color': 'var(--dial-hi, #23252B)' }, doc));
+    grad.appendChild(el('stop', { offset: '100%', 'stop-color': 'var(--dial-lo, #101116)' }, doc));
+    var defs = el('defs', {}, doc);
+    defs.appendChild(grad);
+    svg.appendChild(defs);
+
+    svg.appendChild(el('circle', { cx: 100, cy: 100, r: 96, class: 'dial__bezel' }, doc));
+    svg.appendChild(el('circle', { cx: 100, cy: 100, r: 84,
+      fill: 'url(#dialface-' + id + ')', class: 'dial__plate' }, doc));
+
+    /* THE RING THAT TURNS. Sixty ticks, long every fifth, exactly as a
+       watch marks its minutes and its hours. The ring rotates; the marker
+       at twelve does not, because on a real bezel the ring is what moves
+       under your finger and the reference stays put. */
+    var ring = el('g', { class: 'dial__ring' }, doc);
+    for (var i = 0; i < 60; i++) {
+      var major = i % 5 === 0;
+      var a = (i / 60) * Math.PI * 2 - Math.PI / 2;
+      var r1 = major ? 68 : 74, r2 = 80;
+      ring.appendChild(el('line', {
+        x1: (100 + Math.cos(a) * r1).toFixed(2), y1: (100 + Math.sin(a) * r1).toFixed(2),
+        x2: (100 + Math.cos(a) * r2).toFixed(2), y2: (100 + Math.sin(a) * r2).toFixed(2),
+        class: 'dial__tick' + (major ? ' dial__tick--major' : '')
+      }, doc));
+    }
+    svg.appendChild(ring);
+
+    /* The marker: a single wedge at twelve, in the accent, so where the
+       ring has got to is readable at a glance rather than by counting. */
+    var mark = el('path', { d: 'M100 8 L106 22 L94 22 Z', class: 'dial__marker' }, doc);
+    svg.appendChild(mark);
+
+    wrap.appendChild(svg);
+
+    /* The readout sits in the middle of the face, where a watch puts its
+       date. HTML rather than SVG text so it inherits the app's type. */
+    var read = doc.createElement('div');
+    read.className = 'dial__read';
+    var big = doc.createElement('span');
+    big.className = 'dial__value num';
+    big.setAttribute('data-testid', (opts.testid || 'dial') + '-value');
+    var small = doc.createElement('span');
+    small.className = 'dial__unit t-caption-1';
+    read.appendChild(big);
+    read.appendChild(small);
+    wrap.appendChild(read);
+
+    /* A dial is a picture to a screen reader, so the real control is a
+       slider underneath it, focusable and arrow-keyed. It is not hidden
+       from sight to be polite: it is the keyboard's way in. */
+    var slider = doc.createElement('input');
+    slider.type = 'range';
+    slider.className = 'dial__slider';
+    slider.setAttribute('data-testid', (opts.testid || 'dial') + '-slider');
+    slider.setAttribute('aria-label', opts.label || 'Amount');
+    wrap.appendChild(slider);
+
+    host.appendChild(wrap);
+
+    var api = { element: wrap };
+
+    function paint() {
+      var turns = (state.value - state.min) / state.step;
+      ring.setAttribute('transform',
+        'rotate(' + (turns * DEG_PER_STEP).toFixed(2) + ' 100 100)');
+      big.textContent = String(state.value);
+      small.textContent = state.unit;
+      slider.min = String(state.min);
+      slider.max = String(state.max);
+      slider.step = String(state.step);
+      slider.value = String(state.value);
+      slider.setAttribute('aria-valuetext', state.value + ' ' + state.unit);
+    }
+
+    function set(v, quiet) {
+      var next = quantise(v, state.step, state.min, state.max);
+      if (next === state.value) return false;
+      state.value = next;
+      paint();
+      if (!quiet && opts.onChange) opts.onChange(next);
+      return true;
+    }
+    api.set = function (v, quiet) {
+      var next = quantise(v, state.step, state.min, state.max);
+      state.value = next; paint();
+      if (!quiet && opts.onChange) opts.onChange(next);
+    };
+    api.value = function () { return state.value; };
+    api.setStep = function (s) {
+      state.step = s;
+      /* The value is re-quantised to the new step, so switching to a
+         finer step does not leave a number the coarse dial can never
+         return to. */
+      state.value = quantise(state.value, state.step, state.min, state.max);
+      paint();
+      if (opts.onChange) opts.onChange(state.value);
+    };
+    api.setUnit = function (u, range) {
+      state.unit = u;
+      if (range) {
+        if (range.min != null) state.min = range.min;
+        if (range.max != null) state.max = range.max;
+        if (range.step != null) state.step = range.step;
+      }
+      state.value = quantise(state.value, state.step, state.min, state.max);
+      paint();
+    };
+
+    /* One haptic per step, never per pixel: a buzz that fires on every
+       pointermove is not feedback, it is a vibration. */
+    function tick() {
+      try {
+        if (global.navigator && navigator.vibrate) navigator.vibrate(4);
+      } catch (e) {}
+    }
+
+    /* ---- turning it -------------------------------------------------
+
+       The angle from the centre to the finger, accumulated. Accumulated
+       rather than absolute, because a bezel can be turned past twelve as
+       many times as you like and an absolute angle would wrap to zero
+       every revolution -- which on a food dial means 200 g snapping back
+       to 0 because your thumb crossed the top. */
+    var drag = null;
+    /* THE CENTRE IS FIXED AT THE MOMENT THE FINGER LANDS, and not looked
+       up again until it lifts.
+
+       Reading getBoundingClientRect on every move looks harmless and is
+       not: turning the dial updates the figures above it, those figures
+       change width and the button under them changes its label, the sheet
+       reflows by a few pixels, and the dial moves under a finger that has
+       not moved. The next angle is then measured from a different centre,
+       which reads as a jump of tens of degrees. Dragged twelve steps in
+       the portion sheet, the value went up by 1615 grams instead of 60,
+       while the same dial on a page with nothing else on it stepped
+       perfectly. A control cannot measure itself against a layout its own
+       output is changing. */
+    function angleAt(cx, cy, e) {
+      return Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI;
+    }
+    svg.addEventListener('pointerdown', function (e) {
+      if (e.button != null && e.button !== 0) return;
+      e.preventDefault();
+      try { svg.setPointerCapture(e.pointerId); } catch (err) {}
+      var b = svg.getBoundingClientRect();
+      var cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+      drag = { cx: cx, cy: cy, last: angleAt(cx, cy, e), acc: 0, from: state.value };
+      wrap.setAttribute('data-turning', '');
+    });
+    svg.addEventListener('pointermove', function (e) {
+      if (!drag) return;
+      e.preventDefault();
+      var a = angleAt(drag.cx, drag.cy, e);
+      var d = a - drag.last;
+      /* Crossing the -180/180 seam is a small move, not a full turn. */
+      if (d > 180) d -= 360;
+      if (d < -180) d += 360;
+      drag.last = a;
+      drag.acc += d;
+      var steps = Math.round(drag.acc / DEG_PER_STEP);
+      if (set(drag.from + steps * state.step)) tick();
+    });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) {
+      svg.addEventListener(ev, function () {
+        if (!drag) return;
+        drag = null;
+        wrap.removeAttribute('data-turning');
+      });
+    });
+
+    /* A trackpad or a mouse wheel turns it too, one step per notch. */
+    svg.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      if (set(state.value + (e.deltaY > 0 ? -state.step : state.step))) tick();
+    }, { passive: false });
+
+    slider.addEventListener('input', function () {
+      set(Number(slider.value));
+    });
+
+    state.value = quantise(opts.value != null ? opts.value : state.min,
+                           state.step, state.min, state.max);
+    paint();
+    return api;
+  }
+
+  global.LKDial = { mount: mount, quantise: quantise };
+}(typeof window !== 'undefined' ? window : this));
+
+</script>
+<script>
 /* cloud-config.js — inlined verbatim from 08-build/cloud-config.js */
 /* ===================================================================
    Where the server is. The only file a deploy edits.
@@ -10564,10 +10936,35 @@ window.LK_CLOUD = {
           /* Normalised to the shape the food table already uses, per 100 g,
              which is what the endpoint returns. Nothing is invented: a row
              with no calories is dropped rather than shown as zero. */
+          /* FIBRE, SUGAR, SATURATED FAT AND SODIUM, which this used to
+             drop on the floor.
+
+             Fuel tracks four micros and shows them against a target on
+             the day screen. The shipped food table carries them, so a
+             food typed by hand had them and a food from a database never
+             did -- the row arrived with them and this mapping kept four
+             fields out of eight. Nothing reported it: the micro row just
+             read zero, which is a number, and looked like a food with no
+             sodium in it rather than like a figure nobody had.
+
+             Named differently by different sources, so both spellings are
+             read. A missing one stays missing rather than becoming zero,
+             because "no data" and "none of it" are not the same claim and
+             the screen already knows how to say the first. */
+          var micro = function (it, names) {
+            for (var i = 0; i < names.length; i++) {
+              var v = it[names[i]];
+              if (typeof v === 'number' && isFinite(v)) return Math.round(v * 10) / 10;
+              if (typeof v === 'string' && v !== '' && isFinite(Number(v))) {
+                return Math.round(Number(v) * 10) / 10;
+              }
+            }
+            return undefined;
+          };
           return { ok: true, data: items.map(function (it) {
             var kcal = Math.round(Number(it.cal) || 0);
             if (!kcal) return null;
-            return {
+            var row = {
               name: String(it.name || '').slice(0, 80),
               kcal: kcal,
               pro: Math.round((Number(it.pro) || 0) * 10) / 10,
@@ -10585,6 +10982,15 @@ window.LK_CLOUD = {
               sourceName: SOURCE_NAME[it.src] || '',
               src: 'table'
             };
+            var fib = micro(it, ['fibre', 'fiber', 'fib']);
+            var sug = micro(it, ['sugar', 'sugars', 'sug']);
+            var sat = micro(it, ['satfat', 'sat_fat', 'saturated', 'saturatedFat']);
+            var sod = micro(it, ['sodium', 'sod', 'salt_mg']);
+            if (fib !== undefined) row.fibre = fib;
+            if (sug !== undefined) row.sugar = sug;
+            if (sat !== undefined) row.satfat = sat;
+            if (sod !== undefined) row.sodium = sod;
+            return row;
           }).filter(Boolean) };
         }, function (e) {
           /* NOT THE SAME AS "NOTHING MATCHED". This returned an empty
@@ -23588,6 +23994,24 @@ DEMO.define("fuel", function (document, window, location, fetch) {
   var OZ_G = 28.349523125;
   var FOOD_UNITS = [['g', 'Grams'], ['oz', 'Ounces'], ['serv', 'Servings']];
 
+  /* HOW MUCH ONE CLICK OF THE DIAL IS WORTH.
+
+     Five grams by default, because that is about the resolution anybody
+     weighs food to and a dial that moved a gram at a time would take
+     twenty turns to cross a portion. Finer is a toggle rather than a
+     gesture: a control that changes what it does depending on how fast
+     you moved is a control you stop trusting.
+
+     Ounces step in quarters, which is how an ounce is spoken. Servings in
+     quarters too, because a quarter of something is a real amount and a
+     twentieth of a bagel is not. The first in each list is the default. */
+  var PT_STEPS = { g: [5, 1], oz: [0.25, 0.1], serv: [0.25, 0.1] };
+  var PT_RANGE = {
+    g:    { min: 0, max: 2000 },
+    oz:   { min: 0, max: 70 },
+    serv: { min: 0, max: 20 }
+  };
+
   function servingKey(name) {
     return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
@@ -23662,6 +24086,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       amount: unit === 'oz' ? String(Math.round((food.g || 100) / OZ_G * 4) / 4)
             : unit === 'serv' ? '1'
             : String(Math.round(food.g || 100)),
+      step: PT_STEPS[unit][0],
       error: null
     };
     S.sheet = 'portion';
@@ -25432,7 +25857,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
         : [['50 g', '50'], ['100 g', '100'], ['150 g', '150'], ['200 g', '200']];
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
         '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pt-title" ' +
-          'data-detents="0.6 0.94" data-testid="sheet-portion">' +
+          'data-detents="0.92 0.96" data-testid="sheet-portion">' +
           '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
           '<div class="sheet__head"><h2 class="t-headline grow" id="pt-title">' + esc(pf.name) + '</h2>' +
             '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="pt-close">' +
@@ -25446,7 +25871,28 @@ DEMO.define("fuel", function (document, window, location, fetch) {
                   'data-action="pt-unit" data-u="' + u[0] + '" data-testid="pt-unit-' + u[0] + '">' +
                   u[1] + '</button>';
               }).join('') + '</div>' +
-            '<label class="t-label field__label mt-4" for="pt-amount">How much</label>' +
+            /* THE DIAL IS THE CONTROL, so it sits where the eye lands:
+               under the unit, above everything else. It was below the
+               field and the chips to begin with, which on a phone put it
+               under the fold of the sheet -- a dial you have to scroll to
+               find is a dial nobody turns.
+
+               Mounted into an empty slot rather than written into this
+               string, because it is an SVG that would be rebuilt on every
+               keystroke and would lose the finger dragging it. */
+            '<div id="pt-dial" data-testid="pt-dial-slot"></div>' +
+            '<div class="dial__steps" role="radiogroup" aria-label="Dial step">' +
+              PT_STEPS[P.unit].map(function (st) {
+                return '<button class="chip' + (P.step === st ? ' chip--on' : '') + '" ' +
+                  'type="button" role="radio" aria-checked="' + (P.step === st ? 'true' : 'false') + '" ' +
+                  'data-action="pt-step" data-s="' + st + '" ' +
+                  'data-testid="pt-step-' + String(st).replace('.', '_') + '">' +
+                  st + ' ' + (P.unit === 'serv' ? '' : P.unit) + '</button>';
+              }).join('') +
+            '</div>' +
+            /* And the field stays, below it. The dial is the fast way to
+               185 g and the field is the only way to 187. */
+            '<label class="t-label field__label mt-4" for="pt-amount">Or type it</label>' +
             '<input class="input num" id="pt-amount" type="text" inputmode="decimal" ' +
               'autocomplete="off" value="' + esc(String(P.amount)) + '" data-testid="pt-amount">' +
             '<p class="t-caption-1 quiet mt-1">' +
@@ -25472,17 +25918,41 @@ DEMO.define("fuel", function (document, window, location, fetch) {
               : '') +
             (P.error ? '<p class="field__error mt-2" role="alert" data-testid="pt-error">' +
               esc(P.error) + '</p>' : '') +
+            /* EVERYTHING THE FOOD CARRIES, AT THIS AMOUNT.
+
+               Only four figures were shown here: energy, protein, carbs,
+               fat. The fibre, sugar, saturated fat and sodium were scaled
+               by exactly the same factor and written into the log, and
+               you could not see any of them until after you had logged
+               it. A screen that hides half of what it is about to record
+               is asking you to take its word for it.
+
+               There is no second set of numbers to fetch. One database
+               row is per 100 g, the amount decides a multiplier, and
+               every figure on the food goes through it -- which is why
+               adding a nutrient to the table adds it here with no code. */
             '<div class="card card--sunken mt-4" data-testid="pt-figures">' +
               '<div class="hstack hstack--3"><span class="t-body grow">Energy</span>' +
                 '<span class="t-body-em num" data-testid="pt-kcal">' + n(Math.round(pAt(pf.kcal))) + ' kcal</span></div>' +
-              '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Protein</span>' +
-                '<span class="t-body-em num">' + n(pAt(pf.pro)) + ' g</span></div>' +
-              '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Carbs</span>' +
-                '<span class="t-body-em num">' + n(pAt(pf.carb)) + ' g</span></div>' +
-              '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Fat</span>' +
-                '<span class="t-body-em num">' + n(pAt(pf.fat)) + ' g</span></div>' +
-              '<p class="t-caption-1 quiet mt-2">Per 100 g: ' + n(Math.round(pf.kcal)) + ' kcal, ' +
+              [['pro', 'Protein', 'g'], ['carb', 'Carbs', 'g'], ['fat', 'Fat', 'g']]
+                .map(function (row) {
+                  return '<div class="hstack hstack--3 mt-2"><span class="t-body grow">' + row[1] + '</span>' +
+                    '<span class="t-body-em num" data-testid="pt-' + row[0] + '">' +
+                    n(pAt(pf[row[0]])) + ' ' + row[2] + '</span></div>';
+                }).join('') +
+              MICROS.filter(function (mi) { return typeof pf[mi.key] === 'number'; })
+                .map(function (mi) {
+                  return '<div class="hstack hstack--3 mt-2"><span class="t-body grow quiet">' +
+                    esc(mi.name) + '</span><span class="t-body-em num quiet" data-testid="pt-' + mi.key + '">' +
+                    n(pAt(pf[mi.key])) + ' ' + mi.unit + '</span></div>';
+                }).join('') +
+              '<p class="t-caption-1 quiet mt-2" data-testid="pt-basis">' +
+                'Per 100 g: ' + n(Math.round(pf.kcal)) + ' kcal, ' +
                 n(pf.pro) + ' P, ' + n(pf.carb) + ' C, ' + n(pf.fat) + ' F' +
+                MICROS.filter(function (mi) { return typeof pf[mi.key] === 'number'; })
+                  .map(function (mi) { return ', ' + n(pf[mi.key]) + ' ' + mi.unit + ' ' + mi.name.toLowerCase(); })
+                  .join('') +
+                '. This amount is ' + n(Math.round(pk * 1000) / 10) + '% of that' +
                 (pf.sourceName ? ' \u00b7 ' + esc(pf.sourceName) : '') + '.</p>' +
             '</div>' +
             slotPicker(S.logSlot || slotForNow(), 'pick-slot', 'pt-slot') +
@@ -25711,6 +26181,85 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       b.setAttribute('aria-pressed', String(b.dataset.state === S.state));
     });
     if (window.LKChrome) LKChrome.init(document);
+    mountDial();
+  }
+
+  /* ---- the dial, mounted after the sheet paints ----------------------
+
+     The sheet is rebuilt as a string on every render, so an SVG built
+     inside it would be thrown away and rebuilt on every keystroke -- a
+     flicker, and a control that loses the finger dragging it. It is
+     mounted into an empty slot afterwards instead, and kept while the
+     sheet stays open: the same instance is re-aimed rather than replaced,
+     which is what lets the ring keep turning under a thumb while the
+     figures above it update.
+
+     It is rebuilt only when the unit or the step changes, because those
+     change what a click of the bezel is worth. */
+  var DIAL = null, dialSig = '';
+  function mountDial() {
+    var slot = document.getElementById('pt-dial');
+    var P = S.portion;
+    if (!slot || !P) { DIAL = null; dialSig = ''; return; }
+    if (!window.LKDial) return;
+    var sig = P.unit + '|' + P.step;
+    if (DIAL && dialSig === sig && slot.firstChild) {
+      /* Same dial, new value: do not fire onChange back at the field
+         that just set it. */
+      DIAL.set(readAmount(P.amount) || 0, true);
+      return;
+    }
+    slot.innerHTML = '';
+    var range = PT_RANGE[P.unit] || PT_RANGE.g;
+    DIAL = LKDial.mount(slot, {
+      value: readAmount(P.amount) || 0,
+      step: P.step, min: range.min, max: range.max,
+      unit: P.unit === 'serv' ? 'servings' : P.unit,
+      label: 'Amount in ' + (P.unit === 'serv' ? 'servings' : P.unit),
+      testid: 'pt-dial',
+      onChange: function (v) {
+        if (!S.portion) return;
+        S.portion.amount = String(v);
+        S.portion.error = null;
+        /* The figures follow the dial without the sheet being rebuilt
+           under the finger holding it. */
+        var aEl = document.getElementById('pt-amount');
+        if (aEl) aEl.value = String(v);
+        paintPortionFigures();
+      }
+    });
+    dialSig = sig;
+  }
+
+  /* The numbers beside the dial, updated in place. Every figure on the
+     food goes through one multiplier -- the amount over a hundred grams --
+     so a nutrient added to the table appears here without another line
+     of code, and nothing can scale by a different factor than anything
+     else. */
+  function paintPortionFigures() {
+    var P = S.portion;
+    if (!P) return;
+    var g = portionGrams();
+    var k = g / 100;
+    var f = P.food;
+    var at = function (v) { return Math.round((Number(v) || 0) * k * 10) / 10; };
+    var put = function (id, text) {
+      var el = document.querySelector('[data-testid="' + id + '"]');
+      if (el) el.textContent = text;
+    };
+    put('pt-kcal', n(Math.round(at(f.kcal))) + ' kcal');
+    put('pt-pro', n(at(f.pro)) + ' g');
+    put('pt-carb', n(at(f.carb)) + ' g');
+    put('pt-fat', n(at(f.fat)) + ' g');
+    MICROS.forEach(function (mi) {
+      if (typeof f[mi.key] === 'number') put('pt-' + mi.key, n(at(f[mi.key])) + ' ' + mi.unit);
+    });
+    var btn = document.querySelector('[data-testid="pt-log"] .btn__label');
+    if (btn) btn.textContent = g > 0
+      ? 'Log ' + portionLabel() + ', ' + n(Math.round(at(f.kcal))) + ' kcal'
+      : 'How much of it?';
+    var lb = document.querySelector('[data-testid="pt-log"]');
+    if (lb) lb.disabled = !(g > 0);
   }
 
   document.addEventListener('click', function (e) {
@@ -26161,8 +26710,17 @@ DEMO.define("fuel", function (document, window, location, fetch) {
             : pu === 'oz' ? String(Math.round(wasG / OZ_G * 4) / 4)
             : String(Math.round(wasG / (S.portion.servG || 100) * 100) / 100);
         }
+        /* A step measured in grams is meaningless in ounces. Each unit
+           brings its own, and the coarse one is the default because that
+           is the one the dial is for. */
+        S.portion.step = PT_STEPS[pu][0];
         S.portion.error = null;
       }
+      render(); return;
+    }
+    if (a === 'pt-step') {
+      readPortion();
+      if (S.portion) S.portion.step = Number(act.getAttribute('data-s')) || PT_STEPS[S.portion.unit][0];
       render(); return;
     }
     if (a === 'pt-chip') {
