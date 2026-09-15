@@ -206,6 +206,93 @@ ok(fields.bad.length === 0,
    'every field still selects, and none is small enough to make iOS zoom',
    fields.n + ' fields, ' + fields.bad.slice(0, 4).join(', '));
 
+console.log('\n=== the two tabs made of sheets ===\n');
+
+/* Coach and Fuel are where the sheets are -- search results, a meal's
+   detail, the portion sheet, the plan, the recipes, the whole chat -- and
+   a scroller that hands its scroll on to the document is the loudest
+   remaining tell. .body had overscroll containment and nothing else did,
+   so reaching the end of any sheet moved the page behind it. */
+const scrollers = await page.evaluate(() => {
+  const out = { n: 0, leaky: [] };
+  for (const name of Object.keys(window.DEMO.screens)) {
+    const root = window.DEMO.screens[name].root;
+    root.querySelectorAll('*').forEach((el) => {
+      const s = getComputedStyle(el);
+      const scrolls = /auto|scroll/.test(s.overflowY) || /auto|scroll/.test(s.overflowX);
+      if (!scrolls) return;
+      /* Every scroll container, not only the ones overflowing right now.
+         One that fits today scrolls tomorrow with a longer list in it,
+         and it will chain then. */
+      out.n++;
+      const b = s.overscrollBehaviorY + ' ' + s.overscrollBehaviorX;
+      if (/auto/.test(b) && out.leaky.length < 6) {
+        out.leaky.push(name + ':' + (el.className || el.tagName) + ' = ' + b);
+      }
+    });
+  }
+  return out;
+});
+ok(scrollers.n > 0, 'there are scrollers to check', String(scrollers.n));
+ok(scrollers.leaky.length === 0,
+   'no scroller hands its scroll to the page behind it',
+   scrollers.leaky.join(' | '));
+
+/* Driven rather than read: open Fuel's search and Coach's chat, which
+   are the two surfaces somebody types into every day, and check the
+   sheet they raise contains its own scroll. */
+async function sheetOf(screen, openTestid) {
+  await page.evaluate((s) => window.DEMO.go(s), screen);
+  await page.waitForTimeout(600);
+  const opened = await page.evaluate(([s, t]) => {
+    const rec = window.DEMO.screens[s];
+    const root = rec.root || rec.host.shadowRoot;
+    const b = root.querySelector('[data-testid="' + t + '"]');
+    if (!b) return false;
+    b.click();
+    return true;
+  }, [screen, openTestid]);
+  await page.waitForTimeout(700);
+  if (!opened) return null;
+  return page.evaluate((s) => {
+    const rec = window.DEMO.screens[s];
+    const root = rec.root || rec.host.shadowRoot;
+    const body = root.querySelector('.sheet__body');
+    if (!body) return null;
+    const st = getComputedStyle(body);
+    return { contain: st.overscrollBehaviorY, momentum: st.webkitOverflowScrolling || 'n/a' };
+  }, screen);
+}
+
+const fuelSheet = await sheetOf('fuel', 'log-search');
+ok(fuelSheet && fuelSheet.contain === 'contain',
+   'Fuel: the food search sheet keeps its scroll to itself',
+   JSON.stringify(fuelSheet));
+
+/* Coach's chat is the .body rather than a sheet, and it is the one
+   surface in the app that grows under a keyboard. */
+await page.evaluate(() => window.DEMO.go('coach'));
+await page.waitForTimeout(700);
+const chat = await page.evaluate(() => {
+  const rec = window.DEMO.screens.coach;
+  const root = rec.root || rec.host.shadowRoot;
+  const body = root.querySelector('.body');
+  const input = root.querySelector('.composer__input, textarea, input[type="text"]');
+  if (!body) return null;
+  const s = getComputedStyle(body);
+  return { contain: s.overscrollBehaviorY,
+           inputSize: input ? parseFloat(getComputedStyle(input).fontSize) : null,
+           inputSelects: input ? (getComputedStyle(input).userSelect ||
+                                  getComputedStyle(input).webkitUserSelect) : null };
+});
+ok(chat && chat.contain === 'none' || (chat && chat.contain === 'contain'),
+   'Coach: the chat does not rubber-band the page', JSON.stringify(chat && chat.contain));
+ok(chat && chat.inputSize >= 16,
+   'and its composer is big enough that iOS will not zoom into it',
+   String(chat && chat.inputSize));
+ok(chat && (chat.inputSelects === 'text' || chat.inputSelects === 'auto'),
+   'while still being a field you can select inside', String(chat && chat.inputSelects));
+
 ok(errs.length === 0, 'nothing threw', errs.slice(0, 2).join(' | '));
 
 await br.close(); site.close();
