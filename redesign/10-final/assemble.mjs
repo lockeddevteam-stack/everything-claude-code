@@ -170,6 +170,13 @@ const MANIFEST = {
     { from: 'coach', selector: '[data-testid="toast-open-train"]', to: 'train', mode: 'tab' },
     { from: 'home', selector: '[data-testid="open-account"]', to: 'settings', mode: 'push' },
     { from: 'train', selector: '[data-action="start-today"]', to: 'workout-log', mode: 'push' },
+    /* The quick workout. Skip setup goes straight to the log; planning it
+       goes to the library to pick, and the library's own Start goes on to
+       the log from there. */
+    { from: 'train', selector: '[data-testid="quick-skip"]', to: 'workout-log', mode: 'push' },
+    { from: 'train', selector: '[data-testid="qd-continue"]', to: 'exercise-library', mode: 'push' },
+    { from: 'train', selector: '[data-testid="qd-skip"]', to: 'exercise-library', mode: 'push' },
+    { from: 'exercise-library', selector: '[data-testid="order-start"]', to: 'workout-log', mode: 'push' },
     /* endsSession: the router swallows this click before the screen's own
        handler runs -- it has to, because that handler navigates with
        location.href and would take the whole demo with it. But that handler is

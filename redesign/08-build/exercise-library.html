@@ -175,6 +175,8 @@
     chev:  '<path d="M9 6l6 6-6 6"/>',
     close: '<path d="M6 6l12 12M18 6L6 18"/>',
     plus:  '<path d="M12 5v14M5 12h14"/>',
+    check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
+    grip:  '<path d="M8 8h.01M8 12h.01M8 16h.01M16 8h.01M16 12h.01M16 16h.01"/>',
     play:  '<path d="M8 5.5v13l11-6.5z"/>',
     alert: '<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/>',
     search:'<circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/>',
@@ -911,7 +913,37 @@
   /* ---------------------------------------------------------------
      State
      --------------------------------------------------------------- */
+  /* ---- PICKING FOR A QUICK WORKOUT -------------------------------------
+     Train hands this screen a job through lk_quickPick: the name and note
+     already given, and whatever was already picked. The library does not
+     change while it is doing that job -- the body map, the groups, the
+     search and the detail sheet all behave exactly as they do when nobody
+     is picking. What is added is a plus on each row, a counter that says
+     how many, and a bar at the bottom that leads to the order.
+
+     It lives here rather than in a sheet on Train because everything
+     needed to choose a lift is already here. A sheet would have grown its
+     own second copy of the body map and the search, and the two would
+     have drifted. */
+  function readPickJob() {
+    try {
+      var j = window.LKStore ? LKStore.get('lk_quickPick', null) : null;
+      if (!j || typeof j !== 'object') return null;
+      return { name: j.name || '', note: j.note || '',
+               picks: Array.isArray(j.picks) ? j.picks : [] };
+    } catch (e) { return null; }
+  }
+  /* READ ON EVERY ENTRY, not once at boot. A screen in this build is
+     mounted for the life of the page, so a job handed over five minutes
+     after load would never have been seen: the library would open in its
+     ordinary browsing shape with no picker on any row and no way on. */
+  var PICKJOB = readPickJob();
+
   var S = {
+    /* The lifts chosen so far, in the order they were chosen. Duplicates
+       allowed on purpose: benching twice in one session is a real thing. */
+    picks: PICKJOB ? PICKJOB.picks.slice() : [],
+    ordering: false,
     status: 'ready',      /* ready | loading | error */
     source: 'inline',     /* inline | fetch */
     raw: [],
@@ -943,12 +975,58 @@
   } catch (e) { /* private mode: the body is the default and stays it */ }
 
 
+  /* The bundled catalogue names its group and region in WORDS -- "Chest",
+     "Upper Chest" -- while a custom saved on this device carries the ids
+     for them. Both arrive here, so both are understood, and whichever
+     half is missing is worked out from the half that is not.
+
+     THIS IS WHY SEARCH WAS DEAD IN PRODUCTION. All 866 catalogue rows
+     have no gid, no sid and no equipment field, so every row came out of
+     here with group, muscle and eq undefined -- and the first thing
+     tokenScore does is call .toLowerCase() on them. One keystroke in the
+     search field threw, the results never rendered, and the box appeared
+     to match nothing whatever was typed into it. The demo never showed
+     it, because the fixture carries the ids. */
+  var SID_BY_NAME = {};
+  Object.keys(SNAME).forEach(function (k) {
+    SID_BY_NAME[String(SNAME[k]).toLowerCase()] = k.split('/')[1];
+  });
+  var GID_BY_NAME = {};
+  Object.keys(GNAME).forEach(function (k) {
+    GID_BY_NAME[String(GNAME[k]).toLowerCase()] = k;
+  });
+
+  function gidOf(x) {
+    if (x.gid) return x.gid;
+    var byName = GID_BY_NAME[String(x.group || '').toLowerCase()];
+    if (byName) return byName;
+    if (window.LKExercises && LKExercises.gidOf) {
+      var g = LKExercises.gidOf(x);
+      if (g && GNAME[g]) return g;
+    }
+    return 'other';
+  }
+  function sidOf(x, gid) {
+    if (x.sid) return x.sid;
+    var byName = SID_BY_NAME[String(x.muscle || '').toLowerCase()];
+    if (byName && SNAME[gid + '/' + byName]) return byName;
+    /* The group's first region, so a row always lands somewhere real
+       rather than under a heading that does not exist. */
+    var g = GROUP_INDEX[GORDER[gid]];
+    return (g && g[2] && g[2][0] && g[2][0][0]) || 'other';
+  }
+
   function normalise(list) {
     return list.map(function (x) {
-      var gid = x.gid, sid = x.sid;
+      var gid = gidOf(x), sid = sidOf(x, gid);
       return {
-        id: x.id, name: x.name, eq: x.eq, gid: gid, sid: sid,
-        group: GNAME[gid] || gid, muscle: SNAME[gid + '/' + sid] || sid,
+        id: x.id, name: String(x.name || ''),
+        /* Never undefined. A row that does not say what it is done with
+           still has to be searchable by everything it does say. */
+        eq: String(x.eq || 'Other'),
+        gid: gid, sid: sid,
+        group: String(GNAME[gid] || x.group || gid || ''),
+        muscle: String(SNAME[gid + '/' + sid] || x.muscle || sid || ''),
         custom: !!x.custom
       };
     });
@@ -975,14 +1053,17 @@
      character. Every token must match; the score ranks the result.
      --------------------------------------------------------------- */
   function tokenScore(it, t) {
-    var name = it.name.toLowerCase();
+    /* Defensive on purpose, and not only because of the bug above: a
+       search that throws on one malformed row loses every other row with
+       it, and the field then looks like it matches nothing. */
+    var name = String(it.name || '').toLowerCase();
     if (name.indexOf(t) === 0) return 100;
     if ((' ' + name).indexOf(' ' + t) > 0) return 80;
     if (name.indexOf(t) > 0) return 60;
-    var m = it.muscle.toLowerCase(), g = it.group.toLowerCase();
+    var m = String(it.muscle || '').toLowerCase(), g = String(it.group || '').toLowerCase();
     if (m.indexOf(t) === 0 || g.indexOf(t) === 0) return 50;
     if (m.indexOf(t) >= 0 || g.indexOf(t) >= 0) return 45;
-    if (it.eq.toLowerCase().indexOf(t) >= 0) return 30;
+    if (String(it.eq || '').toLowerCase().indexOf(t) >= 0) return 30;
     if (it.custom && 'custom'.indexOf(t) === 0) return 25;
     for (var key in ALIAS) {
       if (key.indexOf(t) === 0 && t.length >= 3 && ALIAS[key].indexOf(it.gid) >= 0) return 35;
@@ -1104,6 +1185,26 @@
       '</span>' +
       (h ? '<span class="row__value">' + kg(h.last.kg) + '</span>' : '') +
       '<span class="row__chev">' + ico('chev') + '</span>' +
+    '</button>' +
+      /* The row body still opens the exercise. Picking is its own target
+         beside it, so reading about a lift and choosing it stay two
+         different gestures. */
+      (PICKJOB ? pickBtn(it) : '');
+  }
+
+  function pickCount(id) {
+    var n = 0;
+    S.picks.forEach(function (p) { if (String(p.id) === String(id)) n++; });
+    return n;
+  }
+  function pickBtn(it) {
+    var n = pickCount(it.id);
+    return '<button class="iconbtn' + (n ? ' iconbtn--on' : '') + '" type="button" ' +
+      'data-action="pick" data-id="' + it.id + '" data-testid="add-' + it.id + '" ' +
+      'aria-label="' + (n ? 'Add another ' + esc(it.name) + ', ' + n + ' so far'
+                          : 'Add ' + esc(it.name)) + '">' +
+      (n > 1 ? '<span class="t-body-em num">\u00d7' + n + '</span>'
+             : n ? ico('check') : ico('plus')) +
     '</button>';
   }
   function groupRow(gid) {
@@ -1586,8 +1687,73 @@
     '</div>';
   }
 
+  /* ---- THE ORDER, BEFORE ANYTHING STARTS -------------------------------
+     Picking and ordering are two jobs and this is the second one. Rows
+     here are the lift and a grip, nothing else, because the only question
+     left is what comes first. The drag is the workout log's, down to the
+     hold and the fold, so the two surfaces feel like one thing. */
+  function sheetOrder() {
+    return '<div class="scrim" data-action="order-close" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="ord-title" ' +
+        'data-detents="0.6 0.94" data-testid="sheet-order">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+        '<div class="sheet__head"><h2 class="t-headline grow" id="ord-title">The order</h2>' +
+          '<button class="iconbtn" type="button" data-action="order-close" aria-label="Back to the library" ' +
+            'data-testid="order-close">' + ico('close') + '</button></div>' +
+        '<div class="sheet__body">' +
+          (S.picks.length
+            ? '<div class="card card--flush" data-testid="order-list">' +
+                S.picks.map(function (p, i) {
+                  return '<div class="row" data-testid="order-row-' + i + '">' +
+                    '<span class="row__main stack">' +
+                      '<span class="row__title">' + esc(p.name) + '</span>' +
+                      '<span class="row__sub">' + esc(p.muscle || '') + '</span>' +
+                    '</span>' +
+                    '<button class="iconbtn" type="button" data-action="order-up" data-i="' + i + '" ' +
+                      (i === 0 ? 'disabled aria-disabled="true" ' : '') +
+                      'aria-label="Move ' + esc(p.name) + ' up" data-testid="order-up-' + i + '">' +
+                      '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 14l6-6 6 6"/></svg></button>' +
+                    '<button class="iconbtn" type="button" data-action="order-down" data-i="' + i + '" ' +
+                      (i === S.picks.length - 1 ? 'disabled aria-disabled="true" ' : '') +
+                      'aria-label="Move ' + esc(p.name) + ' down" data-testid="order-down-' + i + '">' +
+                      '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 10l6 6 6-6"/></svg></button>' +
+                    '<button class="iconbtn iconbtn--danger-quiet" type="button" data-action="order-drop" ' +
+                      'data-i="' + i + '" aria-label="Remove ' + esc(p.name) + '" ' +
+                      'data-testid="order-drop-' + i + '">' + ico('close') + '</button>' +
+                  '</div>';
+                }).join('') + '</div>' +
+              '<button class="btn btn--tertiary btn--block mt-3" type="button" data-action="order-close" ' +
+                'data-testid="order-more"><span class="btn__label">Add more</span></button>'
+            : '<p class="t-body mt-4">Nothing picked yet.</p>') +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--primary btn--block" type="button" data-action="order-start" ' +
+            (S.picks.length ? '' : ' disabled') + ' data-testid="order-start">' +
+            '<span class="btn__label">' +
+            (S.picks.length ? 'Start workout' : 'Pick at least one') + '</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* The bar that is always there while picking, so the way on is never
+     something to go looking for. */
+  function pickBar() {
+    if (!PICKJOB || S.ordering) return '';
+    return '<div class="sheet sheet--bar" data-testid="pick-bar">' +
+      '<div class="sheet__foot">' +
+        '<button class="btn btn--primary btn--block" type="button" data-action="order-open" ' +
+          (S.picks.length ? '' : ' disabled') + ' data-testid="pick-review">' +
+          '<span class="btn__label">' +
+          (S.picks.length ? 'Review and start \u00b7 ' + S.picks.length
+                          : 'Add at least one exercise') + '</span></button>' +
+      '</div>' +
+    '</div>';
+  }
+
   function renderLayer() {
     var html = '';
+    if (S.ordering) return sheetOrder() + (S.toast
+      ? '<div class="toast" role="status" data-testid="toast"><span class="toast__body">' + S.toast.html + '</span></div>' : '');
     if (S.create) html = sheetCreate();
     else if (S.days && S.sheet) html = sheetDays(byId(S.sheet));
     else if (S.sheet) { var it = byId(S.sheet); if (it) html = sheetDetail(it); }
@@ -1595,7 +1761,7 @@
       html += '<div class="toast" role="status" data-testid="toast"><span class="toast__body">' + S.toast.html + '</span>' +
         (S.toast.undo ? '<button class="toast__action" type="button" data-action="undo" data-testid="toast-undo">Undo</button>' : '') + '</div>';
     }
-    return html;
+    return html + pickBar();
   }
 
   /* ---------------------------------------------------------------
@@ -1608,6 +1774,14 @@
     else if (S.status === 'error') { title = 'Exercises'; meta = 'List unavailable'; }
     else if (S.status === 'loading') { title = 'Exercises'; meta = 'Loading'; }
     else { title = 'Exercises'; meta = n(pool().length) + ' in the library'; }
+    /* While picking, the count that matters is how many you have chosen,
+       not how many exist. It replaces the library's own count rather than
+       sitting beside it, because two numbers in one line is two numbers
+       nobody reads. */
+    if (PICKJOB) {
+      meta = S.picks.length === 0 ? 'Pick your exercises'
+           : n(S.picks.length) + ' ' + LKPlural(S.picks.length, 'exercise');
+    }
     /* A group is a pushed view: it has a back chevron and a 17px title, which
        is the collapsed state already. Only the tab-level list collapses. */
     var pushed = !!S.gid;
@@ -1776,7 +1950,66 @@
     toast.t = setTimeout(function () { S.toast = null; render(); }, 4000);
   }
 
+  /* The draft is written on every pick and every reorder, so a phone that
+     locks, a tab that reloads or a call that comes in costs nothing. */
+  function saveQuickDraft() {
+    if (!window.LKStore || !PICKJOB) return;
+    LKStore.set('lk_quickDraft', { name: PICKJOB.name, note: PICKJOB.note, picks: S.picks });
+    LKStore.set('lk_quickPick', { name: PICKJOB.name, note: PICKJOB.note, picks: S.picks });
+  }
+
   var ACTIONS = {
+    /* ---- picking for a quick workout ---- */
+    pick: function (el) {
+      /* byId compares strictly and an attribute is a string, so the id
+         is a number by the time it gets there. */
+      var it = byId(Number(el.getAttribute('data-id')));
+      if (!it) return;
+      /* Adding the same lift twice is allowed and counted. Benching at the
+         start and again at the end is a real session, and a picker that
+         silently refuses the second one is wrong about training. */
+      S.picks.push({ id: it.id, name: it.name, muscle: it.muscle || '', sets: 3 });
+      saveQuickDraft();
+      render();
+      toast(esc(it.name) + " added.");
+    },
+    'order-open': function () { S.ordering = true; render(); },
+    'order-close': function () { S.ordering = false; render(); },
+    'order-up': function (el) {
+      var i = Number(el.getAttribute('data-i'));
+      if (i < 1) return;
+      var m = S.picks.splice(i, 1)[0];
+      S.picks.splice(i - 1, 0, m);
+      saveQuickDraft(); render();
+    },
+    'order-down': function (el) {
+      var i = Number(el.getAttribute('data-i'));
+      if (i < 0 || i >= S.picks.length - 1) return;
+      var m = S.picks.splice(i, 1)[0];
+      S.picks.splice(i + 1, 0, m);
+      saveQuickDraft(); render();
+    },
+    'order-drop': function (el) {
+      var i = Number(el.getAttribute('data-i'));
+      if (i < 0 || i >= S.picks.length) return;
+      var gone = S.picks.splice(i, 1)[0];
+      saveQuickDraft(); render();
+      toast(esc(gone.name) + " removed.");
+    },
+    'order-start': function () {
+      if (!S.picks.length) return;
+      if (window.LKStore) {
+        LKStore.set('lk_quickStart', {
+          name: (PICKJOB && PICKJOB.name) || '',
+          note: (PICKJOB && PICKJOB.note) || '',
+          exercises: S.picks.slice()
+        });
+        LKStore.remove('lk_quickDraft');
+        LKStore.remove('lk_quickPick');
+      }
+      LKGo('workout-log');
+    },
+
     /* Out of the library, back to Train. The header's back control is
        this only at the library's top level; one group deep it steps back
        to the groups instead, which is what the reader expects of the
@@ -2175,7 +2408,39 @@
     syncEntry();
     rebuild();
   }
-  document.addEventListener('lk:enter', function () { reread(); render(); });
+  /* The router claims this click in the capture phase and leaves with the
+     crossing, so what the log needs is written on the announcement rather
+     than in the handler below, which would run too late or not at all. */
+  document.addEventListener('lk:handoff', function (e) {
+    var d = e.detail || {};
+    if (d.selector !== '[data-testid="order-start"]') return;
+    if (!window.LKStore || !S.picks.length) return;
+    LKStore.set('lk_quickStart', {
+      name: (PICKJOB && PICKJOB.name) || '',
+      note: (PICKJOB && PICKJOB.note) || '',
+      exercises: S.picks.slice()
+    });
+    LKStore.remove('lk_quickDraft');
+    LKStore.remove('lk_quickPick');
+    PICKJOB = null;
+    S.picks = [];
+    S.ordering = false;
+  });
+
+  document.addEventListener('lk:enter', function () {
+    var job = readPickJob();
+    /* A fresh job resets what is picked; coming back to the same one
+       keeps it, which is what makes "Add more" from the order step work. */
+    if (job && (!PICKJOB || job.name !== PICKJOB.name || job.note !== PICKJOB.note ||
+                job.picks.length !== S.picks.length)) {
+      S.picks = job.picks.slice();
+    }
+    if (!job) S.picks = [];
+    PICKJOB = job;
+    S.ordering = false;
+    reread();
+    render();
+  });
   if (window.LKStore && window.LKStore.onChange) {
     ['lk_history', 'lk_splits', 'lk_customEx'].forEach(function (k) {
       window.LKStore.onChange(k, function () {

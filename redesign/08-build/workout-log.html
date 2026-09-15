@@ -364,6 +364,37 @@
     return true;
   }
 
+  /* A QUICK WORKOUT, handed over by Train. Same shape as "do this again":
+     a key Train writes and this screen consumes, so the two do not have to
+     know anything about each other beyond what a session is.
+
+     `exercises` may be empty, which is the whole point of Skip setup: the
+     session starts with nothing in it and you add lifts as you reach the
+     machines. The name and the note are the reader's own words, and the
+     note is what makes a thin Tuesday legible six months later -- "at the
+     hotel gym" is the difference between a bad week and a week away. */
+  function quickRequested() {
+    if (!window.LKStore) return false;
+    var q = LKStore.get('lk_quickStart', null);
+    if (!q) return false;
+    LKStore.remove('lk_quickStart');
+    applyState('mid-session');
+    beginFresh();
+    S.name = q.name || 'Quick workout';
+    S.note = q.note || '';
+    S.quick = true;
+    S.elapsed = 0;
+    S.over = false;
+    S.exercises = (q.exercises || []).map(function (e) {
+      return exFromHistory(e.id, e.name, e.muscle || '', '', [], e.sets || 3);
+    });
+    /* An empty quick session is still a session. The state has to say so
+       or record() ends it on the first paint, which is the same trap the
+       split path fell into: no resume shelf, and a reload loses it. */
+    S.state = 'mid-session';
+    return true;
+  }
+
   /* A new session starts at zero. The live-session record carries the clock
      once it exists, so starting a day while one is running left the header
      reading twenty-one minutes into a workout with no sets in it. */
@@ -385,6 +416,7 @@
   }
 
   function startRequested() {
+    if (quickRequested()) return true;
     if (repeatRequested()) { beginFresh(); return true; }
     var key = null;
     try { key = localStorage.getItem('lk_startDay'); } catch (e) {}
@@ -476,6 +508,10 @@
   var S = {
     state: SEEDED ? 'mid-session' : 'empty',
     name: SEEDED ? 'PPL - Push' : 'Quick Workout',
+    /* A line the reader wrote about this session, and whether they started
+       it outside their split. Both travel to history on finish. */
+    note: '',
+    quick: false,
     /* lk_profile.useKg, through LKUnits. This screen's switch was its own:
        it converted this screen correctly and toasted "Showing lb everywhere"
        while every other screen stayed in kg, and it opened in kg whatever the
@@ -666,6 +702,11 @@
            container to say it to. */
         '<div class="sess__main">' +
           '<h1 class="t-title" data-testid="session-name">' + esc(S.name) + '</h1>' +
+          /* The reader's own line about this session, under its name. Muted,
+             because it is context rather than a heading, and only there when
+             there is something to say. */
+          (S.note ? '<p class="t-detail quiet" data-testid="session-note">' +
+            esc(S.note) + '</p>' : '') +
         '</div>' +
         '<button class="qa" type="button" data-act="tools" data-testid="quick-action" aria-haspopup="dialog" aria-label="Workout tools">' + ICO.bolt + '</button>' +
         '<button class="btn btn--sm btn--danger" type="button" data-act="discard" data-testid="btn-discard">Discard</button>' +
@@ -1913,7 +1954,14 @@
        record and started a brand new one -- every screen in the app then
        offered to Resume the workout you had just finished. */
     if (S.over) { return; }
-    if (!S.exercises.length || S.state === 'empty') { LKSession.end(); return; }
+    if (S.state === 'empty') { LKSession.end(); return; }
+    /* AN EMPTY QUICK SESSION IS STILL A SESSION. Skip setup starts one
+       with nothing in it on purpose -- you add lifts as you reach the
+       machines -- and ending the record because it is empty means no
+       resume shelf, no idle reminder, and a locked phone losing the fact
+       that you are training at all. A session with no exercises and no
+       quick flag is the demo's empty state, which does end. */
+    if (!S.exercises.length && !S.quick) { LKSession.end(); return; }
     /* Seeded from the elapsed time already on screen the first time, so a
        session opened twenty-one minutes in does not restart its clock at
        zero. After that the record's own start time is the truth and this
@@ -3134,6 +3182,14 @@
     });
     var rec = {
       title: S.name,
+      /* WHICH KIND OF SESSION THIS WAS, and what the reader said about it.
+         A quick workout counts toward volume and PRs and is left out of
+         split adherence, which is a one-field filter wherever that is
+         asked -- and only possible if the field is written down here. The
+         note is why a thin Tuesday makes sense in March: "at the hotel
+         gym" is the difference between a bad week and a week away. */
+      type: S.quick ? 'quick' : 'split',
+      note: S.note || '',
       dateISO: window.LKStore ? LKStore.today() : null,
       sets: doneSets(),
       warmups: doneWarmups(),

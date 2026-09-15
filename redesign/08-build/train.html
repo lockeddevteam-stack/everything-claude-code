@@ -540,6 +540,20 @@
   document.addEventListener('lk:handoff', function (e) {
     var d = e.detail || {};
     if (d.selector === '[data-action="start-today"]') handStartDay(todayDayKey());
+    /* THE QUICK WORKOUT'S HAND-OVER HAPPENS HERE, not in the click
+       handler. The router claims the click in the capture phase and
+       leaves with the crossing, so the handler below never runs -- the
+       log would arrive before it had been told what session to open, and
+       start an empty unnamed one. Everything the next screen needs is
+       written on the announcement instead, the way the split day is. */
+    if (d.selector === '[data-testid="quick-skip"]') {
+      handQuickStart(S.quick && S.quick.name, S.quick && S.quick.note, []);
+    }
+    if (d.selector === '[data-testid="qd-continue"]' || d.selector === '[data-testid="qd-skip"]') {
+      readQuickDetails();
+      if (d.selector === '[data-testid="qd-skip"]') { S.quick.name = ''; S.quick.note = ''; }
+      handQuickPick();
+    }
     if (d.selector === '[data-action="start-day"]' && d.el) handStartDay(d.el.getAttribute('data-id') || '');
     if (d.selector === '[data-action="open-session"]' && d.el) {
       try { localStorage.setItem('lk_openWorkout', d.el.getAttribute('data-id') || ''); } catch (err) {}
@@ -863,7 +877,9 @@
     view: 'hub',          /* hub | history */
     filter: 'all',        /* all | lift | cardio */
     cgroup: 'all',        /* all | machine | outdoor | water | studio | other */
-    sheet: null,          /* null | {kind:'split'|'activity'|'favs'|'newcardio'} */
+    sheet: null,          /* null | {kind:'split'|'activity'|'favs'|'newcardio'|'quick'|'quick-details'} */
+    /* A quick workout being planned. Null until the fork is answered. */
+    quick: null,
     query: '',
     toast: null,
     /* The id of the split whose delete is armed. One at a time, and cleared
@@ -1651,6 +1667,14 @@
         '<button class="btn btn--primary btn--block mt-4" type="button" data-action="start-today" data-testid="start-today">' +
           ICO.play + '<span class="btn__label">Start ' + esc(day.name) + '</span>' +
         '</button>' +
+        /* THE OTHER GYM, AND THE UNSCHEDULED DAY. Two situations break a
+           tab that only offers today's split: you are somewhere else with
+           different equipment, and nothing is scheduled but you want to
+           lift anyway. The shipped app had this and the rebuild dropped
+           it. Secondary and quiet, because the scheduled day is still the
+           answer most days. */
+        '<button class="btn btn--tertiary btn--block mt-2" type="button" data-action="quick" ' +
+          'data-testid="quick-workout"><span class="btn__label">Quick workout instead</span></button>' +
       '</section>' +
 
       cycleBanner() +
@@ -2114,6 +2138,124 @@
      reachable: the sheet opens on the four groups, search reduces every one
      of them, and the count in the field is the count of the list. It said
      "Search 41 activities" over a list of nine and showed six of those. */
+  /* ---- QUICK WORKOUT ---------------------------------------------------
+     Two situations the scheduled day cannot answer: a different gym with
+     different equipment, and a day with nothing on it that you want to
+     lift anyway. The shipped app had this and the rebuild dropped it.
+
+     The fork is asked once, and it is the whole feature: start empty and
+     add as you go, or say what you are doing first so the session arrives
+     loaded and in order instead of being built rep by rep between sets.
+
+     Nothing is written until one of them is chosen. */
+  function readQuickDetails() {
+    if (!S.quick) S.quick = { name: '', note: '', picks: [] };
+    var nEl = document.getElementById('qd-name');
+    var tEl = document.getElementById('qd-note');
+    if (nEl) S.quick.name = String(nEl.value || '').slice(0, 40);
+    if (tEl) S.quick.note = String(tEl.value || '').slice(0, 120);
+  }
+  function saveQuickDraft() {
+    if (!store() || !S.quick) return;
+    store().set('lk_quickDraft', { name: S.quick.name || '', note: S.quick.note || '',
+                                   picks: S.quick.picks || [] });
+  }
+
+  /* THE HAND-OVER. Train does not know how a session is built and the log
+     does not know what a fork sheet is; one key carries what was decided
+     and the log consumes it, the same way "do this session again" works. */
+  function handQuickStart(name, note, picks) {
+    if (!store()) return;
+    store().set('lk_quickStart', {
+      name: String(name || '').trim() || 'Quick workout',
+      note: String(note || '').trim(),
+      exercises: picks || []
+    });
+    store().remove('lk_quickDraft');
+    store().remove('lk_quickPick');
+  }
+  function handQuickPick() {
+    saveQuickDraft();
+    if (store()) {
+      store().set('lk_quickPick', { name: S.quick.name, note: S.quick.note,
+                                    picks: S.quick.picks || [] });
+    }
+  }
+  function startQuick(name, note, picks) {
+    handQuickStart(name, note, picks);
+    S.sheet = null;
+    S.quick = null;
+    LKGo('workout-log');
+  }
+
+  function quickSheet() {
+    return '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="qw-title" ' +
+        'data-testid="quick-sheet">' +
+      '<div class="sheet__grab"></div>' +
+      '<div class="sheet__head"><h2 class="t-section grow" id="qw-title">Quick workout</h2>' +
+        '<button class="iconbtn" type="button" data-action="close-sheet" aria-label="Close" ' +
+          'data-testid="quick-close">' + ICO.close + '</button></div>' +
+      '<div class="sheet__body">' +
+        '<div class="card card--raised" role="group">' +
+          '<button class="row row__main--btn" type="button" data-action="quick-skip" ' +
+            'data-testid="quick-skip">' +
+            '<span class="row__main stack">' +
+              /* "Skip" on its own reads as skipping the workout. Two words
+                 fix it. */
+              '<span class="row__title">Skip setup</span>' +
+              '<span class="row__sub">Start empty, add lifts as you go</span>' +
+            '</span>' +
+            '<span class="row__chev">' + ICO.chev + '</span>' +
+          '</button>' +
+        '</div>' +
+        '<div class="card card--raised mt-3" role="group">' +
+          '<button class="row row__main--btn" type="button" data-action="quick-plan" ' +
+            'data-testid="quick-plan">' +
+            '<span class="row__main stack">' +
+              '<span class="row__title">Plan it first</span>' +
+              '<span class="row__sub">Name it, pick your lifts, set the order</span>' +
+            '</span>' +
+            '<span class="row__chev">' + ICO.chev + '</span>' +
+          '</button>' +
+        '</div>' +
+        '<p class="t-meta mt-4">Nothing is saved until you start.</p>' +
+      '</div>' +
+    '</div>';
+  }
+
+  /* Both fields optional, and Continue is always live. A form that will
+     not let you past it until you have named something you are about to
+     do in the next ten seconds is a form arguing with its reader. */
+  function quickDetailsSheet() {
+    var q = S.quick || {};
+    return '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="qd-title" ' +
+        'data-testid="quick-details">' +
+      '<div class="sheet__grab"></div>' +
+      '<div class="sheet__head"><h2 class="t-section grow" id="qd-title">What are you doing?</h2>' +
+        '<button class="iconbtn" type="button" data-action="close-sheet" aria-label="Close" ' +
+          'data-testid="qd-close">' + ICO.close + '</button></div>' +
+      '<div class="sheet__body">' +
+        '<label class="t-label field__label" for="qd-name">Name</label>' +
+        '<input class="input" id="qd-name" type="text" maxlength="40" autocomplete="off" ' +
+          'value="' + esc(q.name || '') + '" placeholder="Quick workout" data-testid="qd-name">' +
+        '<label class="t-label field__label mt-4" for="qd-note">Note</label>' +
+        '<input class="input" id="qd-note" type="text" maxlength="120" autocomplete="off" ' +
+          'value="' + esc(q.note || '') + '" placeholder="at the hotel gym" data-testid="qd-note">' +
+        /* WHY THE NOTE EARNS ITS PLACE. It shows on the history card, so a
+           thin Tuesday has its reason attached six months later; the coach
+           reads it as context and stops calling a week away a regression;
+           and it is what you search History by when you remember the place
+           and not the date. */
+        '<p class="t-meta mt-2">The note shows on the workout in History, and the coach reads ' +
+          'it, so a week away stops looking like a bad week.</p>' +
+        '<button class="btn btn--primary btn--block mt-5" type="button" data-action="qd-go" ' +
+          'data-testid="qd-continue"><span class="btn__label">Pick your lifts</span></button>' +
+        '<button class="btn btn--tertiary btn--block mt-2" type="button" data-action="qd-skip" ' +
+          'data-testid="qd-skip"><span class="btn__label">Skip this</span></button>' +
+      '</div>' +
+    '</div>';
+  }
+
   function activitySheet() {
     var q = S.query.trim().toLowerCase();
     var all = allActivities();
@@ -2288,6 +2430,8 @@
       ? splitSheet(SPLITS.filter(function (s) { return s.id === S.sheet.id; })[0])
       : S.sheet.kind === 'favs' ? favSheet()
       : S.sheet.kind === 'newcardio' ? newCardioSheet()
+      : S.sheet.kind === 'quick' ? quickSheet()
+      : S.sheet.kind === 'quick-details' ? quickDetailsSheet()
       : activitySheet();
     return '<div class="scrim" data-action="close-sheet" data-testid="scrim"></div>' + inner;
   }
@@ -2580,6 +2724,38 @@
       loadSplits(false);
       render(true);
       say(goneSp ? esc(goneSp.name) + ' deleted. Its sessions are still in your history.' : 'Deleted.');
+      return;
+    }
+    /* ---- the quick workout fork ---- */
+    if (a === 'quick') {
+      /* A draft from a plan that was interrupted comes back rather than
+         being lost: a refresh in the middle of picking lifts should not
+         cost you the picking. */
+      var draft = store() ? store().get('lk_quickDraft', null) : null;
+      S.quick = (draft && typeof draft === 'object')
+        ? { name: draft.name || '', note: draft.note || '', picks: draft.picks || [] }
+        : { name: '', note: '', picks: [] };
+      openSheet({ kind: 'quick' });
+      return;
+    }
+    if (a === 'quick-skip') {
+      startQuick(S.quick && S.quick.name, S.quick && S.quick.note, []);
+      return;
+    }
+    if (a === 'quick-plan') {
+      openSheet({ kind: 'quick-details' });
+      return;
+    }
+    if (a === 'qd-skip' || a === 'qd-go') {
+      readQuickDetails();
+      if (a === 'qd-skip') { S.quick.name = ''; S.quick.note = ''; }
+      /* The picker is the exercise library, which is a screen rather than
+         a sheet -- it carries the body map, the muscle groups and the
+         search this would otherwise have to grow its own copy of. It is
+         told what it is picking for. */
+      handQuickPick();
+      S.sheet = null;
+      LKGo('exercise-library');
       return;
     }
     if (a === 'edit-split') {

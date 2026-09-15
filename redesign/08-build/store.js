@@ -574,7 +574,11 @@
     'lk_coachApplied',
     /* What one serving of a food weighs, said by the reader because no
        database knows what one baguette weighs. Keyed by the food's name. */
-    'lk_foodServing'
+    'lk_foodServing',
+    /* The quick workout being planned, and the one being handed to the
+       log. Device-local on purpose: a plan half made on a phone in a gym
+       is not something to push to another device mid-session. */
+    'lk_quickDraft', 'lk_quickPick', 'lk_quickStart'
   ]);
 
   var SYNC_KEYS = [
