@@ -700,6 +700,62 @@
      inside 300ms as zoom-to-fit -- which leaves the reader zoomed into a
      rep counter with no obvious way back. Pinch is untouched: that is a
      deliberate gesture and taking it away hurts anybody who needs it. */
+  /* ---- THE REST OF WHAT SAYS "WEB PAGE" ---------------------------
+     Installed to a home screen, this is the app somebody opens. Four
+     browser behaviours give that away, and none of them belong to
+     anything in here.
+
+     A PINCH leaves you zoomed into a form with no way back, because
+     there is no browser chrome in standalone to zoom back out with. It
+     was refused on two screens out of eighteen -- onboarding and the
+     walkthrough -- which is the wrong two, since the ones you use every
+     day were the ones that let you do it. Refused everywhere now.
+     Deliberate zoom from the browser's own menu is untouched: this
+     refuses the GESTURE, not the choice, which is the difference between
+     app-like and inaccessible.
+
+     THE LONG-PRESS MENU offers Copy, Look Up, Share and Add to Reading
+     List over whatever is under the thumb -- on top of a gesture the app
+     has already claimed for picking a row up.
+
+     THE GHOST DRAG hands the browser a translucent copy of an image or a
+     link to carry around the screen.
+
+     And a SECOND FINGER anywhere still scales the page on iOS even with
+     the gesture events refused, so a two-finger touchmove is refused
+     too. One finger is every gesture this app has. */
+  function lockBrowserGestures() {
+    /* Bound to the REAL document, not a screen's shadow root. Inside a
+       screen `document` is that screen's root, and a gesture that starts
+       on the chrome around it -- the tab bar, a sheet's scrim, the gap
+       between screens -- would never reach a listener parked in one of
+       them. One binding, at the top, for a browser behaviour that belongs
+       to the page rather than to any screen. */
+    var d = doc.ownerDocument || doc;
+
+    ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (ev) {
+      d.addEventListener(ev, function (e) { e.preventDefault(); }, { passive: false });
+    });
+
+    d.addEventListener('contextmenu', function (e) {
+      /* Where typing happens the menu is the interface: cut, copy, paste
+         and the spelling suggestions all live in it. */
+      var t = e.target;
+      if (t && t.closest && t.closest('input, textarea, [contenteditable="true"], .selectable')) return;
+      e.preventDefault();
+    });
+
+    d.addEventListener('dragstart', function (e) {
+      var t = e.target;
+      if (t && t.closest && t.closest('input, textarea, [contenteditable="true"], .selectable')) return;
+      e.preventDefault();
+    });
+
+    d.addEventListener('touchmove', function (e) {
+      if (e.touches && e.touches.length > 1) e.preventDefault();
+    }, { passive: false });
+  }
+
   function lockDoubleTapZoom() {
     var lastTouch = 0;
     doc.addEventListener('touchend', function (e) {
@@ -807,5 +863,10 @@
   else init(doc);
 
   /* Once per document, not per screen: the keyboard belongs to the window. */
-  if (!global.__lk_kbwatch) { global.__lk_kbwatch = true; watchKeyboard(); lockDoubleTapZoom(); }
+  if (!global.__lk_kbwatch) {
+    global.__lk_kbwatch = true;
+    watchKeyboard();
+    lockDoubleTapZoom();
+    lockBrowserGestures();
+  }
 })(typeof window !== 'undefined' ? window : this);
