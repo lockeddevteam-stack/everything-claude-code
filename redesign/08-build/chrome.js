@@ -664,6 +664,21 @@
     if (!vv || !doc.documentElement) return;
     var last = -1;
     function measure() {
+      /* A ZOOMED PAGE IS NOT A KEYBOARD. When the page is pinched -- or
+         when Safari zooms itself, which it used to do on every field
+         under 16px -- the visual viewport shrinks, and the arithmetic
+         below reads that shrinkage as a keyboard six hundred pixels
+         tall. The chrome then lifts itself clean off the screen, which
+         is the opposite of the problem this function exists to solve.
+         At any scale but 1 there is nothing here worth measuring. */
+      if (vv.scale && Math.abs(vv.scale - 1) > 0.01) {
+        if (last !== 0) {
+          last = 0;
+          doc.documentElement.style.setProperty('--lk-kb', '0px');
+          doc.documentElement.setAttribute('data-keyboard', 'shut');
+        }
+        return;
+      }
       /* What the keyboard covers: the window's height less the visible
          viewport, less however far the page has been scrolled within it.
          Small values are rounding and address-bar movement, not a keyboard. */
