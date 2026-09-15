@@ -2077,22 +2077,21 @@
       seed(rows, source);
       render();
     };
-    /* fetch() cannot read a file:// URL in any engine, and the failure is a
-       console error the page cannot catch. The demo opens from disk, so ask
-       first and go straight to the inline catalogue when the answer is disk. */
-    if (location.protocol === 'file:') {
-      finish(fromTuples(FALLBACK), 'inline');
-    } else {
-      try {
-        fetch('../tests/fixtures/exercise-db.json', { cache: 'no-store' })
-          .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
-          .then(function (rows) { finish(rows, 'fetch'); })
-          .catch(function () { finish(fromTuples(FALLBACK), 'inline'); });
-      } catch (err) {
-        finish(fromTuples(FALLBACK), 'inline');
-      }
-    }
-    setTimeout(function () { finish(fromTuples(FALLBACK), 'inline'); }, 1500);
+    /* THE BUNDLED CATALOGUE, NOT A FETCH.
+
+       This asked for ../tests/fixtures/exercise-db.json, a path that
+       exists in the repository and in no deployed build, and fell back
+       to a small inline list when it 404'd. It happened to be harmless
+       here -- pool() reads LKExercises, so the screen showed all 866
+       either way -- but it is the same line that, copied into coach and
+       onboarding, stopped the coach writing a single split, and into
+       the split builder, offered fourteen lifts out of 866.
+
+       An unreachable path that looks load-bearing is a trap for whoever
+       edits this next. There is no fetch here now, which also means no
+       1500ms race with a timeout to lose. */
+    var cat = (window.LKExercises && LKExercises.all) ? LKExercises.all() : [];
+    finish(cat.length ? cat : fromTuples(FALLBACK), cat.length ? 'catalogue' : 'inline');
   }
 
   /* ---------------------------------------------------------------
@@ -2191,17 +2190,14 @@
   syncEntry();
   S.preset = 0;
   render();
-  /* Same reason as above: from disk the inline catalogue is the catalogue. */
-  if (location.protocol !== 'file:') {
-    fetch('../tests/fixtures/exercise-db.json', { cache: 'no-store' })
-      .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
-      .then(function (rows) {
-        if (!Array.isArray(rows) || !rows.length) return;
-        seed(rows, 'fetch');
-        render();
-      })
-      .catch(function () { /* inline catalogue stands */ });
-  }
+  /* And the same here: the bundled catalogue, with no fetch and no
+     dependence on a path that does not ship. */
+  (function () {
+    var cat = (window.LKExercises && LKExercises.all) ? LKExercises.all() : [];
+    if (!cat.length) return;
+    seed(cat, 'catalogue');
+    render();
+  }());
 })();
 
   /* The running workout, from a screen that is not it. Leaving the workout

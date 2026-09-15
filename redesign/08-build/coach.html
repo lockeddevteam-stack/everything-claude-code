@@ -1052,20 +1052,32 @@
       return;
     }
     CATALOGUE.state = 'loading';
-    fetch('../tests/fixtures/exercise-db.json', { cache: 'no-store' })
-      .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
-      .then(function (rows) {
-        if (!Array.isArray(rows) || !rows.length) throw new Error('empty');
-        LKCoachActions.setCatalogue(rows);
-        CATALOGUE.state = 'ready';
-        CATALOGUE.count = rows.length;
-        /* Anything already on screen was checked without it. Check it
-           again, so a split refused for "the catalogue has not loaded"
-           does not sit there being wrong once the catalogue is there. */
-        recheckAll();
-        render();
-      })
-      .catch(function () { CATALOGUE.state = 'failed'; render(); });
+    /* THE BUNDLED CATALOGUE, NOT A TEST FIXTURE.
+
+       This fetched ../tests/fixtures/exercise-db.json, a path that
+       exists in the repository and in no deployed build. In production
+       the fetch 404s, the catch sets the state to 'failed', and
+       setCatalogue is never called -- so LKCoachActions has no
+       catalogue, and check() refuses EVERY split the coach proposes
+       with "the exercise catalogue has not loaded". The coach could
+       talk about training and could not write a single thing.
+
+       Nothing caught it because the tests serve the repository, where
+       the file is there. LKExercises is bundled into the build, needs
+       no fetch, works from a file on disk, and is already the shape
+       setCatalogue wants. */
+    try {
+      var rows = (window.LKExercises && LKExercises.all) ? LKExercises.all() : [];
+      if (!rows.length) throw new Error('empty');
+      LKCoachActions.setCatalogue(rows);
+      CATALOGUE.state = 'ready';
+      CATALOGUE.count = rows.length;
+      /* Anything already on screen was checked without it. Check it
+         again, so a split refused for "the catalogue has not loaded"
+         does not sit there being wrong once the catalogue is there. */
+      recheckAll();
+      render();
+    } catch (e) { CATALOGUE.state = 'failed'; render(); }
   }
   function catalogueNote() {
     if (CATALOGUE.state === 'ready') return '';

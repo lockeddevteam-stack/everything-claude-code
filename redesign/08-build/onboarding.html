@@ -1954,15 +1954,22 @@
     if (location.protocol === 'file:') { CATALOGUE.state = 'file'; return; }
     if (CATALOGUE.state === 'loading' || CATALOGUE.state === 'ready') return;
     CATALOGUE.state = 'loading';
-    fetch('../tests/fixtures/exercise-db.json', { cache: 'no-store' })
-      .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
-      .then(function (rows) {
-        if (!Array.isArray(rows) || !rows.length) throw new Error('empty');
-        LKCoachActions.setCatalogue(rows);
-        CATALOGUE.state = 'ready';
-        CATALOGUE.count = rows.length;
-        if (S.screen === 'interview') renderInterview();
-      }, function () { CATALOGUE.state = 'failed'; if (S.screen === 'interview') renderInterview(); });
+    /* The bundled catalogue, not a test fixture. The fetched path exists
+       in the repository and in no deployed build, so in production this
+       404'd, setCatalogue was never called, and the interview could not
+       turn anything it proposed into a split -- on the one flow a new
+       reader cannot skip. See the same note in coach.html. */
+    try {
+      var rows = (window.LKExercises && LKExercises.all) ? LKExercises.all() : [];
+      if (!rows.length) throw new Error('empty');
+      LKCoachActions.setCatalogue(rows);
+      CATALOGUE.state = 'ready';
+      CATALOGUE.count = rows.length;
+      if (S.screen === 'interview') renderInterview();
+    } catch (e) {
+      CATALOGUE.state = 'failed';
+      if (S.screen === 'interview') renderInterview();
+    }
   }
 
   /* THE SYSTEM PROMPT (F-ONB-009). It belongs with the endpoint, and the
