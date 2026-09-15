@@ -87,6 +87,51 @@ ok(alive > 500, 'and onboarding still renders', alive + ' chars');
 const roots = await h.page.evaluate(() => Object.keys(window.DEMO.screens).length);
 ok(roots === 18, 'all eighteen roots were looked at', String(roots));
 
+/* THE HARNESS'S OWN CHROME, WHICH IS NOT IN ANY SCREEN ROOT. The Screens
+   pill and the Back button live in the page, not inside a shadow root, so
+   the scan above cannot see them. On a phone-width window the demo parks
+   them off the canvas at translateX(-100% + 8px) on purpose -- 8px of
+   reachable scaffolding beats a pill sitting on the design. The product
+   build inherited the parking without the reason: eight pixels of Back
+   down the left edge of every screen at z-index 40, and tapping it
+   navigated.
+
+   Checked the way a thumb finds it: what is actually on top at the edges,
+   rather than what is named what. */
+const EDGE = await h.page.evaluate(() => {
+  const W = innerWidth, H = innerHeight;
+  const pts = [];
+  for (let y = 80; y < H - 40; y += 40) { pts.push([3, y]); pts.push([W - 3, y]); }
+  for (let x = 40; x < W - 40; x += 40) { pts.push([x, 3]); pts.push([x, H - 3]); }
+  const bad = [];
+  for (const [x, y] of pts) {
+    const el = document.elementFromPoint(x, y);
+    if (!el) continue;
+    const tid = el.getAttribute('data-testid') || '';
+    const cls = String(el.className || '');
+    /* demo-screen is the screen host itself and is the app. Anything else
+       belonging to the harness is not. */
+    const harness = /^(demo-back|demo-index|demo-index-toggle|demo-index-close)$/.test(tid) ||
+                    /^dev-/.test(tid) ||
+                    /\bdemo-chrome\b|\bdemo-btn\b|\bdemo-index\b/.test(cls);
+    if (harness) bad.push(x + ',' + y + ' -> ' + (tid || cls));
+  }
+  return bad;
+});
+ok(EDGE.length === 0,
+   'no harness control is under a finger at any edge of the product build',
+   EDGE.length ? EDGE.slice(0, 4).join(' | ') : 'every edge is the app');
+
+/* And it must not come back once a Back becomes available. */
+await h.page.evaluate(() => { if (window.DEMO.push) window.DEMO.push('settings'); });
+await h.page.waitForTimeout(500);
+const afterPush = await h.page.evaluate(() => {
+  const el = document.elementFromPoint(4, Math.round(innerHeight * 0.88));
+  return el ? (el.getAttribute('data-testid') || String(el.className || el.tagName)) : '(nothing)';
+});
+ok(!/demo-back/.test(afterPush),
+   'and still not after a push makes the harness Back live', afterPush);
+
 await h.br.close(); h.site.close();
 
 console.log('\n=== and the demo build still has them, because the suite drives them ===\n');
