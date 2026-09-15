@@ -1966,24 +1966,32 @@
      fourteen were typed into this file. Fetched the way the library screen
      fetches it; from disk the inline fourteen stand, and the sheet says how
      many it is offering either way. */
-  if (location.protocol !== 'file:') {
-    fetch('../tests/fixtures/exercise-db.json', { cache: 'no-store' })
-      .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
-      .then(function (rows) {
-        if (!Array.isArray(rows) || !rows.length) return;
-        LIBRARY = rows.map(function (x) {
-          /* The catalogue id travels with the row, so a split stored as bare
-             exIds can be read back into names without a second lookup table. */
-          return { id: x.id, name: x.name, muscle: x.muscle || x.group || '' };
-        });
-        ((window.LKFixtures && LKFixtures.customEx) || []).forEach(function (c) {
-          LIBRARY.push({ id: c.id, name: c.name, muscle: c.gid || '' });
-        });
-        LIBRARY.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
-        if (S.modal && S.modal.type === 'pick') render();
-      })
-      .catch(function () { /* the inline list stands */ });
-  }
+  /* THE CATALOGUE, NOT A TEST FIXTURE.
+
+     This fetched ../tests/fixtures/exercise-db.json, which exists in the
+     repository and in no deployed build. In production the fetch 404s,
+     the catch leaves the inline list standing, and somebody planning a
+     split is offered FOURTEEN exercises out of eight hundred and sixty
+     six -- with a search field over them and an empty state that still
+     says "all 14 exercises". The workout log had the same fault and was
+     fixed; this screen was not, because nothing pointed at it.
+
+     LKExercises is the shared catalogue every screen already loads. It
+     needs no fetch, works from a file on disk, and carries the group a
+     picker needs to sort by body. */
+  (function loadCatalogue() {
+    if (!window.LKExercises || !LKExercises.all) return;
+    var rows = LKExercises.all();
+    if (!rows || !rows.length) return;
+    LIBRARY = rows.map(function (x) {
+      /* The catalogue id travels with the row, so a split stored as bare
+         exIds can be read back into names without a second lookup table. */
+      return { id: x.id, name: x.name, muscle: x.muscle || x.group || '',
+               group: x.group || '' };
+    });
+    LIBRARY.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+    if (S.modal && S.modal.type === 'pick') render();
+  }());
 
   /* The running workout, from a screen that is not it. This screen redraws
      itself whole, so the shelf is rendered inline with everything else
