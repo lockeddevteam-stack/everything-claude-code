@@ -15811,7 +15811,7 @@ DEMO.define("train", function (document, window, location, fetch) {
                      happen first, because the middot substituted next is
                      itself an entity and escaping after it would print
                      the word &middot; on the screen. */
-                  name: esc(String(w.name || '')).replace(/ - /g, ' &middot; '),
+                  name: String(w.name || '').replace(/ - /g, ' &middot; '),
                   date: w.date, min: w.min };
       if (row.kind === 'lift') { row.sets = w.sets; row.kg = w.kg; }
       else {
@@ -16258,7 +16258,11 @@ DEMO.define("train", function (document, window, location, fetch) {
         '<span class="ico-well">' + (w.kind === 'lift' ? ICO.lift : ICO.cardio) + '</span>' +
         '<span class="row__main stack">' +
           '<span class="spread">' +
-            '<span class="row__title truncate">' + w.name + '</span>' +
+            /* Escaped HERE, where the markup is built, rather than once
+                 upstream where the next reader of this line cannot see
+                 it. The middot the name carries is an entity, so it is
+                 put back after the escape rather than escaped with it. */
+              '<span class="row__title truncate">' + esc(w.name).replace(/&amp;middot;/g, '&middot;') + '</span>' +
             '<span class="t-meta num nowrap">' + relDate(w.date) + '</span>' +
           '</span>' +
           '<span class="row__sub">' + meta + '</span>' +
@@ -16560,7 +16564,7 @@ DEMO.define("train", function (document, window, location, fetch) {
       '<div class="spread"><span class="t-label">Time in zone</span>' +
         '<span class="t-meta num">' + total + ' min placed</span></div>' +
       rows.filter(function (r) { return r.min; }).map(function (r) {
-        return '<div class="spread mt-2"><span class="t-detail">' + r.name + '</span>' +
+        return '<div class="spread mt-2"><span class="t-detail">' + esc(r.name) + '</span>' +
           '<span class="t-meta num">' + r.min + ' min</span></div>' +
           /* Quiet, not accent. One accent fill to a screen: the start button
              is the thing being pointed at, and three coloured bars beside it
@@ -27275,8 +27279,8 @@ DEMO.define("coach", function (document, window, location, fetch) {
           SPLITS.map(function (sp, i) {
             return '<button class="opt" role="radio" aria-checked="false" data-act="bind-pick" data-split="' + sp.id + '" data-testid="bind-split-' + i + '">' +
               '<span class="opt__mark">' + ico('check') + '</span>' +
-              '<span class="opt__main"><span class="opt__title">' + sp.name + '</span>' +
-              '<span class="opt__sub">' + sp.days.length + ' ' + LKPlural(sp.days.length, 'day') + ' &middot; ' + sp.days.join(', ') + '</span></span></button>';
+              '<span class="opt__main"><span class="opt__title">' + esc(sp.name) + '</span>' +
+              '<span class="opt__sub">' + sp.days.length + ' ' + LKPlural(sp.days.length, 'day') + ' &middot; ' + esc(sp.days.join(', ')) + '</span></span></button>';
           }).join('') +
         '</div></div>' +
       '</div>';
@@ -33020,7 +33024,7 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
     else if (S.days && S.sheet) html = sheetDays(byId(S.sheet));
     else if (S.sheet) { var it = byId(S.sheet); if (it) html = sheetDetail(it); }
     if (S.toast) {
-      html += '<div class="toast" role="status" data-testid="toast"><span class="toast__body">' + S.toast.text + '</span>' +
+      html += '<div class="toast" role="status" data-testid="toast"><span class="toast__body">' + S.toast.html + '</span>' +
         (S.toast.undo ? '<button class="toast__action" type="button" data-action="undo" data-testid="toast-undo">Undo</button>' : '') + '</div>';
     }
     return html;
@@ -33193,8 +33197,13 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
   /* ---------------------------------------------------------------
      Actions
      --------------------------------------------------------------- */
-  function toast(text, undo) {
-    S.toast = { text: text, undo: !!undo };
+  function toast(html, undo) {
+    /* `html`, not `text`, because that is what it holds: every caller
+       escapes the person's own words on the way in, so what arrives is
+       already markup and escaping it again would print &amp; at the
+       reader. Naming it for what it holds is the difference between a
+       convention somebody has to know and one the next reader can see. */
+    S.toast = { html: html, undo: !!undo };
     clearTimeout(toast.t);
     toast.t = setTimeout(function () { S.toast = null; render(); }, 4000);
   }
@@ -44574,7 +44583,7 @@ DEMO.define("review", function (document, window, location, fetch) {
       return '' +
         '<div class="row" data-testid="lift-' + l.name.toLowerCase().replace(/[^a-z]+/g, '-') + '">' +
           '<span class="row__main">' +
-            '<span class="row__title">' + l.name + '</span>' +
+            '<span class="row__title">' + esc(l.name) + '</span>' +
             '<span class="row__sub">' + set(l.top[0], l.top[1]) +
               (isNew ? ', not in the Sep 3 session'
                      : ', was ' + set(l.priorTop[0], l.priorTop[1])) + '</span>' +
@@ -44588,7 +44597,7 @@ DEMO.define("review", function (document, window, location, fetch) {
     return '' +
       '<div class="section" data-testid="section-compare">' +
         '<div class="section__head">' +
-          '<h2 class="t-label">Against ' + PRIOR.name + ', ' + PRIOR.dateLabel + '</h2>' +
+          '<h2 class="t-label">Against ' + esc(PRIOR.name) + ', ' + esc(PRIOR.dateLabel) + '</h2>' +
         '</div>' +
         '<div class="card enter-rise">' +
           '<div class="spread">' +
@@ -50147,7 +50156,7 @@ DEMO.define("progress", function (document, window, location, fetch) {
   function liftOptions() {
     var want = goalLiftId();
     return LIFTS.map(function (l) {
-      return '<option value="' + l.id + '"' + (l.id === want ? ' selected' : '') + '>' + l.name + '</option>';
+      return '<option value="' + l.id + '"' + (l.id === want ? ' selected' : '') + '>' + esc(l.name) + '</option>';
     }).join('');
   }
   /* One form, for both. A goal typed wrong used to be permanent -- there was
