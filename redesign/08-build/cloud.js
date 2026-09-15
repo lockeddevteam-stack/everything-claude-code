@@ -696,6 +696,56 @@
        asks first, on a sheet that names what leaves the device, and none
        of them sends anything without that. This function is the last
        place in the chain and deliberately not the one that decides. */
+    /* ---- a recording, sent up to be written down --------------------
+       The one call in this file that does not send JSON. A transcription
+       goes up as multipart form data, and the browser writes its own
+       content-type for that, boundary and all -- setting ours would make
+       the body unreadable at the other end. So the Authorization header
+       is added by hand here rather than through workerHeaders, which
+       would put a JSON content-type on a form. */
+    voiceReady: function () { var c = cfg(); return !!(c && c.apiUrl); },
+    voice: function (blob) {
+      var c = cfg();
+      if (!c || !c.apiUrl) {
+        return Promise.resolve({ ok: false, error: 'not_configured',
+          message: 'Transcribing needs a server, and this build has none.' });
+      }
+      if (!blob || !blob.size) {
+        return Promise.resolve({ ok: false, error: 'empty', message: 'There was no recording.' });
+      }
+      var form = new g.FormData();
+      form.append('audio', blob, 'clip.wav');
+      var s = session();
+      var h = {};
+      if (s) h.authorization = 'Bearer ' + s.access_token;
+      return g.fetch(c.apiUrl.replace(/\/$/, '') + '/voice', {
+        method: 'POST', headers: h, body: form
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          /* A spent allowance is not a broken microphone. */
+          if (r.status === 429) {
+            return { ok: false, error: 'limit',
+              message: j.error || 'You have used what Free includes of this today.' };
+          }
+          if (!r.ok) {
+            /* A 500 is the server saying something went wrong at ITS end,
+               and its own words for that ("boom", a stack frame, an
+               upstream's error code) are not something a person holding a
+               phone can act on. They are kept as detail for a log and the
+               reader gets a sentence. A 4xx is different: that one is
+               usually about this request and worth repeating. */
+            var says = j.error || j.message || '';
+            return { ok: false, error: 'server', status: r.status, detail: says,
+              message: r.status >= 500 || !says
+                ? 'The server could not write that down just now. Try again, or type it.'
+                : says };
+          }
+          if (j.error) return { ok: false, error: 'server', message: j.error };
+          return { ok: true, data: j };
+        });
+      }, fail);
+    },
+
     vision: function (kind, base64, opts) {
       var PATHS = { meal: '/analyze-meal', physique: '/analyze-physique',
                     receipt: '/parse-receipt', pantry: '/scan-pantry' };

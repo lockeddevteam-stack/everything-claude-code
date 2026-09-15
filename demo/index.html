@@ -4494,6 +4494,28 @@ button.shelf:active { background: var(--fill-press); }
 }
 .addexmap__side { display: flex; justify-content: center; margin-top: var(--sp-2); }
 
+/* --- The level while the microphone is open ------------------------------
+   A bar that moves with what the microphone hears, so a muted device looks
+   muted rather than looking like it is working. It is decoration over a
+   timer that already says the same thing in words, so it is hidden from
+   assistive tech and it never animates on its own. */
+.fuel-miclevel {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--fill);
+  overflow: hidden;
+}
+.fuel-miclevel > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left center;
+  transition: transform 120ms linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fuel-miclevel > i { transition: none; }
+}
+
 
 </style>
 <style id="demo-chrome-css">
@@ -14919,6 +14941,56 @@ window.LK_CLOUD = {
        asks first, on a sheet that names what leaves the device, and none
        of them sends anything without that. This function is the last
        place in the chain and deliberately not the one that decides. */
+    /* ---- a recording, sent up to be written down --------------------
+       The one call in this file that does not send JSON. A transcription
+       goes up as multipart form data, and the browser writes its own
+       content-type for that, boundary and all -- setting ours would make
+       the body unreadable at the other end. So the Authorization header
+       is added by hand here rather than through workerHeaders, which
+       would put a JSON content-type on a form. */
+    voiceReady: function () { var c = cfg(); return !!(c && c.apiUrl); },
+    voice: function (blob) {
+      var c = cfg();
+      if (!c || !c.apiUrl) {
+        return Promise.resolve({ ok: false, error: 'not_configured',
+          message: 'Transcribing needs a server, and this build has none.' });
+      }
+      if (!blob || !blob.size) {
+        return Promise.resolve({ ok: false, error: 'empty', message: 'There was no recording.' });
+      }
+      var form = new g.FormData();
+      form.append('audio', blob, 'clip.wav');
+      var s = session();
+      var h = {};
+      if (s) h.authorization = 'Bearer ' + s.access_token;
+      return g.fetch(c.apiUrl.replace(/\/$/, '') + '/voice', {
+        method: 'POST', headers: h, body: form
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          /* A spent allowance is not a broken microphone. */
+          if (r.status === 429) {
+            return { ok: false, error: 'limit',
+              message: j.error || 'You have used what Free includes of this today.' };
+          }
+          if (!r.ok) {
+            /* A 500 is the server saying something went wrong at ITS end,
+               and its own words for that ("boom", a stack frame, an
+               upstream's error code) are not something a person holding a
+               phone can act on. They are kept as detail for a log and the
+               reader gets a sentence. A 4xx is different: that one is
+               usually about this request and worth repeating. */
+            var says = j.error || j.message || '';
+            return { ok: false, error: 'server', status: r.status, detail: says,
+              message: r.status >= 500 || !says
+                ? 'The server could not write that down just now. Try again, or type it.'
+                : says };
+          }
+          if (j.error) return { ok: false, error: 'server', message: j.error };
+          return { ok: true, data: j };
+        });
+      }, fail);
+    },
+
     vision: function (kind, base64, opts) {
       var PATHS = { meal: '/analyze-meal', physique: '/analyze-physique',
                     receipt: '/parse-receipt', pantry: '/scan-pantry' };
@@ -15227,6 +15299,286 @@ window.LK_CLOUD = {
     if (g.document.readyState === 'loading') g.document.addEventListener('DOMContentLoaded', start);
     else start();
   }
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+<script>
+/* voice.js — inlined verbatim from 08-build/voice.js */
+/* LKVoice — RECORDING A SENTENCE AND GETTING IT BACK AS TEXT.
+   ==========================================================================
+   The Worker has transcribed audio since the Gemini migration. Nothing in
+   the app ever recorded any: every screen with a microphone on it showed a
+   text box and a line of copy explaining that dictation belongs to the
+   keyboard. That was true of the build and not of the server.
+
+   WHY THE AUDIO IS CONVERTED BEFORE IT GOES UP. MediaRecorder gives you
+   whatever the browser feels like -- webm/opus on Chrome and Android,
+   mp4/aac on iOS -- and Gemini's inline audio accepts neither. Sending the
+   recorder's own output would fail on every phone, differently, and look
+   like a flaky server rather than a format nobody checked. So the clip is
+   decoded, mixed to mono, resampled to 16 kHz and written out as a WAV,
+   which Gemini does accept and which every browser can produce from what
+   its recorder gave it. 16 kHz mono is what speech needs; it also makes a
+   thirty-second clip about a megabyte instead of ten.
+
+   WHAT THIS DOES NOT DO. It does not log anything. The transcript lands in
+   the field the reader was already parsing, where it can be corrected
+   before anything is written down -- a misheard "fifty" that becomes a
+   meal is worse than no microphone at all.
+
+   Every failure is its own sentence. Permission refused, no microphone,
+   a page that is not on HTTPS, a clip too short to contain a word, a
+   server that would not answer, and a recording with nothing intelligible
+   in it are six different things, and a screen that says "something went
+   wrong" for all six teaches somebody to stop trying.
+   ========================================================================== */
+(function (g) {
+  'use strict';
+
+  var MAX_MS = 30000;      /* a sentence, not a monologue */
+  var MIN_MS = 400;        /* shorter than this is a slipped thumb */
+  var RATE = 16000;        /* what speech needs, and no more */
+
+  var rec = null, chunks = [], stream = null, startedAt = 0;
+  var timer = null, autoStop = null, hooks = {};
+  var actx = null, analyser = null, levelData = null;
+
+  function AC() {
+    return g.AudioContext || g.webkitAudioContext || null;
+  }
+
+  function supported() {
+    return !!(g.navigator && g.navigator.mediaDevices &&
+              g.navigator.mediaDevices.getUserMedia &&
+              g.MediaRecorder && AC());
+  }
+
+  /* A microphone needs a secure context. On http the call does not fail
+     with a permission prompt, it fails immediately, and the reason is
+     worth saying out loud rather than reporting as a refusal. */
+  function secure() {
+    try {
+      if (g.isSecureContext) return true;
+      var h = g.location && g.location.hostname;
+      return h === 'localhost' || h === '127.0.0.1' || (g.location && g.location.protocol === 'file:');
+    } catch (e) { return false; }
+  }
+
+  function pickMime() {
+    var want = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
+    for (var i = 0; i < want.length; i++) {
+      try { if (g.MediaRecorder.isTypeSupported(want[i])) return want[i]; } catch (e) {}
+    }
+    return '';
+  }
+
+  function cleanup() {
+    if (timer) { clearInterval(timer); timer = null; }
+    if (autoStop) { clearTimeout(autoStop); autoStop = null; }
+    if (stream) {
+      try { stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+      stream = null;
+    }
+    if (actx) { try { actx.close(); } catch (e) {} actx = null; }
+    analyser = null; levelData = null; rec = null;
+  }
+
+  /* 0..1, for whatever the screen wants to draw. Silence reads as silence,
+     so a microphone that is muted at the OS looks muted rather than
+     looking like it is working. */
+  function level() {
+    if (!analyser || !levelData) return 0;
+    try {
+      analyser.getByteTimeDomainData(levelData);
+      var peak = 0;
+      for (var i = 0; i < levelData.length; i++) {
+        var d = Math.abs(levelData[i] - 128);
+        if (d > peak) peak = d;
+      }
+      return Math.min(1, peak / 90);
+    } catch (e) { return 0; }
+  }
+
+  function seconds() {
+    return startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0;
+  }
+
+  function start(opts) {
+    hooks = opts || {};
+    if (!supported()) {
+      return Promise.resolve({ ok: false, error: 'unsupported',
+        message: 'This browser cannot record audio. Type it instead.' });
+    }
+    if (!secure()) {
+      return Promise.resolve({ ok: false, error: 'insecure',
+        message: 'A microphone needs a secure connection. Type it instead.' });
+    }
+    if (rec) return Promise.resolve({ ok: false, error: 'busy', message: 'Already recording.' });
+
+    return g.navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
+      stream = s;
+      chunks = [];
+      var mime = pickMime();
+      try { rec = mime ? new g.MediaRecorder(s, { mimeType: mime }) : new g.MediaRecorder(s); }
+      catch (e) { rec = new g.MediaRecorder(s); }
+      rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+      rec.start();
+      startedAt = Date.now();
+
+      try {
+        var Ctor = AC();
+        actx = new Ctor();
+        analyser = actx.createAnalyser();
+        analyser.fftSize = 512;
+        levelData = new Uint8Array(analyser.fftSize);
+        actx.createMediaStreamSource(s).connect(analyser);
+      } catch (e) { analyser = null; }
+
+      if (hooks.onTick) {
+        timer = setInterval(function () { hooks.onTick(seconds(), level()); }, 200);
+      }
+      /* Thirty seconds and it stops itself. A recorder left running by a
+         phone going into a pocket is a bill and a privacy problem. */
+      autoStop = setTimeout(function () {
+        if (hooks.onAuto) hooks.onAuto(); else stop();
+      }, MAX_MS);
+
+      return { ok: true };
+    }, function (e) {
+      var name = String((e && e.name) || e);
+      cleanup();
+      if (name === 'NotAllowedError' || name === 'SecurityError') {
+        return { ok: false, error: 'denied',
+          message: 'The microphone is blocked for this site. Allow it in your browser settings, or type it instead.' };
+      }
+      if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        return { ok: false, error: 'nomic',
+          message: 'No microphone was found on this device.' };
+      }
+      return { ok: false, error: 'mic',
+        message: 'The microphone could not be opened. Type it instead.' };
+    });
+  }
+
+  function cancel() {
+    if (rec && rec.state !== 'inactive') { try { rec.stop(); } catch (e) {} }
+    cleanup();
+    chunks = [];
+    startedAt = 0;
+  }
+
+  function blobFromChunks() {
+    var type = (chunks[0] && chunks[0].type) || 'audio/webm';
+    return new Blob(chunks, { type: type });
+  }
+
+  /* ---- the conversion ---------------------------------------------------
+     decodeAudioData reads whatever the recorder produced, an
+     OfflineAudioContext at 16 kHz does the mixing and resampling, and the
+     result is written out as a plain 16-bit WAV. No library, and nothing
+     that has to be right about a codec. */
+  function toWav(blob) {
+    var Ctor = AC();
+    if (!Ctor) return Promise.reject(new Error('no audio context'));
+    return blob.arrayBuffer().then(function (buf) {
+      var ctx = new Ctor();
+      return new Promise(function (resolve, reject) {
+        ctx.decodeAudioData(buf, resolve, reject);
+      }).then(function (decoded) {
+        try { ctx.close(); } catch (e) {}
+        var frames = Math.max(1, Math.round(decoded.duration * RATE));
+        var OC = g.OfflineAudioContext || g.webkitOfflineAudioContext;
+        if (!OC) return decoded;
+        var off = new OC(1, frames, RATE);
+        var src = off.createBufferSource();
+        src.buffer = decoded;
+        src.connect(off.destination);
+        src.start(0);
+        return off.startRendering();
+      });
+    }).then(function (rendered) {
+      return encodeWav(rendered.getChannelData(0), rendered.sampleRate || RATE);
+    });
+  }
+
+  function encodeWav(samples, rate) {
+    var n = samples.length;
+    var buf = new ArrayBuffer(44 + n * 2);
+    var v = new DataView(buf);
+    function str(off, s) { for (var i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); }
+    str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE');
+    str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+    v.setUint16(22, 1, true); v.setUint32(24, rate, true);
+    v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    str(36, 'data'); v.setUint32(40, n * 2, true);
+    for (var i = 0; i < n; i++) {
+      var s = Math.max(-1, Math.min(1, samples[i]));
+      v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+    return new Blob([buf], { type: 'audio/wav' });
+  }
+
+  function stop() {
+    if (!rec) {
+      return Promise.resolve({ ok: false, error: 'idle', message: 'Nothing was recording.' });
+    }
+    var held = rec, ms = Date.now() - startedAt;
+    if (timer) { clearInterval(timer); timer = null; }
+    if (autoStop) { clearTimeout(autoStop); autoStop = null; }
+
+    return new Promise(function (resolve) {
+      held.onstop = function () { resolve(); };
+      try { held.stop(); } catch (e) { resolve(); }
+    }).then(function () {
+      cleanup();
+      startedAt = 0;
+      if (ms < MIN_MS || !chunks.length) {
+        chunks = [];
+        return { ok: false, error: 'tooshort',
+          message: 'That was too short to hear. Hold it while you speak.' };
+      }
+      var raw = blobFromChunks();
+      chunks = [];
+      return toWav(raw).then(function (wav) {
+        if (!g.LKCloud || !g.LKCloud.voice) {
+          return { ok: false, error: 'not_configured',
+            message: 'Transcribing needs a server, and this build has none.' };
+        }
+        return g.LKCloud.voice(wav).then(function (r) {
+          if (!r.ok) return r;
+          var text = String((r.data && r.data.transcription) || '').trim();
+          if (!text) {
+            return { ok: false, error: 'silent',
+              message: 'Nothing intelligible was heard. Try again, or type it.' };
+          }
+          return { ok: true, text: text,
+                   action: (r.data && r.data.action) || 'unknown',
+                   data: (r.data && r.data.data) || {} };
+        });
+      }, function () {
+        return { ok: false, error: 'convert',
+          message: 'The recording could not be read on this device. Type it instead.' };
+      });
+    });
+  }
+
+  g.LKVoice = {
+    supported: supported,
+    /* Whether it is worth OFFERING. A browser that can record and a server
+       that can transcribe are both needed; either missing and the screen
+       shows the field alone rather than a button that cannot work. */
+    available: function () {
+      return supported() && secure() &&
+             !!(g.LKCloud && g.LKCloud.voice && g.LKCloud.voiceReady && g.LKCloud.voiceReady());
+    },
+    recording: function () { return !!rec; },
+    seconds: seconds,
+    level: level,
+    maxSeconds: MAX_MS / 1000,
+    start: start,
+    stop: stop,
+    cancel: cancel
+  };
 })(typeof window !== 'undefined' ? window : this);
 
 </script>
@@ -27123,6 +27475,26 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       '</div>';
   }
 
+  function stopMicRec() {
+    S.micRec = false; S.micSending = true; S.micVoiceMsg = ''; render();
+    LKVoice.stop().then(function (r) {
+      S.micSending = false;
+      if (!r.ok) { S.micVoiceMsg = r.message; render(); return; }
+      /* Into the field, and read out into items the same way a typed
+         sentence is -- one path, so a spoken meal and a typed one cannot
+         behave differently. */
+      S.micText = r.text;
+      S.micItems = parseMeal(S.micText);
+      S.micVoiceMsg = 'Heard that as \u201c' + r.text + '\u201d. Correct it if it is wrong.';
+      lookupMissing();
+      render();
+    }, function () {
+      S.micSending = false;
+      S.micVoiceMsg = 'That recording could not be sent. Type it instead.';
+      render();
+    });
+  }
+
   function sheetHTML() {
     if (S.sheet && S.sheet.indexOf('meal:') === 0) {
       var m = DAY.meals[+S.sheet.slice(5)];
@@ -28793,6 +29165,50 @@ DEMO.define("fuel", function (document, window, location, fetch) {
           'data-testid="scan-confirm"><span class="btn__label">Log it</span></button>',
         'Scanned');
     }
+  /* ---- the microphone ---------------------------------------------------
+     The screen used to explain that dictation belongs to the keyboard. That
+     was true of this build and not of the server, which has transcribed
+     audio since the Gemini migration -- nothing here had ever recorded any.
+
+     What comes back goes into the FIELD, not into the day. A sentence that
+     was misheard is edited before it is logged, which is the difference
+     between a microphone that is useful and one nobody trusts twice.
+
+     Offered only where it can work: a browser that records, a secure page
+     and a server to send it to. Where any of those is missing the field
+     stands on its own, and the copy says what to do instead rather than
+     showing a button that fails when pressed. */
+
+  function micRecorder() {
+    if (!window.LKVoice || !LKVoice.available()) {
+      return '<p class="t-caption-1 quiet mt-2" data-testid="mic-nodictation">Dictation belongs ' +
+        'to the keyboard, which has a microphone on it. What this screen does is read the ' +
+        'sentence: quantities, units and foods, matched against the table.</p>';
+    }
+    var on = !!S.micRec;
+    var secs = S.micSecs || 0;
+    var lvl = Math.max(0, Math.min(1, S.micLevel || 0));
+    return '<div class="mt-3">' +
+      '<button class="btn ' + (on ? 'btn--danger' : 'btn--secondary') + ' btn--block" type="button" ' +
+        'data-action="mic-rec"' + (S.micSending ? ' aria-busy="true" disabled' : '') +
+        ' data-testid="mic-rec">' +
+        '<span class="btn__label">' +
+          (S.micSending ? 'Writing it down'
+           : on ? 'Stop \u00b7 ' + secs + 's' : 'Speak it') +
+        '</span></button>' +
+      (on
+        ? '<div class="fuel-miclevel mt-2" data-testid="mic-level" aria-hidden="true">' +
+            '<i style="transform:scaleX(' + (0.06 + lvl * 0.94).toFixed(3) + ')"></i></div>' +
+          '<p class="t-caption-1 quiet mt-2">Listening. Say what you ate, then stop. It stops ' +
+            'itself after ' + LKVoice.maxSeconds + ' seconds.</p>'
+        : '<p class="t-caption-1 quiet mt-2">Speak it and it is written down into the field ' +
+          'below, where you can correct it before anything is logged.</p>') +
+      (S.micVoiceMsg
+        ? '<p class="t-caption-1 mt-2" role="status" data-testid="mic-voice-msg">' +
+          esc(S.micVoiceMsg) + '</p>' : '') +
+      '</div>';
+  }
+
     if (S.sheet === 'mic') {
       /* The transcript is a field, not a caption. Speech recognition needs a
          real microphone and a real engine; the SENTENCE is what this screen
@@ -28820,9 +29236,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
             '<input class="input" id="mic-text" type="text" autocomplete="off" ' +
               'placeholder="2 eggs and toast with a whey shake" ' +
               'value="' + esc(S.micText) + '" data-testid="mic-text">' +
-            '<p class="t-caption-1 quiet mt-2">Dictation belongs to the keyboard, which has a ' +
-              'microphone on it. What this screen does is read the sentence: quantities, units ' +
-              'and foods, matched against the table. It does not reach a speech service.</p>' +
+            micRecorder() +
             '<div class="chiprow mt-3">' +
               ['2 eggs and toast', 'chicken rice bowl and a whey shake', '200 g chilli'].map(function (t, ti) {
                 return '<button class="chip" type="button" data-action="mic-eg" data-t="' + esc(t) + '" ' +
@@ -29412,6 +29826,29 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     }
     if (a === 'mn-add') { manualAdd(); return; }
     if (a === 'mn-keep') { readManual(); S.man.keep = !S.man.keep; render(); return; }
+    /* Press to start, press again to stop. One button, because a
+       hold-to-talk gesture on a phone that rings mid-sentence leaves you
+       holding a screen you cannot answer. */
+    if (a === 'mic-rec') {
+      if (S.micSending) return;
+      if (S.micRec) { stopMicRec(); return; }
+      S.micVoiceMsg = '';
+      LKVoice.start({
+        onTick: function (secs, lvl) {
+          S.micSecs = secs; S.micLevel = lvl;
+          /* The timer repaints the sheet, and repainting the sheet while
+             somebody is typing in it would take their cursor. Nobody is
+             typing while the microphone is open. */
+          if (S.sheet === 'mic' && S.micRec) render();
+        },
+        onAuto: function () { stopMicRec(); }
+      }).then(function (r) {
+        if (!r.ok) { S.micVoiceMsg = r.message; S.micRec = false; render(); return; }
+        S.micRec = true; S.micSecs = 0; S.micLevel = 0;
+        render();
+      });
+      return;
+    }
     if (a === 'mic-eg') {
       S.micText = act.getAttribute('data-t');
       S.micItems = parseMeal(S.micText);
@@ -29650,7 +30087,14 @@ DEMO.define("fuel", function (document, window, location, fetch) {
          first. It had no branch at all and was the screen's dead end. */
       LKGo('shopping'); return;
     }
-    if (a === 'close') { S.sheet = null; S.camOil = null; render(); return; }
+    if (a === 'close') {
+      /* Closing the sheet closes the microphone. A recorder still running
+         behind a sheet nobody can see is the thing a permission prompt is
+         there to prevent. */
+      if (window.LKVoice && LKVoice.recording()) LKVoice.cancel();
+      S.micRec = false; S.micSending = false; S.micVoiceMsg = '';
+      S.sheet = null; S.camOil = null; render(); return;
+    }
     if (a === 'retry') { S.state = 'loading'; render(); setTimeout(function () { S.state = 'populated'; render(); }, 700); return; }
   });
 
@@ -30444,6 +30888,10 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       addMeal(meal);
       tot += it.kcal;
     });
+    /* Leaving the sheet stops the microphone. A recorder still running
+       behind a closed sheet is the thing a permission prompt is for. */
+    if (window.LKVoice && LKVoice.recording()) LKVoice.cancel();
+    S.micRec = false; S.micSending = false; S.micVoiceMsg = '';
     S.sheet = null; S.micText = ''; S.micItems = null;
     say(items.length + (items.length === 1 ? ' item' : ' items') + ' logged, ' + n(tot) + ' kcal.');
   }

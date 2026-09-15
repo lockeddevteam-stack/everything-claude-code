@@ -61,6 +61,7 @@ coach-apply|node coach-apply.mjs
 offline|node offline.mjs
 body-picker|node body-picker.mjs
 worker-cors|node worker-cors.mjs
+voice|node voice.mjs
 keyboard|node keyboard.mjs
 cloud-contract|node cloud-contract.mjs
 JOBS_EOF

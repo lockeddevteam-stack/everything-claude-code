@@ -16,6 +16,7 @@
 <script src="chrome.js"></script>
 <script src="cloud-config.js"></script>
 <script src="cloud.js"></script>
+<script src="voice.js"></script>
 <script src="coach-actions.js"></script>
 <script src="session.js"></script>
 </head>
@@ -3551,6 +3552,26 @@
       '</div>';
   }
 
+  function stopMicRec() {
+    S.micRec = false; S.micSending = true; S.micVoiceMsg = ''; render();
+    LKVoice.stop().then(function (r) {
+      S.micSending = false;
+      if (!r.ok) { S.micVoiceMsg = r.message; render(); return; }
+      /* Into the field, and read out into items the same way a typed
+         sentence is -- one path, so a spoken meal and a typed one cannot
+         behave differently. */
+      S.micText = r.text;
+      S.micItems = parseMeal(S.micText);
+      S.micVoiceMsg = 'Heard that as \u201c' + r.text + '\u201d. Correct it if it is wrong.';
+      lookupMissing();
+      render();
+    }, function () {
+      S.micSending = false;
+      S.micVoiceMsg = 'That recording could not be sent. Type it instead.';
+      render();
+    });
+  }
+
   function sheetHTML() {
     if (S.sheet && S.sheet.indexOf('meal:') === 0) {
       var m = DAY.meals[+S.sheet.slice(5)];
@@ -5221,6 +5242,50 @@
           'data-testid="scan-confirm"><span class="btn__label">Log it</span></button>',
         'Scanned');
     }
+  /* ---- the microphone ---------------------------------------------------
+     The screen used to explain that dictation belongs to the keyboard. That
+     was true of this build and not of the server, which has transcribed
+     audio since the Gemini migration -- nothing here had ever recorded any.
+
+     What comes back goes into the FIELD, not into the day. A sentence that
+     was misheard is edited before it is logged, which is the difference
+     between a microphone that is useful and one nobody trusts twice.
+
+     Offered only where it can work: a browser that records, a secure page
+     and a server to send it to. Where any of those is missing the field
+     stands on its own, and the copy says what to do instead rather than
+     showing a button that fails when pressed. */
+
+  function micRecorder() {
+    if (!window.LKVoice || !LKVoice.available()) {
+      return '<p class="t-caption-1 quiet mt-2" data-testid="mic-nodictation">Dictation belongs ' +
+        'to the keyboard, which has a microphone on it. What this screen does is read the ' +
+        'sentence: quantities, units and foods, matched against the table.</p>';
+    }
+    var on = !!S.micRec;
+    var secs = S.micSecs || 0;
+    var lvl = Math.max(0, Math.min(1, S.micLevel || 0));
+    return '<div class="mt-3">' +
+      '<button class="btn ' + (on ? 'btn--danger' : 'btn--secondary') + ' btn--block" type="button" ' +
+        'data-action="mic-rec"' + (S.micSending ? ' aria-busy="true" disabled' : '') +
+        ' data-testid="mic-rec">' +
+        '<span class="btn__label">' +
+          (S.micSending ? 'Writing it down'
+           : on ? 'Stop \u00b7 ' + secs + 's' : 'Speak it') +
+        '</span></button>' +
+      (on
+        ? '<div class="fuel-miclevel mt-2" data-testid="mic-level" aria-hidden="true">' +
+            '<i style="transform:scaleX(' + (0.06 + lvl * 0.94).toFixed(3) + ')"></i></div>' +
+          '<p class="t-caption-1 quiet mt-2">Listening. Say what you ate, then stop. It stops ' +
+            'itself after ' + LKVoice.maxSeconds + ' seconds.</p>'
+        : '<p class="t-caption-1 quiet mt-2">Speak it and it is written down into the field ' +
+          'below, where you can correct it before anything is logged.</p>') +
+      (S.micVoiceMsg
+        ? '<p class="t-caption-1 mt-2" role="status" data-testid="mic-voice-msg">' +
+          esc(S.micVoiceMsg) + '</p>' : '') +
+      '</div>';
+  }
+
     if (S.sheet === 'mic') {
       /* The transcript is a field, not a caption. Speech recognition needs a
          real microphone and a real engine; the SENTENCE is what this screen
@@ -5248,9 +5313,7 @@
             '<input class="input" id="mic-text" type="text" autocomplete="off" ' +
               'placeholder="2 eggs and toast with a whey shake" ' +
               'value="' + esc(S.micText) + '" data-testid="mic-text">' +
-            '<p class="t-caption-1 quiet mt-2">Dictation belongs to the keyboard, which has a ' +
-              'microphone on it. What this screen does is read the sentence: quantities, units ' +
-              'and foods, matched against the table. It does not reach a speech service.</p>' +
+            micRecorder() +
             '<div class="chiprow mt-3">' +
               ['2 eggs and toast', 'chicken rice bowl and a whey shake', '200 g chilli'].map(function (t, ti) {
                 return '<button class="chip" type="button" data-action="mic-eg" data-t="' + esc(t) + '" ' +
@@ -5840,6 +5903,29 @@
     }
     if (a === 'mn-add') { manualAdd(); return; }
     if (a === 'mn-keep') { readManual(); S.man.keep = !S.man.keep; render(); return; }
+    /* Press to start, press again to stop. One button, because a
+       hold-to-talk gesture on a phone that rings mid-sentence leaves you
+       holding a screen you cannot answer. */
+    if (a === 'mic-rec') {
+      if (S.micSending) return;
+      if (S.micRec) { stopMicRec(); return; }
+      S.micVoiceMsg = '';
+      LKVoice.start({
+        onTick: function (secs, lvl) {
+          S.micSecs = secs; S.micLevel = lvl;
+          /* The timer repaints the sheet, and repainting the sheet while
+             somebody is typing in it would take their cursor. Nobody is
+             typing while the microphone is open. */
+          if (S.sheet === 'mic' && S.micRec) render();
+        },
+        onAuto: function () { stopMicRec(); }
+      }).then(function (r) {
+        if (!r.ok) { S.micVoiceMsg = r.message; S.micRec = false; render(); return; }
+        S.micRec = true; S.micSecs = 0; S.micLevel = 0;
+        render();
+      });
+      return;
+    }
     if (a === 'mic-eg') {
       S.micText = act.getAttribute('data-t');
       S.micItems = parseMeal(S.micText);
@@ -6078,7 +6164,14 @@
          first. It had no branch at all and was the screen's dead end. */
       LKGo('shopping'); return;
     }
-    if (a === 'close') { S.sheet = null; S.camOil = null; render(); return; }
+    if (a === 'close') {
+      /* Closing the sheet closes the microphone. A recorder still running
+         behind a sheet nobody can see is the thing a permission prompt is
+         there to prevent. */
+      if (window.LKVoice && LKVoice.recording()) LKVoice.cancel();
+      S.micRec = false; S.micSending = false; S.micVoiceMsg = '';
+      S.sheet = null; S.camOil = null; render(); return;
+    }
     if (a === 'retry') { S.state = 'loading'; render(); setTimeout(function () { S.state = 'populated'; render(); }, 700); return; }
   });
 
@@ -6872,6 +6965,10 @@
       addMeal(meal);
       tot += it.kcal;
     });
+    /* Leaving the sheet stops the microphone. A recorder still running
+       behind a closed sheet is the thing a permission prompt is for. */
+    if (window.LKVoice && LKVoice.recording()) LKVoice.cancel();
+    S.micRec = false; S.micSending = false; S.micVoiceMsg = '';
     S.sheet = null; S.micText = ''; S.micItems = null;
     say(items.length + (items.length === 1 ? ' item' : ' items') + ' logged, ' + n(tot) + ' kcal.');
   }
