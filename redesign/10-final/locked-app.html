@@ -8444,7 +8444,10 @@ button.shelf:active { background: var(--fill-press); }
     'lk_plateKg', 'lk_hidePartials', 'lk_libraryShort', 'lk_gamingLayer',
     'lk_fuelNumbers', 'lk_homeLayout',
     /* Grams, ounces or servings in the portion sheet. One word. */
-    'lk_foodUnit'
+    'lk_foodUnit',
+    /* What unit the shipped app's stored weights are in, written down once
+       and never re-derived. See v6WeightUnit. */
+    'lk_v6WeightUnit'
   ]);
 
   var MAP_KEYS = asSet([
@@ -8479,6 +8482,9 @@ button.shelf:active { background: var(--fill-press); }
     /* What one baguette weighs is something the reader worked out and
        typed in. It belongs to them, not to the phone they were holding. */
     'lk_foodServing', 'lk_foodUnit',
+    /* Both devices on one account must agree what a number written in
+       June meant, so this travels with the history it describes. */
+    'lk_v6WeightUnit',
 
     /* The coach's setup. The interview is the longest thing anybody does
        in this app, and it was being asked again on every new device. */
@@ -8519,6 +8525,75 @@ button.shelf:active { background: var(--fill-press); }
   /* Each entry returns true when it changed something. Order is the version.
      A migration must be safe to run against data it has already migrated,
      because a half-finished boot will run it twice. */
+  /* ---- WHAT UNIT THE OLD DATA IS ACTUALLY IN ---------------------------
+     The shipped app did NOT store lifting weights in kilograms. It stored
+     them in whatever unit the account logged in, and recorded which that
+     was in lk_weightStorageUnit -- its own comment says so: "for an
+     account that logged in lb with conversion off it is lb".
+
+     Migration 3 below read those numbers as kilograms. For an account
+     that lifts in pounds that relabels every set: a 135 lb bench becomes
+     135 kg, and the screen, converting kilograms to pounds to show it,
+     renders 298. Every weight in the account reads 2.2 times what was
+     lifted. It is not a display fault -- the stored number is wrong -- and
+     it is invisible to anyone testing in kilograms, which is everyone
+     here.
+
+     The answer is written down once, under this build's own key, and
+     never re-derived. The old keys can be changed by the old app on
+     another phone; what a number written in June meant does not change
+     because a switch moved in September. */
+  var LB_PER_KG = 2.20462;
+
+  function v6WeightUnit(ST) {
+    var known = ST.get('lk_v6WeightUnit', null);
+    if (known === 'kg' || known === 'lb') return known;
+
+    /* The shipped app's own record of it, in either form it is stored. */
+    var saved = ST.get('lk_weightStorageUnit', null);
+    if (typeof saved === 'string') saved = saved.replace(/^"|"$/g, '');
+    if (saved !== 'kg' && saved !== 'lb') {
+      try {
+        var raw = window.localStorage.getItem('lk_weightStorageUnit');
+        if (raw) {
+          raw = String(raw).replace(/^"|"$/g, '');
+          if (raw === 'kg' || raw === 'lb') saved = raw;
+        }
+      } catch (e) {}
+    }
+
+    var unit;
+    if (saved === 'kg' || saved === 'lb') unit = saved;
+    else {
+      /* The same derivation the old app used when it had no record either,
+         so two devices on one account reach the same answer. */
+      var conv = ST.get('lk_unitConversion', null);
+      var prof = ST.get('lk_profile', null) || {};
+      unit = conv ? 'kg' : (prof.useKg === false ? 'lb' : 'kg');
+    }
+    ST.set('lk_v6WeightUnit', unit);
+    return unit;
+  }
+
+  function toKg(n, unit) {
+    if (typeof n !== 'number' || !isFinite(n)) return n;
+    return unit === 'lb' ? Math.round((n / LB_PER_KG) * 1000) / 1000 : n;
+  }
+
+  /* A session total carries its own unit in the string: "14705 lb",
+     "3608 kg". That is better evidence than any setting, because it
+     records what was on screen the day it was saved, so it is read from
+     the row itself rather than from the account. */
+  function volKg(v, fallbackUnit) {
+    if (typeof v === 'number') return toKg(v, fallbackUnit);
+    if (v == null) return null;
+    var text = String(v);
+    var x = parseFloat(text.replace(/[^0-9.\-]/g, ''));
+    if (!isFinite(x)) return null;
+    var unit = /lbs?\b/i.test(text) ? 'lb' : (/kgs?\b/i.test(text) ? 'kg' : fallbackUnit);
+    return toKg(x, unit);
+  }
+
   var MIGRATIONS = [
     /* 1 — lk_prs held two shapes: a map of exercise id to rows, and the flat
        array everything reads now. A phone that stored the map form reads as
@@ -8570,6 +8645,10 @@ button.shelf:active { background: var(--fill-press); }
       if (!ST.touched('lk_history')) return false;
       var rows = ST.get('lk_history', null);
       if (!Array.isArray(rows) || !rows.length) return false;
+      /* THE UNIT THOSE NUMBERS WERE WRITTEN IN. Read before anything is
+         converted; see v6WeightUnit above for why this was the whole
+         defect. */
+      var unit = v6WeightUnit(ST);
       var n2 = function (v) {
         if (typeof v === 'number') return v;
         if (v === '' || v == null) return null;
@@ -8599,7 +8678,7 @@ button.shelf:active { background: var(--fill-press); }
         if (w.kind === 'cardio') return r;
         r.kind = w.kind || 'lift';
         r.sets = n2(w.sets);
-        r.kg = n2(w.kg !== undefined ? w.kg : w.vol);
+        r.kg = w.kg !== undefined ? toKg(n2(w.kg), unit) : volKg(w.vol, unit);
         r.exercises = (w.exercises || []).map(function (ex) {
           return {
             id: ex.id, name: ex.name, muscle: ex.muscle || '',
@@ -8617,7 +8696,7 @@ button.shelf:active { background: var(--fill-press); }
                  README.md, which says what does not survive -- it just
                  stops this migration being the thing that broke it. */
               return {
-                kg: n2(st.w), reps: n2(st.r), rir: n2(st.rir),
+                kg: toKg(n2(st.w), unit), reps: n2(st.r), rir: n2(st.rir),
                 w: st.w, r: st.r,
                 warm: st.setType === 'warmup',
                 done: !!st.done,
@@ -8906,8 +8985,73 @@ button.shelf:active { background: var(--fill-press); }
       if (!did) return false;
       ST.set('lk_coachMemory', out);
       return true;
-    }
+    },
 
+    /* 11 — PUT THE POUNDS BACK.
+
+       Migration 3 shipped reading every stored set weight as kilograms.
+       The shipped app stored them in whatever unit the account lifted in,
+       so for anybody logging in pounds every set in their history was
+       relabelled: 135 lb became 135 kg, and the screen, converting to
+       pounds to show it, rendered 298. Their entire training history read
+       2.2 times heavier than anything they had ever lifted. A rewritten
+       migration cannot reach them -- theirs already ran.
+
+       It is repairable, and only because migration 3 kept the original
+       `w` beside the `kg` it derived. Every damaged figure still has its
+       source string sitting next to it, so this does not try to guess
+       which numbers were doubled and undo them; it recomputes each one
+       from the original, in the unit that original was written in. Run it
+       twice and you get the same answer, because the input never changes.
+
+       A set logged in THIS build has a kg and no w, and is never touched.
+       A session total is read from its own `vol` string, which carries
+       its unit with it. */
+    function (ST) {
+      if (!ST.touched('lk_history')) return false;
+      var rows = ST.get('lk_history', null);
+      if (!Array.isArray(rows) || !rows.length) return false;
+      var unit = v6WeightUnit(ST);
+      /* Nothing to put right on an account that always lifted in kilos,
+         and nothing to get wrong either -- but the walk is skipped rather
+         than run as nineteen no-ops. */
+      if (unit !== 'lb') return false;
+
+      var num = function (v) {
+        if (typeof v === 'number') return v;
+        if (v === '' || v == null) return null;
+        var x = parseFloat(String(v).replace(/[^0-9.\-]/g, ''));
+        return isFinite(x) ? x : null;
+      };
+      var touched = false;
+
+      rows.forEach(function (w) {
+        if (!w || typeof w !== 'object') return;
+        /* The session total, from the string that names its own unit. */
+        if (w.vol !== undefined) {
+          var v = volKg(w.vol, unit);
+          if (v !== null && v !== w.kg) { w.kg = v; touched = true; }
+        }
+        (w.exercises || []).forEach(function (ex) {
+          (ex && ex.sets || []).forEach(function (st) {
+            if (!st || typeof st !== 'object') return;
+            /* No original beside it means this set was logged in this
+               build, in kilograms, and is already right. */
+            if (st.w === undefined || st.w === null || st.w === '') return;
+            var right = toKg(num(st.w), unit);
+            if (right === null) return;
+            if (typeof st.kg !== 'number' || Math.abs(st.kg - right) > 0.001) {
+              st.kg = right;
+              touched = true;
+            }
+          });
+        });
+      });
+
+      if (!touched) return false;
+      ST.set('lk_history', rows);
+      return true;
+    }
   ];
 
   function clone(v) {
