@@ -557,7 +557,9 @@
     'lk_notifOn', 'lk_reminderOn', 'lk_reminderAt', 'lk_restEnabled',
     'lk_restSec', 'lk_restSound', 'lk_startDay', 'lk_weekStart',
     'lk_plateKg', 'lk_hidePartials', 'lk_libraryShort', 'lk_gamingLayer',
-    'lk_fuelNumbers', 'lk_homeLayout'
+    'lk_fuelNumbers', 'lk_homeLayout',
+    /* Grams, ounces or servings in the portion sheet. One word. */
+    'lk_foodUnit'
   ]);
 
   var MAP_KEYS = asSet([
@@ -566,7 +568,10 @@
     /* What the coach has already written, so the same card twice is not
        two splits. Device-local: the tokens in it name records by an id
        this phone generated. */
-    'lk_coachApplied'
+    'lk_coachApplied',
+    /* What one serving of a food weighs, said by the reader because no
+       database knows what one baguette weighs. Keyed by the food's name. */
+    'lk_foodServing'
   ]);
 
   var SYNC_KEYS = [
@@ -586,6 +591,9 @@
        same loss as finding the history empty. */
     'lk_myFoods', 'lk_coachRecipes', 'lk_fuelPlan', 'lk_fuelPlans',
     'lk_fuelFavourites', 'lk_tdeeHistory', 'lk_badges', 'lk_nutrition',
+    /* What one baguette weighs is something the reader worked out and
+       typed in. It belongs to them, not to the phone they were holding. */
+    'lk_foodServing', 'lk_foodUnit',
 
     /* The coach's setup. The interview is the longest thing anybody does
        in this app, and it was being asked again on every new device. */

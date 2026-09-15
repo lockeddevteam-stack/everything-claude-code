@@ -177,22 +177,74 @@
     return blob.arrayBuffer().then(function (buf) {
       var ctx = new Ctor();
       return new Promise(function (resolve, reject) {
+        /* The callback form, not the promise form. Safari has supported
+           the callbacks far longer, and both are still in the spec. */
         ctx.decodeAudioData(buf, resolve, reject);
       }).then(function (decoded) {
         try { ctx.close(); } catch (e) {}
-        var frames = Math.max(1, Math.round(decoded.duration * RATE));
-        var OC = g.OfflineAudioContext || g.webkitOfflineAudioContext;
-        if (!OC) return decoded;
-        var off = new OC(1, frames, RATE);
-        var src = off.createBufferSource();
-        src.buffer = decoded;
-        src.connect(off.destination);
-        src.start(0);
-        return off.startRendering();
+        return resample(decoded);
       });
     }).then(function (rendered) {
-      return encodeWav(rendered.getChannelData(0), rendered.sampleRate || RATE);
+      return encodeWav(rendered.data, rendered.rate);
     });
+  }
+
+  /* ---- down to one channel, and to 16 kHz where the browser allows it --
+     SAFARI REFUSES AN OfflineAudioContext BELOW 22050 Hz, and that throw
+     is the whole feature failing on an iPhone while working on every
+     desktop it was written on. So 16 kHz is attempted, then the clip's
+     own rate, and if the browser will not render at all the channels are
+     mixed by hand and sent at whatever rate they were recorded at.
+
+     Only the file size changes. Gemini reads a WAV at any rate, so the
+     worst case here is a larger upload rather than a broken button. */
+  function resample(decoded) {
+    var OC = g.OfflineAudioContext || g.webkitOfflineAudioContext;
+    var native = decoded.sampleRate || 44100;
+
+    function render(rate) {
+      if (!OC) return null;
+      var frames = Math.max(1, Math.round(decoded.duration * rate));
+      var off;
+      try { off = new OC(1, frames, rate); } catch (e) { return null; }
+      var src = off.createBufferSource();
+      src.buffer = decoded;
+      src.connect(off.destination);
+      src.start(0);
+      var out = off.startRendering();
+      /* The old callback form returns nothing and calls oncomplete. */
+      if (!out || typeof out.then !== 'function') {
+        out = new Promise(function (resolve) {
+          off.oncomplete = function (e) { resolve(e.renderedBuffer); };
+        });
+      }
+      return out;
+    }
+
+    function asData(buf) {
+      return { data: buf.getChannelData(0), rate: buf.sampleRate || native };
+    }
+
+    var attempt = render(RATE);
+    if (!attempt) return Promise.resolve(mixDown(decoded));
+    return attempt.then(asData, function () {
+      var again = render(native);
+      if (!again) return mixDown(decoded);
+      return again.then(asData, function () { return mixDown(decoded); });
+    });
+  }
+
+  /* No resampling, no rendering: just the channels averaged. The last
+     thing that can go wrong is nothing going wrong. */
+  function mixDown(decoded) {
+    var chans = decoded.numberOfChannels || 1;
+    var len = decoded.length;
+    var out = new Float32Array(len);
+    for (var c = 0; c < chans; c++) {
+      var d = decoded.getChannelData(c);
+      for (var i = 0; i < len; i++) out[i] += d[i] / chans;
+    }
+    return { data: out, rate: decoded.sampleRate || 44100 };
   }
 
   function encodeWav(samples, rate) {
@@ -249,9 +301,15 @@
                    action: (r.data && r.data.action) || 'unknown',
                    data: (r.data && r.data.data) || {} };
         });
-      }, function () {
+      }, function (e) {
+        /* The browser's own word for what went wrong, in brackets. This
+           one failure has half a dozen causes that all look identical
+           from the outside, and a person reporting it should not have to
+           guess which. */
+        var why = String((e && (e.name || e.message)) || e).slice(0, 60);
         return { ok: false, error: 'convert',
-          message: 'The recording could not be read on this device. Type it instead.' };
+          message: 'The recording could not be read on this device (' + why +
+                   '). Type it instead.' };
       });
     });
   }

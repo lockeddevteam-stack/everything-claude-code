@@ -3552,6 +3552,120 @@
       '</div>';
   }
 
+  /* ---- HOW MUCH OF IT, IN THE UNIT YOU ACTUALLY USE --------------------
+     Every row a food database returns is per 100 g, and until now that is
+     what got logged: a search for chicken breast logged 100 g of it,
+     whether you ate seven ounces or a third of a baguette. The portion
+     sheet existed but only for foods already in the table -- a searched
+     food had no way to say how much at all.
+
+     Three units, because those are the three ways people actually say it.
+     Grams for anything on a scale. Ounces for the same scale in another
+     country. Servings for the things nobody weighs: a baguette, a bagel,
+     a chicken breast out of a packet of four.
+
+     A serving weight is remembered per food. The databases do not know
+     what one baguette weighs, and they cannot -- so you say once, and it
+     is yours from then on. That is the only figure in this screen a
+     person supplies rather than a database, and it is stored under the
+     food's own name so it survives the next search for it. */
+  var OZ_G = 28.349523125;
+  var FOOD_UNITS = [['g', 'Grams'], ['oz', 'Ounces'], ['serv', 'Servings']];
+
+  function servingKey(name) {
+    return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  }
+  function servingWeights() { return stored('lk_foodServing', {}) || {}; }
+  function servingWeight(food) {
+    var w = servingWeights()[servingKey(food && food.name)];
+    return (typeof w === 'number' && w > 0) ? w : Math.round((food && food.g) || 100);
+  }
+  function rememberServing(name, grams) {
+    if (!ST) return;
+    var all = servingWeights();
+    all[servingKey(name)] = Math.round(grams);
+    ST.set('lk_foodServing', all);
+  }
+
+  /* Somebody typing an amount writes "1/3" as often as "0.33", and
+     "1 1/2" as often as "1.5". Both are read; anything else is not
+     guessed at. */
+  function readAmount(text) {
+    var t = String(text == null ? '' : text).trim().replace(/\u00bd/g, '1/2')
+      .replace(/\u2153/g, '1/3').replace(/\u00bc/g, '1/4').replace(/\u00be/g, '3/4');
+    if (!t) return NaN;
+    var mixed = t.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/);
+    if (mixed) {
+      var d0 = +mixed[3];
+      return d0 ? +mixed[1] + (+mixed[2]) / d0 : NaN;
+    }
+    var frac = t.match(/^(\d+)\s*\/\s*(\d+)$/);
+    if (frac) { var d1 = +frac[2]; return d1 ? (+frac[1]) / d1 : NaN; }
+    if (!/^\d*\.?\d+$/.test(t)) return NaN;
+    return parseFloat(t);
+  }
+
+  function foodUnit() {
+    var u = stored('lk_foodUnit', null);
+    for (var i = 0; i < FOOD_UNITS.length; i++) if (FOOD_UNITS[i][0] === u) return u;
+    /* Somebody who weighs themselves in pounds weighs their food in
+       ounces. Guessed once from what they already told us, then it is
+       whatever they last chose. */
+    return (window.LKUnits && !LKUnits.useKg()) ? 'oz' : 'g';
+  }
+  function setFoodUnit(u) { if (ST) ST.set('lk_foodUnit', u); }
+
+  /* The amount on screen, in grams. One place, so the figures, the button
+     label and what gets logged can never disagree. */
+  function portionGrams() {
+    var P = S.portion;
+    if (!P) return 0;
+    var amt = readAmount(P.amount);
+    if (isNaN(amt) || amt <= 0) return 0;
+    if (P.unit === 'oz') return amt * OZ_G;
+    if (P.unit === 'serv') return amt * (P.servG > 0 ? P.servG : 100);
+    return amt;
+  }
+
+  /* What one portion of this food says on the row it becomes. "Chicken
+     breast, 7 oz" rather than "Chicken breast, 198 g", because the
+     second one is arithmetic and the first one is what you ate. */
+  function portionLabel() {
+    var P = S.portion, amt = readAmount(P.amount);
+    var pretty = String(P.amount).trim();
+    if (P.unit === 'g') return n(Math.round(amt)) + ' g';
+    if (P.unit === 'oz') return pretty + ' oz';
+    return pretty + (amt === 1 ? ' serving' : ' servings');
+  }
+
+  function openPortion(food, key) {
+    var servG = servingWeight(food);
+    var unit = foodUnit();
+    S.portion = {
+      food: food, key: key || null, unit: unit, servG: servG,
+      amount: unit === 'oz' ? String(Math.round((food.g || 100) / OZ_G * 4) / 4)
+            : unit === 'serv' ? '1'
+            : String(Math.round(food.g || 100)),
+      error: null
+    };
+    S.sheet = 'portion';
+  }
+
+  /* Read the fields back before anything acts on them, because a person
+     types and then presses the button without the field ever firing an
+     input event on some keyboards. */
+  function readPortion() {
+    var P = S.portion;
+    if (!P) return;
+    var aEl = document.getElementById('pt-amount');
+    if (aEl) P.amount = aEl.value;
+    var sEl = document.getElementById('pt-serv');
+    if (sEl) {
+      var sv = parseFloat(sEl.value);
+      if (!isNaN(sv) && sv > 0) P.servG = sv;
+    }
+  }
+
   function stopMicRec() {
     S.micRec = false; S.micSending = true; S.micVoiceMsg = ''; render();
     LKVoice.stop().then(function (r) {
@@ -4093,11 +4207,13 @@
                         '<small class="t-caption-2 quiet"> kcal</small></span>' +
                       '<span class="row__chev">' + ICO.plus + '</span>' +
                     '</button>' +
-                    (f.key && !f.storeId
-                      ? '<button class="iconbtn" type="button" data-action="food-detail" data-k="' + f.key + '" ' +
-                        'aria-label="Set the amount of ' + esc(f.name) + '" data-testid="food-detail-' + i + '">' +
-                        ICO.scale + '</button>'
-                      : '') +
+                    /* EVERY row gets this, not only the ones already in the
+                       table. A food that came back from a database could be
+                       logged at 100 g and at nothing else, which is how
+                       "seven ounces of chicken" became "100 g of chicken". */
+                    '<button class="iconbtn" type="button" data-action="search-portion" data-i="' + i + '" ' +
+                      'aria-label="Set the amount of ' + esc(f.name) + '" data-testid="food-detail-' + i + '">' +
+                      ICO.scale + '</button>' +
                   '</div>';
                 }).join('') + '</div>'
               : '<p class="t-body mt-4">Nothing here matches \u201c' + esc(S.searchQ || '') + '\u201d.</p>' +
@@ -5286,6 +5402,84 @@
       '</div>';
   }
 
+    if (S.sheet === 'portion' && S.portion) {
+      var P = S.portion, pf = P.food;
+      var pg = portionGrams();
+      /* Every row out of a database is per 100 g, and so is every row
+         this sheet was given, so one scale factor does all of it. */
+      var pk = pg / 100;
+      var pAt = function (v) { return Math.round((Number(v) || 0) * pk * 10) / 10; };
+      var pChips = P.unit === 'oz'
+        ? [['2 oz', '2'], ['4 oz', '4'], ['6 oz', '6'], ['8 oz', '8']]
+        : P.unit === 'serv'
+        ? [['A third', '1/3'], ['Half', '1/2'], ['One', '1'], ['One and a half', '1 1/2'], ['Two', '2']]
+        : [['50 g', '50'], ['100 g', '100'], ['150 g', '150'], ['200 g', '200']];
+      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
+        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pt-title" ' +
+          'data-detents="0.6 0.94" data-testid="sheet-portion">' +
+          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+          '<div class="sheet__head"><h2 class="t-headline grow" id="pt-title">' + esc(pf.name) + '</h2>' +
+            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="pt-close">' +
+              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+            '</button></div>' +
+          '<div class="sheet__body">' +
+            '<div class="seg mt-1" role="radiogroup" aria-label="Unit" data-testid="pt-units">' +
+              FOOD_UNITS.map(function (u) {
+                return '<button class="seg__item" type="button" role="radio" ' +
+                  'aria-checked="' + (P.unit === u[0] ? 'true' : 'false') + '" ' +
+                  'data-action="pt-unit" data-u="' + u[0] + '" data-testid="pt-unit-' + u[0] + '">' +
+                  u[1] + '</button>';
+              }).join('') + '</div>' +
+            '<label class="t-label field__label mt-4" for="pt-amount">How much</label>' +
+            '<input class="input num" id="pt-amount" type="text" inputmode="decimal" ' +
+              'autocomplete="off" value="' + esc(String(P.amount)) + '" data-testid="pt-amount">' +
+            '<p class="t-caption-1 quiet mt-1">' +
+              (P.unit === 'serv'
+                ? 'Servings. A third is 1/3, and it is read as one.'
+                : P.unit === 'oz' ? 'Ounces. ' + n(Math.round(pg)) + ' g.'
+                : 'Grams.') + '</p>' +
+            '<div class="chiprow mt-3">' + pChips.map(function (c, ci) {
+              return '<button class="chip' + (String(P.amount).trim() === c[1] ? ' chip--on' : '') +
+                '" type="button" data-action="pt-chip" data-a="' + esc(c[1]) + '" ' +
+                'data-testid="pt-chip-' + ci + '">' + esc(c[0]) + '</button>';
+            }).join('') + '</div>' +
+            /* THE ONE FIGURE A DATABASE CANNOT SUPPLY. No food table knows
+               what one baguette weighs, because it depends which baguette.
+               Said once, kept against the food's name, and there the next
+               time it is searched. */
+            (P.unit === 'serv'
+              ? '<label class="t-label field__label mt-4" for="pt-serv">One serving weighs</label>' +
+                '<input class="input num" id="pt-serv" type="number" min="1" max="3000" step="1" ' +
+                  'inputmode="numeric" value="' + Math.round(P.servG) + '" data-testid="pt-serving">' +
+                '<p class="t-caption-1 quiet mt-1">Grams. Yours to set, and remembered for ' +
+                  esc(pf.name) + '.</p>'
+              : '') +
+            (P.error ? '<p class="field__error mt-2" role="alert" data-testid="pt-error">' +
+              esc(P.error) + '</p>' : '') +
+            '<div class="card card--sunken mt-4" data-testid="pt-figures">' +
+              '<div class="hstack hstack--3"><span class="t-body grow">Energy</span>' +
+                '<span class="t-body-em num" data-testid="pt-kcal">' + n(Math.round(pAt(pf.kcal))) + ' kcal</span></div>' +
+              '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Protein</span>' +
+                '<span class="t-body-em num">' + n(pAt(pf.pro)) + ' g</span></div>' +
+              '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Carbs</span>' +
+                '<span class="t-body-em num">' + n(pAt(pf.carb)) + ' g</span></div>' +
+              '<div class="hstack hstack--3 mt-2"><span class="t-body grow">Fat</span>' +
+                '<span class="t-body-em num">' + n(pAt(pf.fat)) + ' g</span></div>' +
+              '<p class="t-caption-1 quiet mt-2">Per 100 g: ' + n(Math.round(pf.kcal)) + ' kcal, ' +
+                n(pf.pro) + ' P, ' + n(pf.carb) + ' C, ' + n(pf.fat) + ' F' +
+                (pf.sourceName ? ' \u00b7 ' + esc(pf.sourceName) : '') + '.</p>' +
+            '</div>' +
+            slotPicker(S.logSlot || slotForNow(), 'pick-slot', 'pt-slot') +
+          '</div>' +
+          '<div class="sheet__foot">' +
+            '<button class="btn btn--primary btn--block" type="button" data-action="pt-log" ' +
+              (pg > 0 ? '' : ' disabled') + ' data-testid="pt-log"><span class="btn__label">' +
+              (pg > 0 ? 'Log ' + portionLabel() + ', ' + n(Math.round(pAt(pf.kcal))) + ' kcal'
+                      : 'How much of it?') +
+              '</span></button>' +
+          '</div>' +
+        '</div>';
+    }
     if (S.sheet === 'mic') {
       /* The transcript is a field, not a caption. Speech recognition needs a
          real microphone and a real engine; the SENTENCE is what this screen
@@ -5936,10 +6130,90 @@
       (S.micItems || []).splice(+act.getAttribute('data-i'), 1);
       render(); return;
     }
+    if (a === 'pt-unit') {
+      readPortion();
+      var pu = act.getAttribute('data-u');
+      if (S.portion && pu !== S.portion.unit) {
+        /* The amount carries across rather than resetting, because
+           switching to ounces to check what 200 g is should not lose the
+           200 g. */
+        var wasG = portionGrams();
+        S.portion.unit = pu;
+        setFoodUnit(pu);
+        if (wasG > 0) {
+          S.portion.amount = pu === 'g' ? String(Math.round(wasG))
+            : pu === 'oz' ? String(Math.round(wasG / OZ_G * 4) / 4)
+            : String(Math.round(wasG / (S.portion.servG || 100) * 100) / 100);
+        }
+        S.portion.error = null;
+      }
+      render(); return;
+    }
+    if (a === 'pt-chip') {
+      readPortion();
+      if (S.portion) { S.portion.amount = act.getAttribute('data-a'); S.portion.error = null; }
+      render(); return;
+    }
+    if (a === 'pt-log') {
+      readPortion();
+      var PP = S.portion;
+      if (!PP) return;
+      var gg = portionGrams();
+      if (!(gg > 0)) { PP.error = 'How much of it? A number, or a fraction like 1/3.'; render(); return; }
+      if (gg > 3000) { PP.error = 'That is over three kilos. Check the amount.'; render(); return; }
+      if (PP.unit === 'serv') rememberServing(PP.food.name, PP.servG);
+      var kk = gg / 100;
+      var pfood = PP.food;
+      var pmeal = { key: PP.key || null, icon: pfood.icon || '\ud83c\udf7d\ufe0f',
+                    name: pfood.name + ', ' + portionLabel(),
+                    kcal: Math.round((pfood.kcal || 0) * kk),
+                    pro: Math.round((pfood.pro || 0) * kk * 10) / 10,
+                    carb: Math.round((pfood.carb || 0) * kk * 10) / 10,
+                    fat: Math.round((pfood.fat || 0) * kk * 10) / 10,
+                    src: pfood.src || 'table', slot: S.logSlot || slotForNow() };
+      MICROS.forEach(function (mi) {
+        if (typeof pfood[mi.key] === 'number') pmeal[mi.key] = Math.round(pfood[mi.key] * kk * 10) / 10;
+      });
+      addMeal(pmeal);
+      S.sheet = null; S.portion = null;
+      say(esc(pfood.name) + ' logged, ' + n(pmeal.kcal) + ' kcal.');
+      return;
+    }
+    /* Any search result, not only the ones already in the table. A row
+       from a food database used to have no way to say how much at all. */
+    if (a === 'search-portion') {
+      var sh = searchHits((S.searchQ || '').trim().toLowerCase())[+act.getAttribute('data-i')];
+      if (!sh) return;
+      /* Rows carry a serving and per-serving figures; the sheet works in
+         per 100 g, so they are converted once here. */
+      var shG = Number(sh.g) || 100;
+      var per = function (v) { return Math.round(((Number(v) || 0) / shG) * 100 * 10) / 10; };
+      var norm = { name: sh.name, icon: sh.icon, g: shG,
+                   kcal: per(sh.kcal), pro: per(sh.pro), carb: per(sh.carb), fat: per(sh.fat),
+                   src: sh.src, sourceName: sh.sourceName || '' };
+      MICROS.forEach(function (mi) {
+        if (typeof sh[mi.key] === 'number') norm[mi.key] = per(sh[mi.key]);
+      });
+      openPortion(norm, sh.storeId ? null : (sh.key || null));
+      render(); return;
+    }
     if (a === 'food-detail') {
       var fdk = act.getAttribute('data-k');
-      S.foodG = (FOODS[fdk] || {}).g;
-      S.sheet = 'food:' + fdk; render(); return;
+      var fdf = FOODS[fdk];
+      if (!fdf) return;
+      /* One portion sheet for every food, wherever it came from. The
+         grams-only one this replaced could not do ounces or servings and
+         could not be reached from a search result at all. */
+      var fdG = Number(fdf.g) || 100;
+      var fdPer = function (v) { return Math.round(((Number(v) || 0) / fdG) * 100 * 10) / 10; };
+      var fdNorm = { name: fdf.name, icon: fdf.icon, g: fdG,
+                     kcal: fdPer(fdf.kcal), pro: fdPer(fdf.pro),
+                     carb: fdPer(fdf.carb), fat: fdPer(fdf.fat), src: 'table' };
+      MICROS.forEach(function (mi) {
+        if (typeof fdf[mi.key] === 'number') fdNorm[mi.key] = fdPer(fdf[mi.key]);
+      });
+      openPortion(fdNorm, fdk);
+      render(); return;
     }
     if (a === 'fd-chip') { S.foodG = +act.getAttribute('data-g'); render(); return; }
     if (a === 'fd-log') {
@@ -6170,6 +6444,7 @@
          there to prevent. */
       if (window.LKVoice && LKVoice.recording()) LKVoice.cancel();
       S.micRec = false; S.micSending = false; S.micVoiceMsg = '';
+      S.portion = null;
       S.sheet = null; S.camOil = null; render(); return;
     }
     if (a === 'retry') { S.state = 'loading'; render(); setTimeout(function () { S.state = 'populated'; render(); }, 700); return; }
@@ -7158,6 +7433,17 @@
       return;
     }
     if (e.target.id.indexOf('mn-') === 0) { readManual(); return; }
+    if (e.target.id === 'pt-amount' || e.target.id === 'pt-serv') {
+      readPortion();
+      if (S.portion) S.portion.error = null;
+      /* Repainted so the figures and the button follow the typing, with
+         the caret put back where it was. */
+      var ptId = e.target.id, ptSel = e.target.selectionStart;
+      render();
+      var ptEl = document.getElementById(ptId);
+      if (ptEl) { ptEl.focus(); try { ptEl.setSelectionRange(ptSel, ptSel); } catch (err) {} }
+      return;
+    }
     if (e.target.id === 'mic-text') {
       S.micText = e.target.value;
       S.micItems = S.micText.trim() ? parseMeal(S.micText) : null;

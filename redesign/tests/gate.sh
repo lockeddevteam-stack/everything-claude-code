@@ -62,6 +62,7 @@ offline|node offline.mjs
 body-picker|node body-picker.mjs
 worker-cors|node worker-cors.mjs
 tutor-copy|node tutor-copy.mjs
+portions|node portions.mjs
 voice|node voice.mjs
 keyboard|node keyboard.mjs
 cloud-contract|node cloud-contract.mjs

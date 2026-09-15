@@ -86,11 +86,25 @@ const br = await chromium.launch({
   args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream']
 });
 
-async function open(withApi) {
+/* SAFARI REFUSES AN OfflineAudioContext BELOW 22050 Hz. That throw is the
+   whole feature failing on an iPhone while working on every desktop it
+   was written on, so the restriction is installed here and the recording
+   is driven through it. */
+const SAFARI_RATE_LIMIT = () => {
+  const Real = window.OfflineAudioContext;
+  window.OfflineAudioContext = function (ch, len, rate) {
+    if (rate < 22050) throw new Error('SyntaxError: sample rate not supported');
+    return new Real(ch, len, rate);
+  };
+  window.webkitOfflineAudioContext = window.OfflineAudioContext;
+};
+
+async function open(withApi, prep) {
   const ctx = await br.newContext({
     viewport: { width: 393, height: 852 }, deviceScaleFactor: 3,
     isMobile: true, hasTouch: true, permissions: ['microphone']
   });
+  if (prep) await ctx.addInitScript(prep);
   await ctx.addInitScript((cfg) => {
     window.LK_CLOUD = cfg;
     try {
@@ -274,6 +288,39 @@ const stillOn = await page.evaluate(() => {
 });
 ok(!stillOn, 'the recorder is not left running behind a closed sheet');
 ok(errs.length === 0, 'and no screen threw', errs.join(' | '));
+await ctx.close();
+
+console.log('\n=== the phone that refuses to resample ===\n');
+
+plan = {};
+({ ctx, page, errs } = await open(true, SAFARI_RATE_LIMIT));
+await click(page, 'log-mic');
+await waitFor(page, 'sheet-mic');
+await click(page, 'mic-rec');
+await waitFor(page, 'mic-level', 8000);
+await page.waitForTimeout(1200);
+got = null;
+await click(page, 'mic-rec');
+await page.waitForFunction(() => {
+  const el = window.DEMO.screens.fuel.root.querySelector('[data-testid="mic-text"]');
+  return el && el.value.length > 0;
+}, null, { timeout: 15000 });
+
+ok(await value(page, 'mic-text') === '2 eggs and toast',
+   'a browser that will not resample still gets the sentence back',
+   await value(page, 'mic-text'));
+const safRaw = got ? got.bytes.toString('latin1') : '';
+ok(safRaw.indexOf('RIFF') > -1 && safRaw.indexOf('WAVE') > -1,
+   'and what went up is still a WAV, at whatever rate it could manage',
+   got ? got.bytes.length + ' bytes' : 'nothing arrived');
+if (got) {
+  const i = got.bytes.indexOf('fmt ');
+  const ch = got.bytes.readUInt16LE(i + 10);
+  const rate = got.bytes.readUInt32LE(i + 12);
+  ok(ch === 1 && rate >= 16000, 'still one channel, at a rate Gemini reads',
+     ch + ' channel(s) at ' + rate + ' Hz');
+}
+ok(errs.length === 0, 'and nothing threw on the way', errs.join(' | '));
 await ctx.close();
 
 console.log('\n=== driven badly on purpose ===\n');
