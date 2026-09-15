@@ -10,6 +10,7 @@
 <script src="fixtures.js"></script>
 <script src="store.js"></script>
 <script src="units.js"></script>
+<script src="reorder.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 <script src="cloud-config.js"></script>
@@ -427,7 +428,9 @@
     var gripId = 'ex-grip-' + x.id;
     var lifted = S.lifted === gripId;
     return '<div class="row sortable__item' + (lifted ? ' sortable__item--lifted' : '') +
-        (S.dragging === gripId ? ' sortable__item--dragging' : '') + '" data-sortable="1" data-id="' + x.id + '" data-day="' + day.id + '">' +
+        (S.dragging ? ' is-lifting' : '') +
+        (S.dragging === gripId ? ' sortable__item--dragging is-dragging' : '') +
+        '" style="--wiggle-i:' + i + '" data-sortable="1" data-id="' + x.id + '" data-day="' + day.id + '">' +
       gripBtn(gripId, 'Reorder ' + x.name + ', position ' + (i + 1) + ' of ' + n, lifted) +
       '<div class="row__main">' +
         '<div class="row__title">' + esc(x.name) + '</div>' +
@@ -469,8 +472,9 @@
 
     return '<div class="card card--flush' + (m.edit ? ' sortable__item' : '') +
         (m.edit && lifted ? ' sortable__item--lifted' : '') +
-        (m.edit && S.dragging === gripId ? ' sortable__item--dragging' : '') + '"' +
-        (m.edit ? ' data-sortable="1"' : '') + ' data-id="' + day.id + '">' +
+        (m.edit && S.dragging ? ' is-lifting' : '') +
+        (m.edit && S.dragging === gripId ? ' sortable__item--dragging is-dragging' : '') + '"' +
+        (m.edit ? ' data-sortable="1"' : '') + ' style="--wiggle-i:' + i + '" data-id="' + day.id + '">' +
       head +
       (m.edit && lifted ? moveBar('day', day.id, null, i === 0, i === n - 1) : '') +
       volumeNote(day) +
@@ -1993,54 +1997,57 @@
 
   /* Drag to reorder. Starts on the first pixel of movement, no long press,
      and a press that does not move is a tap that lifts the item instead. */
-  document.addEventListener('pointerdown', function (e) {
-    var grip = e.target.closest('[data-grip]');
-    if (!grip) return;
-    var item = grip.closest('[data-sortable]');
-    var list = item.parentElement;
-    var startY = e.clientY;
-    var moved = false;
-    var dayId = item.getAttribute('data-day');
-    var arr = dayId ? findDay(dayId).exercises : S.manual.days;
-    var ids = arr.map(function (o) { return o.id; });
-    var index = ids.indexOf(item.getAttribute('data-id'));
-    var rects = [].slice.call(list.querySelectorAll(':scope > [data-sortable]')).map(function (n) { return n.getBoundingClientRect(); });
-    grip.setPointerCapture(e.pointerId);
+  /* THE SAME DRAG AS EVERY OTHER LIST IN THIS APP, through LKReorder:
+     the 350ms hold, the 10px escape that hands a scroll back to the
+     scroller, the lift, the wiggle on everything else and the gap opening
+     under the row.
 
-    function onMove(ev) {
-      if (!moved && Math.abs(ev.clientY - startY) < 6) return;
-      if (!moved) { moved = true; S.dragging = grip.getAttribute('data-testid'); S.lifted = null; }
-      var target = index;
-      for (var k = 0; k < rects.length; k++) {
-        var c = rects[k].top + rects[k].height / 2;
-        if (k < index && ev.clientY < c) { target = k; break; }
-        if (k > index && ev.clientY > c) { target = k; }
-      }
-      if (target !== index && move(arr, index, target)) {
-        index = target;
-        markDirty();
-        render();
-        var again = document.querySelector('[data-testid="' + grip.getAttribute('data-testid') + '"]');
-        if (again) {
-          var l2 = again.closest('[data-sortable]').parentElement;
-          rects = [].slice.call(l2.querySelectorAll(':scope > [data-sortable]')).map(function (n) { return n.getBoundingClientRect(); });
-        }
-      }
+     What was here lifted on six pixels of movement with no hold at all,
+     so a scroll that began on a handle picked the row up instead -- and
+     nothing wiggled, so nothing said the list could be reordered until
+     something already had been. The move itself is unchanged: this screen
+     still owns its own data and its own repaint. */
+  LKReorder.attach(document, {
+    grip: '[data-grip]',
+    item: '[data-sortable]',
+    index: function (item) {
+      /* Compared as text on both sides. An exercise id is a number and a
+         day id is a string, and an attribute is always a string -- so a
+         strict indexOf found every day and no exercise, which is why the
+         lift worked on one list and the drop did nothing on the other. */
+      var want = String(item.getAttribute('data-id'));
+      var arr = listOf(item);
+      for (var i = 0; i < arr.length; i++) if (String(arr[i].id) === want) return i;
+      return -1;
+    },
+    lift: function (i, item) {
+      S.dragging = i < 0 ? null
+        : (item.querySelector('[data-grip]') || {}).getAttribute
+          ? item.querySelector('[data-grip]').getAttribute('data-testid') : null;
+      if (i >= 0) S.lifted = null;
+      render();
+    },
+    /* The screen replaces its DOM on every render, so the element handed
+       in before the repaint is not the one on screen after it. */
+    refind: function (item) {
+      var id = item.getAttribute('data-id');
+      var day = item.getAttribute('data-day');
+      return document.querySelector('[data-sortable][data-id="' + id + '"]' +
+        (day ? '[data-day="' + day + '"]' : ''));
+    },
+    move: function (from, to, item) {
+      var arr = listOf(item);
+      if (!move(arr, from, to)) return false;
+      markDirty();
+      render();
+      return true;
     }
-    function onUp() {
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
-      if (moved) {
-        var id = grip.getAttribute('data-testid');
-        S.dragging = null;
-        render();
-        var g2 = document.querySelector('[data-testid="' + id + '"]');
-        if (g2) g2.dataset.dragged = '1';
-      }
-    }
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
   });
+
+  function listOf(item) {
+    var dayId = item.getAttribute('data-day');
+    return dayId ? findDay(dayId).exercises : S.manual.days;
+  }
 
   /* Open what the caller asked for. Booting on the dev switcher's populated
      preset meant "New split" opened the stored PPL split, under a line

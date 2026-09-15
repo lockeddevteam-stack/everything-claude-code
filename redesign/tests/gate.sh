@@ -62,6 +62,7 @@ offline|node offline.mjs
 body-picker|node body-picker.mjs
 worker-cors|node worker-cors.mjs
 tutor-copy|node tutor-copy.mjs
+reorder-everywhere|node reorder-everywhere.mjs
 quick-workout|node quick-workout.mjs
 pounds-history|node pounds-history.mjs
 gestures2|node gestures2.mjs

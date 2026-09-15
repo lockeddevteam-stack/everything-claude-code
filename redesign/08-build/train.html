@@ -10,6 +10,7 @@
 <script src="fixtures.js"></script>
 <script src="store.js"></script>
 <script src="units.js"></script>
+<script src="reorder.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 <script src="session.js"></script>
@@ -160,6 +161,7 @@
   }
   var ICO = {
     play:    svg('<path d="M8 5.5v13l11-6.5z"/>'),
+    grip:    svg('<path d="M8 8h.01M8 12h.01M8 16h.01M16 8h.01M16 12h.01M16 16h.01"/>'),
     chev:    svg('<path d="m9 5 7 7-7 7"/>'),
     back:    svg('<path d="m15 5-7 7 7 7"/>'),
     lift:    svg('<path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/>'),
@@ -880,6 +882,8 @@
     sheet: null,          /* null | {kind:'split'|'activity'|'favs'|'newcardio'|'quick'|'quick-details'} */
     /* A quick workout being planned. Null until the fork is answered. */
     quick: null,
+    /* The favourite under a finger, mid-drag. */
+    favDrag: null,
     query: '',
     toast: null,
     /* The id of the split whose delete is armed. One at a time, and cleared
@@ -2148,6 +2152,40 @@
      loaded and in order instead of being built rep by rep between sets.
 
      Nothing is written until one of them is chosen. */
+  /* One mover for the grip and the arrows, so a drag and a button press
+     cannot drift into meaning different things. */
+  function moveFav(from, to) {
+    if (from < 0 || to < 0 || from >= FAVS.length || to >= FAVS.length) return false;
+    FAVS.splice(to, 0, FAVS.splice(from, 1)[0]);
+    FAVS.forEach(function (f, k) { f.order = k; });
+    if (store()) store().set('lk_cardioFavorites', FAVS);
+    render(true);
+    return true;
+  }
+
+  /* The same drag as every other list in this app. The favourites were the
+     one reorderable list with no drag at all: two arrows in a corner, which
+     is a control you have to go looking for. */
+  if (window.LKReorder) {
+    LKReorder.attach(document, {
+      grip: '[data-grip]',
+      item: '[data-sortable]',
+      index: function (item) {
+        return FAVS.map(function (f) { return f.id; })
+          .indexOf(item.getAttribute('data-id'));
+      },
+      lift: function (i, item) {
+        S.favDrag = i < 0 ? null : item.getAttribute('data-id');
+        render(true);
+      },
+      refind: function (item) {
+        return document.querySelector('[data-sortable][data-id="' +
+          item.getAttribute('data-id') + '"]');
+      },
+      move: function (from, to) { return moveFav(from, to); }
+    });
+  }
+
   function readQuickDetails() {
     if (!S.quick) S.quick = { name: '', note: '', picks: [] };
     var nEl = document.getElementById('qd-name');
@@ -2385,8 +2423,17 @@
     } else {
       body = '<div class="card card--flush">' + FAVS.map(function (f, i) {
         var confirming = S.confirmFav === f.id;
-        return '<div class="row" data-testid="fav-' + f.id + '">' +
-          '<span class="ico-well">' + ICO.star + '</span>' +
+        return '<div class="row sortable__item' + (S.favDrag ? ' is-lifting' : '') +
+            (S.favDrag === f.id ? ' is-dragging' : '') + '" style="--wiggle-i:' + i + '" ' +
+            'data-sortable="1" data-id="' + f.id + '" data-testid="fav-' + f.id + '">' +
+          /* A HANDLE, because this list could be reordered and did not
+             look like it could. Two arrows in a corner are a control you
+             have to find; a grip is one everybody already knows, and the
+             arrows stay for anyone without a pointer. */
+          '<button class="grip" type="button" data-grip="1" data-id="' + f.id + '" ' +
+            'data-testid="fav-grip-' + f.id + '" aria-label="Reorder ' + esc(favName(f)) +
+            ', ' + (i + 1) + ' of ' + FAVS.length + '. Hold and drag, or use the arrows.">' +
+            ICO.grip + '</button>' +
           '<span class="row__main stack">' +
             /* favName/favMin, not f.name/f.min. A stored favourite carries
                `label` and `defaults.durationSec` -- the shipped app's shape,
@@ -2671,10 +2718,7 @@
       var fid = t.getAttribute('data-id');
       var i = FAVS.map(function (f) { return f.id; }).indexOf(fid);
       if (i < 0 || i + dir < 0 || i + dir >= FAVS.length) return;
-      FAVS.splice(i + dir, 0, FAVS.splice(i, 1)[0]);
-      FAVS.forEach(function (f, k) { f.order = k; });
-      if (store()) store().set('lk_cardioFavorites', FAVS);
-      render(true);
+      moveFav(i, i + dir);
       focusField('fav-' + (dir < 0 ? 'up' : 'down') + '-' + fid);
       return;
     }
