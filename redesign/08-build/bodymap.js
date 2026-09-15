@@ -92,15 +92,40 @@
      It measures the host now, and falls back to the window only when the
      host is not in the document yet. */
   var FRAME_UNITS = 240;
+  var FRAME_UNITS_H = 402;
   function unitPx(host) {
-    var w = 0;
-    if (host && host.getBoundingClientRect) w = host.getBoundingClientRect().width;
+    var w = 0, h = 0;
+    if (host && host.getBoundingClientRect) {
+      var hb = host.getBoundingClientRect();
+      w = hb.width; h = hb.height;
+    }
     if (!w) {
       var frame = host && host.closest && host.closest('.phone');
-      if (frame) w = frame.getBoundingClientRect().width;
+      if (frame) { var fb = frame.getBoundingClientRect(); w = fb.width; h = h || fb.height; }
     }
     if (!w) w = Math.min(global.innerWidth || 390, 430);
-    return w / FRAME_UNITS;
+    /* THE VIEWBOX IS LETTERBOXED, AND THIS ONLY LOOKED AT THE WIDTH.
+       .map__svg is width:100% height:100% over a viewBox of 240 x 402.
+       That is preserveAspectRatio="xMidYMid meet" by default, so the art
+       is fitted to whichever axis runs out first and centred on the
+       other. On a phone the map frame is 393 wide and 387 tall: the
+       HEIGHT runs out, the figure renders 231px wide, and one viewBox
+       unit is 0.96px.
+
+       This returned 393/240 = 1.64. Seventy percent too big, on every
+       phone, which is where the app is. Each muscle was measured as
+       seventy percent wider than it draws, the shortfall came out far too
+       small, and the thinnest groups were handed a stroke that left them
+       under the 44px this file exists to guarantee. Hit-testing the
+       shipped build found triceps at 700px2 of reachable area, about a
+       26px square, against the 44 it promises.
+
+       The earlier fix here caught the same class of error from the
+       desktop side and still only looked at one axis. Both axes now, the
+       way the browser fits it. */
+    var sx = w / FRAME_UNITS;
+    var sy = h ? h / FRAME_UNITS_H : sx;
+    return Math.min(sx, sy);
   }
   /* How much stroke a group needs, in CSS pixels, to bring its thinnest
      belly up to 44. The group's own bounding box is no use here, because a
@@ -116,6 +141,28 @@
     if (!t) return 0;
     var thin = t * unitPx(host) * FIT[view].s;
     return Math.max(0, Math.min(MIN_HIT - thin, 44));
+  }
+
+  /* THE MARGIN IS IN PIXELS AND THE ATTRIBUTE IS IN ART UNITS.
+
+     reachOf answers in CSS pixels, because 44 is a number about fingers.
+     Its answer was written straight into stroke-width, which is measured
+     in the art's own coordinates, inside a group already carrying the fit
+     transform. One art unit draws at 0.309px on a phone, so a margin
+     asking for 8.8px of reach was drawn 2.7px wide: every reach margin in
+     the map came out about three times too small, and the 44px guarantee
+     this file is built around never held anywhere.
+
+     Hit-testing the shipped build showed it. Triceps had 700px2 of
+     reachable area, roughly a 26px square, against the 44 promised.
+
+     One conversion, at the one place the two units meet. */
+  function reachUnits(view, gid, host) {
+    var px = reachOf(view, gid, host);
+    if (!px) return 0;
+    var artPx = unitPx(host) * FIT[view].s;
+    if (!(artPx > 0)) return px;
+    return px / artPx;
   }
 
   function el(tag, attrs, doc) {
@@ -283,12 +330,20 @@
     var reach = ORDER.filter(function (gid) {
       return art.groups[gid] && reachOf(view, gid, api.frame) > 0;
     }).sort(function (x, y) { return reachOf(view, y, api.frame) - reachOf(view, x, api.frame); });
+    /* LARGEST MARGIN FIRST, and it has to stay that way. Reading the
+       comment above as an inversion and flipping the sort does make
+       triceps better, 39px to 56px, and wrecks the map around it: glutes
+       fall from a 56px target to 15px, biceps and shoulders drop with
+       them. A thin muscle earns a large margin, and a large margin laid
+       down last covers the small precise targets sitting inside it. The
+       order is tuned for the worst case across all twelve, not for any
+       one of them. Measured both ways before touching it. */
 
     var reachLayer = api.el('g', { class: 'reach', transform: fit, 'aria-hidden': 'true' });
     reach.forEach(function (gid) {
       art.groups[gid].forEach(function (d) {
         reachLayer.appendChild(api.el('path', { d: d, class: 'hit', 'data-g': gid,
-          'stroke-width': Math.round(reachOf(view, gid, api.frame) * 10) / 10 }));
+          'stroke-width': Math.round(reachUnits(view, gid, api.frame) * 10) / 10 }));
       });
     });
     host.appendChild(reachLayer);

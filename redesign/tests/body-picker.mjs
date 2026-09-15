@@ -125,13 +125,30 @@ ok(groups.length === 12, 'every part of the body is offered', groups.length + ':
 
 console.log('\n=== and the figure itself is the way in ===\n');
 
+/* A POINT ON THE MUSCLE, NOT THE MIDDLE OF ITS BOX. On the front view
+   "back" is the two trapezius strips either side of the neck, so the
+   centre of their shared bounding box is the gap between them, sitting
+   over the chest. Which group won that gap depended on whose reach
+   margin happened to reach further, and the answer changed the moment
+   the margins were corrected to the size they were always meant to be.
+   The test was aiming at empty space and reading whatever it hit.
+
+   It hit-tests for a point that really belongs to the group now, the way
+   a finger finds one. */
 const node = await page.evaluate(() => {
   const rec = window.DEMO.screens['workout-log'];
   const root = rec && (rec.root || (rec.host && rec.host.shadowRoot));
   const g = root && root.querySelector('#addex-fig [data-testid="mg-back"]');
   if (!g) return null;
   const b = g.getBoundingClientRect();
-  return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+  for (let y = Math.ceil(b.top); y < b.bottom; y += 2) {
+    for (let x = Math.ceil(b.left); x < b.right; x += 2) {
+      const el = root.elementFromPoint(x, y);
+      const hit = el && el.closest ? el.closest('[data-g]') : null;
+      if (hit && hit.getAttribute('data-g') === 'back') return { x, y };
+    }
+  }
+  return null;
 });
 ok(!!node, 'a muscle on the figure can be aimed at', JSON.stringify(node));
 if (node) {

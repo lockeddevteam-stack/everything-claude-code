@@ -6885,15 +6885,40 @@ textarea,
      It measures the host now, and falls back to the window only when the
      host is not in the document yet. */
   var FRAME_UNITS = 240;
+  var FRAME_UNITS_H = 402;
   function unitPx(host) {
-    var w = 0;
-    if (host && host.getBoundingClientRect) w = host.getBoundingClientRect().width;
+    var w = 0, h = 0;
+    if (host && host.getBoundingClientRect) {
+      var hb = host.getBoundingClientRect();
+      w = hb.width; h = hb.height;
+    }
     if (!w) {
       var frame = host && host.closest && host.closest('.phone');
-      if (frame) w = frame.getBoundingClientRect().width;
+      if (frame) { var fb = frame.getBoundingClientRect(); w = fb.width; h = h || fb.height; }
     }
     if (!w) w = Math.min(global.innerWidth || 390, 430);
-    return w / FRAME_UNITS;
+    /* THE VIEWBOX IS LETTERBOXED, AND THIS ONLY LOOKED AT THE WIDTH.
+       .map__svg is width:100% height:100% over a viewBox of 240 x 402.
+       That is preserveAspectRatio="xMidYMid meet" by default, so the art
+       is fitted to whichever axis runs out first and centred on the
+       other. On a phone the map frame is 393 wide and 387 tall: the
+       HEIGHT runs out, the figure renders 231px wide, and one viewBox
+       unit is 0.96px.
+
+       This returned 393/240 = 1.64. Seventy percent too big, on every
+       phone, which is where the app is. Each muscle was measured as
+       seventy percent wider than it draws, the shortfall came out far too
+       small, and the thinnest groups were handed a stroke that left them
+       under the 44px this file exists to guarantee. Hit-testing the
+       shipped build found triceps at 700px2 of reachable area, about a
+       26px square, against the 44 it promises.
+
+       The earlier fix here caught the same class of error from the
+       desktop side and still only looked at one axis. Both axes now, the
+       way the browser fits it. */
+    var sx = w / FRAME_UNITS;
+    var sy = h ? h / FRAME_UNITS_H : sx;
+    return Math.min(sx, sy);
   }
   /* How much stroke a group needs, in CSS pixels, to bring its thinnest
      belly up to 44. The group's own bounding box is no use here, because a
@@ -6909,6 +6934,28 @@ textarea,
     if (!t) return 0;
     var thin = t * unitPx(host) * FIT[view].s;
     return Math.max(0, Math.min(MIN_HIT - thin, 44));
+  }
+
+  /* THE MARGIN IS IN PIXELS AND THE ATTRIBUTE IS IN ART UNITS.
+
+     reachOf answers in CSS pixels, because 44 is a number about fingers.
+     Its answer was written straight into stroke-width, which is measured
+     in the art's own coordinates, inside a group already carrying the fit
+     transform. One art unit draws at 0.309px on a phone, so a margin
+     asking for 8.8px of reach was drawn 2.7px wide: every reach margin in
+     the map came out about three times too small, and the 44px guarantee
+     this file is built around never held anywhere.
+
+     Hit-testing the shipped build showed it. Triceps had 700px2 of
+     reachable area, roughly a 26px square, against the 44 promised.
+
+     One conversion, at the one place the two units meet. */
+  function reachUnits(view, gid, host) {
+    var px = reachOf(view, gid, host);
+    if (!px) return 0;
+    var artPx = unitPx(host) * FIT[view].s;
+    if (!(artPx > 0)) return px;
+    return px / artPx;
   }
 
   function el(tag, attrs, doc) {
@@ -7076,12 +7123,20 @@ textarea,
     var reach = ORDER.filter(function (gid) {
       return art.groups[gid] && reachOf(view, gid, api.frame) > 0;
     }).sort(function (x, y) { return reachOf(view, y, api.frame) - reachOf(view, x, api.frame); });
+    /* LARGEST MARGIN FIRST, and it has to stay that way. Reading the
+       comment above as an inversion and flipping the sort does make
+       triceps better, 39px to 56px, and wrecks the map around it: glutes
+       fall from a 56px target to 15px, biceps and shoulders drop with
+       them. A thin muscle earns a large margin, and a large margin laid
+       down last covers the small precise targets sitting inside it. The
+       order is tuned for the worst case across all twelve, not for any
+       one of them. Measured both ways before touching it. */
 
     var reachLayer = api.el('g', { class: 'reach', transform: fit, 'aria-hidden': 'true' });
     reach.forEach(function (gid) {
       art.groups[gid].forEach(function (d) {
         reachLayer.appendChild(api.el('path', { d: d, class: 'hit', 'data-g': gid,
-          'stroke-width': Math.round(reachOf(view, gid, api.frame) * 10) / 10 }));
+          'stroke-width': Math.round(reachUnits(view, gid, api.frame) * 10) / 10 }));
       });
     });
     host.appendChild(reachLayer);
@@ -18404,11 +18459,26 @@ window.LK_CLOUD = {
            and visibly a flicker. It is shown or hidden instead. It sits
            inside the one landmark on the screen, because when the library
            opens on the body this figure is the screen's whole content. -->
+      <!-- THE FIGURE IS THE SCREEN, SO IT GETS THE SCREEN.
+
+           This carried a "Muscle groups / 866 exercises" header above it
+           and a line of instructions below, and between them they took
+           about ninety pixels off a figure that is the only thing on the
+           page. The figure is fitted to its shorter axis, so on a phone
+           every one of those pixels came straight off the size of every
+           muscle -- and the three thinnest were already under the 44px
+           the map promises.
+
+           Neither line was carrying much. The count appeared three more
+           times on the same screen, including inside the search box; a
+           screen showing a body with coloured muscles on it does not need
+           a label reading "Muscle groups"; and "Tap a muscle" is a thing
+           you learn by tapping a muscle, which is what the press feedback
+           on each one is for. The instruction that was load-bearing --
+           that search reaches past the body -- now lives in the search
+           box, where somebody is looking when they want it. -->
       <div class="libmap" id="libmap" hidden>
-        <div class="listhead gutter">
-          <h2 class="t-label">Muscle groups</h2>
-          <span class="t-meta" id="libmap-count"></span>
-        </div>
+        <span class="vis-hidden" id="libmap-count"></span>
         <div class="map" id="map" data-testid="bodymap"></div>
         <div class="libmap__foot">
           <div class="seg" role="tablist" aria-label="Body view">
@@ -18417,7 +18487,6 @@ window.LK_CLOUD = {
             <button class="seg__item" type="button" role="tab" id="tab-back"
                     aria-selected="false" data-action="body-view" data-view="back">Back</button>
           </div>
-          <p class="t-detail quiet mt-2">Tap a muscle. Search finds a lift by name, muscle, region or equipment.</p>
           <!-- Said only when it is true: how much of the catalogue this device
                can actually read. Over file:// the fetch cannot run and the
                inline list is all there is, and the screen used to go on
@@ -40719,7 +40788,14 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
     else if (S.filter === 'custom') { title = 'Custom'; meta = n(pool().length) + ' of your own'; }
     else if (S.status === 'error') { title = 'Exercises'; meta = 'List unavailable'; }
     else if (S.status === 'loading') { title = 'Exercises'; meta = 'Loading'; }
-    else { title = 'Exercises'; meta = n(pool().length) + ' in the library'; }
+    /* NOT THE SIZE OF THE LIBRARY. On a group this line says how many
+       lifts are in that group, which is a number you are about to use.
+       On the way in it said how much was in the catalogue, which is a
+       number about the catalogue: a count you cannot act on, shown above
+       a body you are meant to be tapping, and the first of four places
+       the same figure appeared on one screen. The instruction is worth
+       more than the inventory. */
+    else { title = 'Exercises'; meta = 'Tap a muscle'; }
     /* While picking, the count that matters is how many you have chosen,
        not how many exist. It replaces the library's own count rather than
        sitting beside it, because two numbers in one line is two numbers
@@ -40865,8 +40941,16 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
        fallback -- whichever catalogue was actually loaded, so the field
        offered 227 over a list of 867. */
     input.placeholder = S.status !== 'ready' ? 'Search'
-      : (S.gid && !S.q ? 'Search all ' + S.items.length + ', not just ' + GNAME[S.gid]
-                       : 'Search ' + S.items.length + ' ' + LKPlural(S.items.length, 'exercise'));
+      /* THE NUMBER WAS ON THIS SCREEN FOUR TIMES. The header eyebrow, the
+         header above the figure, the All chip, and here. A library that
+         keeps announcing how many things are in it is telling you about
+         its own size rather than about your next lift, and 866 is not a
+         number anybody wanted to be reminded of. The chip carries it,
+         once, where it is a filter you might press. This says what search
+         reaches instead, which is the part that is not obvious: from a
+         muscle, it looks past that muscle. */
+      : (S.gid && !S.q ? 'Search every muscle, not just ' + GNAME[S.gid]
+                       : 'Search by name, muscle or equipment');
     syncMap();
     mountSheetFigures();
     screen.setAttribute('data-state', stateName());
