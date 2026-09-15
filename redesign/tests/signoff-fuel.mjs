@@ -12,6 +12,10 @@ await p.waitForFunction(() => window.__ready);
 const out = (...a) => console.log(...a);
 const txt = async sel => (await p.locator(sel).first().innerText().catch(() => '(none)'));
 const has = async sel => await p.locator(sel).count();
+/* A sheet closing is an animation, and its scrim still swallows clicks
+   while it plays. Every step that closes one waits for it to be gone
+   rather than racing it. */
+const gone = async sel => await p.locator(sel).waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
 
 out('== HERO/MACROS populated ==');
 out('hero:', await txt('[data-testid=hero]'));
@@ -24,7 +28,7 @@ out('closing:', (await txt('[data-testid=meal-closing]')).replace(/\n/g, ' | '))
 out('\n== TRENDS ==');
 await p.click('[data-testid=chip-trends]');
 out((await txt('[data-testid=sheet-trends]')).replace(/\n/g, ' | '));
-out('svg polyline pts:', await p.locator('[data-testid=sheet-trends] polyline').getAttribute('points'));
+out('svg polyline pts:', await p.locator('[data-testid=sheet-trends] polyline').first().getAttribute('points'));
 await p.keyboard.press('Escape');
 
 out('\n== WATER ==');
@@ -65,13 +69,20 @@ out('\n== MEAL DETAIL / portion / delete ==');
 await p.click('[data-testid=meal-1]');
 out((await txt('[data-testid=sheet-meal]')).replace(/\n/g, ' | '));
 await p.click('[data-testid=meal-edit]');
+/* A portion change leaves the sheet open, which is right -- you often
+   make two of them -- so the script closes it rather than assuming. */
+await p.keyboard.press('Escape');
+await gone('[data-testid=sheet-meal]');
 out('after x0.8 toast:', await txt('[data-testid=toast]'));
 out('hero:', await txt('[data-testid=hero-value]'), 'macros:', (await txt('[data-testid=macros]')).replace(/\n/g, ' | '));
 await p.click('[data-testid=meal-1]');
 await p.click('[data-testid=meal-swap]');
+await p.keyboard.press('Escape');
+await gone('[data-testid=sheet-meal]');
 out('after x1.25:', await txt('[data-testid=toast]'), 'hero', await txt('[data-testid=hero-value]'));
 await p.click('[data-testid=meal-1]');
 await p.click('[data-testid=meal-delete]');
+await gone('[data-testid=sheet-meal]');
 out('delete toast:', await txt('[data-testid=toast]'), 'hero', await txt('[data-testid=hero-value]'));
 out('undo present:', await has('[data-testid=undo]'));
 await p.click('[data-testid=undo]');

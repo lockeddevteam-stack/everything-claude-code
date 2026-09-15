@@ -131,7 +131,11 @@ const server = http.createServer(async (req, res) => {
     return send(200, { items: [
       { name: 'Chicken breast, raw', brand: 'Generic', type: 'Generic', cal: 165, pro: 31, carb: 0, fat: 3.6 },
       { name: 'Chicken Tikka', brand: 'A Brand', type: 'Brand', cal: 189, pro: 18.2, carb: 4.4, fat: 11 },
-      { name: 'Nothing useful', brand: '', type: 'Generic', cal: 0, pro: 0, carb: 0, fat: 0 }
+      { name: 'Nothing useful', brand: '', type: 'Generic', cal: 0, pro: 0, carb: 0, fat: 0 },
+      /* No database had this one, so the figures were worked out. The
+         row has to arrive saying so. */
+      { name: 'Koeksister', brand: '', type: 'Estimate', src: 'estimate',
+        cal: 420, pro: 3, carb: 60, fat: 19 }
     ] });
   }
   if (url.pathname === '/') {
@@ -551,7 +555,7 @@ ok(rec.ok === false || !('kcal' in (rec.action || {})) || rec.action.kcal !== 4,
 
 /* ---- 9b. food, from beyond this device ------------------------------ */
 let fr = await C.foodSearch('chicken');
-ok(fr.ok && fr.data.length === 2,
+ok(fr.ok && fr.data.length === 3,
    'the food database answers, and a row with no calories is dropped',
    JSON.stringify(fr.data.map(function (x) { return x.name; })));
 ok(fr.data[0].kcal === 165 && fr.data[0].pro === 31 && fr.data[0].g === 100,
@@ -559,6 +563,16 @@ ok(fr.data[0].kcal === 165 && fr.data[0].pro === 31 && fr.data[0].g === 100,
 ok(fr.data[1].from === 'A Brand', 'a row says where it came from', fr.data[1].from);
 ok(fr.data.every(function (x) { return x.src === 'table'; }),
    'a looked-up food is marked as looked up, never as an estimate');
+/* The estimate is the exception the badge exists for: when every source
+   missed, Gemini worked the figures out and the row must carry that the
+   whole way to the screen rather than passing as a measured one. */
+var estRow = fr.data.filter(function (x) { return x.source === 'estimate'; })[0];
+ok(!!estRow && estRow.sourceName === 'Estimate',
+   'a worked-out row arrives named an estimate, so Fuel can badge it',
+   JSON.stringify(estRow));
+ok(!!estRow && estRow.from === 'Estimate',
+   'and says so on its own line when there is no brand to show instead',
+   estRow && estRow.from);
 
 fr = await C.foodSearch('a');
 ok(fr.ok && fr.data.length === 0, 'one letter is not a search');

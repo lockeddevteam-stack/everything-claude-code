@@ -101,7 +101,10 @@
   var SOURCE_NAME = {
     usda: 'USDA',
     off: 'Open Food Facts',
-    fatsecret: 'FatSecret'
+    fatsecret: 'FatSecret',
+    /* Not a database at all: figures a model worked out because no
+       database had the food. Named plainly so the row can say so. */
+    estimate: 'Estimate'
   };
 
   function isWorker(url) {
