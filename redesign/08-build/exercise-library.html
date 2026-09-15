@@ -967,6 +967,13 @@
     items: [],
     q: '',
     gid: null,
+    split: null,          /* a group open on the map with its parts drawn,
+                             waiting for the second tap. Null for the ten
+                             groups that do not divide honestly, which go
+                             straight to their exercises. */
+    sub: null,            /* the part chosen by that second tap, which is
+                             what the list is narrowed to */
+    zoomed: null,         /* the group the camera is framing */
     browse: 'map',        /* map | list, how the groups are chosen. The
                              body is what the library opens on: it names
                              the muscle you mean without you naming it. */
@@ -1273,13 +1280,46 @@
       (short ? '<p class="t-detail quiet mt-3 gutter" data-testid="catalogue-short">' + esc(short) + '</p>' : '');
   }
 
+  /* The map names a part the way a person would -- "Upper", "Lats" -- and
+     the catalogue files it under an id. One is matched to the other here
+     rather than by keeping a second copy of the names in the map, which
+     would be a list to forget to update. */
+  function sidForPart(gid, part) {
+    if (!gid || !part) return null;
+    var subs = GROUP_INDEX[GORDER[gid]] && GROUP_INDEX[GORDER[gid]][2];
+    if (!subs) return null;
+    var want = String(part).toLowerCase();
+    for (var i = 0; i < subs.length; i++) {
+      var id = String(subs[i][0]).toLowerCase();
+      var label = String(subs[i][1]).toLowerCase();
+      if (id === want || label === want) return subs[i][0];
+      /* "Upper" against "Upper Chest", "Lower Back" against "Lower Back". */
+      if (label.indexOf(want) === 0 || want.indexOf(label) === 0) return subs[i][0];
+    }
+    return null;
+  }
+
   function viewGroup(gid) {
     var list = inGroup(gid), out = '';
+    /* A PART CHOSEN ON THE BODY IS THE WHOLE LIST. Picking Upper Chest on
+       the figure and then being given all ninety-eight chest exercises
+       with Upper Chest as the first of three headings is the screen
+       ignoring what was just asked. The other parts are still one tap
+       away, on the body, where they were chosen. */
+    var only = S.sub ? sidForPart(gid, S.sub) : null;
     GROUP_INDEX[GORDER[gid]][2].forEach(function (s) {
+      if (only && s[0] !== only) return;
       var rows = list.filter(function (x) { return x.sid === s[0]; });
       if (!rows.length) return;
       out += head(esc(s[1]), n(rows.length)) + listCard(rows.map(exRow));
     });
+    /* A part the catalogue has nothing filed under is not a dead screen. */
+    if (only && !out) {
+      out = head(esc(GNAME[gid]), n(list.length)) +
+        '<p class="t-detail quiet mt-2 gutter" data-testid="sub-empty">Nothing is filed under ' +
+        esc(S.sub) + ' yet, so this is the whole group.</p>' +
+        listCard(list.map(exRow));
+    }
     return out;
   }
 
@@ -1375,6 +1415,12 @@
           '</button>'
         ]));
     }
+    /* WHILE THE MUSCLE IS SPLIT, THE BODY IS THE SCREEN. The figure is a
+       sibling of this surface rather than part of it, so rendering the
+       group's list here at the same time puts the list under the figure
+       and scrolls the figure off the top: the split is drawn, correct,
+       and out of sight. Nothing below until a part has been picked. */
+    if (S.split) return '';
     if (S.gid) return viewGroup(S.gid);
     return viewGroups();
   }
@@ -1909,7 +1955,11 @@
   }
 
   function syncMap() {
-    var on = S.browse === 'map' && !S.gid && !S.q.trim() &&
+    /* THE MAP STAYS UP WHILE A MUSCLE IS OPEN ON IT. A group being chosen
+       used to take the body off the screen, which is the moment the body
+       was most worth looking at. It stays while S.split holds a group
+       that divides, and leaves once a part has been picked. */
+    var on = S.browse === 'map' && (!S.gid || S.split) && !S.q.trim() &&
              S.filter !== 'custom' && S.status === 'ready';
     libmap.hidden = !on;
     scroller.classList.toggle('body--figure', on);
@@ -1917,6 +1967,32 @@
     if (!FIG) {
       FIG = LKBodyMap.mount(mapFrame, {
         groups: mapGroups(), order: GROUP_INDEX.map(function (g) { return g[0]; }),
+        /* WHICH PARTS EACH MUSCLE HAS, from the catalogue rather than from
+           a list kept twice. Six of the twelve have more than one region
+           filed under them and get the split: chest, back, shoulders,
+           triceps, biceps and abs. The other six have a single region, so
+           there is nothing to choose between and tapping them goes
+           straight to their exercises.
+
+           The labels are shortened where the group's own name is already
+           on the header above them: "Upper Chest" inside Chest is "Upper",
+           because a band the size of a pectoral is not the place to read
+           a word you can already see. */
+        parts: (function () {
+          var out = {};
+          GROUP_INDEX.forEach(function (g) {
+            if (!g[2] || g[2].length < 2) return;
+            var gname = g[1];
+            out[g[0]] = g[2].map(function (sub) {
+              var label = sub[1];
+              if (label.length > gname.length && label.slice(-gname.length) === gname) {
+                label = label.slice(0, -gname.length).trim() || label;
+              }
+              return label;
+            });
+          });
+          return out;
+        })(),
         onSelect: function (gid) {
           /* The same destination a row in the list goes to. The map is a
              second way to the group, not a second flow. */
@@ -1929,6 +2005,28 @@
              on this screen rather than a list of group names. */
           S.zoomed = gid;
           try { if (FIG && FIG.zoomTo) FIG.zoomTo(gid, S.bodyView); } catch (e) {}
+          /* AND THEN IT SPLITS, if this muscle divides honestly. Chest is
+             three bands of one sheet, back on the rear view is three
+             muscles drawn apart. The other ten would be invented anatomy,
+             so those go straight to their exercises the way they always
+             did. */
+          S.split = null;
+          try {
+            if (FIG && FIG.showParts) {
+              var names = FIG.showParts(gid, S.bodyView);
+              if (names && names.length > 1) S.split = gid;
+            }
+          } catch (e) {}
+          render({ scrollTop: true });
+        },
+        /* The second tap. A part narrows the list to that part, and the
+           body steps back out of the way now there is something to read. */
+        onPart: function (gid, part) {
+          S.gid = gid;
+          S.scope = 'group';
+          S.sub = part;
+          S.split = null;
+          try { if (FIG && FIG.clearParts) FIG.clearParts(); } catch (e) {}
           render({ scrollTop: true });
         }
       });
@@ -1939,6 +2037,13 @@
        person who comes back to the map with a group still chosen should
        find it framed, not snapped back to the whole body. */
     try { if (FIG.zoomTo) FIG.zoomTo(S.gid || null, S.bodyView); } catch (e) {}
+    /* The split follows the state too, so a redraw does not leave a muscle
+       framed with its parts gone, or parts drawn over a body that has
+       zoomed back out. */
+    try {
+      if (S.split && FIG.showParts) FIG.showParts(S.split, S.bodyView);
+      else if (FIG.clearParts) FIG.clearParts();
+    } catch (e) {}
     var count = document.getElementById('libmap-count');
     if (count) count.textContent = pool().length + ' ' + LKPlural(pool().length, 'exercise');
     var note = document.getElementById('libmap-note');
@@ -2095,7 +2200,7 @@
       S.browse = el.getAttribute('data-browse') === 'map' ? 'map' : 'list';
       /* Going back to the body means going back to the whole body, so a
          filter left on from the lists does not silently follow you here. */
-      if (S.browse === 'map') { S.filter = 'all'; S.gid = null; }
+      if (S.browse === 'map') { S.filter = 'all'; S.gid = null; S.sub = null; S.split = null; }
       try { localStorage.setItem('lk_libBrowse', S.browse); } catch (e) {}
       render({ scrollTop: true });
     },
@@ -2104,11 +2209,20 @@
       if (FIG) FIG.setView(S.bodyView);
       syncMap();
     },
-    group: function (el) { S.gid = el.getAttribute('data-gid'); S.scope = 'group'; render({ scrollTop: true }); },
-    back: function () { S.gid = null; render({ scrollTop: true, focus: 'search-input' }); },
+    group: function (el) { S.gid = el.getAttribute('data-gid'); S.scope = 'group'; S.sub = null; S.split = null; render({ scrollTop: true }); },
+    /* BACK OUT OF A PART BEFORE BACKING OUT OF THE MUSCLE. With the
+       body split, the thing on screen is one part of one muscle, so the
+       first back goes to the whole muscle rather than all the way to the
+       figure. Two steps in, two steps out. */
+    back: function () {
+      if (S.sub) { S.sub = null; S.split = S.gid; render({ scrollTop: true }); return; }
+      if (S.split) { S.split = null; S.gid = null; S.zoomed = null; render({ scrollTop: true, focus: 'search-input' }); return; }
+      S.gid = null; S.zoomed = null;
+      render({ scrollTop: true, focus: 'search-input' });
+    },
     filter: function (el) {
       S.filter = el.getAttribute('data-filter');
-      S.gid = null;
+      S.gid = null; S.sub = null; S.split = null; S.zoomed = null;
       /* All and Custom are list shapes. Picking one puts the surface in the
          shape it named, rather than leaving the figure standing above it. */
       S.browse = 'list';
@@ -2421,7 +2535,8 @@
     ['Error', function () { reset(); S.status = 'error'; }]
   ];
   function reset() {
-    S.q = ''; input.value = ''; S.gid = null; S.scope = 'group'; S.filter = 'all';
+    S.q = ''; input.value = ''; S.gid = null; S.sub = null; S.split = null; S.zoomed = null;
+    S.scope = 'group'; S.filter = 'all';
     S.browse = 'map';
     S.sheet = null; S.days = false; S.create = null; S.toast = null; S.media = 'none';
     S.entry = 'tab'; S.status = 'ready'; S.customs = CUSTOMS.slice(); rebuild();

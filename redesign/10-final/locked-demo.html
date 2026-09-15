@@ -4722,6 +4722,39 @@ textarea,
   -webkit-overflow-scrolling: touch;
 }
 
+/* ---- THE SECOND TAP: A MUSCLE, SPLIT -------------------------------
+   Once the camera is in on a group that divides honestly, the group is
+   drawn again as its parts, in three lightnesses of its own hue. One hue
+   rather than three, because these are parts of one muscle and three
+   hues would read as three muscles.
+
+   The whole-group paint underneath stays where it is and is dimmed, so
+   the split reads as looking closer at the same thing rather than as the
+   screen changing to something else. */
+.map__svg[data-parts] .mg .mg__gnd { opacity: .18; }
+.map__svg[data-parts] .reach { pointer-events: none; }
+/* The bands have to take the tap themselves. `pointer-events: auto` on
+   the layer is inherited, and an SVG shape's default of visiblePainted
+   was not enough here: the fill arrives by inheritance from the group
+   that carries the shade, and the hit went through to the svg root.
+   Stated on the shape, where the tap lands. */
+.parts { pointer-events: auto; }
+.part { cursor: pointer; outline: none; pointer-events: all; }
+.part .part__gnd { pointer-events: all; }
+.part .part__gnd {
+  stroke: color-mix(in srgb, #000 55%, transparent);
+  stroke-width: 1.2;
+  transition: opacity var(--dur-fast, 140ms) ease;
+}
+/* The same 80ms answer to a finger every other control in the build
+   gives, because a part that does not move under the thumb reads as a
+   picture rather than as a button. */
+.part[data-press] .part__gnd { opacity: .7; }
+.part:focus-visible .part__gnd {
+  stroke: var(--focus, #FF8A3D);
+  stroke-width: 3;
+}
+
 
 </style>
 <style id="demo-chrome-css">
@@ -6988,8 +7021,18 @@ textarea,
       /* The belly carries the hue itself. The seam between two bellies is the
          same hue taken most of the way to black, so a muscle border reads as
          shadow between two masses rather than as an ink outline. */
+      /* THREE SHADES OF THE SAME MUSCLE. Once the camera is in close, a
+         group that divides honestly is drawn as its parts, and they have
+         to be told apart at a glance without becoming three different
+         muscles. So it is one hue at three lightnesses rather than three
+         hues: the part nearest the top of the body is the lightest, which
+         is also how the light falls on the figure already. */
       return '.mg--' + gid + ' .mg__gnd { fill: ' + v + '; ' +
              'stroke: color-mix(in srgb, ' + v + ' 22%, #000); }\n' +
+             '.part--' + gid + '[data-i="0"] { fill: color-mix(in srgb, ' + v + ' 74%, #fff); }\n' +
+             '.part--' + gid + '[data-i="1"] { fill: ' + v + '; }\n' +
+             '.part--' + gid + '[data-i="2"] { fill: color-mix(in srgb, ' + v + ' 72%, #000); }\n' +
+             '.part--' + gid + '[data-i="3"] { fill: color-mix(in srgb, ' + v + ' 50%, #000); }\n' +
              '.lab--' + gid + ' { color: ' + v + '; }\n' +
              '.pick__dot--' + gid + ' { background: ' + v + '; }';
     }).join('\n');
@@ -7012,9 +7055,41 @@ textarea,
      rather than a part of anybody. Drawing regions on those would be
      inventing anatomy, so a screen sends those groups straight to their
      exercises. */
-  function partsOf(gid, view) {
+  /* EVERY GROUP THAT HAS PARTS TO PICK, not only the two that divide
+     anatomically. Chest and back are still drawn as what they are: the
+     back's three muscles are separate shapes in the art, and the chest's
+     three heads are one sheet cut into bands, which is what the heads are.
+
+     For the rest the bands are a way of choosing rather than a diagram,
+     and that is a deliberate trade, made on purpose and worth naming. A
+     rear delt is on the far side of the shoulder; the triceps heads are
+     stacked, not banded from top to bottom. A band cannot be literally
+     where those muscles are. What it can be is a large, unambiguous
+     target that lands on the right list, in the right order, on a body
+     already in front of you, against scrolling past the same three
+     headings in a list of ninety-eight.
+
+     The names come from the caller, because the catalogue decides which
+     parts exist and this file has no business holding a second copy of
+     that list to forget to update. A group with one region has nothing to
+     pick between and returns nothing, which sends the screen straight to
+     its exercises, as it always did. */
+  function partsOf(gid, view, names) {
     var real = ART[view].parts && ART[view].parts[gid];
-    if (real) return { kind: 'muscles', names: Object.keys(real), paths: real };
+    /* One part is not a choice. From the front, the only piece of the back
+       the art draws is the trapezius, so this returned a split of one: a
+       layer built, drawn and thrown away, and a muscle that looked like it
+       was about to ask a question and then did not. */
+    if (real && Object.keys(real).length > 1) {
+      return { kind: 'muscles', names: Object.keys(real), paths: real };
+    }
+    /* And where the art draws only one piece of a group, that group does
+       not divide on this view at all. From the front the back is a
+       trapezius sliver either side of the neck; cutting it into the
+       catalogue's four bands would draw Lats and Lower Back across a
+       shape that contains neither. It goes to the list. */
+    if (real) return null;
+    if (names && names.length > 1) return { kind: 'bands', names: names.slice() };
     if (gid === 'chest') return { kind: 'bands', names: ['Upper', 'Mid', 'Lower'] };
     return null;
   }
@@ -7237,6 +7312,28 @@ textarea,
         cam.setAttribute('data-zoomed', 'false');
         return false;
       }
+      /* A PAIRED MUSCLE IS TWO MUSCLES WIDE, and framing both of them is
+         barely framing anything. The measured box for triceps spans from
+         one arm to the other across the whole figure, so the camera could
+         only reach 1.59x and the "zoom" left the entire body on screen.
+         Chest fills the frame at 2.6x because a chest is one shape in the
+         middle; an arm is two shapes at the edges.
+
+         So a group wider than half the figure is taken as a pair and
+         framed on one side of it. The other side is the same muscle
+         mirrored, and losing it buys a close-up where the parts are big
+         enough to read and to hit. Measured against the figure's own
+         width rather than a list of which groups are paired, so the arms,
+         the forearms and the delts are all caught without naming any of
+         them. */
+      var fig = FIGURE[v];
+      var paired = box[2] > fig[2] * 0.5;
+      if (paired) {
+        var mid = fig[0] + fig[2] / 2;
+        /* A little past the midline, so the inner edge of the muscle is
+           not shaved off by the frame. */
+        box = [box[0], box[1], Math.max(1, (mid + fig[2] * 0.04) - box[0]), box[3]];
+      }
       var b = boxIn(v, box);
       var pad = 26;
       var s = Math.min((VB.w - pad * 2) / b.w, (VB.h - pad * 2) / b.h);
@@ -7253,6 +7350,122 @@ textarea,
         'translate(' + n2(tx) + ' ' + n2(ty) + ') scale(' + (Math.round(s * 1e4) / 1e4) + ')');
       cam.setAttribute('data-zoomed', 'true');
       return true;
+    };
+
+    /* ---- THE SECOND TAP ------------------------------------------------
+
+       Tapping a muscle used to take the body off the screen and replace it
+       with every exercise for that group, which on chest is ninety-eight
+       rows with the parts written into headers you scroll past. The body
+       is the reason the map is here, and it left at the moment it became
+       most useful.
+
+       So the first tap frames the muscle and splits it. partsOf has been
+       in this file, exported and called by nothing, since the map was
+       built: chest is the clavicular, sternal and costal heads of one
+       continuous sheet, which have no border to draw and are therefore
+       three bands clipped out of the pectoral; back on the rear view is
+       three muscles the art already draws apart. The other ten do not
+       divide honestly, and for those this returns nothing and the screen
+       goes straight to the exercises, as it always did.
+
+       The layer lives inside the camera group, so it arrives with the
+       zoom rather than after it. */
+    var partsLayer = null;
+    api.clearParts = function () {
+      if (partsLayer && partsLayer.parentNode) partsLayer.parentNode.removeChild(partsLayer);
+      partsLayer = null;
+      svg.removeAttribute('data-parts');
+    };
+
+    api.showParts = function (gid, view) {
+      api.clearParts();
+      var v = view || api.view;
+      var spec = partsOf(gid, v, (opts.parts || {})[gid]);
+      if (!spec) return null;
+      var box = MEASURED[v] && MEASURED[v][gid];
+      if (!box) return null;
+
+      var layer = api.el('g', { class: 'parts', 'data-g': gid });
+      var names = [];
+
+      if (spec.kind === 'muscles') {
+        /* The art draws these apart already, so each is its own shape. */
+        spec.names.forEach(function (nm, i) {
+          var g = api.el('g', { class: 'part part--' + gid, 'data-i': String(i),
+                                'data-part': nm, role: 'button',
+                                tabindex: '0', 'aria-label': nm });
+          var inner = api.el('g', { transform: fitAttr(v) });
+          (spec.paths[nm] || []).forEach(function (d) {
+            inner.appendChild(api.el('path', { d: d, class: 'part__gnd' }));
+          });
+          g.appendChild(inner);
+          layer.appendChild(g);
+          names.push(nm);
+        });
+      } else {
+        /* BANDS. One sheet of muscle, cut into three across the body. The
+           cut is a clip rather than a border, because there is no border
+           on a person: the pectoral is continuous and the heads are where
+           the fibres run, not where the ink is. */
+        var b = boxIn(v, box);
+        var bands = spec.names.length;
+        spec.names.forEach(function (nm, i) {
+          var clip = 'prt-' + api.uid + '-' + v + '-' + gid + '-' + i;
+          var cp = api.el('clipPath', { id: clip, clipPathUnits: 'userSpaceOnUse' });
+          cp.appendChild(api.el('rect', {
+            x: n2(b.x - 4), y: n2(b.y + (b.h / bands) * i),
+            width: n2(b.w + 8), height: n2(b.h / bands + 0.4)
+          }));
+          api.defs.appendChild(cp);
+          var g = api.el('g', { class: 'part part--' + gid, 'data-i': String(i),
+                                'data-part': nm, role: 'button',
+                                tabindex: '0', 'aria-label': nm + ' ' + (GROUPS[gid] ? GROUPS[gid].name : gid),
+                                'clip-path': 'url(#' + clip + ')' });
+          var inner = api.el('g', { transform: fitAttr(v) });
+          (ART[v].groups[gid] || []).forEach(function (d) {
+            inner.appendChild(api.el('path', { d: d, class: 'part__gnd' }));
+          });
+          g.appendChild(inner);
+          layer.appendChild(g);
+          names.push(nm);
+        });
+      }
+
+      cam.appendChild(layer);
+      partsLayer = layer;
+      svg.setAttribute('data-parts', gid);
+
+      var pPressed = null;
+      function pUnpress() {
+        if (pPressed) pPressed.removeAttribute('data-press');
+        pPressed = null;
+      }
+      layer.addEventListener('pointerdown', function (e) {
+        var t = e.target && e.target.closest ? e.target.closest('[data-part]') : null;
+        if (!t) return;
+        pUnpress();
+        pPressed = t;
+        t.setAttribute('data-press', '');
+      });
+      ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) {
+        layer.addEventListener(ev, pUnpress);
+      });
+
+      layer.addEventListener('click', function (e) {
+        var t = e.target && e.target.closest ? e.target.closest('[data-part]') : null;
+        if (!t) return;
+        e.preventDefault();
+        if (opts.onPart) opts.onPart(gid, t.getAttribute('data-part'));
+      });
+      layer.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        var t = e.target && e.target.closest ? e.target.closest('[data-part]') : null;
+        if (!t) return;
+        e.preventDefault();
+        if (opts.onPart) opts.onPart(gid, t.getAttribute('data-part'));
+      });
+      return names;
     };
 
     shadeDefs(api);
@@ -7282,6 +7495,17 @@ textarea,
     };
 
     function choose(target, e) {
+      /* A TAP INSIDE THE SPLIT BELONGS TO THE PART. The parts layer sits
+         over the muscle it came from, so a tap on a band reaches this
+         handler as well. It used to carry data-g, which made it look like
+         the muscle itself: choosing Upper Chest re-selected Chest, which
+         redrew the split, which put the screen back exactly where it had
+         been. The band was tappable, the handler ran, and nothing moved.
+
+         The parts do not carry data-g any more, and this refuses anything
+         inside the layer regardless, because the two handlers overlap by
+         design and only one of them can win. */
+      if (target && target.closest && target.closest('.parts')) return false;
       var t = target && target.closest ? target.closest('[data-g]') : null;
       if (!t) return false;
       if (e) e.preventDefault();
@@ -39933,6 +40157,13 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
     items: [],
     q: '',
     gid: null,
+    split: null,          /* a group open on the map with its parts drawn,
+                             waiting for the second tap. Null for the ten
+                             groups that do not divide honestly, which go
+                             straight to their exercises. */
+    sub: null,            /* the part chosen by that second tap, which is
+                             what the list is narrowed to */
+    zoomed: null,         /* the group the camera is framing */
     browse: 'map',        /* map | list, how the groups are chosen. The
                              body is what the library opens on: it names
                              the muscle you mean without you naming it. */
@@ -40239,13 +40470,46 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
       (short ? '<p class="t-detail quiet mt-3 gutter" data-testid="catalogue-short">' + esc(short) + '</p>' : '');
   }
 
+  /* The map names a part the way a person would -- "Upper", "Lats" -- and
+     the catalogue files it under an id. One is matched to the other here
+     rather than by keeping a second copy of the names in the map, which
+     would be a list to forget to update. */
+  function sidForPart(gid, part) {
+    if (!gid || !part) return null;
+    var subs = GROUP_INDEX[GORDER[gid]] && GROUP_INDEX[GORDER[gid]][2];
+    if (!subs) return null;
+    var want = String(part).toLowerCase();
+    for (var i = 0; i < subs.length; i++) {
+      var id = String(subs[i][0]).toLowerCase();
+      var label = String(subs[i][1]).toLowerCase();
+      if (id === want || label === want) return subs[i][0];
+      /* "Upper" against "Upper Chest", "Lower Back" against "Lower Back". */
+      if (label.indexOf(want) === 0 || want.indexOf(label) === 0) return subs[i][0];
+    }
+    return null;
+  }
+
   function viewGroup(gid) {
     var list = inGroup(gid), out = '';
+    /* A PART CHOSEN ON THE BODY IS THE WHOLE LIST. Picking Upper Chest on
+       the figure and then being given all ninety-eight chest exercises
+       with Upper Chest as the first of three headings is the screen
+       ignoring what was just asked. The other parts are still one tap
+       away, on the body, where they were chosen. */
+    var only = S.sub ? sidForPart(gid, S.sub) : null;
     GROUP_INDEX[GORDER[gid]][2].forEach(function (s) {
+      if (only && s[0] !== only) return;
       var rows = list.filter(function (x) { return x.sid === s[0]; });
       if (!rows.length) return;
       out += head(esc(s[1]), n(rows.length)) + listCard(rows.map(exRow));
     });
+    /* A part the catalogue has nothing filed under is not a dead screen. */
+    if (only && !out) {
+      out = head(esc(GNAME[gid]), n(list.length)) +
+        '<p class="t-detail quiet mt-2 gutter" data-testid="sub-empty">Nothing is filed under ' +
+        esc(S.sub) + ' yet, so this is the whole group.</p>' +
+        listCard(list.map(exRow));
+    }
     return out;
   }
 
@@ -40341,6 +40605,12 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
           '</button>'
         ]));
     }
+    /* WHILE THE MUSCLE IS SPLIT, THE BODY IS THE SCREEN. The figure is a
+       sibling of this surface rather than part of it, so rendering the
+       group's list here at the same time puts the list under the figure
+       and scrolls the figure off the top: the split is drawn, correct,
+       and out of sight. Nothing below until a part has been picked. */
+    if (S.split) return '';
     if (S.gid) return viewGroup(S.gid);
     return viewGroups();
   }
@@ -40875,7 +41145,11 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
   }
 
   function syncMap() {
-    var on = S.browse === 'map' && !S.gid && !S.q.trim() &&
+    /* THE MAP STAYS UP WHILE A MUSCLE IS OPEN ON IT. A group being chosen
+       used to take the body off the screen, which is the moment the body
+       was most worth looking at. It stays while S.split holds a group
+       that divides, and leaves once a part has been picked. */
+    var on = S.browse === 'map' && (!S.gid || S.split) && !S.q.trim() &&
              S.filter !== 'custom' && S.status === 'ready';
     libmap.hidden = !on;
     scroller.classList.toggle('body--figure', on);
@@ -40883,6 +41157,32 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
     if (!FIG) {
       FIG = LKBodyMap.mount(mapFrame, {
         groups: mapGroups(), order: GROUP_INDEX.map(function (g) { return g[0]; }),
+        /* WHICH PARTS EACH MUSCLE HAS, from the catalogue rather than from
+           a list kept twice. Six of the twelve have more than one region
+           filed under them and get the split: chest, back, shoulders,
+           triceps, biceps and abs. The other six have a single region, so
+           there is nothing to choose between and tapping them goes
+           straight to their exercises.
+
+           The labels are shortened where the group's own name is already
+           on the header above them: "Upper Chest" inside Chest is "Upper",
+           because a band the size of a pectoral is not the place to read
+           a word you can already see. */
+        parts: (function () {
+          var out = {};
+          GROUP_INDEX.forEach(function (g) {
+            if (!g[2] || g[2].length < 2) return;
+            var gname = g[1];
+            out[g[0]] = g[2].map(function (sub) {
+              var label = sub[1];
+              if (label.length > gname.length && label.slice(-gname.length) === gname) {
+                label = label.slice(0, -gname.length).trim() || label;
+              }
+              return label;
+            });
+          });
+          return out;
+        })(),
         onSelect: function (gid) {
           /* The same destination a row in the list goes to. The map is a
              second way to the group, not a second flow. */
@@ -40895,6 +41195,28 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
              on this screen rather than a list of group names. */
           S.zoomed = gid;
           try { if (FIG && FIG.zoomTo) FIG.zoomTo(gid, S.bodyView); } catch (e) {}
+          /* AND THEN IT SPLITS, if this muscle divides honestly. Chest is
+             three bands of one sheet, back on the rear view is three
+             muscles drawn apart. The other ten would be invented anatomy,
+             so those go straight to their exercises the way they always
+             did. */
+          S.split = null;
+          try {
+            if (FIG && FIG.showParts) {
+              var names = FIG.showParts(gid, S.bodyView);
+              if (names && names.length > 1) S.split = gid;
+            }
+          } catch (e) {}
+          render({ scrollTop: true });
+        },
+        /* The second tap. A part narrows the list to that part, and the
+           body steps back out of the way now there is something to read. */
+        onPart: function (gid, part) {
+          S.gid = gid;
+          S.scope = 'group';
+          S.sub = part;
+          S.split = null;
+          try { if (FIG && FIG.clearParts) FIG.clearParts(); } catch (e) {}
           render({ scrollTop: true });
         }
       });
@@ -40905,6 +41227,13 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
        person who comes back to the map with a group still chosen should
        find it framed, not snapped back to the whole body. */
     try { if (FIG.zoomTo) FIG.zoomTo(S.gid || null, S.bodyView); } catch (e) {}
+    /* The split follows the state too, so a redraw does not leave a muscle
+       framed with its parts gone, or parts drawn over a body that has
+       zoomed back out. */
+    try {
+      if (S.split && FIG.showParts) FIG.showParts(S.split, S.bodyView);
+      else if (FIG.clearParts) FIG.clearParts();
+    } catch (e) {}
     var count = document.getElementById('libmap-count');
     if (count) count.textContent = pool().length + ' ' + LKPlural(pool().length, 'exercise');
     var note = document.getElementById('libmap-note');
@@ -41061,7 +41390,7 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
       S.browse = el.getAttribute('data-browse') === 'map' ? 'map' : 'list';
       /* Going back to the body means going back to the whole body, so a
          filter left on from the lists does not silently follow you here. */
-      if (S.browse === 'map') { S.filter = 'all'; S.gid = null; }
+      if (S.browse === 'map') { S.filter = 'all'; S.gid = null; S.sub = null; S.split = null; }
       try { localStorage.setItem('lk_libBrowse', S.browse); } catch (e) {}
       render({ scrollTop: true });
     },
@@ -41070,11 +41399,20 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
       if (FIG) FIG.setView(S.bodyView);
       syncMap();
     },
-    group: function (el) { S.gid = el.getAttribute('data-gid'); S.scope = 'group'; render({ scrollTop: true }); },
-    back: function () { S.gid = null; render({ scrollTop: true, focus: 'search-input' }); },
+    group: function (el) { S.gid = el.getAttribute('data-gid'); S.scope = 'group'; S.sub = null; S.split = null; render({ scrollTop: true }); },
+    /* BACK OUT OF A PART BEFORE BACKING OUT OF THE MUSCLE. With the
+       body split, the thing on screen is one part of one muscle, so the
+       first back goes to the whole muscle rather than all the way to the
+       figure. Two steps in, two steps out. */
+    back: function () {
+      if (S.sub) { S.sub = null; S.split = S.gid; render({ scrollTop: true }); return; }
+      if (S.split) { S.split = null; S.gid = null; S.zoomed = null; render({ scrollTop: true, focus: 'search-input' }); return; }
+      S.gid = null; S.zoomed = null;
+      render({ scrollTop: true, focus: 'search-input' });
+    },
     filter: function (el) {
       S.filter = el.getAttribute('data-filter');
-      S.gid = null;
+      S.gid = null; S.sub = null; S.split = null; S.zoomed = null;
       /* All and Custom are list shapes. Picking one puts the surface in the
          shape it named, rather than leaving the figure standing above it. */
       S.browse = 'list';
@@ -41387,7 +41725,8 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
     ['Error', function () { reset(); S.status = 'error'; }]
   ];
   function reset() {
-    S.q = ''; input.value = ''; S.gid = null; S.scope = 'group'; S.filter = 'all';
+    S.q = ''; input.value = ''; S.gid = null; S.sub = null; S.split = null; S.zoomed = null;
+    S.scope = 'group'; S.filter = 'all';
     S.browse = 'map';
     S.sheet = null; S.days = false; S.create = null; S.toast = null; S.media = 'none';
     S.entry = 'tab'; S.status = 'ready'; S.customs = CUSTOMS.slice(); rebuild();

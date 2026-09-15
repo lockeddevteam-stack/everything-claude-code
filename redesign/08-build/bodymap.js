@@ -195,8 +195,18 @@
       /* The belly carries the hue itself. The seam between two bellies is the
          same hue taken most of the way to black, so a muscle border reads as
          shadow between two masses rather than as an ink outline. */
+      /* THREE SHADES OF THE SAME MUSCLE. Once the camera is in close, a
+         group that divides honestly is drawn as its parts, and they have
+         to be told apart at a glance without becoming three different
+         muscles. So it is one hue at three lightnesses rather than three
+         hues: the part nearest the top of the body is the lightest, which
+         is also how the light falls on the figure already. */
       return '.mg--' + gid + ' .mg__gnd { fill: ' + v + '; ' +
              'stroke: color-mix(in srgb, ' + v + ' 22%, #000); }\n' +
+             '.part--' + gid + '[data-i="0"] { fill: color-mix(in srgb, ' + v + ' 74%, #fff); }\n' +
+             '.part--' + gid + '[data-i="1"] { fill: ' + v + '; }\n' +
+             '.part--' + gid + '[data-i="2"] { fill: color-mix(in srgb, ' + v + ' 72%, #000); }\n' +
+             '.part--' + gid + '[data-i="3"] { fill: color-mix(in srgb, ' + v + ' 50%, #000); }\n' +
              '.lab--' + gid + ' { color: ' + v + '; }\n' +
              '.pick__dot--' + gid + ' { background: ' + v + '; }';
     }).join('\n');
@@ -219,9 +229,41 @@
      rather than a part of anybody. Drawing regions on those would be
      inventing anatomy, so a screen sends those groups straight to their
      exercises. */
-  function partsOf(gid, view) {
+  /* EVERY GROUP THAT HAS PARTS TO PICK, not only the two that divide
+     anatomically. Chest and back are still drawn as what they are: the
+     back's three muscles are separate shapes in the art, and the chest's
+     three heads are one sheet cut into bands, which is what the heads are.
+
+     For the rest the bands are a way of choosing rather than a diagram,
+     and that is a deliberate trade, made on purpose and worth naming. A
+     rear delt is on the far side of the shoulder; the triceps heads are
+     stacked, not banded from top to bottom. A band cannot be literally
+     where those muscles are. What it can be is a large, unambiguous
+     target that lands on the right list, in the right order, on a body
+     already in front of you, against scrolling past the same three
+     headings in a list of ninety-eight.
+
+     The names come from the caller, because the catalogue decides which
+     parts exist and this file has no business holding a second copy of
+     that list to forget to update. A group with one region has nothing to
+     pick between and returns nothing, which sends the screen straight to
+     its exercises, as it always did. */
+  function partsOf(gid, view, names) {
     var real = ART[view].parts && ART[view].parts[gid];
-    if (real) return { kind: 'muscles', names: Object.keys(real), paths: real };
+    /* One part is not a choice. From the front, the only piece of the back
+       the art draws is the trapezius, so this returned a split of one: a
+       layer built, drawn and thrown away, and a muscle that looked like it
+       was about to ask a question and then did not. */
+    if (real && Object.keys(real).length > 1) {
+      return { kind: 'muscles', names: Object.keys(real), paths: real };
+    }
+    /* And where the art draws only one piece of a group, that group does
+       not divide on this view at all. From the front the back is a
+       trapezius sliver either side of the neck; cutting it into the
+       catalogue's four bands would draw Lats and Lower Back across a
+       shape that contains neither. It goes to the list. */
+    if (real) return null;
+    if (names && names.length > 1) return { kind: 'bands', names: names.slice() };
     if (gid === 'chest') return { kind: 'bands', names: ['Upper', 'Mid', 'Lower'] };
     return null;
   }
@@ -444,6 +486,28 @@
         cam.setAttribute('data-zoomed', 'false');
         return false;
       }
+      /* A PAIRED MUSCLE IS TWO MUSCLES WIDE, and framing both of them is
+         barely framing anything. The measured box for triceps spans from
+         one arm to the other across the whole figure, so the camera could
+         only reach 1.59x and the "zoom" left the entire body on screen.
+         Chest fills the frame at 2.6x because a chest is one shape in the
+         middle; an arm is two shapes at the edges.
+
+         So a group wider than half the figure is taken as a pair and
+         framed on one side of it. The other side is the same muscle
+         mirrored, and losing it buys a close-up where the parts are big
+         enough to read and to hit. Measured against the figure's own
+         width rather than a list of which groups are paired, so the arms,
+         the forearms and the delts are all caught without naming any of
+         them. */
+      var fig = FIGURE[v];
+      var paired = box[2] > fig[2] * 0.5;
+      if (paired) {
+        var mid = fig[0] + fig[2] / 2;
+        /* A little past the midline, so the inner edge of the muscle is
+           not shaved off by the frame. */
+        box = [box[0], box[1], Math.max(1, (mid + fig[2] * 0.04) - box[0]), box[3]];
+      }
       var b = boxIn(v, box);
       var pad = 26;
       var s = Math.min((VB.w - pad * 2) / b.w, (VB.h - pad * 2) / b.h);
@@ -460,6 +524,122 @@
         'translate(' + n2(tx) + ' ' + n2(ty) + ') scale(' + (Math.round(s * 1e4) / 1e4) + ')');
       cam.setAttribute('data-zoomed', 'true');
       return true;
+    };
+
+    /* ---- THE SECOND TAP ------------------------------------------------
+
+       Tapping a muscle used to take the body off the screen and replace it
+       with every exercise for that group, which on chest is ninety-eight
+       rows with the parts written into headers you scroll past. The body
+       is the reason the map is here, and it left at the moment it became
+       most useful.
+
+       So the first tap frames the muscle and splits it. partsOf has been
+       in this file, exported and called by nothing, since the map was
+       built: chest is the clavicular, sternal and costal heads of one
+       continuous sheet, which have no border to draw and are therefore
+       three bands clipped out of the pectoral; back on the rear view is
+       three muscles the art already draws apart. The other ten do not
+       divide honestly, and for those this returns nothing and the screen
+       goes straight to the exercises, as it always did.
+
+       The layer lives inside the camera group, so it arrives with the
+       zoom rather than after it. */
+    var partsLayer = null;
+    api.clearParts = function () {
+      if (partsLayer && partsLayer.parentNode) partsLayer.parentNode.removeChild(partsLayer);
+      partsLayer = null;
+      svg.removeAttribute('data-parts');
+    };
+
+    api.showParts = function (gid, view) {
+      api.clearParts();
+      var v = view || api.view;
+      var spec = partsOf(gid, v, (opts.parts || {})[gid]);
+      if (!spec) return null;
+      var box = MEASURED[v] && MEASURED[v][gid];
+      if (!box) return null;
+
+      var layer = api.el('g', { class: 'parts', 'data-g': gid });
+      var names = [];
+
+      if (spec.kind === 'muscles') {
+        /* The art draws these apart already, so each is its own shape. */
+        spec.names.forEach(function (nm, i) {
+          var g = api.el('g', { class: 'part part--' + gid, 'data-i': String(i),
+                                'data-part': nm, role: 'button',
+                                tabindex: '0', 'aria-label': nm });
+          var inner = api.el('g', { transform: fitAttr(v) });
+          (spec.paths[nm] || []).forEach(function (d) {
+            inner.appendChild(api.el('path', { d: d, class: 'part__gnd' }));
+          });
+          g.appendChild(inner);
+          layer.appendChild(g);
+          names.push(nm);
+        });
+      } else {
+        /* BANDS. One sheet of muscle, cut into three across the body. The
+           cut is a clip rather than a border, because there is no border
+           on a person: the pectoral is continuous and the heads are where
+           the fibres run, not where the ink is. */
+        var b = boxIn(v, box);
+        var bands = spec.names.length;
+        spec.names.forEach(function (nm, i) {
+          var clip = 'prt-' + api.uid + '-' + v + '-' + gid + '-' + i;
+          var cp = api.el('clipPath', { id: clip, clipPathUnits: 'userSpaceOnUse' });
+          cp.appendChild(api.el('rect', {
+            x: n2(b.x - 4), y: n2(b.y + (b.h / bands) * i),
+            width: n2(b.w + 8), height: n2(b.h / bands + 0.4)
+          }));
+          api.defs.appendChild(cp);
+          var g = api.el('g', { class: 'part part--' + gid, 'data-i': String(i),
+                                'data-part': nm, role: 'button',
+                                tabindex: '0', 'aria-label': nm + ' ' + (GROUPS[gid] ? GROUPS[gid].name : gid),
+                                'clip-path': 'url(#' + clip + ')' });
+          var inner = api.el('g', { transform: fitAttr(v) });
+          (ART[v].groups[gid] || []).forEach(function (d) {
+            inner.appendChild(api.el('path', { d: d, class: 'part__gnd' }));
+          });
+          g.appendChild(inner);
+          layer.appendChild(g);
+          names.push(nm);
+        });
+      }
+
+      cam.appendChild(layer);
+      partsLayer = layer;
+      svg.setAttribute('data-parts', gid);
+
+      var pPressed = null;
+      function pUnpress() {
+        if (pPressed) pPressed.removeAttribute('data-press');
+        pPressed = null;
+      }
+      layer.addEventListener('pointerdown', function (e) {
+        var t = e.target && e.target.closest ? e.target.closest('[data-part]') : null;
+        if (!t) return;
+        pUnpress();
+        pPressed = t;
+        t.setAttribute('data-press', '');
+      });
+      ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) {
+        layer.addEventListener(ev, pUnpress);
+      });
+
+      layer.addEventListener('click', function (e) {
+        var t = e.target && e.target.closest ? e.target.closest('[data-part]') : null;
+        if (!t) return;
+        e.preventDefault();
+        if (opts.onPart) opts.onPart(gid, t.getAttribute('data-part'));
+      });
+      layer.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        var t = e.target && e.target.closest ? e.target.closest('[data-part]') : null;
+        if (!t) return;
+        e.preventDefault();
+        if (opts.onPart) opts.onPart(gid, t.getAttribute('data-part'));
+      });
+      return names;
     };
 
     shadeDefs(api);
@@ -489,6 +669,17 @@
     };
 
     function choose(target, e) {
+      /* A TAP INSIDE THE SPLIT BELONGS TO THE PART. The parts layer sits
+         over the muscle it came from, so a tap on a band reaches this
+         handler as well. It used to carry data-g, which made it look like
+         the muscle itself: choosing Upper Chest re-selected Chest, which
+         redrew the split, which put the screen back exactly where it had
+         been. The band was tappable, the handler ran, and nothing moved.
+
+         The parts do not carry data-g any more, and this refuses anything
+         inside the layer regardless, because the two handlers overlap by
+         design and only one of them can win. */
+      if (target && target.closest && target.closest('.parts')) return false;
       var t = target && target.closest ? target.closest('[data-g]') : null;
       if (!t) return false;
       if (e) e.preventDefault();
