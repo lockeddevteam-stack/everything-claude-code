@@ -48,13 +48,27 @@
    cap because that is where the curated set already tops out.
    =================================================================== */
 (function (g) {
-  var CORE_MAX_ID = 1000;
   var PER_MUSCLE = 20;
 
+  /* THE SHORT LIST, BY MUSCLE AND NOTHING ELSE.
+
+     This used to also require id < 1000, on the reasoning that the low
+     ids are the lifts everybody knows. They are not: the catalogue's
+     numbering follows the order things were added to it, not how common
+     they are, and whole regions sit above the line. Every ab exercise
+     and every calf exercise has a four- or five-digit id -- so the short
+     list contained none of either, and the picker built on top of it
+     offered ten muscle groups out of twelve. Two parts of the body
+     simply could not be trained from it.
+
+     A cap per muscle is the only rule needed. Twenty of each is a menu;
+     the order the catalogue holds puts the plain barbell and dumbbell
+     movements first within a muscle anyway, which is what the id rule
+     was reaching for and getting wrong. */
   function condensed(rows) {
     var seen = {}, out = [];
     (rows || []).forEach(function (x) {
-      if (!x || x.id >= CORE_MAX_ID) return;
+      if (!x) return;
       var m = String(x.muscle || '');
       seen[m] = (seen[m] || 0) + 1;
       if (seen[m] <= PER_MUSCLE) out.push(x);
@@ -103,5 +117,93 @@
     } catch (e) {}
     return out;
   };
+  /* THE BODY, AS A TAXONOMY EVERY SCREEN CAN READ.
+
+     This table lived inside exercise-library.html, which is the reason
+     the library could be browsed by muscle and nothing else could. The
+     workout log's Add and Replace sheets fell back to what they could
+     reach -- a search field over a flat catalogue -- so picking a lift
+     mid-session meant reading a list of hundreds instead of pointing at
+     the part being trained. A taxonomy one screen owns is a taxonomy no
+     other screen has.
+
+     Groups are ordered the way a body is read, not alphabetically:
+     pushing muscles, pulling muscles, arms, then legs and trunk. */
+  API.groups = [
+    ['chest', 'Chest', [['upper', 'Upper Chest'], ['mid', 'Mid Chest'], ['lower', 'Lower Chest']]],
+    ['back', 'Back', [['lats', 'Lats'], ['midback', 'Mid Back'], ['lowerback', 'Lower Back'], ['traps', 'Traps']]],
+    ['shoulders', 'Shoulders', [['front', 'Front Delt'], ['side', 'Side Delt'], ['rear', 'Rear Delt']]],
+    ['triceps', 'Triceps', [['long', 'Long Head'], ['lateral', 'Lateral Head'], ['medial', 'Medial Head']]],
+    ['biceps', 'Biceps', [['long', 'Long Head'], ['short', 'Short Head']]],
+    ['forearms', 'Forearms', [['all', 'Forearms']]],
+    ['quads', 'Quads', [['all', 'Quads']]],
+    ['hams', 'Hamstrings', [['all', 'Hamstrings']]],
+    ['glutes', 'Glutes', [['all', 'Glutes']]],
+    ['adduc', 'Inner/Outer Thigh', [['all', 'Inner/Outer Thigh']]],
+    ['abs', 'Abs', [['weighted', 'Weighted'], ['bw', 'Bodyweight']]],
+    ['calves', 'Calves', [['all', 'Calves']]]
+  ];
+
+  var GID_BY_NAME = {};
+  var NAME_BY_GID = {};
+  API.groups.forEach(function (row) {
+    NAME_BY_GID[row[0]] = row[1];
+    GID_BY_NAME[String(row[1]).toLowerCase()] = row[0];
+  });
+  /* The catalogue spells a few groups differently from the body map's
+     own ids. Mapped rather than renamed, because the stored rows on
+     somebody's phone use the catalogue's spelling and a rename would
+     orphan every one of them. */
+  GID_BY_NAME.hamstrings = 'hams';
+  GID_BY_NAME.arms = 'biceps';
+  GID_BY_NAME.core = 'abs';
+  GID_BY_NAME.legs = 'quads';
+  GID_BY_NAME['inner/outer thigh'] = 'adduc';
+
+  /* Which part of the body a lift belongs to. Falls back to the muscle
+     when the group is missing, because a row that came from a session
+     carries a muscle and often no group at all. */
+  API.gidOf = function (row) {
+    if (!row) return null;
+    var byGroup = GID_BY_NAME[String(row.group || '').toLowerCase()];
+    if (byGroup) return byGroup;
+    var m = String(row.muscle || '').toLowerCase();
+    if (!m) return null;
+    var hit = null;
+    API.groups.forEach(function (gr) {
+      if (hit) return;
+      gr[2].forEach(function (sub) {
+        if (!hit && String(sub[1]).toLowerCase() === m) hit = gr[0];
+      });
+    });
+    if (hit) return hit;
+    /* "Upper Chest" with no group: the last word usually names the part. */
+    var words = m.split(/\s+/);
+    return GID_BY_NAME[words[words.length - 1]] || null;
+  };
+
+  API.groupName = function (gid) { return NAME_BY_GID[gid] || gid; };
+
+  /* Everything that trains one part, in the order the catalogue holds. */
+  API.inGroup = function (gid, rows) {
+    var list = rows || API.all();
+    return list.filter(function (x) { return API.gidOf(x) === gid; });
+  };
+
+  /* How many lifts each part has, which is what the figure labels itself
+     with. Counted off whatever list is handed in, so a short list and the
+     full catalogue each report their own totals rather than one lying
+     about the other. */
+  API.groupCounts = function (rows) {
+    var list = rows || API.all();
+    var out = {};
+    API.groups.forEach(function (gr) { out[gr[0]] = { name: gr[1], n: 0 }; });
+    list.forEach(function (x) {
+      var gid = API.gidOf(x);
+      if (gid && out[gid]) out[gid].n++;
+    });
+    return out;
+  };
+
   g.LKExercises = API;
 }(typeof window !== 'undefined' ? window : this));

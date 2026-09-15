@@ -141,7 +141,11 @@
     fuel: svg('<path d="M12 21c4 0 6-2.7 6-6 0-4-3-6-3-10-3 1.5-4 3.5-4 6-1 0-2-1-2-2.5C7.5 10 6 12 6 15c0 3.3 2 6 6 6z"/>'),
     coach: svg('<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M12 13v4M9 21h6"/>'),
     person: svg('<circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/>'),
-    search: svg('<circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/>')
+    search: svg('<circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/>'),
+    /* The picker's two directions: into a muscle group, and back out of
+       one to the body. */
+    chev: svg('<path d="m9 5 7 7-7 7"/>'),
+    chevLeft: svg('<path d="m15 5-7 7 7 7"/>')
   };
 
   /* =============================================================
@@ -494,6 +498,11 @@
     restLeft: (window.LKRest ? LKRest.left() : 0),
     restRunning: !!(window.LKRest && LKRest.running()),
     pad: null,               /* { ex, set, field, buffer, replaced } */
+    /* WHICH PART OF THE BODY the picker is showing, and which way the
+       figure faces. null means the figure itself is on screen: the way
+       in is pointing at what you are training, not reading a list. */
+    addexGid: null,
+    addexView: 'front',
     overlay: null,           /* tools | plates | rest | sheet | detail | block | addex | discard */
     overlayEx: 0,
     plate: { total: 20, bar: 20, added: [], perSide: true },
@@ -1553,11 +1562,123 @@
           '<label class="vis-hidden" for="addex-q">Search all exercises</label>' +
           '<input class="input" id="addex-q" data-act="addex-q" data-testid="addex-search" ' +
             'value="' + esc(S.addexQ || '') + '" autocomplete="off" placeholder="Search all exercises"></div>' +
-        '<p class="t-meta mt-2" data-testid="addex-count">' + n(LIBRARY.length) + ' ' + LKPlural(LIBRARY.length, 'exercise') +
-          (LIBRARY_FULL ? '' : ', which is all this build could read from here') + '</p>' +
-        '<div class="sheet__body mt-3">' + addExList() +
+        '<div class="sheet__body mt-3">' + addExBody() +
         '</div>' +
       '</div>';
+  }
+
+  /* THE FIGURE FIRST, THEN THE LIFTS.
+
+     This sheet used to open on a search field over the whole catalogue.
+     866 lifts in a scroll is a reference book, and nobody reads a
+     reference book between sets -- the question in the gym is "what else
+     hits this", and the fastest way to ask it is to point at the part.
+
+     Three states, and the reader is never more than one tap from the one
+     before: the body, then one group's lifts, and search cutting across
+     both at any time. */
+  function addExBody() {
+    var q = (S.addexQ || '').trim();
+    if (q) return addExList();
+    if (!S.addexGid) return addExMapHTML();
+    return addExGroupHTML();
+  }
+
+  function addExMapHTML() {
+    var counts = (window.LKExercises && LKExercises.groupCounts)
+      ? LKExercises.groupCounts(offeredLibrary()) : {};
+    var cur = S.swapAt !== null && S.exercises[S.swapAt];
+    return '<div class="addexmap" data-testid="addex-map">' +
+      '<div class="addexmap__fig" id="addex-fig"></div>' +
+      '<div class="addexmap__side">' +
+        /* `seg`, the same control the library's figure uses. A second
+           spelling of the same thing is a second thing to keep in step. */
+        '<div class="seg" role="tablist" aria-label="Body view">' +
+          ['front', 'back'].map(function (v) {
+            return '<button class="seg__item" type="button" role="tab" data-act="addex-view" ' +
+              'data-view="' + v + '" data-testid="addex-view-' + v + '" ' +
+              'aria-selected="' + (S.addexView === v ? 'true' : 'false') + '">' +
+              (v === 'front' ? 'Front' : 'Back') + '</button>';
+          }).join('') +
+        '</div>' +
+      '</div>' +
+      '<p class="t-detail muted mt-2" data-testid="addex-map-note">' +
+        (cur ? 'Tap the part you want instead of ' + esc(cur.name) + '.'
+             : 'Tap the part you are training.') +
+      '</p>' +
+      /* The names as well as the figure. A body is faster for somebody
+         who knows where a muscle is and useless to somebody who does
+         not, and a list of twelve is not the list of 866 this replaced. */
+      '<div class="card card--flush mt-3" data-testid="addex-groups">' +
+        (window.LKExercises ? LKExercises.groups : []).map(function (gr) {
+          var c = counts[gr[0]] || { n: 0 };
+          if (!c.n) return '';
+          return '<button class="row" type="button" data-act="addex-group" ' +
+            'data-gid="' + gr[0] + '" data-testid="addex-group-' + gr[0] + '">' +
+            '<span class="row__main"><span class="row__title">' + esc(gr[1]) + '</span></span>' +
+            '<span class="t-meta num">' + c.n + '</span>' +
+            '<span class="row__chev">' + ICO.chev + '</span></button>';
+        }).join('') +
+      '</div>';
+  }
+
+  function addExGroupHTML() {
+    var name = (window.LKExercises && LKExercises.groupName)
+      ? LKExercises.groupName(S.addexGid) : S.addexGid;
+    return '<div class="spread" data-testid="addex-crumb">' +
+        '<button class="btn btn--tertiary btn--sm" type="button" data-act="addex-back" ' +
+          'data-testid="addex-back">' + ICO.chevLeft + '<span class="btn__label">Body</span></button>' +
+        '<span class="t-label">' + esc(name) + '</span>' +
+      '</div>' + addExList();
+  }
+
+  /* THE FIGURE, BUILT ONCE THE SHEET IS ON SCREEN.
+
+     LKBodyMap draws into a host element, so it cannot be part of the
+     HTML string the sheet is patched in from -- it is mounted after,
+     against the slot that string left for it. The sheet is rebuilt on
+     every paint, so the figure is rebuilt with it rather than kept: a
+     kept one would be pointing at a detached node the moment anything
+     re-rendered.
+
+     The library owns the same figure on its own screen. What is shared
+     is the module and the taxonomy behind it, not the flow: there it is
+     a way to browse, here it is a way to answer one question and get
+     back to the set you were in the middle of. */
+  var ADDEX_FIG = null;
+  function syncAddexFigure() {
+    var slot = document.getElementById('addex-fig');
+    if (!slot || !window.LKBodyMap || !window.LKExercises) { ADDEX_FIG = null; return; }
+    if (slot.firstChild) return;
+    try {
+      ADDEX_FIG = LKBodyMap.mount(slot, {
+        groups: LKExercises.groupCounts(offeredLibrary()),
+        order: LKExercises.groups.map(function (gr) { return gr[0]; }),
+        view: S.addexView,
+        onSelect: function (gid) {
+          S.addexGid = gid;
+          S.addexN = ADDEX_PAGE;
+          paint();
+        }
+      });
+      if (ADDEX_FIG.setView) ADDEX_FIG.setView(S.addexView);
+      /* Replacing a lift lights the part it trains, so the figure opens
+         already answering "where am I". */
+      if (ADDEX_FIG.select && S.swapAt !== null && S.exercises[S.swapAt]) {
+        ADDEX_FIG.select(LKExercises.gidOf(S.exercises[S.swapAt]));
+      }
+    } catch (e) { ADDEX_FIG = null; }
+  }
+
+  /* The list the sheet is willing to show: the short one unless the
+     reader asked for everything. Shared so the figure's counts and the
+     rows underneath it can never disagree. */
+  function offeredLibrary() {
+    if (!S.addexAll && window.LKExercises && LKExercises.offered) {
+      var short = LKExercises.offered(LIBRARY);
+      if (short.length) return short;
+    }
+    return LIBRARY;
   }
 
   /* The list the search actually filters. It was rendered straight from
@@ -1579,12 +1700,24 @@
        A plain Add is unchanged: there the whole library IS the answer. */
     var swapping = S.swapAt !== null && S.exercises[S.swapAt];
     var sameOnly = false;
+    /* With a part chosen by hand, the reader has already said what they
+       want; re-sorting by "related to the one being replaced" would
+       quietly put a different muscle back on top. */
+    if (S.addexGid) swapping = false;
 
     /* THE SHORT LIST, unless the reader asked for the whole catalogue.
        866 lifts is a reference; picking one mid-session is a menu. */
     if (!S.addexAll && window.LKExercises && LKExercises.offered) {
       var offered = LKExercises.offered(all);
       if (offered.length) all = offered;
+    }
+
+    /* AND ONLY THE PART THAT WAS TAPPED. With a group chosen off the
+       figure, the list is that group -- which is the whole point of
+       having pointed at it. Search cuts across the body, so a query
+       clears the group rather than being trapped inside it. */
+    if (S.addexGid && !q && window.LKExercises && LKExercises.gidOf) {
+      all = all.filter(function (x) { return LKExercises.gidOf(x) === S.addexGid; });
     }
 
     /* RELATED MUSCLES, not one muscle. Replacing an incline press offered
@@ -1906,6 +2039,7 @@
 
     var nowOverlay = !!(S.overlay || S.pad);
     renderedOverlay = nowOverlay;
+    syncAddexFigure();
 
     /* Opening takes focus to the way OUT, never to the destructive control.
        Closing puts it back on whatever opened the thing, so the next Tab
@@ -2276,6 +2410,13 @@
            one is being replaced, and the picker reads it. */
         if (key === 'swap') {
           S.swapAt = S.overlayEx; S.addexAll = false; S.addexQ = ''; S.addexN = ADDEX_PAGE;
+          /* REPLACE OPENS ON THE BODY TOO, with the part the current lift
+             trains already lit. Most replacements stay in the same place
+             -- another chest press for a chest press -- so that is one
+             tap; going somewhere else is the same tap on a different
+             muscle, rather than a search field over the whole catalogue. */
+          S.addexGid = (window.LKExercises && LKExercises.gidOf)
+            ? LKExercises.gidOf(S.exercises[S.overlayEx] || null) : null;
           S.overlay = 'addex'; break;
         }
         if (key === 'superset') {
@@ -2416,7 +2557,26 @@
       }
 
       /* ---- add exercise, block ---- */
-      case 'addex': S.overlay = 'addex'; S.addexN = ADDEX_PAGE; break;
+      case 'addex':
+        S.overlay = 'addex';
+        S.addexN = ADDEX_PAGE;
+        /* Opens on the body, every time. A group left over from the last
+           lift added is not an answer to this one. */
+        S.addexGid = null;
+        S.addexQ = '';
+        break;
+      /* ---- the picker's body ---- */
+      case 'addex-group':
+        S.addexGid = t.getAttribute('data-gid') || null;
+        S.addexN = ADDEX_PAGE;
+        break;
+      case 'addex-back':
+        S.addexGid = null;
+        S.addexN = ADDEX_PAGE;
+        break;
+      case 'addex-view':
+        S.addexView = t.getAttribute('data-view') === 'back' ? 'back' : 'front';
+        break;
       case 'addex-more': S.addexN = (S.addexN || ADDEX_PAGE) + ADDEX_PAGE; break;
       case 'addex-pick': {
         var pick = LIBRARY[Number(t.getAttribute('data-i'))];
@@ -2635,7 +2795,7 @@
       }
       /* swapAt goes with the picker. Left set, the next plain "Add
          Exercise" would replace instead of adding. */
-      case 'close': S.overlay = null; S.swapAt = null; S.addexQ = ''; break;
+      case 'close': S.overlay = null; S.swapAt = null; S.addexQ = ''; S.addexGid = null; break;
       default: break;
     }
     paint();
@@ -2915,7 +3075,14 @@
       return;
     }
     var q = ev.target.closest('[data-act="addex-q"]');
-    if (q) { S.addexQ = q.value; S.addexN = ADDEX_PAGE; paint(); }
+    if (q) {
+      S.addexQ = q.value;
+      S.addexN = ADDEX_PAGE;
+      /* A search is a question about the whole body. Leaving the chosen
+         part in place would silently hide most of the answers. */
+      if (S.addexQ.trim()) S.addexGid = null;
+      paint();
+    }
   });
   document.addEventListener('keydown', function (ev) {
     if (ev.key === 'Escape') {

@@ -4442,6 +4442,25 @@ button.shelf:active { background: var(--fill-press); }
 .setgrid > *,
 .exc__grip { touch-action: pan-y; }
 
+/* THE PICKER'S BODY.
+
+   The add/replace sheet opens on a figure now, so it needs a frame the
+   figure can be read in at sheet height: tall enough that a muscle is a
+   target rather than a pixel, short enough that the group list under it
+   is visible without scrolling first. 46vh is about a third of the sheet
+   on a phone, which leaves three or four group rows showing -- enough to
+   tell the reader the list is there. */
+.addexmap { display: block; }
+.addexmap__fig {
+  position: relative;
+  height: 46vh;
+  min-height: 240px;
+  max-height: 420px;
+  margin-inline: auto;
+  max-width: 320px;
+}
+.addexmap__side { display: flex; justify-content: center; margin-top: var(--sp-2); }
+
 
 </style>
 <style id="demo-chrome-css">
@@ -12499,13 +12518,27 @@ button.shelf:active { background: var(--fill-press); }
    cap because that is where the curated set already tops out.
    =================================================================== */
 (function (g) {
-  var CORE_MAX_ID = 1000;
   var PER_MUSCLE = 20;
 
+  /* THE SHORT LIST, BY MUSCLE AND NOTHING ELSE.
+
+     This used to also require id < 1000, on the reasoning that the low
+     ids are the lifts everybody knows. They are not: the catalogue's
+     numbering follows the order things were added to it, not how common
+     they are, and whole regions sit above the line. Every ab exercise
+     and every calf exercise has a four- or five-digit id -- so the short
+     list contained none of either, and the picker built on top of it
+     offered ten muscle groups out of twelve. Two parts of the body
+     simply could not be trained from it.
+
+     A cap per muscle is the only rule needed. Twenty of each is a menu;
+     the order the catalogue holds puts the plain barbell and dumbbell
+     movements first within a muscle anyway, which is what the id rule
+     was reaching for and getting wrong. */
   function condensed(rows) {
     var seen = {}, out = [];
     (rows || []).forEach(function (x) {
-      if (!x || x.id >= CORE_MAX_ID) return;
+      if (!x) return;
       var m = String(x.muscle || '');
       seen[m] = (seen[m] || 0) + 1;
       if (seen[m] <= PER_MUSCLE) out.push(x);
@@ -12554,6 +12587,94 @@ button.shelf:active { background: var(--fill-press); }
     } catch (e) {}
     return out;
   };
+  /* THE BODY, AS A TAXONOMY EVERY SCREEN CAN READ.
+
+     This table lived inside exercise-library.html, which is the reason
+     the library could be browsed by muscle and nothing else could. The
+     workout log's Add and Replace sheets fell back to what they could
+     reach -- a search field over a flat catalogue -- so picking a lift
+     mid-session meant reading a list of hundreds instead of pointing at
+     the part being trained. A taxonomy one screen owns is a taxonomy no
+     other screen has.
+
+     Groups are ordered the way a body is read, not alphabetically:
+     pushing muscles, pulling muscles, arms, then legs and trunk. */
+  API.groups = [
+    ['chest', 'Chest', [['upper', 'Upper Chest'], ['mid', 'Mid Chest'], ['lower', 'Lower Chest']]],
+    ['back', 'Back', [['lats', 'Lats'], ['midback', 'Mid Back'], ['lowerback', 'Lower Back'], ['traps', 'Traps']]],
+    ['shoulders', 'Shoulders', [['front', 'Front Delt'], ['side', 'Side Delt'], ['rear', 'Rear Delt']]],
+    ['triceps', 'Triceps', [['long', 'Long Head'], ['lateral', 'Lateral Head'], ['medial', 'Medial Head']]],
+    ['biceps', 'Biceps', [['long', 'Long Head'], ['short', 'Short Head']]],
+    ['forearms', 'Forearms', [['all', 'Forearms']]],
+    ['quads', 'Quads', [['all', 'Quads']]],
+    ['hams', 'Hamstrings', [['all', 'Hamstrings']]],
+    ['glutes', 'Glutes', [['all', 'Glutes']]],
+    ['adduc', 'Inner/Outer Thigh', [['all', 'Inner/Outer Thigh']]],
+    ['abs', 'Abs', [['weighted', 'Weighted'], ['bw', 'Bodyweight']]],
+    ['calves', 'Calves', [['all', 'Calves']]]
+  ];
+
+  var GID_BY_NAME = {};
+  var NAME_BY_GID = {};
+  API.groups.forEach(function (row) {
+    NAME_BY_GID[row[0]] = row[1];
+    GID_BY_NAME[String(row[1]).toLowerCase()] = row[0];
+  });
+  /* The catalogue spells a few groups differently from the body map's
+     own ids. Mapped rather than renamed, because the stored rows on
+     somebody's phone use the catalogue's spelling and a rename would
+     orphan every one of them. */
+  GID_BY_NAME.hamstrings = 'hams';
+  GID_BY_NAME.arms = 'biceps';
+  GID_BY_NAME.core = 'abs';
+  GID_BY_NAME.legs = 'quads';
+  GID_BY_NAME['inner/outer thigh'] = 'adduc';
+
+  /* Which part of the body a lift belongs to. Falls back to the muscle
+     when the group is missing, because a row that came from a session
+     carries a muscle and often no group at all. */
+  API.gidOf = function (row) {
+    if (!row) return null;
+    var byGroup = GID_BY_NAME[String(row.group || '').toLowerCase()];
+    if (byGroup) return byGroup;
+    var m = String(row.muscle || '').toLowerCase();
+    if (!m) return null;
+    var hit = null;
+    API.groups.forEach(function (gr) {
+      if (hit) return;
+      gr[2].forEach(function (sub) {
+        if (!hit && String(sub[1]).toLowerCase() === m) hit = gr[0];
+      });
+    });
+    if (hit) return hit;
+    /* "Upper Chest" with no group: the last word usually names the part. */
+    var words = m.split(/\s+/);
+    return GID_BY_NAME[words[words.length - 1]] || null;
+  };
+
+  API.groupName = function (gid) { return NAME_BY_GID[gid] || gid; };
+
+  /* Everything that trains one part, in the order the catalogue holds. */
+  API.inGroup = function (gid, rows) {
+    var list = rows || API.all();
+    return list.filter(function (x) { return API.gidOf(x) === gid; });
+  };
+
+  /* How many lifts each part has, which is what the figure labels itself
+     with. Counted off whatever list is handed in, so a short list and the
+     full catalogue each report their own totals rather than one lying
+     about the other. */
+  API.groupCounts = function (rows) {
+    var list = rows || API.all();
+    var out = {};
+    API.groups.forEach(function (gr) { out[gr[0]] = { name: gr[1], n: 0 }; });
+    list.forEach(function (x) {
+      var gid = API.gidOf(x);
+      if (gid && out[gid]) out[gid].n++;
+    });
+    return out;
+  };
+
   g.LKExercises = API;
 }(typeof window !== 'undefined' ? window : this));
 
@@ -14130,6 +14251,49 @@ window.LK_CLOUD = {
     return h;
   }
 
+  /* THE WORKER IS NOT SUPABASE, AND MUST NOT BE SENT SUPABASE'S HEADERS.
+
+     `apikey` is Supabase's project key. It was going out on every call
+     including the ones to the Worker, and that is not merely untidy: a
+     custom header makes the browser send a CORS preflight first, the
+     Worker's preflight allows `Content-Type, Authorization` and nothing
+     else, so the preflight failed and the real request was never sent.
+     Every Worker-backed feature in Fuel -- food search, the meal photo,
+     the receipt reader, the pantry scan -- was blocked in the browser
+     before it left the phone, and each one catches its own failure and
+     renders an empty result, so all of it looked like "no data" rather
+     than like an error. Nothing on the server could have fixed it.
+
+     The Worker does read `Authorization`: that is how it knows who you
+     are and what your daily limit is. It never reads `apikey` at all. */
+  /* BY PATH, NOT BY HOST. Judging this on the apiUrl prefix looked
+     right and was wrong: a deployment can serve Supabase and the Worker
+     from the same origin -- the test mirror does exactly that -- and
+     then every Supabase call matched too and lost the project key it
+     cannot work without. Supabase's own paths are fixed and few; the
+     Worker is everything else. */
+  var SUPABASE_PATHS = /^\/(auth|rest|storage|realtime|functions)\/v1(\/|$)/;
+  function isWorker(url) {
+    var path;
+    try { path = new URL(String(url), 'https://x.invalid').pathname; }
+    catch (e) { return false; }
+    return !SUPABASE_PATHS.test(path);
+  }
+
+  /* Only what the Worker's own preflight allows. */
+  function workerHeaders(extra) {
+    var s = session(), h = { 'content-type': 'application/json' };
+    if (s) h.authorization = 'Bearer ' + s.access_token;
+    Object.keys(extra || {}).forEach(function (k) { h[k] = extra[k]; });
+    return h;
+  }
+
+  /* The right headers for whichever end this is, so no call site has to
+     remember which server it is talking to. */
+  function headersFor(url, extra) {
+    return isWorker(url) ? workerHeaders(extra) : headers(extra);
+  }
+
   function fail(e) {
     /* A network that is not there and a server that said no are different
        things, and a screen that conflates them tells somebody to check
@@ -14254,7 +14418,7 @@ window.LK_CLOUD = {
   }
 
   function post(url, body, opts) {
-    return fetch(url, { method: 'POST', headers: headers((opts || {}).headers), body: JSON.stringify(body) })
+    return fetch(url, { method: 'POST', headers: headersFor(url, (opts || {}).headers), body: JSON.stringify(body) })
       .then(function (r) {
         return r.json().catch(function () { return {}; }).then(function (j) {
           if (!r.ok) {
@@ -14575,7 +14739,7 @@ window.LK_CLOUD = {
       var term = String(q || '').trim();
       if (term.length < 2) return Promise.resolve({ ok: true, data: [] });
       var url = c.apiUrl.replace(/\/$/, '') + '/food-search?src=fatsecret&q=' + encodeURIComponent(term);
-      return fetch(url, { headers: headers() })
+      return fetch(url, { headers: workerHeaders() })
         .then(function (r) { return r.ok ? r.json() : { items: [] }; }, fail)
         .then(function (j) {
           var items = (j && j.items) || [];
@@ -14598,7 +14762,18 @@ window.LK_CLOUD = {
               src: 'table'
             };
           }).filter(Boolean) };
-        }, function () { return { ok: true, data: [] }; });
+        }, function (e) {
+          /* NOT THE SAME AS "NOTHING MATCHED". This returned an empty
+             list on every failure, so a blocked request, a Worker with
+             no FatSecret credentials, and a genuine miss all rendered
+             the same empty sheet -- which is how a whole tab can be
+             broken for weeks and look like a quiet search. A refusal
+             says so, and the screen can tell the reader the lookup is
+             unavailable rather than that their food does not exist. */
+          return { ok: false, error: 'network', data: [],
+                   message: 'Could not reach the food database.',
+                   detail: String((e && e.message) || e) };
+        });
     },
 
     /* ---- three lookups the app cannot do on its own ------------------ */
@@ -25700,7 +25875,12 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     remoteT = setTimeout(function () {
       LKCloud.foodSearch(term).then(function (r) {
         S.remoteBusy = false;
-        if (!r || !r.ok) { S.remote = null; return; }
+        /* A LOOKUP THAT COULD NOT RUN IS NOT AN EMPTY LIST. Both used
+           to clear S.remote and say nothing, so a food database that was
+           unreachable read exactly like one that had never heard of your
+           dinner. */
+        if (!r || !r.ok) { S.remote = null; S.remoteDown = true; render(); return; }
+        S.remoteDown = false;
         S.remote = r.data;
         S.remoteQ = term.toLowerCase();
         if (S.sheet === 'search') {
@@ -27341,8 +27521,10 @@ DEMO.define("fuel", function (document, window, location, fetch) {
               (hits.length === 1 ? ' food' : ' foods') + ' across this build\u2019s table, your own ' +
               'recipes and the foods you have kept' +
               (window.LKCloud && LKCloud.ready()
-                ? ', and the food database. Rows from the database say where they came from.' +
-                  (S.remoteBusy ? ' Still looking.' : '')
+                ? (S.remoteDown
+                    ? '. The food database could not be reached, so this is the offline list only.'
+                    : ', and the food database. Rows from the database say where they came from.' +
+                      (S.remoteBusy ? ' Still looking.' : ''))
                 : '. A wider search reaches a food database, which needs a server this build ' +
                   'does not have: nothing here is coming off the network.') +
             '</p>' +
@@ -43648,7 +43830,11 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     fuel: svg('<path d="M12 21c4 0 6-2.7 6-6 0-4-3-6-3-10-3 1.5-4 3.5-4 6-1 0-2-1-2-2.5C7.5 10 6 12 6 15c0 3.3 2 6 6 6z"/>'),
     coach: svg('<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M12 13v4M9 21h6"/>'),
     person: svg('<circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/>'),
-    search: svg('<circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/>')
+    search: svg('<circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/>'),
+    /* The picker's two directions: into a muscle group, and back out of
+       one to the body. */
+    chev: svg('<path d="m9 5 7 7-7 7"/>'),
+    chevLeft: svg('<path d="m15 5-7 7 7 7"/>')
   };
 
   /* =============================================================
@@ -44001,6 +44187,11 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     restLeft: (window.LKRest ? LKRest.left() : 0),
     restRunning: !!(window.LKRest && LKRest.running()),
     pad: null,               /* { ex, set, field, buffer, replaced } */
+    /* WHICH PART OF THE BODY the picker is showing, and which way the
+       figure faces. null means the figure itself is on screen: the way
+       in is pointing at what you are training, not reading a list. */
+    addexGid: null,
+    addexView: 'front',
     overlay: null,           /* tools | plates | rest | sheet | detail | block | addex | discard */
     overlayEx: 0,
     plate: { total: 20, bar: 20, added: [], perSide: true },
@@ -45060,11 +45251,123 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
           '<label class="vis-hidden" for="addex-q">Search all exercises</label>' +
           '<input class="input" id="addex-q" data-act="addex-q" data-testid="addex-search" ' +
             'value="' + esc(S.addexQ || '') + '" autocomplete="off" placeholder="Search all exercises"></div>' +
-        '<p class="t-meta mt-2" data-testid="addex-count">' + n(LIBRARY.length) + ' ' + LKPlural(LIBRARY.length, 'exercise') +
-          (LIBRARY_FULL ? '' : ', which is all this build could read from here') + '</p>' +
-        '<div class="sheet__body mt-3">' + addExList() +
+        '<div class="sheet__body mt-3">' + addExBody() +
         '</div>' +
       '</div>';
+  }
+
+  /* THE FIGURE FIRST, THEN THE LIFTS.
+
+     This sheet used to open on a search field over the whole catalogue.
+     866 lifts in a scroll is a reference book, and nobody reads a
+     reference book between sets -- the question in the gym is "what else
+     hits this", and the fastest way to ask it is to point at the part.
+
+     Three states, and the reader is never more than one tap from the one
+     before: the body, then one group's lifts, and search cutting across
+     both at any time. */
+  function addExBody() {
+    var q = (S.addexQ || '').trim();
+    if (q) return addExList();
+    if (!S.addexGid) return addExMapHTML();
+    return addExGroupHTML();
+  }
+
+  function addExMapHTML() {
+    var counts = (window.LKExercises && LKExercises.groupCounts)
+      ? LKExercises.groupCounts(offeredLibrary()) : {};
+    var cur = S.swapAt !== null && S.exercises[S.swapAt];
+    return '<div class="addexmap" data-testid="addex-map">' +
+      '<div class="addexmap__fig" id="addex-fig"></div>' +
+      '<div class="addexmap__side">' +
+        /* `seg`, the same control the library's figure uses. A second
+           spelling of the same thing is a second thing to keep in step. */
+        '<div class="seg" role="tablist" aria-label="Body view">' +
+          ['front', 'back'].map(function (v) {
+            return '<button class="seg__item" type="button" role="tab" data-act="addex-view" ' +
+              'data-view="' + v + '" data-testid="addex-view-' + v + '" ' +
+              'aria-selected="' + (S.addexView === v ? 'true' : 'false') + '">' +
+              (v === 'front' ? 'Front' : 'Back') + '</button>';
+          }).join('') +
+        '</div>' +
+      '</div>' +
+      '<p class="t-detail muted mt-2" data-testid="addex-map-note">' +
+        (cur ? 'Tap the part you want instead of ' + esc(cur.name) + '.'
+             : 'Tap the part you are training.') +
+      '</p>' +
+      /* The names as well as the figure. A body is faster for somebody
+         who knows where a muscle is and useless to somebody who does
+         not, and a list of twelve is not the list of 866 this replaced. */
+      '<div class="card card--flush mt-3" data-testid="addex-groups">' +
+        (window.LKExercises ? LKExercises.groups : []).map(function (gr) {
+          var c = counts[gr[0]] || { n: 0 };
+          if (!c.n) return '';
+          return '<button class="row" type="button" data-act="addex-group" ' +
+            'data-gid="' + gr[0] + '" data-testid="addex-group-' + gr[0] + '">' +
+            '<span class="row__main"><span class="row__title">' + esc(gr[1]) + '</span></span>' +
+            '<span class="t-meta num">' + c.n + '</span>' +
+            '<span class="row__chev">' + ICO.chev + '</span></button>';
+        }).join('') +
+      '</div>';
+  }
+
+  function addExGroupHTML() {
+    var name = (window.LKExercises && LKExercises.groupName)
+      ? LKExercises.groupName(S.addexGid) : S.addexGid;
+    return '<div class="spread" data-testid="addex-crumb">' +
+        '<button class="btn btn--tertiary btn--sm" type="button" data-act="addex-back" ' +
+          'data-testid="addex-back">' + ICO.chevLeft + '<span class="btn__label">Body</span></button>' +
+        '<span class="t-label">' + esc(name) + '</span>' +
+      '</div>' + addExList();
+  }
+
+  /* THE FIGURE, BUILT ONCE THE SHEET IS ON SCREEN.
+
+     LKBodyMap draws into a host element, so it cannot be part of the
+     HTML string the sheet is patched in from -- it is mounted after,
+     against the slot that string left for it. The sheet is rebuilt on
+     every paint, so the figure is rebuilt with it rather than kept: a
+     kept one would be pointing at a detached node the moment anything
+     re-rendered.
+
+     The library owns the same figure on its own screen. What is shared
+     is the module and the taxonomy behind it, not the flow: there it is
+     a way to browse, here it is a way to answer one question and get
+     back to the set you were in the middle of. */
+  var ADDEX_FIG = null;
+  function syncAddexFigure() {
+    var slot = document.getElementById('addex-fig');
+    if (!slot || !window.LKBodyMap || !window.LKExercises) { ADDEX_FIG = null; return; }
+    if (slot.firstChild) return;
+    try {
+      ADDEX_FIG = LKBodyMap.mount(slot, {
+        groups: LKExercises.groupCounts(offeredLibrary()),
+        order: LKExercises.groups.map(function (gr) { return gr[0]; }),
+        view: S.addexView,
+        onSelect: function (gid) {
+          S.addexGid = gid;
+          S.addexN = ADDEX_PAGE;
+          paint();
+        }
+      });
+      if (ADDEX_FIG.setView) ADDEX_FIG.setView(S.addexView);
+      /* Replacing a lift lights the part it trains, so the figure opens
+         already answering "where am I". */
+      if (ADDEX_FIG.select && S.swapAt !== null && S.exercises[S.swapAt]) {
+        ADDEX_FIG.select(LKExercises.gidOf(S.exercises[S.swapAt]));
+      }
+    } catch (e) { ADDEX_FIG = null; }
+  }
+
+  /* The list the sheet is willing to show: the short one unless the
+     reader asked for everything. Shared so the figure's counts and the
+     rows underneath it can never disagree. */
+  function offeredLibrary() {
+    if (!S.addexAll && window.LKExercises && LKExercises.offered) {
+      var short = LKExercises.offered(LIBRARY);
+      if (short.length) return short;
+    }
+    return LIBRARY;
   }
 
   /* The list the search actually filters. It was rendered straight from
@@ -45086,12 +45389,24 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
        A plain Add is unchanged: there the whole library IS the answer. */
     var swapping = S.swapAt !== null && S.exercises[S.swapAt];
     var sameOnly = false;
+    /* With a part chosen by hand, the reader has already said what they
+       want; re-sorting by "related to the one being replaced" would
+       quietly put a different muscle back on top. */
+    if (S.addexGid) swapping = false;
 
     /* THE SHORT LIST, unless the reader asked for the whole catalogue.
        866 lifts is a reference; picking one mid-session is a menu. */
     if (!S.addexAll && window.LKExercises && LKExercises.offered) {
       var offered = LKExercises.offered(all);
       if (offered.length) all = offered;
+    }
+
+    /* AND ONLY THE PART THAT WAS TAPPED. With a group chosen off the
+       figure, the list is that group -- which is the whole point of
+       having pointed at it. Search cuts across the body, so a query
+       clears the group rather than being trapped inside it. */
+    if (S.addexGid && !q && window.LKExercises && LKExercises.gidOf) {
+      all = all.filter(function (x) { return LKExercises.gidOf(x) === S.addexGid; });
     }
 
     /* RELATED MUSCLES, not one muscle. Replacing an incline press offered
@@ -45413,6 +45728,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
 
     var nowOverlay = !!(S.overlay || S.pad);
     renderedOverlay = nowOverlay;
+    syncAddexFigure();
 
     /* Opening takes focus to the way OUT, never to the destructive control.
        Closing puts it back on whatever opened the thing, so the next Tab
@@ -45783,6 +46099,13 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
            one is being replaced, and the picker reads it. */
         if (key === 'swap') {
           S.swapAt = S.overlayEx; S.addexAll = false; S.addexQ = ''; S.addexN = ADDEX_PAGE;
+          /* REPLACE OPENS ON THE BODY TOO, with the part the current lift
+             trains already lit. Most replacements stay in the same place
+             -- another chest press for a chest press -- so that is one
+             tap; going somewhere else is the same tap on a different
+             muscle, rather than a search field over the whole catalogue. */
+          S.addexGid = (window.LKExercises && LKExercises.gidOf)
+            ? LKExercises.gidOf(S.exercises[S.overlayEx] || null) : null;
           S.overlay = 'addex'; break;
         }
         if (key === 'superset') {
@@ -45923,7 +46246,26 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       }
 
       /* ---- add exercise, block ---- */
-      case 'addex': S.overlay = 'addex'; S.addexN = ADDEX_PAGE; break;
+      case 'addex':
+        S.overlay = 'addex';
+        S.addexN = ADDEX_PAGE;
+        /* Opens on the body, every time. A group left over from the last
+           lift added is not an answer to this one. */
+        S.addexGid = null;
+        S.addexQ = '';
+        break;
+      /* ---- the picker's body ---- */
+      case 'addex-group':
+        S.addexGid = t.getAttribute('data-gid') || null;
+        S.addexN = ADDEX_PAGE;
+        break;
+      case 'addex-back':
+        S.addexGid = null;
+        S.addexN = ADDEX_PAGE;
+        break;
+      case 'addex-view':
+        S.addexView = t.getAttribute('data-view') === 'back' ? 'back' : 'front';
+        break;
       case 'addex-more': S.addexN = (S.addexN || ADDEX_PAGE) + ADDEX_PAGE; break;
       case 'addex-pick': {
         var pick = LIBRARY[Number(t.getAttribute('data-i'))];
@@ -46142,7 +46484,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       }
       /* swapAt goes with the picker. Left set, the next plain "Add
          Exercise" would replace instead of adding. */
-      case 'close': S.overlay = null; S.swapAt = null; S.addexQ = ''; break;
+      case 'close': S.overlay = null; S.swapAt = null; S.addexQ = ''; S.addexGid = null; break;
       default: break;
     }
     paint();
@@ -46422,7 +46764,14 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       return;
     }
     var q = ev.target.closest('[data-act="addex-q"]');
-    if (q) { S.addexQ = q.value; S.addexN = ADDEX_PAGE; paint(); }
+    if (q) {
+      S.addexQ = q.value;
+      S.addexN = ADDEX_PAGE;
+      /* A search is a question about the whole body. Leaving the chosen
+         part in place would silently hide most of the answers. */
+      if (S.addexQ.trim()) S.addexGid = null;
+      paint();
+    }
   });
   document.addEventListener('keydown', function (ev) {
     if (ev.key === 'Escape') {

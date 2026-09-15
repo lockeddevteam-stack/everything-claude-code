@@ -2382,7 +2382,12 @@
     remoteT = setTimeout(function () {
       LKCloud.foodSearch(term).then(function (r) {
         S.remoteBusy = false;
-        if (!r || !r.ok) { S.remote = null; return; }
+        /* A LOOKUP THAT COULD NOT RUN IS NOT AN EMPTY LIST. Both used
+           to clear S.remote and say nothing, so a food database that was
+           unreachable read exactly like one that had never heard of your
+           dinner. */
+        if (!r || !r.ok) { S.remote = null; S.remoteDown = true; render(); return; }
+        S.remoteDown = false;
         S.remote = r.data;
         S.remoteQ = term.toLowerCase();
         if (S.sheet === 'search') {
@@ -4023,8 +4028,10 @@
               (hits.length === 1 ? ' food' : ' foods') + ' across this build\u2019s table, your own ' +
               'recipes and the foods you have kept' +
               (window.LKCloud && LKCloud.ready()
-                ? ', and the food database. Rows from the database say where they came from.' +
-                  (S.remoteBusy ? ' Still looking.' : '')
+                ? (S.remoteDown
+                    ? '. The food database could not be reached, so this is the offline list only.'
+                    : ', and the food database. Rows from the database say where they came from.' +
+                      (S.remoteBusy ? ' Still looking.' : ''))
                 : '. A wider search reaches a food database, which needs a server this build ' +
                   'does not have: nothing here is coming off the network.') +
             '</p>' +

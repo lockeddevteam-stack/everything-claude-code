@@ -76,6 +76,49 @@
     return h;
   }
 
+  /* THE WORKER IS NOT SUPABASE, AND MUST NOT BE SENT SUPABASE'S HEADERS.
+
+     `apikey` is Supabase's project key. It was going out on every call
+     including the ones to the Worker, and that is not merely untidy: a
+     custom header makes the browser send a CORS preflight first, the
+     Worker's preflight allows `Content-Type, Authorization` and nothing
+     else, so the preflight failed and the real request was never sent.
+     Every Worker-backed feature in Fuel -- food search, the meal photo,
+     the receipt reader, the pantry scan -- was blocked in the browser
+     before it left the phone, and each one catches its own failure and
+     renders an empty result, so all of it looked like "no data" rather
+     than like an error. Nothing on the server could have fixed it.
+
+     The Worker does read `Authorization`: that is how it knows who you
+     are and what your daily limit is. It never reads `apikey` at all. */
+  /* BY PATH, NOT BY HOST. Judging this on the apiUrl prefix looked
+     right and was wrong: a deployment can serve Supabase and the Worker
+     from the same origin -- the test mirror does exactly that -- and
+     then every Supabase call matched too and lost the project key it
+     cannot work without. Supabase's own paths are fixed and few; the
+     Worker is everything else. */
+  var SUPABASE_PATHS = /^\/(auth|rest|storage|realtime|functions)\/v1(\/|$)/;
+  function isWorker(url) {
+    var path;
+    try { path = new URL(String(url), 'https://x.invalid').pathname; }
+    catch (e) { return false; }
+    return !SUPABASE_PATHS.test(path);
+  }
+
+  /* Only what the Worker's own preflight allows. */
+  function workerHeaders(extra) {
+    var s = session(), h = { 'content-type': 'application/json' };
+    if (s) h.authorization = 'Bearer ' + s.access_token;
+    Object.keys(extra || {}).forEach(function (k) { h[k] = extra[k]; });
+    return h;
+  }
+
+  /* The right headers for whichever end this is, so no call site has to
+     remember which server it is talking to. */
+  function headersFor(url, extra) {
+    return isWorker(url) ? workerHeaders(extra) : headers(extra);
+  }
+
   function fail(e) {
     /* A network that is not there and a server that said no are different
        things, and a screen that conflates them tells somebody to check
@@ -200,7 +243,7 @@
   }
 
   function post(url, body, opts) {
-    return fetch(url, { method: 'POST', headers: headers((opts || {}).headers), body: JSON.stringify(body) })
+    return fetch(url, { method: 'POST', headers: headersFor(url, (opts || {}).headers), body: JSON.stringify(body) })
       .then(function (r) {
         return r.json().catch(function () { return {}; }).then(function (j) {
           if (!r.ok) {
@@ -521,7 +564,7 @@
       var term = String(q || '').trim();
       if (term.length < 2) return Promise.resolve({ ok: true, data: [] });
       var url = c.apiUrl.replace(/\/$/, '') + '/food-search?src=fatsecret&q=' + encodeURIComponent(term);
-      return fetch(url, { headers: headers() })
+      return fetch(url, { headers: workerHeaders() })
         .then(function (r) { return r.ok ? r.json() : { items: [] }; }, fail)
         .then(function (j) {
           var items = (j && j.items) || [];
@@ -544,7 +587,18 @@
               src: 'table'
             };
           }).filter(Boolean) };
-        }, function () { return { ok: true, data: [] }; });
+        }, function (e) {
+          /* NOT THE SAME AS "NOTHING MATCHED". This returned an empty
+             list on every failure, so a blocked request, a Worker with
+             no FatSecret credentials, and a genuine miss all rendered
+             the same empty sheet -- which is how a whole tab can be
+             broken for weeks and look like a quiet search. A refusal
+             says so, and the screen can tell the reader the lookup is
+             unavailable rather than that their food does not exist. */
+          return { ok: false, error: 'network', data: [],
+                   message: 'Could not reach the food database.',
+                   detail: String((e && e.message) || e) };
+        });
     },
 
     /* ---- three lookups the app cannot do on its own ------------------ */

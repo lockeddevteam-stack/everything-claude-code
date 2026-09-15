@@ -644,6 +644,48 @@ ok(C.signedIn() === false, 'signing out signs you out');
 r = await C.push();
 ok(!r.ok && r.error === 'signed_out', 'and push then says so rather than failing silently');
 
+/* ---- the Worker is not Supabase ------------------------------------
+   `apikey` is Supabase's project key, and it was going out on every
+   call including the ones to the Worker. That is not untidy, it is
+   fatal: a custom header makes the browser send a CORS preflight, the
+   Worker's preflight allows Content-Type and Authorization and nothing
+   else, so the preflight failed and the real request was never sent.
+   Food search, the meal photo, the receipt reader and the pantry scan
+   were all blocked in the browser before they left the phone, and each
+   renders its own failure as an empty result -- so a whole tab looked
+   like it had no data rather than like it was broken.
+
+   Nothing on the server could have fixed that, which is why it has a
+   check of its own here. */
+console.log('\n--- the Worker gets the Worker\'s headers ---');
+/* Signed back in, because the sign-out case above left nobody here and
+   half of what this section checks is what a signed-in caller sends. */
+await C.signIn('ada@example.com', 'right');
+seen.length = 0;
+await C.foodSearch('oats');
+const fsReq = seen.filter(x => x.path === '/food-search').pop();
+ok(!!fsReq, 'food search reaches the Worker', fsReq ? fsReq.path : 'no request');
+ok(fsReq && fsReq.headers.apikey === undefined,
+   'and carries no Supabase project key, which its preflight forbids',
+   fsReq ? String(fsReq.headers.apikey) : '');
+ok(fsReq && fsReq.headers.authorization === 'Bearer ' + TOKEN,
+   'but does carry the person, which is how the Worker counts their limit',
+   fsReq ? String(fsReq.headers.authorization) : '');
+
+seen.length = 0;
+await C.ask([{ role: 'user', content: 'hi' }]);
+const askReq = seen.filter(x => /coach|analyze|^\/$/.test(x.path)).pop();
+ok(!askReq || askReq.headers.apikey === undefined,
+   'and the coach endpoint is the same',
+   askReq ? String(askReq.headers.apikey) : 'no request');
+
+seen.length = 0;
+await C.push();
+const pushReq = seen.filter(x => x.path === '/rest/v1/rpc/store_push').pop();
+ok(pushReq && pushReq.headers.apikey === 'anon-key',
+   'while Supabase still gets the key it cannot work without',
+   pushReq ? String(pushReq.headers.apikey) : 'no request');
+
 server.close();
 console.log(fails ? '\n' + fails + ' FAILED' : '\nall good');
 process.exit(fails ? 1 : 0);
