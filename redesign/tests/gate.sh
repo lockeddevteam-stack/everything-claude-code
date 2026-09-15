@@ -34,7 +34,7 @@ if ! node ../10-final/assemble.mjs >> "$OUT/build.log" 2>&1; then
 fi
 
 START=$(date +%s)
-printf 'gate: %s checks, %s at a time\n\n' 16 "$JOBS"
+printf 'gate: %s checks, %s at a time\n\n' 17 "$JOBS"
 
 cat > "$OUT/jobs.txt" <<'JOBS_EOF'
 day-in-the-app|node day-to-day.mjs
@@ -52,6 +52,7 @@ singulars|node singulars.mjs
 setup-recovery|node setup-recovery.mjs
 one-of-everything|node one-of-everything.mjs
 pounds|node pounds.mjs
+late-night|node late-night.mjs
 cloud-contract|node cloud-contract.mjs
 JOBS_EOF
 
