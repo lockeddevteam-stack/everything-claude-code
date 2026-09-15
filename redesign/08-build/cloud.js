@@ -98,6 +98,12 @@
      cannot work without. Supabase's own paths are fixed and few; the
      Worker is everything else. */
   var SUPABASE_PATHS = /^\/(auth|rest|storage|realtime|functions)\/v1(\/|$)/;
+  var SOURCE_NAME = {
+    usda: 'USDA',
+    off: 'Open Food Facts',
+    fatsecret: 'FatSecret'
+  };
+
   function isWorker(url) {
     var path;
     try { path = new URL(String(url), 'https://x.invalid').pathname; }
@@ -555,6 +561,7 @@
        to say so. There is one now, so the search reaches it and the
        results say where they came from -- a looked-up food and a guess
        must never be drawn the same way. */
+    /* The three the endpoint asks, in the words a reader would use. */
     foodSearch: function (q) {
       var c = cfg();
       if (!c || !c.apiUrl) {
@@ -563,6 +570,11 @@
       }
       var term = String(q || '').trim();
       if (term.length < 2) return Promise.resolve({ ok: true, data: [] });
+      /* `src` is no longer a source to pick: the endpoint asks USDA,
+         Open Food Facts and FatSecret together and hands back one
+         ranked list. It is still sent so an older Worker -- one that
+         gated on it and would otherwise return nothing -- keeps
+         answering while a deploy rolls out. */
       var url = c.apiUrl.replace(/\/$/, '') + '/food-search?src=fatsecret&q=' + encodeURIComponent(term);
       return fetch(url, { headers: workerHeaders() })
         .then(function (r) { return r.ok ? r.json() : { items: [] }; }, fail)
@@ -583,7 +595,13 @@
               fat: Math.round((Number(it.fat) || 0) * 10) / 10,
               g: 100,
               brand: String(it.brand || '').slice(0, 40),
-              from: it.brand ? String(it.brand).slice(0, 40) : 'Food database',
+              /* WHERE THE FIGURES CAME FROM, kept rather than flattened.
+                 Every row used to say "Food database" whichever of the
+                 three answered, and Fuel's whole rule is that a number
+                 says where it came from -- a USDA row and a crowd-edited
+                 Open Food Facts row are not the same kind of fact. */
+              from: it.brand ? String(it.brand).slice(0, 40) : SOURCE_NAME[it.src] || 'Food database',
+              source: it.src || '',
               src: 'table'
             };
           }).filter(Boolean) };
