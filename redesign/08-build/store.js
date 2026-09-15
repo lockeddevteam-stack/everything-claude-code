@@ -562,7 +562,11 @@
 
   var MAP_KEYS = asSet([
     'lk_exNotes', 'lk_exEquip', 'lk_changedAt',
-    'lk_fuelTargets', 'lk_suppLog', 'lk_notifPrefs', 'lk_rest'
+    'lk_fuelTargets', 'lk_suppLog', 'lk_notifPrefs', 'lk_rest',
+    /* What the coach has already written, so the same card twice is not
+       two splits. Device-local: the tokens in it name records by an id
+       this phone generated. */
+    'lk_coachApplied'
   ]);
 
   var SYNC_KEYS = [

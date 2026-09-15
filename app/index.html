@@ -8164,7 +8164,11 @@ button.shelf:active { background: var(--fill-press); }
 
   var MAP_KEYS = asSet([
     'lk_exNotes', 'lk_exEquip', 'lk_changedAt',
-    'lk_fuelTargets', 'lk_suppLog', 'lk_notifPrefs', 'lk_rest'
+    'lk_fuelTargets', 'lk_suppLog', 'lk_notifPrefs', 'lk_rest',
+    /* What the coach has already written, so the same card twice is not
+       two splits. Device-local: the tokens in it name records by an id
+       this phone generated. */
+    'lk_coachApplied'
   ]);
 
   var SYNC_KEYS = [
@@ -10148,14 +10152,65 @@ window.LK_CLOUD = {
     }
   };
 
+  /* WHAT THIS ACTION IS, so the same one twice is recognised as the same
+     one. A card tapped twice, or retried after a save that looked slow,
+     is an ordinary accident -- and two identical splits is a mess the
+     reader has to clean up by hand, made worse by an Undo that only
+     takes back the second. The fingerprint is the action's own content,
+     so it survives a reload and a different phone: nothing is kept in
+     memory that a refresh would forget. */
+  var LEDGER = 'lk_coachApplied';
+
+  function fingerprint(action) {
+    var seen = [];
+    var json;
+    try {
+      json = JSON.stringify(action, function (k, v) {
+        if (v && typeof v === 'object') {
+          if (seen.indexOf(v) > -1) return '[circular]';
+          seen.push(v);
+        }
+        return v;
+      });
+    } catch (e) { return null; }
+    if (!json) return null;
+    /* A short, stable hash. Not a cryptographic one: this decides
+       whether two cards are the same card, not whether anybody is to be
+       trusted. */
+    var h = 5381;
+    for (var i = 0; i < json.length; i++) h = ((h * 33) ^ json.charCodeAt(i)) >>> 0;
+    return action.kind + ':' + h.toString(36) + ':' + json.length;
+  }
+
+  function ledger(ST) {
+    var v = ST.get(LEDGER, {});
+    return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+  }
+
   function apply(action) {
     var ST = store();
     if (!ST) return { ok: false, problems: ['nothing on this phone can store it'] };
-    if (!action || !APPLY[action.kind]) return { ok: false, problems: ['not something that can be applied'] };
+    if (!action || typeof action !== 'object' || !APPLY[action.kind]) {
+      return { ok: false, problems: ['not something that can be applied'] };
+    }
+
+    /* Already done. The token comes back so the card still offers Undo,
+       and nothing is written a second time. */
+    var print = fingerprint(action);
+    var book = ledger(ST);
+    if (print && book[print]) {
+      return { ok: true, token: book[print], already: true, problems: [] };
+    }
+
     var token;
     try { token = APPLY[action.kind](action, ST); }
     catch (e) { return { ok: false, problems: ['could not be saved: ' + e.message] }; }
     token.kind = action.kind;
+    if (print) {
+      token.print = print;
+      book[print] = token;
+      try { ST.set(LEDGER, book); } catch (e) {}
+    }
     return { ok: true, token: token, problems: [] };
   }
 
@@ -10164,6 +10219,12 @@ window.LK_CLOUD = {
   function revert(token) {
     var ST = store();
     if (!ST || !token) return false;
+    /* Forgotten as applied, so the same card can be applied again on
+       purpose after it has been undone. */
+    if (token.print) {
+      var book = ledger(ST);
+      if (book[token.print]) { delete book[token.print]; try { ST.set(LEDGER, book); } catch (e) {} }
+    }
     if (token.kind === 'instructions') { ST.set('lk_coachInstructions', token.was || ''); return true; }
     if (token.kind === 'shopping') {
       var list = (ST.get('lk_shoppingList', []) || []).filter(function (r) {
