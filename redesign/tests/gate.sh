@@ -68,6 +68,7 @@ quick-workout|node quick-workout.mjs
 pounds-history|node pounds-history.mjs
 gestures2|node gestures2.mjs
 portions|node portions.mjs
+spoken-portions|node spoken-portions.mjs
 voice|node voice.mjs
 keyboard|node keyboard.mjs
 cloud-contract|node cloud-contract.mjs
