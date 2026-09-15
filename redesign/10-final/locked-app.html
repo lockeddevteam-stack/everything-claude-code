@@ -22429,6 +22429,11 @@ DEMO.define("fuel", function (document, window, location, fetch) {
   }
 
   var S = { state: 'populated', sheet: null, listening: false, scanServings: 1,
+            /* A COPY OF THE ENTRY BEING EDITED, never the entry itself.
+               Everything typed goes in here and nothing reaches the log
+               until Save, so Cancel is genuinely a cancel and a half-typed
+               protein figure never lands in a day's totals. */
+            mealEdit: null,
             /* Log or Meals, remembered between visits rather than reset to
                Log every time the tab is opened. */
             view: null,
@@ -23968,8 +23973,153 @@ DEMO.define("fuel", function (document, window, location, fetch) {
           '</div>' +
         '</div>' +
         '<div class="sheet__foot">' +
-          '<button class="btn btn--danger btn--block" type="button" data-action="meal-delete" data-i="' + i + '" data-testid="meal-delete">' +
+          '<button class="btn btn--primary btn--block" type="button" data-action="meal-open-edit" ' +
+            'data-i="' + i + '" data-testid="meal-open-edit">' +
+            '<span class="btn__label">Edit this entry</span></button>' +
+          '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="meal-again" ' +
+            'data-i="' + i + '" data-testid="meal-again">' +
+            '<span class="btn__label">Log this again</span></button>' +
+          '<button class="btn btn--danger btn--block mt-2" type="button" data-action="meal-delete" data-i="' + i + '" data-testid="meal-delete">' +
             '<span class="btn__label">Remove this entry</span></button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* ---- EDITING WHAT IS ALREADY IN THE LOG -----------------------------
+
+     A logged entry was a receipt: you could shrink it by a fifth, grow it
+     by a quarter, move it to another slot, or throw it away. Everything
+     else about it was final. Weighing 250 g when you meant 150, or a
+     packet whose figures differ from the database's, meant deleting the
+     row and starting again.
+
+     Two ways in, because entries arrive two ways.
+
+     BY WEIGHT, when the entry kept the row it was scaled from. The dial
+     is the same dial the portion sheet uses and the arithmetic is the
+     same arithmetic: grams over a hundred, applied to every figure on the
+     food at once. Nothing here can scale protein by one factor and sodium
+     by another, because there is only one factor.
+
+     BY FIGURE, always. Protein, carbs and fat are typed straight in, and
+     energy follows them at four, four and nine -- the Atwater numbers
+     every packet is printed from.
+
+     Energy is also typed straight in, and when it disagrees with the
+     macros the typed number stands. A label that says 250 kcal is a fact
+     about that packet, and an app that quietly rewrote it to 243 because
+     its own arithmetic preferred that would be lying to somebody reading
+     their own food. The gap is shown instead, with one tap to close it if
+     that is what you meant. */
+  function mealEditSheet(m, i) {
+    var E = S.mealEdit;
+    var basis = m.per100;
+    var macroKcal = kcalOfMacros(E);
+    var gap = Math.abs(macroKcal - (Number(E.kcal) || 0));
+    var field = function (key, label, unit, tid) {
+      return '<label class="t-label field__label mt-3" for="me-' + key + '">' + label + '</label>' +
+        '<div class="hstack hstack--2">' +
+          '<input class="input num grow" id="me-' + key + '" type="text" inputmode="decimal" ' +
+            'autocomplete="off" data-action="me-field" data-k="' + key + '" ' +
+            'value="' + esc(String(E[key] == null ? '' : E[key])) + '" data-testid="' + tid + '">' +
+          '<span class="t-body quiet">' + unit + '</span>' +
+        '</div>';
+    };
+    return '<div class="scrim" data-action="me-cancel" data-testid="scrim"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="me-title" ' +
+        'data-detents="0.94 0.96" data-testid="sheet-meal-edit">' +
+        '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
+        '<div class="sheet__head">' +
+          '<h2 class="t-headline grow" id="me-title">Edit entry</h2>' +
+          '<button class="iconbtn" type="button" data-action="me-cancel" aria-label="Close without saving" ' +
+            'data-testid="me-close">' +
+            '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+          '</button></div>' +
+        '<div class="sheet__body">' +
+          '<label class="t-label field__label" for="me-name">Name</label>' +
+          '<input class="input" id="me-name" type="text" autocomplete="off" ' +
+            'data-action="me-field" data-k="name" value="' + esc(E.name) + '" data-testid="me-name">' +
+
+          (basis
+            ? '<h3 class="t-label mt-5">How much</h3>' +
+              '<div class="seg mt-2" role="radiogroup" aria-label="Unit" data-testid="me-units">' +
+                [['g', 'Grams'], ['oz', 'Ounces']].map(function (u) {
+                  return '<button class="seg__item" type="button" role="radio" ' +
+                    'aria-checked="' + (E.unit === u[0] ? 'true' : 'false') + '" ' +
+                    'data-action="me-unit" data-u="' + u[0] + '" data-testid="me-unit-' + u[0] + '">' +
+                    u[1] + '</button>';
+                }).join('') + '</div>' +
+              '<div id="me-dial" data-testid="me-dial-slot"></div>' +
+              '<div class="dial__steps" role="radiogroup" aria-label="Dial step">' +
+                PT_STEPS[E.unit].map(function (st) {
+                  return '<button class="chip' + (E.step === st ? ' chip--on' : '') + '" ' +
+                    'type="button" role="radio" aria-checked="' + (E.step === st ? 'true' : 'false') + '" ' +
+                    'data-action="me-step" data-s="' + st + '" ' +
+                    'data-testid="me-step-' + String(st).replace('.', '_') + '">' +
+                    st + ' ' + E.unit + '</button>';
+                }).join('') +
+              '</div>' +
+              '<p class="t-caption-1 quiet mt-2" data-testid="me-basis">Per 100 g: ' +
+                n(Math.round(basis.kcal)) + ' kcal, ' + n(basis.pro) + ' P, ' +
+                n(basis.carb) + ' C, ' + n(basis.fat) + ' F. Turning the dial moves ' +
+                'every figure below with it.</p>'
+            : '<p class="t-detail quiet mt-4" data-testid="me-noweight">This entry did not come ' +
+              'from a weighed row, so there is no per-100 g figure to re-weigh it against. ' +
+              'The numbers below are editable directly.</p>') +
+
+          '<h3 class="t-label mt-5">The figures</h3>' +
+          field('pro', 'Protein', 'g', 'me-pro') +
+          field('carb', 'Carbs', 'g', 'me-carb') +
+          field('fat', 'Fat', 'g', 'me-fat') +
+          field('kcal', 'Energy', 'kcal', 'me-kcal') +
+          (gap > 2
+            ? '<div class="card card--sunken mt-3" data-testid="me-gap">' +
+                '<p class="t-detail">Your protein, carbs and fat add up to ' + n(macroKcal) +
+                  ' kcal at 4, 4 and 9. You have written ' + n(Number(E.kcal) || 0) + '.</p>' +
+                '<p class="t-caption-1 quiet mt-1">Yours is kept. Packets and databases ' +
+                  'disagree with the arithmetic all the time, and the number on the packet ' +
+                  'is the one you ate.</p>' +
+                '<button class="btn btn--secondary btn--block mt-3" type="button" ' +
+                  'data-action="me-match" data-testid="me-match">' +
+                  '<span class="btn__label">Use ' + n(macroKcal) + ' instead</span></button>' +
+              '</div>'
+            : '') +
+
+          (MICROS.some(function (mi) { return E[mi.key] != null; })
+            ? '<h3 class="t-label mt-5">And in it</h3>' +
+              MICROS.filter(function (mi) { return E[mi.key] != null; }).map(function (mi) {
+                return field(mi.key, mi.name, mi.unit, 'me-' + mi.key);
+              }).join('')
+            : '') +
+
+          '<h3 class="t-label mt-5">When</h3>' +
+          '<label class="t-label field__label" for="me-at">Logged at</label>' +
+          '<input class="input" id="me-at" type="text" autocomplete="off" ' +
+            'data-action="me-field" data-k="at" value="' + esc(E.at || '') + '" data-testid="me-at">' +
+          slotPicker(E.slot, 'me-slot', 'me-slot') +
+
+          /* SPLITTING ONE ENTRY INTO TWO. A 300 g cook-up eaten half at
+             lunch and half at dinner is two entries in the log and one
+             thing in the pan. The halves are computed from the figures
+             actually on screen, so a split after an edit splits what you
+             edited rather than what was logged. */
+          '<h3 class="t-label mt-5">Split it</h3>' +
+          '<p class="t-detail quiet mt-1">Half of this stays where it is, and half moves ' +
+            'to the slot you pick. Useful for something cooked once and eaten twice.</p>' +
+          '<div class="chiprow mt-2">' +
+            SLOTS.map(function (sl) {
+              return '<button class="chip" type="button" data-action="me-split" data-slot="' + sl[0] + '" ' +
+                'data-testid="me-split-' + sl[0] + '">Half to ' + esc(sl[1].toLowerCase()) + '</button>';
+            }).join('') +
+          '</div>' +
+          (E.error ? '<p class="field__error mt-3" role="alert" data-testid="me-error">' +
+            esc(E.error) + '</p>' : '') +
+        '</div>' +
+        '<div class="sheet__foot">' +
+          '<button class="btn btn--primary btn--block" type="button" data-action="me-save" ' +
+            'data-testid="me-save"><span class="btn__label">Save changes</span></button>' +
+          '<button class="btn btn--tertiary btn--block mt-2" type="button" data-action="me-cancel" ' +
+            'data-testid="me-cancel">Cancel</button>' +
         '</div>' +
       '</div>';
   }
@@ -24011,6 +24161,41 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     oz:   { min: 0, max: 70 },
     serv: { min: 0, max: 20 }
   };
+
+  /* THE ROW A FOOD IS, PER 100 G. One shape, built once, so the portion
+     sheet and the log editor scale from the same thing rather than each
+     keeping their own idea of what the food is. */
+  function basisOf(food) {
+    if (!food) return null;
+    var b = { kcal: Number(food.kcal) || 0, pro: Number(food.pro) || 0,
+              carb: Number(food.carb) || 0, fat: Number(food.fat) || 0 };
+    MICROS.forEach(function (mi) {
+      if (typeof food[mi.key] === 'number') b[mi.key] = food[mi.key];
+    });
+    return b;
+  }
+
+  /* Every figure at a given weight, from that row. The only multiplier in
+     the app: grams over a hundred. */
+  function atGrams(basis, grams) {
+    var k = (Number(grams) || 0) / 100;
+    var out = { kcal: Math.round((basis.kcal || 0) * k),
+                pro: Math.round((basis.pro || 0) * k * 10) / 10,
+                carb: Math.round((basis.carb || 0) * k * 10) / 10,
+                fat: Math.round((basis.fat || 0) * k * 10) / 10 };
+    MICROS.forEach(function (mi) {
+      if (typeof basis[mi.key] === 'number') out[mi.key] = Math.round(basis[mi.key] * k * 10) / 10;
+    });
+    return out;
+  }
+
+  /* WHAT THE MACROS ADD UP TO. Four calories a gram for protein and
+     carbohydrate, nine for fat: the Atwater figures every label on every
+     packet is printed from. Used to say what the numbers imply, never to
+     overwrite what somebody typed. */
+  function kcalOfMacros(m) {
+    return Math.round((Number(m.pro) || 0) * 4 + (Number(m.carb) || 0) * 4 + (Number(m.fat) || 0) * 9);
+  }
 
   function servingKey(name) {
     return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -24130,7 +24315,9 @@ DEMO.define("fuel", function (document, window, location, fetch) {
   function sheetHTML() {
     if (S.sheet && S.sheet.indexOf('meal:') === 0) {
       var m = DAY.meals[+S.sheet.slice(5)];
-      return m ? mealSheet(m, +S.sheet.slice(5)) : '';
+      return m ? (S.mealEdit && S.mealEdit.i === +S.sheet.slice(5)
+                  ? mealEditSheet(m, +S.sheet.slice(5))
+                  : mealSheet(m, +S.sheet.slice(5))) : '';
     }
     if (S.sheet === 'water') {
       var pctW = Math.min(100, Math.round(DAY.waterMl / DAY.waterGoalMl * 100));
@@ -26182,6 +26369,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     });
     if (window.LKChrome) LKChrome.init(document);
     mountDial();
+    mountMealDial();
   }
 
   /* ---- the dial, mounted after the sheet paints ----------------------
@@ -26196,6 +26384,65 @@ DEMO.define("fuel", function (document, window, location, fetch) {
 
      It is rebuilt only when the unit or the step changes, because those
      change what a click of the bezel is worth. */
+  /* The editor's dial, the same control on the same arithmetic. Kept
+     separate from the portion sheet's only because the two sheets are
+     never open at once and each owns its own slot. */
+  var MDIAL = null, mdialSig = '';
+  function mountMealDial() {
+    var slot = document.getElementById('me-dial');
+    var E = S.mealEdit;
+    if (!slot || !E || E.amount == null || !window.LKDial) { MDIAL = null; mdialSig = ''; return; }
+    var sig = E.unit + '|' + E.step;
+    if (MDIAL && mdialSig === sig && slot.firstChild) { MDIAL.set(E.amount, true); return; }
+    slot.innerHTML = '';
+    var range = PT_RANGE[E.unit] || PT_RANGE.g;
+    MDIAL = LKDial.mount(slot, {
+      value: E.amount, step: E.step, min: range.min, max: range.max,
+      unit: E.unit, label: 'Amount in ' + E.unit, testid: 'me-dial',
+      onChange: function (v) {
+        var EE = S.mealEdit;
+        if (!EE) return;
+        EE.amount = v;
+        EE.g = EE.unit === 'oz' ? v * OZ_G : v;
+        /* The label follows the weight, until somebody types over it.
+           A row reading "Chicken breast, 100 g" that actually holds 150 g
+           is the screen contradicting itself on one line. */
+        if (EE.base && !EE.namedByHand) {
+          EE.name = EE.base + ', ' + (EE.unit === 'oz'
+            ? n(v) + ' oz' : n(Math.round(EE.g)) + ' g');
+          var nmEl = document.getElementById('me-name');
+          if (nmEl && document.activeElement !== nmEl) nmEl.value = EE.name;
+        }
+        /* RE-WEIGHING IS RE-SCALING, not nudging. Every figure comes back
+           off the per-100 g row at the new weight, so protein and sodium
+           cannot drift apart: there is one multiplier and they all go
+           through it. A figure the reader has typed by hand detaches the
+           entry from that row, and then the dial only records the weight
+           rather than rewriting what they wrote. */
+        if (!EE.detached && DAY.meals[EE.i] && DAY.meals[EE.i].per100) {
+          var fresh = atGrams(DAY.meals[EE.i].per100, EE.g);
+          EE.kcal = fresh.kcal; EE.pro = fresh.pro; EE.carb = fresh.carb; EE.fat = fresh.fat;
+          MICROS.forEach(function (mi) { if (fresh[mi.key] != null) EE[mi.key] = fresh[mi.key]; });
+          paintMealEditFigures();
+        }
+      }
+    });
+    mdialSig = sig;
+  }
+
+  /* The editor's figures, updated in place so the sheet is not rebuilt
+     under the thumb turning the dial. */
+  function paintMealEditFigures() {
+    var E = S.mealEdit;
+    if (!E) return;
+    ['pro', 'carb', 'fat', 'kcal'].concat(MICROS.map(function (mi) { return mi.key; }))
+      .forEach(function (k) {
+        if (E[k] == null) return;
+        var el = document.getElementById('me-' + k);
+        if (el && document.activeElement !== el) el.value = String(E[k]);
+      });
+  }
+
   var DIAL = null, dialSig = '';
   function mountDial() {
     var slot = document.getElementById('pt-dial');
@@ -26740,11 +26987,24 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       var pfood = PP.food;
       var pmeal = { key: PP.key || null, icon: pfood.icon || '\ud83c\udf7d\ufe0f',
                     name: pfood.name + ', ' + portionLabel(),
+                    /* THE FOOD'S OWN NAME, kept apart from the portion
+                       written after it. The row is labelled "Chicken
+                       breast, 100 g", and re-weighing it to 150 g later
+                       left the label saying 100 -- a row whose name
+                       disagreed with its own figures. With the base name
+                       kept, the label is rebuilt from the weight rather
+                       than frozen at whatever it was when it was logged. */
+                    base: pfood.name,
                     kcal: Math.round((pfood.kcal || 0) * kk),
                     pro: Math.round((pfood.pro || 0) * kk * 10) / 10,
                     carb: Math.round((pfood.carb || 0) * kk * 10) / 10,
                     fat: Math.round((pfood.fat || 0) * kk * 10) / 10,
-                    src: pfood.src || 'table', slot: S.logSlot || slotForNow() };
+                    src: pfood.src || 'table', slot: S.logSlot || slotForNow(),
+                    /* The weight and the row it was scaled from, so this
+                       entry can be re-weighed later instead of only
+                       multiplied. */
+                    g: gg, unit: PP.unit,
+                    per100: basisOf(pfood) };
       MICROS.forEach(function (mi) {
         if (typeof pfood[mi.key] === 'number') pmeal[mi.key] = Math.round(pfood[mi.key] * kk * 10) / 10;
       });
@@ -26832,6 +27092,76 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     }
     if (a === 'meal-portion') { portion(+act.getAttribute('data-i'), parseFloat(act.getAttribute('data-by'))); return; }
     if (a === 'meal-delete') { removeMeal(+act.getAttribute('data-i')); return; }
+
+    /* ---- the editor ------------------------------------------------- */
+    if (a === 'meal-open-edit') {
+      var oi = +act.getAttribute('data-i');
+      var om = DAY.meals[oi];
+      if (!om) return;
+      S.mealEdit = editStateFor(om, oi);
+      render();
+      return;
+    }
+    /* LOG THIS AGAIN. The same entry, now, in the slot the clock says --
+       which is the whole point: a chicken breast eaten yesterday is one
+       tap today rather than a search, a portion sheet and a dial. */
+    if (a === 'meal-again') {
+      var ai = +act.getAttribute('data-i');
+      var am = DAY.meals[ai];
+      if (!am) return;
+      var copy = { key: am.key, icon: am.icon, name: am.name,
+                   kcal: am.kcal, pro: am.pro, carb: am.carb, fat: am.fat,
+                   src: am.src, g: am.g, unit: am.unit, per100: am.per100,
+                   slot: slotForNow(), at: nowLabel() };
+      MICROS.forEach(function (mi) { if (typeof am[mi.key] === 'number') copy[mi.key] = am[mi.key]; });
+      addMeal(copy);
+      S.sheet = null;
+      toast(esc(am.name) + ' logged again, ' + n(am.kcal) + ' kcal.', function () {
+        DAY.meals.pop(); recount(DAY); saveDay(); OFTEN = frequent();
+      });
+      render();
+      return;
+    }
+    if (a === 'me-cancel') { S.mealEdit = null; render(); return; }
+    if (a === 'me-unit') {
+      readMealEdit();
+      var eu = act.getAttribute('data-u');
+      if (S.mealEdit && eu !== S.mealEdit.unit) {
+        var hadG = S.mealEdit.g;
+        S.mealEdit.unit = eu;
+        S.mealEdit.step = PT_STEPS[eu][0];
+        S.mealEdit.amount = eu === 'g' ? Math.round(hadG)
+                          : Math.round(hadG / OZ_G * 4) / 4;
+      }
+      render(); return;
+    }
+    if (a === 'me-step') {
+      readMealEdit();
+      if (S.mealEdit) S.mealEdit.step = Number(act.getAttribute('data-s')) || PT_STEPS[S.mealEdit.unit][0];
+      render(); return;
+    }
+    if (a === 'me-slot') {
+      readMealEdit();
+      if (S.mealEdit) S.mealEdit.slot = act.getAttribute('data-slot');
+      render(); return;
+    }
+    /* The one tap that closes the gap, when the gap was a typo rather
+       than a packet. */
+    if (a === 'me-match') {
+      readMealEdit();
+      if (S.mealEdit) S.mealEdit.kcal = kcalOfMacros(S.mealEdit);
+      render(); return;
+    }
+    if (a === 'me-save') {
+      readMealEdit();
+      if (!saveMealEdit()) { render(); return; }
+      render(); return;
+    }
+    if (a === 'me-split') {
+      readMealEdit();
+      splitMeal(act.getAttribute('data-slot'));
+      render(); return;
+    }
     if (a === 'undo') { doUndo(); return; }
     if (a === 'resume') {
       /* The shelf exists so a running session is not lost, and it was the one
@@ -27168,12 +27498,33 @@ DEMO.define("fuel", function (document, window, location, fetch) {
      protein back and left its carbs and its fat in the day's totals forever
      -- structurally, not as a missed line: there was nothing on the record
      to subtract. Rescaling a portion had the same hole. */
+  /* WHAT A LOGGED MEAL HAS TO REMEMBER TO BE EDITABLE LATER.
+
+     An entry used to keep its figures and nothing about where they came
+     from: 198 g of chicken went in as 327 kcal and 61 g of protein, and
+     the 198 and the per-100 g row behind it were both thrown away. So
+     "make it 150 g instead" was unanswerable a second after logging --
+     the only edit the app could offer was a blind multiply.
+
+     Two fields fix that. g is how much was logged. per100 is the row it
+     was scaled from, which is the one thing a database actually gives
+     you. With both, changing the amount later is the same arithmetic as
+     it was the first time.
+
+     Neither is required. A meal from a photo estimate or a coach recipe
+     has figures and no basis, and those stay editable by their numbers
+     rather than by weight -- the editor asks for what it has rather than
+     inventing a basis nobody measured. */
   function addMeal(meal) {
     DAY.meals.push({ key: meal.key || null, icon: meal.icon, name: meal.name,
                      at: meal.at || nowLabel(),
                      slot: meal.slot || slotForNow(),
                      pro: meal.pro || 0, carb: meal.carb || 0, fat: meal.fat || 0,
                      kcal: meal.kcal, src: meal.src || 'estimate',
+                     g: (typeof meal.g === 'number' && meal.g > 0) ? meal.g : undefined,
+                     base: meal.base || undefined,
+                     per100: meal.per100 || undefined,
+                     unit: meal.unit || undefined,
                      fibre: meal.fibre, sugar: meal.sugar,
                      satfat: meal.satfat, sodium: meal.sodium });
     recount(DAY);
@@ -27895,6 +28246,142 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     say(esc(m.name) + ' is now ' + n(m.kcal) + ' kcal.');
   }
 
+  /* ---- THE EDITOR'S OWN STATE ----------------------------------------
+
+     A copy, not the meal. Everything typed goes into this and nothing
+     reaches the log until Save, so Cancel is genuinely a cancel and a
+     half-typed protein figure never lands in a day's totals. */
+  function editStateFor(m, i) {
+    var st = { i: i, name: m.name, base: m.base || null, namedByHand: false,
+               at: m.at || '', slot: slotOf(m),
+               kcal: m.kcal, pro: m.pro, carb: m.carb, fat: m.fat,
+               g: (typeof m.g === 'number' && m.g > 0) ? m.g : null,
+               unit: (m.unit === 'oz') ? 'oz' : 'g',
+               step: PT_STEPS[(m.unit === 'oz') ? 'oz' : 'g'][0],
+               error: null };
+    st.amount = st.g == null ? null
+              : (st.unit === 'oz' ? Math.round(st.g / OZ_G * 4) / 4 : Math.round(st.g));
+    MICROS.forEach(function (mi) { if (typeof m[mi.key] === 'number') st[mi.key] = m[mi.key]; });
+    return st;
+  }
+
+  /* The fields are uncontrolled, so what is in them has to be read back
+     before any re-render throws it away. Same rule as every other sheet
+     in this screen. */
+  function readMealEdit() {
+    var E = S.mealEdit;
+    if (!E) return;
+    var get = function (k) {
+      var el = document.getElementById('me-' + k);
+      return el ? el.value : null;
+    };
+    var nm = get('name');
+    if (nm != null) {
+      if (E.name !== nm) E.namedByHand = true;
+      E.name = nm;
+    }
+    var at = get('at'); if (at != null) E.at = at;
+    ['pro', 'carb', 'fat', 'kcal'].concat(MICROS.map(function (mi) { return mi.key; }))
+      .forEach(function (k) {
+        if (E[k] == null && k !== 'pro' && k !== 'carb' && k !== 'fat' && k !== 'kcal') return;
+        var v = get(k);
+        if (v == null) return;
+        var num = readAmount(v);
+        E[k] = isNaN(num) ? 0 : num;
+      });
+  }
+
+  /* TYPING A MACRO MOVES THE ENERGY WITH IT, and typing the energy does
+     not move the macros. Four, four and nine is what the macros imply;
+     the energy is what you say you ate. Only one of those is a fact about
+     arithmetic. */
+  function onMealEditField(k) {
+    var E = S.mealEdit;
+    if (!E) return;
+    readMealEdit();
+    if (k === 'pro' || k === 'carb' || k === 'fat') E.kcal = kcalOfMacros(E);
+    /* Editing a figure by hand unhooks it from the weight: the entry no
+       longer says "this is 160 g of that row", so the dial would be
+       claiming something untrue. The weight itself is kept, because it is
+       still what you ate. */
+    if (k === 'pro' || k === 'carb' || k === 'fat' || k === 'kcal') E.detached = true;
+    E.error = null;
+    render();
+  }
+
+  function saveMealEdit() {
+    var E = S.mealEdit;
+    if (!E) return false;
+    var m = DAY.meals[E.i];
+    if (!m) { S.mealEdit = null; return true; }
+    if (!String(E.name || '').trim()) { E.error = 'It needs a name.'; return false; }
+    if (!(Number(E.kcal) >= 0)) { E.error = 'Energy has to be a number.'; return false; }
+    var before = JSON.parse(JSON.stringify(m));
+    m.name = String(E.name).trim().slice(0, 80);
+    m.at = String(E.at || m.at);
+    m.slot = E.slot;
+    m.kcal = Math.round(Number(E.kcal) || 0);
+    m.pro = Math.round((Number(E.pro) || 0) * 10) / 10;
+    m.carb = Math.round((Number(E.carb) || 0) * 10) / 10;
+    m.fat = Math.round((Number(E.fat) || 0) * 10) / 10;
+    if (E.g != null) m.g = Math.round(E.g);
+    m.unit = E.unit;
+    if (E.namedByHand) m.base = undefined;
+    /* A figure typed by hand is no longer that row at that weight, so the
+       basis goes. Keeping it would let a later turn of the dial silently
+       overwrite the number somebody had just corrected. */
+    if (E.detached) m.per100 = undefined;
+    MICROS.forEach(function (mi) {
+      if (E[mi.key] != null) m[mi.key] = Math.round((Number(E[mi.key]) || 0) * 10) / 10;
+    });
+    recount(DAY);
+    saveDay();
+    OFTEN = frequent();
+    S.mealEdit = null;
+    S.sheet = null;
+    say(m.name + ' updated, ' + n(m.kcal) + ' kcal.', function () {
+      DAY.meals[E.i] = before;
+      recount(DAY); saveDay(); OFTEN = frequent();
+    });
+    return true;
+  }
+
+  /* HALF HERE, HALF THERE. Computed from what is on screen rather than
+     from what was logged, so splitting after an edit splits the edited
+     figures. The odd gram goes to the half that stays, so the two always
+     add back to the whole. */
+  function splitMeal(toSlot) {
+    var E = S.mealEdit;
+    if (!E) return;
+    var m = DAY.meals[E.i];
+    if (!m) return;
+    var halve = function (v) { return Math.round((Number(v) || 0) / 2 * 10) / 10; };
+    var keepKcal = Math.ceil((Number(E.kcal) || 0) / 2);
+    var moveKcal = Math.round(Number(E.kcal) || 0) - keepKcal;
+    var mk = function (kcal, slot) {
+      var out = { key: m.key, icon: m.icon, name: E.name, kcal: kcal, slot: slot,
+                  at: E.at || m.at, src: m.src,
+                  pro: halve(E.pro), carb: halve(E.carb), fat: halve(E.fat),
+                  g: E.g != null ? Math.round(E.g / 2) : undefined,
+                  unit: E.unit, per100: E.detached ? undefined : m.per100 };
+      MICROS.forEach(function (mi) { if (E[mi.key] != null) out[mi.key] = halve(E[mi.key]); });
+      return out;
+    };
+    var before = DAY.meals.slice();
+    var stay = mk(keepKcal, E.slot);
+    var go = mk(moveKcal, toSlot);
+    DAY.meals.splice(E.i, 1, stay, go);
+    recount(DAY);
+    saveDay();
+    OFTEN = frequent();
+    S.mealEdit = null;
+    S.sheet = null;
+    say('Split in two, half to ' + slotName(toSlot).toLowerCase() + '.', function () {
+      DAY.meals = before;
+      recount(DAY); saveDay(); OFTEN = frequent();
+    });
+  }
+
   function removeMeal(i) {
     var m = DAY.meals[i];
     if (!m) return;
@@ -28028,6 +28515,16 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       return;
     }
     if (e.target.id.indexOf('mn-') === 0) { readManual(); return; }
+    /* A figure typed in the editor moves the energy with it, and the
+       caret has to survive the repaint that shows it. */
+    if (e.target.id && e.target.id.indexOf('me-') === 0) {
+      var meK = e.target.getAttribute('data-k');
+      var meId = e.target.id, meSel = e.target.selectionStart;
+      onMealEditField(meK);
+      var meEl = document.getElementById(meId);
+      if (meEl) { meEl.focus(); try { meEl.setSelectionRange(meSel, meSel); } catch (err) {} }
+      return;
+    }
     if (e.target.id === 'pt-amount' || e.target.id === 'pt-serv') {
       readPortion();
       if (S.portion) S.portion.error = null;
