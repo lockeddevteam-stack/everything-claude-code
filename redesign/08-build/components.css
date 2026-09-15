@@ -724,7 +724,13 @@ textarea, select {
 .sheet {
   position: absolute;
   left: var(--sp-2); right: var(--sp-2);
-  bottom: calc(var(--sp-2) + var(--safe-bottom));
+  /* --lk-lift is how far the on-screen keyboard has pushed this sheet
+     up. Published by chrome.js onto the overlay that holds the sheets and
+     inherited from there, so there is one rule doing this arithmetic
+     rather than two competing ones, and nothing has to become a
+     containing block to make it work. Zero whenever there is no keyboard,
+     which is every desktop. */
+  bottom: calc(var(--sp-2) + var(--safe-bottom) + var(--lk-lift, 0px));
   z-index: 11;
   background: var(--surface-raised);
   border-radius: var(--r-xl);
@@ -3425,14 +3431,69 @@ button.shelf:active { background: var(--fill-press); }
    ------------------------------------------------------------------- */
 :root { --lk-kb: 0px; }
 
-.tabbar { bottom: calc(var(--sp-3) + var(--safe-bottom) + var(--lk-kb)); }
+/* A TAB BAR DOES NOT RIDE THE KEYBOARD UP. It used to: bottom included
+   --lk-kb, so five destinations nobody is going to were lifted six
+   hundred pixels and parked on top of the thing being typed into, and
+   then faded out where they had just been shoved. Two animations
+   disagreeing about the same object.
 
-/* A tab bar over a keyboard is a row of destinations nobody is going to,
-   taking the space the thing being typed into needs. */
-:root[data-keyboard="open"] .tabbar { opacity: 0; pointer-events: none; }
+   It goes down and out instead, which is the direction it came from and
+   the direction a keyboard is pushing everything. */
+.tabbar { bottom: calc(var(--sp-3) + var(--safe-bottom)); }
 
 .actionbar { padding-bottom: calc(var(--sp-3) + var(--safe-bottom) + var(--lk-kb)); }
-.sheet__foot { padding-bottom: var(--lk-kb); }
+
+/* ---- AND THE SHEET RIDES ABOVE IT ----------------------------------
+
+   This was the whole bug. A sheet is anchored to the bottom of the
+   screen, and only its footer's PADDING knew about the keyboard: the
+   sheet stayed where it was and grew a gap inside itself, so tapping the
+   search field inside a sheet that had just slid up from the bottom put
+   the keyboard straight over the field being tapped. The one control
+   somebody was typing towards was the one they could not see.
+
+   The sheet itself moves now, and it moves the way the rest of the app
+   moves: one spring, the same token every other transition on this screen
+   uses, so the sheet and the keyboard travel together rather than the
+   sheet snapping to a new place after the keyboard has finished. iOS
+   emits visualViewport resize continuously while the keyboard animates,
+   so a short spring tracks it rather than lagging behind it. */
+/* The movement itself is an inline transform set by chrome.js, because a
+   rule here cannot reach reliably into a shadow root's cascade. What
+   stays here is how it moves: one spring, the same token the rest of the
+   app uses, so the sheet glides with the keyboard rather than snapping to
+   a new place after it. */
+/* The motion. One spring, the token the rest of the app uses, so the
+   sheet travels with the keyboard rather than snapping to a new place
+   after it has finished. No will-change: on the overlay it made the
+   element a containing block and dropped every sheet inside it to the
+   bottom of the page. */
+.sheet { transition: bottom var(--dur-slow, 320ms) var(--spring-snappy, cubic-bezier(.22,1,.36,1)); }
+[data-lk-duck] {
+  transition: transform var(--dur-slow, 320ms) var(--spring-snappy, cubic-bezier(.22,1,.36,1)),
+              opacity 160ms ease-out;
+}
+/* A footer is in the flow rather than positioned, so it moves by
+   transform -- but only while a keyboard is actually up, and the
+   transform is written inline by chrome.js for exactly that reason.
+
+   A transform of zero is still a transform. Declared here unconditionally
+   it made the footer a stacking context at rest, and the live-session
+   shelf inside it stopped being able to paint above the tab bar outside
+   it: the shelf was there, visible, and the tab bar was taking every tap
+   meant for it. Nothing about the keyboard was involved. */
+[data-lk-lift] {
+  transition: transform var(--dur-slow, 320ms) var(--spring-snappy, cubic-bezier(.22,1,.36,1));
+}
+
+/* The footer's own padding is gone: with the sheet moving, padding here
+   would count the keyboard twice and leave a band of empty sheet under
+   the button. */
+.sheet__foot { padding-bottom: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet, [data-lk-duck], [data-lk-lift] { transition: none; }
+}
 
 /* =============================================================
    WORKOUT LOG (wp4) — the record, the gesture, the pop.

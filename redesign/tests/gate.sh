@@ -75,6 +75,7 @@ muscle-split|node muscle-split.mjs
 catalogue-curation|node catalogue-curation.mjs
 portion-dial|node portion-dial.mjs
 meal-edit|node meal-edit.mjs
+keyboard-lift|node keyboard-lift.mjs
 voice|node voice.mjs
 keyboard|node keyboard.mjs
 cloud-contract|node cloud-contract.mjs

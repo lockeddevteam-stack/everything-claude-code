@@ -609,6 +609,11 @@
 
   function init(root) {
     root = root || doc;
+    /* Every root LKChrome is told about is a root the keyboard has to be
+       able to reach into. Registered here rather than discovered, because
+       a shadow root cannot be found from the document. */
+    registerRoot(root);
+    reapplyLift();
     initTabLinks(root);
     initAccessory(root);
     initLargeTitle(root);
@@ -689,11 +694,116 @@
       last = px;
       doc.documentElement.style.setProperty('--lk-kb', px + 'px');
       doc.documentElement.setAttribute('data-keyboard', px ? 'open' : 'shut');
+      applyLift(px);
     }
     vv.addEventListener('resize', measure);
     vv.addEventListener('scroll', measure);
     measure();
   }
+
+  /* ---- MOVING THINGS OUT OF THE KEYBOARD'S WAY -----------------------
+
+     --lk-kb is published on documentElement and does inherit into every
+     screen's shadow root, and for a while that looked like enough. It is
+     not, for two reasons that only show up once the screens are shadow
+     roots.
+
+     :root does not match a shadow root, so every rule written as
+     :root[data-keyboard="open"] .thing is dead inside a screen -- which
+     is why the tab bar never actually got out of the way despite a rule
+     saying it should. And a plain rule that reads the variable competes
+     in a cascade against the same selector declared earlier in the same
+     adopted stylesheet, which is a fight not worth having for something
+     this load-bearing: the sheet kept the bottom it was given at rest
+     even with the variable arriving correctly at the element.
+
+     So the offset is applied directly, as an inline style, to elements
+     that ask for it by attribute. Inline beats every stylesheet, it works
+     the same in a shadow root as in the document, and there is exactly
+     one place deciding how far anything moves.
+
+     data-lk-lift  rises by the keyboard's height: sheets, composers,
+                   anything somebody is typing towards.
+     data-lk-duck  leaves downwards: the tab bar, because five
+                   destinations nobody is going to are not worth the
+                   space, and lifting them -- which is what used to
+                   happen -- parks them on top of the field instead. */
+  var LIFT_ROOTS = [];
+  function registerRoot(r) {
+    if (!r || LIFT_ROOTS.indexOf(r) > -1) return;
+    LIFT_ROOTS.push(r);
+  }
+  var lastLift = -1;
+  function applyLift(px) {
+    lastLift = px;
+    for (var i = 0; i < LIFT_ROOTS.length; i++) {
+      var r = LIFT_ROOTS[i];
+      var up, down;
+      try {
+        up = r.querySelectorAll('[data-lk-lift]');
+        down = r.querySelectorAll('[data-lk-duck]');
+      } catch (e) { continue; }
+      /* A CUSTOM PROPERTY, NOT A TRANSFORM. Transforming the overlay that
+         holds the sheets made it a containing block, and a sheet is
+         absolutely positioned: it stopped resolving against the screen
+         and started resolving against a zero-height div in the flow,
+         which dropped every sheet to the bottom of the page, mostly off
+         it. will-change: transform did the same thing on its own, before
+         the keyboard had even opened.
+
+         The value is published instead and inherits to whatever is
+         inside. Nothing becomes a containing block, nothing fights the
+         sheet's own entrance animation, and the sheet's existing bottom
+         rule does the arithmetic. */
+      Array.prototype.forEach.call(up, function (el) {
+        if (px) el.style.setProperty('--lk-lift', px + 'px');
+        else el.style.removeProperty('--lk-lift');
+        /* An element in the flow moves by transform, and only while there
+           is something to move for: a transform of zero is still a
+           transform, and it makes a stacking context that changes what
+           can paint over what even with no keyboard anywhere. */
+        if (!el.querySelector || !el.querySelector('.sheet')) {
+          el.style.transform = px ? 'translate3d(0,' + (-px) + 'px,0)' : '';
+        }
+        /* AND ON THE SHEETS INSIDE IT, INLINE.
+
+           Publishing the variable and letting the sheet's own bottom rule
+           read it is the tidy version, and it does not work here: the
+           variable arrives at the sheet, measurably, and the computed
+           bottom stays where it was. The sheets live in an adopted
+           constructed stylesheet inside a shadow root, and this is not a
+           cascade worth another hour.
+
+           An inline declaration wins over every stylesheet, in every root,
+           with no specificity to reason about. It is written in the same
+           terms the rule uses, so the resting position stays the single
+           source of truth rather than being measured and re-applied. */
+        var sheets = el.querySelectorAll ? el.querySelectorAll('.sheet') : [];
+        Array.prototype.forEach.call(sheets, function (sh) {
+          sh.style.bottom = px
+            ? 'calc(var(--sp-2) + var(--safe-bottom) + ' + px + 'px)'
+            : '';
+          /* AND IT GIVES BACK THE HEIGHT IT TOOK. Lifting a sheet that
+             was already 511px tall by 336 pushed its top three pixels off
+             the screen: the title and the close button went with it, and
+             a sheet you cannot close is worse than one you cannot see the
+             bottom of. Capped to what is left above the keyboard, so the
+             sheet shortens and its body scrolls rather than the sheet
+             sliding out of the top of the phone. */
+          sh.style.maxHeight = px ? 'calc(100% - ' + (px + 24) + 'px)' : '';
+        });
+      });
+      Array.prototype.forEach.call(down, function (el) {
+        el.style.transform = px ? 'translate3d(0,' + Math.round(px * 0.12 + 72) + 'px,0)' : '';
+        el.style.opacity = px ? '0' : '';
+        el.style.pointerEvents = px ? 'none' : '';
+      });
+    }
+  }
+  /* A screen that re-renders replaces its own nodes, so whatever was
+     lifted a moment ago is gone. Re-applied after every render rather
+     than only when the keyboard moves. */
+  function reapplyLift() { if (lastLift > 0) applyLift(lastLift); }
 
   /* A DOUBLE TAP ON A NUMBER IS NOT A ZOOM REQUEST. Logging a set means
      tapping small numeric controls quickly, and Safari reads two taps
@@ -857,7 +967,10 @@
 
   global.LKChrome = { init: init, watchKeyboard: watchKeyboard,
                       lockScroll: lockScroll, unlockScroll: unlockScroll,
-                      crashScreen: crashScreen };
+                      crashScreen: crashScreen,
+                      /* Called by a screen after it repaints, so anything
+                         the keyboard had moved is moved again. */
+                      reapplyLift: reapplyLift };
 
   if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', function () { init(doc); });
   else init(doc);
