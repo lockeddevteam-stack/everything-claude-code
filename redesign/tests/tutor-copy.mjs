@@ -77,8 +77,16 @@ Object.keys(TRACKS).forEach((id) => {
 });
 /* Sixty-four, not the prototype's sixty-three: Review's Done and the
    library's and Progress's way back are steps that exist because those
-   three screens gained a control they were missing. */
-ok(lines === 65, 'all 65 authored lines are present', String(lines));
+   three screens gained a control they were missing.
+
+   Sixty-six now: the Add Exercise picker opens on a body, so choosing a
+   part is a step of its own. The count is pinned on purpose -- a
+   walkthrough that quietly loses a step teaches a flow with a hole in
+   it, and that is exactly what happened here. The picker changed and
+   the tutorial went on tapping for rows that no longer appear until a
+   muscle is chosen; the suite caught it, which is the whole point of
+   counting. */
+ok(lines === 66, 'all 66 authored lines are present', String(lines));
 
 /* ---- 2. every track, walked on the real screens -------------------- */
 const browser = await chromium.launch();
