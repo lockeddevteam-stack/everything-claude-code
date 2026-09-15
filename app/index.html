@@ -30895,11 +30895,118 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
       '</div>';
   }
 
-  function pickSheet(m) {
+  /* THE SAME BODY THE LOG OPENS ON.
+
+     This sheet listed the whole catalogue with a search field over it,
+     which is the arrangement the workout log's picker has just stopped
+     using -- and planning a split is the place somebody adds the MOST
+     exercises, so it is the worst screen to make them scroll. Pointing
+     at the part being trained is the question they are actually asking.
+
+     Three states, same as the log's: the figure, one group's lifts, and
+     search cutting across both. Kept deliberately close to the log's
+     version so the two read as one idea rather than two. */
+  function pickBody(m) {
+    var q = (m.q || '').trim();
+    if (q) return pickList(m);
+    if (!m.gid) return pickMapHTML(m);
+    return pickGroupHTML(m);
+  }
+
+  function pickMapHTML(m) {
+    var counts = (window.LKExercises && LKExercises.groupCounts)
+      ? LKExercises.groupCounts(LIBRARY) : {};
+    return '<div class="addexmap" data-testid="pick-map">' +
+      '<div class="addexmap__fig" id="pick-fig"></div>' +
+      '<div class="addexmap__side">' +
+        '<div class="seg" role="tablist" aria-label="Body view">' +
+          ['front', 'back'].map(function (v) {
+            return '<button class="seg__item" type="button" role="tab" data-action="pick-view" ' +
+              'data-view="' + v + '" data-testid="pick-view-' + v + '" ' +
+              'aria-selected="' + ((m.view || 'front') === v ? 'true' : 'false') + '">' +
+              (v === 'front' ? 'Front' : 'Back') + '</button>';
+          }).join('') +
+        '</div>' +
+      '</div>' +
+      '<p class="t-detail quiet mt-2">Tap the part this day trains.</p>' +
+      '<div class="card card--flush mt-3" data-testid="pick-groups">' +
+        (window.LKExercises ? LKExercises.groups : []).map(function (gr) {
+          var c = counts[gr[0]] || { n: 0 };
+          if (!c.n) return '';
+          return '<button class="row" data-action="pick-group" data-gid="' + gr[0] + '" ' +
+            'data-id="' + m.id + '" data-testid="pick-group-' + gr[0] + '">' +
+            '<div class="row__main"><div class="row__title">' + esc(gr[1]) + '</div></div>' +
+            '<span class="t-meta" data-num>' + c.n + '</span>' +
+            '<span class="row__chev">' + ico('chev') + '</span></button>';
+        }).join('') +
+      '</div>';
+  }
+
+  function pickGroupHTML(m) {
+    var name = (window.LKExercises && LKExercises.groupName)
+      ? LKExercises.groupName(m.gid) : m.gid;
+    return '<div class="spread" data-testid="pick-crumb">' +
+        '<button class="btn btn--tertiary btn--sm" data-action="pick-back" data-testid="pick-back">' +
+          ico('back') + '<span class="btn__label">Body</span></button>' +
+        '<span class="t-label">' + esc(name) + '</span>' +
+      '</div>' + pickList(m);
+  }
+
+  function pickRows(m) {
     var q = (m.q || '').toLowerCase();
     var list = LIBRARY.filter(function (x) {
       return !q || x.name.toLowerCase().indexOf(q) > -1 || x.muscle.toLowerCase().indexOf(q) > -1;
     });
+    if (!q && m.gid && window.LKExercises && LKExercises.gidOf) {
+      list = list.filter(function (x) { return LKExercises.gidOf(x) === m.gid; });
+    }
+    return list;
+  }
+
+  function pickList(m) {
+    var list = pickRows(m);
+    if (!list.length) {
+      return '<div class="empty"><span class="empty__ico">' + ico('search', 'ico--lg') + '</span>' +
+        '<h2 class="empty__title">No match</h2>' +
+        '<p class="empty__body">Nothing in the library matches that. ' +
+        'Clear the search to go back to the body.</p></div>';
+    }
+    return '<div class="card card--flush">' + list.slice(0, 60).map(function (x, i) {
+      return '<button class="row" data-testid="pick-' + i + '" data-action="pick-add" data-name="' + esc(x.name) + '" data-muscle="' + esc(x.muscle) + '" data-exid="' + (x.id || '') + '" data-id="' + m.id + '">' +
+        '<div class="row__main"><div class="row__title">' + esc(x.name) + '</div><div class="row__sub">' + esc(x.muscle) + '</div></div>' +
+        '<span class="row__chev">' + ico('plus') + '</span></button>';
+    }).join('') + '</div>' +
+    (list.length > 60
+      ? '<p class="t-detail quiet mt-2" data-testid="pick-more">' + (list.length - 60) +
+        ' more. Narrow it with the search, or pick a different part.</p>'
+      : '');
+  }
+
+  /* LKBodyMap draws into a host element, so it cannot be part of the
+     string the sheet is patched in from: it is mounted after, into the
+     slot that string left. This screen redraws itself whole, so the
+     figure is rebuilt with it rather than kept -- a kept one would be
+     pointing at a node that no longer exists. */
+  function syncPickFigure() {
+    var slot = document.getElementById('pick-fig');
+    if (!slot || !window.LKBodyMap || !window.LKExercises) return;
+    if (slot.firstChild) return;
+    var m = S.modal;
+    try {
+      var fig = LKBodyMap.mount(slot, {
+        groups: LKExercises.groupCounts(LIBRARY),
+        order: LKExercises.groups.map(function (gr) { return gr[0]; }),
+        view: (m && m.view) || 'front',
+        onSelect: function (gid) {
+          if (S.modal) { S.modal.gid = gid; render(); }
+        }
+      });
+      if (fig.setView) fig.setView((m && m.view) || 'front');
+    } catch (e) { /* the named rows below it still work */ }
+  }
+
+  function pickSheet(m) {
+    var list = pickRows(m);
     var day = S.manual.days.filter(function (d) { return d.id === m.id; })[0];
     return '<div class="scrim" data-testid="scrim" data-action="close-modal"></div>' +
       '<div class="sheet" role="dialog" aria-modal="true" aria-label="Add an exercise" data-testid="pick-sheet" data-detents="0.55 0.88" data-detent-open="0.88">' +
@@ -30911,15 +31018,7 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
         '</div>' +
         '<div class="search"><span class="search__ico">' + ico('search') + '</span>' +
           '<input class="input" type="search" value="' + esc(m.q || '') + '" placeholder="Search exercises" data-testid="pick-search" data-action="pick-search" aria-label="Search exercises"></div>' +
-        '<div class="sheet__body mt-3">' +
-          (list.length ? '<div class="card card--flush">' + list.map(function (x, i) {
-            return '<button class="row" data-testid="pick-' + i + '" data-action="pick-add" data-name="' + esc(x.name) + '" data-muscle="' + esc(x.muscle) + '" data-exid="' + (x.id || '') + '" data-id="' + m.id + '">' +
-              '<div class="row__main"><div class="row__title">' + esc(x.name) + '</div><div class="row__sub">' + esc(x.muscle) + '</div></div>' +
-              '<span class="row__chev">' + ico('plus') + '</span></button>';
-          }).join('') + '</div>'
-          : '<div class="empty"><span class="empty__ico">' + ico('search', 'ico--lg') + '</span>' +
-            '<h2 class="empty__title">No match</h2><p class="empty__body">Nothing in the library matches that. Clear the search to see all 14 exercises.</p></div>') +
-        '</div>' +
+        '<div class="sheet__body mt-3">' + pickBody(m) + '</div>' +
       '</div>';
   }
 
@@ -31026,6 +31125,7 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
                   : S.screen === 'pick' ? pickScreen()
                   : S.screen === 'photo' ? photoScreen()
                   : aiScreen()) + overlays());
+    syncPickFigure();
     if (key) {
       var next = app.querySelector('[data-testid="' + key + '"]');
       if (next) {
@@ -31476,7 +31576,19 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
       render();
     },
     'ex-remove': function (el) { removeExercise(el.getAttribute('data-day'), el.getAttribute('data-id')); },
-    'add-exercise': function (el) { S.modal = { type: 'pick', id: el.getAttribute('data-id'), q: '' }; render(); },
+    /* Opens on the body, with no part chosen: a group left over from the
+       last exercise added is not an answer to this one. */
+    'add-exercise': function (el) {
+      S.modal = { type: 'pick', id: el.getAttribute('data-id'), q: '', gid: null, view: 'front' };
+      render();
+    },
+    'pick-group': function (el) {
+      if (S.modal) { S.modal.gid = el.getAttribute('data-gid') || null; render(); }
+    },
+    'pick-back': function () { if (S.modal) { S.modal.gid = null; render(); } },
+    'pick-view': function (el) {
+      if (S.modal) { S.modal.view = el.getAttribute('data-view') === 'back' ? 'back' : 'front'; render(); }
+    },
     'add-block': function (el) {
       S.modal = { type: 'block', id: el.getAttribute('data-id'), title: '', mins: '', notes: '', error: null };
       render();
@@ -31609,7 +31721,13 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     'split-name': function (el) { S.manual.name = el.value; markDirty(); patch(); },
     'day-name': function (el) { var d = findDay(el.getAttribute('data-id')); if (d) { d.name = el.value; markDirty(); patch(); } },
     'ai-note': function (el) { S.ai.note = el.value; patchAi(); },
-    'pick-search': function (el) { S.modal.q = el.value; render(); },
+    'pick-search': function (el) {
+      S.modal.q = el.value;
+      /* A search is a question about the whole body, so it leaves the
+         chosen part behind rather than hiding most of the answers. */
+      if (String(el.value || '').trim()) S.modal.gid = null;
+      render();
+    },
     'photo-note': function (el) {
       S.photo.note = el.value;
       var b = document.querySelector('[data-testid="photo-to-describe"]');

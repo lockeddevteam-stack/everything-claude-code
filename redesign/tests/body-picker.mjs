@@ -198,6 +198,56 @@ await page.waitForTimeout(600);
 ok(await inLog("return !!root.querySelector('[data-testid=\"addex-map\"]');"),
    'which is the same figure');
 
+console.log('\n=== and the split builder, where most lifts get added ===\n');
+
+/* Planning a split is where somebody adds the MOST exercises, so it is
+   the worst screen to make them scroll a catalogue. It had the log's
+   old arrangement AND a worse fault behind it: it fetched a test
+   fixture for its library, which 404s in any deployed build, so the
+   inline fallback of fourteen exercises stood in production. */
+await tap('addex-close');
+await page.waitForTimeout(500);
+await page.evaluate(() => { try { localStorage.setItem('lk_openSplit', 's1'); } catch (e) {} });
+await page.evaluate(() => window.DEMO.go('split-builder'));
+await page.waitForTimeout(1300);
+
+const inSB = (fn) => page.evaluate((f) => {
+  const rec = window.DEMO.screens['split-builder'];
+  const root = rec && (rec.root || (rec.host && rec.host.shadowRoot));
+  // eslint-disable-next-line no-new-func
+  return new Function('root', f)(root);
+}, fn);
+
+const addCtl = await inSB(
+  "const b = root.querySelector('[data-testid^=\"add-exercise-\"]');" +
+  "return b ? b.getAttribute('data-testid') : null;");
+ok(!!addCtl, 'a day offers Add exercise', String(addCtl));
+if (addCtl) {
+  ok((await tap(addCtl)) === 'ok', 'and it opens');
+  await page.waitForTimeout(900);
+  ok(await inSB("return !!root.querySelector('[data-testid=\"pick-map\"]');"),
+     'on the body, the same as the log');
+  const sbSvg = await inSB("const f = root.querySelector('#pick-fig'); return f ? f.innerHTML.length : 0;");
+  ok(sbSvg > 1000, 'with the figure drawn', sbSvg + ' bytes');
+  const sbGroups = await inSB(
+    "return root.querySelectorAll('[data-testid^=\"pick-group-\"]').length;");
+  ok(sbGroups === 12, 'and every part of the body', String(sbGroups));
+
+  ok((await tap('pick-group-abs')) === 'ok', 'a part can be chosen');
+  await page.waitForTimeout(700);
+  const sbRows = await inSB(
+    "return Array.from(root.querySelectorAll('[data-testid]'))" +
+    ".filter(e => /^pick-\\d+$/.test(e.getAttribute('data-testid')))" +
+    ".slice(0,3).map(e => e.textContent.replace(/\\s+/g,' ').trim());");
+  ok(sbRows.length > 0, 'with real lifts under it, not fourteen seeds',
+     JSON.stringify(sbRows));
+  /* The seed fallback had no ab exercises at all, so anything here that
+     names one proves the real catalogue is loaded. */
+  ok(/sit-up|crunch|ab /i.test(sbRows.join(' ')),
+     'from the real catalogue, which the seed list never had',
+     JSON.stringify(sbRows));
+}
+
 ok(!errs.length, 'nothing throws through any of it', errs[0] || '');
 
 await br.close();
