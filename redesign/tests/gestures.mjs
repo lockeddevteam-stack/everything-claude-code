@@ -157,11 +157,21 @@ await page.waitForTimeout(500);
 const afterTap = await order();
 ok(afterTap[0] === was[0], 'a grip dragged without holding moves nothing', afterTap[0]);
 
-/* Hold past 350ms, then carry it past the next card's middle. */
+/* Hold past 350ms, then carry it past the next card's middle.
+
+   THE GAP IS MEASURED AFTER THE HOLD, not before it. Picking a card up
+   folds every card down to its name, so the distance to the next one is
+   a tab's height and no longer a card's -- measuring first and dragging
+   that far now carries the lift to the bottom of the list, which is the
+   fold working rather than the drag failing. */
 await page.mouse.move(grip.x, grip.y);
 await page.mouse.down();
 await page.waitForTimeout(450);
-const step = Math.ceil(grip.need / 14);
+const folded = await inLog(
+  "const cards = Array.from(root.querySelectorAll('[data-testid^=\"exercise-card-\"]'));" +
+  "const mids = cards.map(c => { const r = c.getBoundingClientRect(); return r.top + r.height / 2; });" +
+  "return Math.ceil(mids[1] - mids[0]) + 12;");
+const step = Math.ceil(folded / 14);
 for (let k = 1; k <= 14; k++) { await page.mouse.move(grip.x, grip.y + k * step); await page.waitForTimeout(16); }
 await page.mouse.up();
 await page.waitForTimeout(800);

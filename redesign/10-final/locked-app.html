@@ -627,6 +627,33 @@ body {
   font-feature-settings: "tnum" 1;
 }
 
+/* --- NOTHING HIGHLIGHTS BLUE ---------------------------------------------
+   This app is held, and holding is how half of it works: hold a grip to
+   pick an exercise up, hold a row to open it, hold and drag to throw a
+   set away. On a phone every one of those gestures also started a text
+   selection, so the thing under the thumb turned blue and a magnifier
+   came up over it -- the browser answering a gesture the app had already
+   claimed. It reads as the app breaking, every single time.
+
+   So selection is off by default and switched back on only where reading
+   text IS the point: fields somebody types in, and anything marked
+   selectable on purpose. A button label was never worth selecting. */
+:root, body {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+  /* And no callout menu on a long press either: iOS offers Copy / Look Up
+     over a held element, which lands on top of whatever the hold was
+     actually for. */
+  -webkit-touch-callout: none;
+}
+input, textarea, select, [contenteditable="true"], .selectable, .selectable * {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
 button, input, select, textarea { font: inherit; color: inherit; }
 
 button {
@@ -4514,6 +4541,71 @@ button.shelf:active { background: var(--fill-press); }
 }
 @media (prefers-reduced-motion: reduce) {
   .fuel-miclevel > i { transition: none; }
+}
+
+/* --- REORDERING: THE CARDS BECOME TABS -----------------------------------
+   Dragging a full exercise card up a list of full exercise cards means
+   dragging a 300px object past other 300px objects, with the one you are
+   moving covering the gap it is meant to land in. So the moment a card is
+   picked up, every card folds down to its name. The whole order fits on
+   one screen, the gap is visible, and the drop lands where you meant.
+
+   They wiggle, because a thing that is wiggling is a thing you can move,
+   and every phone owner already knows that from the home screen. It is
+   the only animation in this app that loops, and it stops the moment the
+   drag ends. Anybody who has asked for less motion gets the fold without
+   the wiggle -- the fold is what makes the reorder usable, the wiggle is
+   only what announces it. */
+.exc--tab .sets,
+.exc--tab .exc__foot,
+.exc--tab .exc__muscle,
+.exc--tab .badge { display: none; }
+.exc--tab .exc__head { box-shadow: none; }
+.exc--tab {
+  transition: transform var(--dur-quick, .18s) var(--spring-soft, ease);
+}
+.exc--tab .exc__name {
+  font-size: var(--type-15);
+  line-height: var(--lh-15);
+  letter-spacing: var(--tr-15);
+}
+
+@keyframes lk-wiggle {
+  0%   { transform: rotate(-0.55deg); }
+  50%  { transform: rotate(0.55deg); }
+  100% { transform: rotate(-0.55deg); }
+}
+.exc--tab:not(.exc--dragging) {
+  animation: lk-wiggle 0.24s linear infinite;
+  /* Each card out of step with the next, so the list reads as a row of
+     separate objects rather than one sheet shaking. */
+  animation-delay: calc(var(--wiggle-i, 0) * -60ms);
+}
+/* The one under the finger holds still and lifts. Something that is
+   moving with your hand should not also be shaking. */
+.exc--dragging { opacity: 0.96; }
+
+@media (prefers-reduced-motion: reduce) {
+  .exc--tab:not(.exc--dragging) { animation: none; }
+}
+
+/* --- THE RED AURA ON ANYTHING BEING THROWN AWAY --------------------------
+   A swipe that deletes should look like a deletion before it is one. The
+   glow grows with the travel, so the point of no return is something you
+   can see coming rather than something you discover afterwards, and it is
+   the same signal on a set and on a whole exercise because it means the
+   same thing on both. --peril runs 0 to 1 and is set by the gesture. */
+.is-peril {
+  box-shadow:
+    inset 0 0 0 1px rgba(217, 45, 45, calc(var(--peril, 0) * 0.9)),
+    0 0 18px rgba(217, 45, 45, calc(var(--peril, 0) * 0.55));
+  background-color: rgba(217, 45, 45, calc(var(--peril, 0) * 0.14));
+}
+.exc.is-peril {
+  border-radius: var(--r-lg);
+  box-shadow:
+    0 0 0 2px rgba(217, 45, 45, calc(var(--peril, 0) * 0.95)),
+    0 0 26px rgba(217, 45, 45, calc(var(--peril, 0) * 0.5));
 }
 
 
@@ -40307,10 +40399,11 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
   }
 
   function headBtns(ex, e) {
-    return '<button class="exc__grip" type="button" data-act="grip" data-ex="' + e + '" data-testid="grip-' + e + '" ' +
-        'aria-pressed="' + (S.liftedEx === e ? 'true' : 'false') + '" aria-label="Reorder ' + esc(ex.name) +
-        ', position ' + (e + 1) + ' of ' + S.exercises.length + '">' + ICO.grip + '</button>' +
-      '<button class="exc__main" type="button" data-act="exsheet" data-ex="' + e + '" data-testid="exercise-menu-' + e + '" ' +
+    /* THE GRIP SITS ON THE RIGHT, where a thumb holding the phone already
+       is, and where both of the gestures it carries start: hold and drag
+       up or down to reorder, hold and drag left to throw the exercise
+       away. It read first in the markup and last under the hand. */
+    return '<button class="exc__main" type="button" data-act="exsheet" data-ex="' + e + '" data-testid="exercise-menu-' + e + '" ' +
         'aria-haspopup="dialog" aria-label="Options for ' + esc(ex.name) +
         '. Press and hold, or press Enter." aria-description="Press and hold to open">' +
         '<span class="exc__name">' + esc(ex.name) + '</span>' +
@@ -40325,7 +40418,11 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
           (staleDays(ex) ? ' &middot; <span class="exc__stale" data-testid="stale-' + e + '">last ' +
             staleDays(ex) + ' days ago</span>' : '') +
           '</span>' +
-      '</button>';
+      '</button>' +
+      '<button class="exc__grip" type="button" data-act="grip" data-ex="' + e + '" data-testid="grip-' + e + '" ' +
+        'aria-pressed="' + (S.liftedEx === e ? 'true' : 'false') + '" aria-label="Reorder ' + esc(ex.name) +
+        ', position ' + (e + 1) + ' of ' + S.exercises.length +
+        '. Hold and drag up or down to move it, or left to remove it.">' + ICO.grip + '</button>';
   }
 
   /* Days since this exercise last appeared in a finished session, when that
@@ -40417,7 +40514,8 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
 
   function exerciseHTML(ex, e) {
     return '<article class="exc' + (S.liftedEx === e ? ' exc--lifted' : '') +
-        (S.dragEx === e ? ' exc--dragging' : '') + '" data-testid="exercise-card-' + e + '">' +
+        (S.dragEx === e ? ' exc--dragging' : '') + (S.dragEx !== -1 ? ' exc--tab' : '') +
+        '" style="--wiggle-i:' + e + '" data-testid="exercise-card-' + e + '">' +
       '<div class="exc__head">' + headBtns(ex, e) +
         (exHasPR(ex) ? '<span class="badge badge--success" data-testid="pr-badge-' + e + '">PR</span>' : '') +
       '</div>' +
@@ -40446,7 +40544,8 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       if (i < nb) rows += setRow1(b, e + 1, i, 'B');
     }
     return '<article class="exc' + (S.liftedEx === e ? ' exc--lifted' : '') +
-        (S.dragEx === e ? ' exc--dragging' : '') + '" data-testid="exercise-card-' + e + '" data-superset="true">' +
+        (S.dragEx === e ? ' exc--dragging' : '') + (S.dragEx !== -1 ? ' exc--tab' : '') +
+        '" style="--wiggle-i:' + e + '" data-testid="exercise-card-' + e + '" data-superset="true">' +
       '<div class="exc__head">' + headBtns(a, e) + '<span class="badge" data-testid="superset-badge-' + e + '">Superset</span></div>' +
       '<div class="exc__head exc__head--b">' +
         '<span class="exc__grip" aria-hidden="true"></span>' +
@@ -42759,11 +42858,21 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     var sel = '[data-ex="' + e + '"][data-set="' + i + '"]';
     return Array.prototype.slice.call(screen.querySelectorAll(sel));
   }
+  /* How close this is to being gone, 0 to 1. The aura is drawn from it,
+     so the point of no return is visible on the way to it rather than
+     discovered afterwards. */
+  function peril(dx) {
+    if (dx >= 0) return 0;
+    return Math.max(0, Math.min(1, dx / SWIPE_OPEN));
+  }
   function moveRow(cells, dx, fade) {
+    var p = peril(dx);
     cells.forEach(function (c) {
       c.style.transition = 'none';
       c.style.transform = dx ? 'translateX(' + dx + 'px)' : '';
       if (fade !== undefined) c.style.opacity = fade;
+      c.style.setProperty('--peril', p);
+      if (p > 0) c.classList.add('is-peril'); else c.classList.remove('is-peril');
     });
   }
   function settleRow(cells) {
@@ -42771,6 +42880,8 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       c.style.transition = 'transform var(--dur-quick, .18s) var(--spring-soft, ease), opacity .18s linear';
       c.style.transform = '';
       c.style.opacity = '';
+      c.classList.remove('is-peril');
+      c.style.removeProperty('--peril');
     });
   }
 
@@ -42900,27 +43011,111 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     if (ev.pointerType === 'mouse' && ev.button !== 0) return;
     var e = Number(grip.getAttribute('data-ex'));
     if (isNaN(e) || !S.exercises[e]) return;
-    var y0 = ev.clientY;
+    var y0 = ev.clientY, x0 = ev.clientX;
     holdWatch = function (m) {
-      if (Math.abs(m.clientY - y0) > HOLD_ESCAPE) clearHold();
+      var mdx = m.clientX - x0, mdy = Math.abs(m.clientY - y0);
+      /* LEFT IS THE OTHER GESTURE ON THIS HANDLE. Going sideways before
+         the hold has completed is a throw, not a scroll and not a
+         reorder, so the hold is abandoned and the card starts to leave. */
+      /* Measured from where the finger LANDED, not from where the throw
+         was recognised. The first ten pixels are what tells a pull from a
+         scroll; they are still part of the pull. */
+      if (mdx < -HOLD_ESCAPE && Math.abs(mdx) > mdy) { clearHold(); startPeril(e, x0); return; }
+      if (mdy > HOLD_ESCAPE) clearHold();
     };
     document.addEventListener('pointermove', holdWatch);
     holdTimer = setTimeout(function () {
       clearHold();
+      /* FOLDED FIRST, MEASURED SECOND. Every card becomes a tab the
+         instant one is picked up, which changes every height on screen --
+         so the geometry the drag works against is read after the fold,
+         never before it. Measuring first put the drop targets where the
+         cards used to be. */
+      S.dragEx = e;
+      paint();
       var cards = cardEls();
       var card = cards[e];
-      if (!card) return;
+      if (!card) { S.dragEx = -1; paint(); return; }
       var boxes = cards.map(function (c) {
         var b = c.getBoundingClientRect();
         return { mid: b.top + b.height / 2, h: b.height };
       });
       DRAG = { from: e, to: e, y0: y0, cards: cards, boxes: boxes, h: boxes[e].h };
-      S.dragEx = e;
       card.style.zIndex = '20';
-      card.style.opacity = '0.96';
       buzzSafe(30);
     }, HOLD_MS);
   });
+
+  /* ---- THROWING A WHOLE EXERCISE AWAY ------------------------------
+     The same gesture as a set and the same signal, because it means the
+     same thing. It starts on the grip rather than anywhere on the card,
+     so nothing that is scrolled past can be deleted by accident, and it
+     takes the same real travel a set does. It is undoable, which is the
+     only reason a swipe is allowed to do it at all. */
+  var PERIL = null;
+
+  function startPeril(e, x) {
+    var card = cardEls()[e];
+    if (!card || !S.exercises[e]) return;
+    PERIL = { e: e, card: card, x0: x, dx: 0, v: 0, t: 0 };
+    buzzSafe(8);
+  }
+  function drawPeril(dx) {
+    if (!PERIL) return;
+    var p = peril(dx);
+    PERIL.card.style.transition = 'none';
+    PERIL.card.style.transform = 'translateX(' + (dx < 0 ? dx : rubber(dx)) + 'px)';
+    PERIL.card.style.setProperty('--peril', p);
+    if (p > 0) PERIL.card.classList.add('is-peril');
+    else PERIL.card.classList.remove('is-peril');
+  }
+  function settlePeril() {
+    if (!PERIL) return;
+    var c = PERIL.card;
+    c.style.transition = 'transform var(--dur-quick, .18s) var(--spring-soft, ease)';
+    c.style.transform = '';
+    c.classList.remove('is-peril');
+    c.style.removeProperty('--peril');
+    PERIL = null;
+  }
+  function endPeril() {
+    if (!PERIL) return;
+    var d = PERIL;
+    var wentFar = d.dx <= SWIPE_OPEN;
+    var flicked = d.dx <= SWIPE_OPEN / 2 && projected(d.dx, d.v) <= SWIPE_OPEN;
+    if (!wentFar && !flicked) { settlePeril(); return; }
+    var ex = S.exercises[d.e];
+    if (!ex) { settlePeril(); return; }
+    PERIL = null;
+    var gone = S.exercises.splice(d.e, 1)[0];
+    var at = d.e;
+    buzzSafe(14);
+    S.dragEx = -1;
+    S.liftedEx = -1;
+    paint();
+    toast(gone.name + ' removed.', 'info', 'Undo', function () {
+      S.exercises.splice(at, 0, gone);
+      paint();
+      say(gone.name + ' is back.');
+    });
+  }
+
+  document.addEventListener('pointermove', function (ev) {
+    if (!PERIL) return;
+    ev.preventDefault();
+    var dx = ev.clientX - PERIL.x0;
+    var now = ev.timeStamp || Date.now();
+    if (PERIL.t) {
+      var dt = Math.max(now - PERIL.t, 1);
+      PERIL.v = 0.75 * ((dx - PERIL.dx) / dt * 1000) + 0.25 * PERIL.v;
+    }
+    PERIL.t = now;
+    if (dx <= SWIPE_OPEN && PERIL.dx > SWIPE_OPEN) buzzSafe(10);
+    PERIL.dx = dx;
+    drawPeril(dx);
+  });
+  document.addEventListener('pointerup', endPeril);
+  document.addEventListener('pointercancel', settlePeril);
 
   document.addEventListener('pointermove', function (ev) {
     if (!DRAG) return;
