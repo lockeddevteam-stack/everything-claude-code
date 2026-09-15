@@ -379,11 +379,55 @@
 
      Each pair below is one mapping: `from` turns what is stored into what
      this screen renders, `toStored` turns it back. */
+  /* ONE BAD ROW MUST NOT BLANK THE SCREEN. This read only the shipped
+     app's field names, so a row stored under this build's own names --
+     or a half-synced one, or anything hand-edited -- came back with
+     `name: undefined`, and the first thing to call .toLowerCase() on it
+     took the whole of Shopping down to an empty screen. A list is not
+     worth losing over one row that cannot be read.
+
+     Both spellings are accepted, and a row with no usable name at all is
+     dropped rather than kept as a nameless entry nothing can render. */
+  /* "1 kg" or "12" -- never "1 kg undefined". Three places printed
+     qty + ' ' + unit with no guard, so a row stored without a unit (a
+     v6 import, a half-synced row, anything hand-edited) put the literal
+     word undefined in front of the item's name on the shopping list. */
+  function amount(qty, unit) {
+    var q = (qty === null || qty === undefined || qty === '') ? '' : String(qty);
+    var u = (unit === null || unit === undefined || unit === '' || unit === 'qty')
+      ? '' : String(unit);
+    return u ? (q + ' ' + u) : q;
+  }
+
+  function knownCat(c) {
+    var want = String(c == null ? '' : c).toLowerCase();
+    for (var i = 0; i < CATS.length; i++) if (CATS[i].id === want) return CATS[i].id;
+    return 'other';
+  }
+
   function listFrom(arr) {
-    return (arr || []).map(function (x) {
-      return { id: x.id, name: x.itemName, qty: x.quantity, unit: x.unit,
-               cat: x.category, added: x.dateAdded || NOW_ISO, done: !!x.checked };
+    var out = [];
+    (arr || []).forEach(function (x) {
+      if (!x || typeof x !== 'object') return;
+      var name = x.itemName != null ? x.itemName : x.name;
+      if (name == null || String(name).trim() === '') return;
+      out.push({ id: x.id || ('i' + out.length + '_' + Date.now()),
+                 name: String(name),
+                 qty: x.quantity != null ? x.quantity : x.qty,
+                 unit: x.unit,
+                 /* AND IT LANDS IN A GROUP THAT EXISTS. The list is drawn
+                    by walking CATS and filtering for each id, so an item
+                    whose category is missing, or is a name this build
+                    does not know, matched nothing and was drawn nowhere
+                    -- while still counting in "2 to get". An item you
+                    are told you need and cannot see or tick off is worse
+                    than one that was never saved. Anything unrecognised
+                    is Other, which is what Other is for. */
+                 cat: knownCat(x.category != null ? x.category : x.cat),
+                 added: x.dateAdded || x.added || NOW_ISO,
+                 done: !!(x.checked || x.done || x.got) });
     });
+    return out;
   }
   function toStoredList() {
     return LIST.map(function (i) {
@@ -619,8 +663,10 @@
 
   function picksHTML() {
     var have = {};
-    LIST.forEach(function (i) { have[i.name.toLowerCase()] = true; });
-    var left = PICKS.filter(function (p) { return !have[p.name.toLowerCase()]; });
+    /* Belt as well as braces: listFrom drops the nameless now, but this
+       runs over whatever is in LIST by the time it is called. */
+    LIST.forEach(function (i) { if (i && i.name) have[String(i.name).toLowerCase()] = true; });
+    var left = PICKS.filter(function (p) { return !have[String(p.name).toLowerCase()]; });
     /* A pick already on the list is neither a control nor news: the list
        below says it better. The shipped app greys them out, which turns a
        twelve-item shortcut into a twelve-item wall above the answer. */
@@ -633,7 +679,7 @@
           return '<button class="pick" type="button" data-action="pick" data-name="' + esc(p.name) +
             '" data-testid="pick-' + p.name.toLowerCase().replace(/\W+/g, '-') + '">' +
             p.icon + '<span>' + esc(p.name) + '</span>' +
-            '<span class="pick__qty">' + p.qty + (p.unit === 'qty' ? '' : ' ' + p.unit) + '</span>' +
+            '<span class="pick__qty">' + amount(p.qty, p.unit) + '</span>' +
           '</button>';
         }).join('') +
       '</div></div>';
@@ -711,7 +757,7 @@
         var pr = parseIngredient(S.query);
         if (!pr) return '';
         return '<p class="t-meta mt-2" data-testid="parse-hint">Reads as <span class="num">' +
-          pr.qty + (pr.unit === 'qty' ? '' : ' ' + pr.unit) + '</span> ' + esc(pr.name) +
+          amount(pr.qty, pr.unit) + '</span> ' + esc(pr.name) +
           '. The boxes below are for a line with no quantity in it.</p>';
       })() +
       '<div class="hstack hstack--3 mt-3">' +
@@ -765,7 +811,7 @@
         '<span class="tick__box">' + (it.done ? ICO.tick : '') + '</span></button>' +
       '<button class="item__main" type="button" data-action="open-item" data-id="' + it.id +
         '" data-testid="open-' + it.id + '" style="text-align: left; min-height: var(--tap)">' +
-        '<span class="item__name">' + it.qty + (it.unit === 'qty' ? '' : ' ' + it.unit) + ' ' + esc(it.name) + '</span>' +
+        '<span class="item__name">' + (amount(it.qty, it.unit) ? amount(it.qty, it.unit) + ' ' : '') + esc(it.name) + '</span>' +
       '</button>' +
       '<span class="row__chev" aria-hidden="true">' + ICO.chev + '</span>' +
       chips +
