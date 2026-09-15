@@ -205,5 +205,66 @@
     return out;
   };
 
+  /* ---- WHAT A GYM ACTUALLY HAS ---------------------------------------
+
+     866 lifts, and the number was on the library screen four times. Most
+     of them are real: the catalogue carries a barbell, dumbbell, cable,
+     machine and Smith version of nearly every movement, which is not
+     padding, it is the reason you can log what your gym has.
+
+     A small tail is not that. Sleds, Atlas stones, kegs, tyres, yokes,
+     farmer's handles, battling ropes, a rope climb, a balance board, a
+     Bosu, bear crawls and wind sprints. Strongman, conditioning and
+     apparatus, offered between Incline DB Press and Incline Cable Fly to
+     somebody picking their next set.
+
+     What is NOT cut, deliberately: the Olympic lifts and their close
+     variants, and the gymnastic strength movements. A power clean and a
+     muscle-up are strength training done with equipment an ordinary gym
+     has, and cutting them would be cutting somebody's programme rather
+     than cutting noise.
+
+     Nothing is deleted. all() still returns every row, because a workout
+     logged last year, a split already built and an id a model proposes
+     all have to keep resolving; a catalogue that forgets a lift somebody
+     has done turns their history into blanks. This is only what the
+     library offers while you are browsing for something to do. */
+  var NOT_IN_A_GYM = [
+    /\bsled\b/i, /prowler/i, /atlas stone/i, /\bkeg\b/i, /tire flip/i,
+    /\byoke\b/i, /sledgehammer/i, /farmer'?s (walk|carry)/i,
+    /battling rope/i, /battle rope/i, /rope climb/i,
+    /bear crawl/i, /spider crawl/i,
+    /bosu/i, /balance board/i, /wobble board/i,
+    /wind sprint/i, /lunge sprint/i
+  ];
+
+  /* The same lift filed twice under two spellings. "DB Shrug" and
+     "Dumbbell Shrug" are one exercise, and seeing both is the clearest
+     signal a list has stopped being curated. The longer name is kept,
+     since it is the one that reads as a lift rather than as a shorthand. */
+  var SAME_LIFT_TWICE = [
+    'Incline DB Press', 'DB Shrug', 'Cable Front Raise', 'DB Front Raise',
+    'DB Shoulder Press', 'Dip Machine', 'DB Bicep Curl', 'Incline DB Curl',
+    'DB Side Bend', 'DB Standing Calf Raise'
+  ];
+
+  API.hidden = function (row) {
+    var nm = String((row && row.name) || row || '');
+    if (!nm) return false;
+    for (var i = 0; i < SAME_LIFT_TWICE.length; i++) {
+      if (SAME_LIFT_TWICE[i] === nm) return true;
+    }
+    for (var j = 0; j < NOT_IN_A_GYM.length; j++) {
+      if (NOT_IN_A_GYM[j].test(nm)) return true;
+    }
+    return false;
+  };
+
+  /* What the library browses and searches. all() is what everything else
+     resolves against. */
+  API.core = function () {
+    return API.all().filter(function (r) { return !API.hidden(r); });
+  };
+
   g.LKExercises = API;
 }(typeof window !== 'undefined' ? window : this));

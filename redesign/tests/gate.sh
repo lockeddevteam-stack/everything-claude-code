@@ -72,6 +72,7 @@ spoken-portions|node spoken-portions.mjs
 no-dev-controls|node no-dev-controls.mjs
 body-reach|node body-reach.mjs
 muscle-split|node muscle-split.mjs
+catalogue-curation|node catalogue-curation.mjs
 voice|node voice.mjs
 keyboard|node keyboard.mjs
 cloud-contract|node cloud-contract.mjs
