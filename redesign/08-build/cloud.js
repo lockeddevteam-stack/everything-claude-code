@@ -602,6 +602,7 @@
                  Open Food Facts row are not the same kind of fact. */
               from: it.brand ? String(it.brand).slice(0, 40) : SOURCE_NAME[it.src] || 'Food database',
               source: it.src || '',
+              sourceName: SOURCE_NAME[it.src] || '',
               src: 'table'
             };
           }).filter(Boolean) };
