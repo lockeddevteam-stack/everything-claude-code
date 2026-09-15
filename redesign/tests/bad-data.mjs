@@ -43,6 +43,31 @@ const CASES=[
    {lk_history:JSON.stringify([{id:'x',name:'PPL - Push',date:'2026-09-07',kind:'lift',kg:100,min:10,sets:1,
      exercises:[{id:104,name:'Incline Machine Press',muscle:'Upper Chest',sets:[{kg:60,done:true}]}]}])}],
  ['prs as a string',     {lk_prs:'"broken"'}],
+
+ /* AND ONE BAD ROW INSIDE A LIST THAT IS OTHERWISE RIGHT. The shape
+    guard above catches a key that is not a list at all. It cannot catch
+    a perfectly good list with one row in it that nothing can read --
+    and that is the commoner accident, because it is what a half-landed
+    sync and a v6 import both produce. Shopping died of exactly this:
+    one row with no name took the whole screen to blank while the other
+    rows were fine. A list is not worth losing over one row. */
+ ['a shopping row with no name',
+   {lk_shoppingList:JSON.stringify([{id:'a',itemName:'Oats',quantity:'1',unit:'kg'},
+                                    {id:'b',quantity:'2',unit:'kg'}])}],
+ ['a pantry row with no name',
+   {lk_pantryItems:JSON.stringify([{id:'a',itemName:'Rice',quantity:'2'},{id:'b'}])}],
+ ['a supplement with no name',
+   {lk_supplements:JSON.stringify([{id:'a',name:'Creatine',dose:'5 g'},{id:'b'}])}],
+ ['a recipe with no items',
+   {lk_recipes:JSON.stringify([{id:'r1',name:'Oats'}])}],
+ ['a goal with no text',
+   {lk_goals:JSON.stringify([{id:'g1',text:'Bench 100'},{id:'g2'}])}],
+ ['a weigh-in with no weight',
+   {lk_weightLog:JSON.stringify([{date:'2026-09-13',kg:82},{date:'2026-09-12'}])}],
+ ['a custom lift with no name',
+   {lk_customEx:JSON.stringify([{id:9001,name:'My Lift',muscle:'Chest'},{id:9002}])}],
+ ['a logged food with no name or figures',
+   {lk_fuelLog:JSON.stringify({'2026-09-13':[{name:'Oats',kcal:350,p:12,c:60,f:6},{}]})}],
 ];
 let bad=0;
 for (const [label, extra] of CASES) {

@@ -277,10 +277,23 @@
 
   /* lk_weightLog, as [date, kg] pairs on the way in and objects on the way
      out, because that is the shape every other screen reads. */
+  /* A WEIGH-IN WITH NO WEIGHT IS NOT A WEIGH-IN. A half-landed sync and
+     a hand-edited backup both produce one, and it came through as
+     [date, undefined] -- which every chart, average and delta below
+     turned into NaN on the page. There is nothing to plot, so it is
+     dropped rather than plotted as a hole. Same for a row with no
+     readable date: it cannot be placed on a timeline. */
   function readWeightLog() {
-    return (get('lk_weightLog', []) || []).map(function (w) {
-      return [String(w.date).slice(0, 10), w.kg];
-    }).sort(function (a, b) { return a[0] < b[0] ? -1 : 1; });
+    var out = [];
+    (get('lk_weightLog', []) || []).forEach(function (w) {
+      if (!w || typeof w !== 'object') return;
+      var kg = Number(w.kg);
+      if (!isFinite(kg) || kg <= 0) return;
+      var d = String(w.date == null ? '' : w.date).slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+      out.push([d, kg]);
+    });
+    return out.sort(function (a, b) { return a[0] < b[0] ? -1 : 1; });
   }
   var WEIGHT_LOG = readWeightLog();
   function saveWeight() {
