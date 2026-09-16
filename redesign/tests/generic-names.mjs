@@ -50,6 +50,24 @@ const api = http.createServer((q, r) => {
     'access-control-allow-headers': 'Content-Type, Authorization',
     'access-control-allow-methods': 'GET, POST, OPTIONS', 'content-type': 'application/json' };
   if (q.method === 'OPTIONS') { r.writeHead(204, cors); r.end(); return; }
+  /* The route the screen takes now. Each row comes back as one item of
+     a read sentence, which is where a database's own words reach a
+     person today. */
+  if (q.url.indexOf('/log-meal') === 0) {
+    r.writeHead(200, cors);
+    r.end(JSON.stringify({
+      items: ROWS.map((row) => ({
+        name: row.name, said: 'chicken breast', brand: row.brand || '',
+        amount: 100, unit: 'g', g: 100,
+        cal: row.cal, pro: row.pro, carb: row.carb, fat: row.fat,
+        per100: { cal: row.cal, pro: row.pro, carb: row.carb, fat: row.fat },
+        src: row.src, exact: true, assumed: ''
+      })),
+      totals: { cal: 0, pro: 0, carb: 0, fat: 0, exact: true },
+      text: 'chicken breast'
+    }));
+    return;
+  }
   if (q.url.indexOf('/food-search') === 0) {
     r.writeHead(200, cors); r.end(JSON.stringify({ items: ROWS })); return;
   }
@@ -88,20 +106,28 @@ const click = (id) => page.evaluate((i) => {
 const waitFor = (id, ms = 12000) => page.waitForFunction((i) =>
   !!window.DEMO.screens.fuel.root.querySelector('[data-testid="' + i + '"]'), id, { timeout: ms });
 
-await click('log-search'); await waitFor('search-input');
+/* Said, not searched. The list a person reads is the one the sentence
+   was read into, and these names have to survive the trip to it: the
+   route was passing the database's raw string straight through, so the
+   ordinary way of logging showed "Beef, loin, top loin steak, boneless,
+   lip off, separable lean only, trimmed to 0" and the way nobody uses
+   any more showed "Beef top loin steak". */
+await click('log-type'); await waitFor('mic-text');
 await page.evaluate(() => {
-  const el = window.DEMO.screens.fuel.root.querySelector('[data-testid="search-input"]');
+  const el = window.DEMO.screens.fuel.root.querySelector('[data-testid="mic-text"]');
   el.value = 'chicken breast';
   el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
 });
-await waitFor('search-hit-0'); await page.waitForTimeout(800);
+await page.waitForTimeout(900);
+await page.waitForFunction(() =>
+  !window.DEMO.screens.fuel.root.querySelector('[data-testid="mic-reading"]'),
+  null, { timeout: 15000 });
+await page.waitForTimeout(300);
 
 const hits = await page.evaluate(() =>
-  [...window.DEMO.screens.fuel.root.querySelectorAll('[data-testid^="search-hit-"]')]
-    .map((r) => {
-      const t = r.querySelector('.row__title');
-      return (t ? t.textContent : r.textContent).replace(/\s+/g, ' ').trim();
-    }));
+  [...window.DEMO.screens.fuel.root
+    .querySelectorAll('[data-testid="mic-preview"] .row__title')]
+    .map((t) => t.textContent.replace(/\s+/g, ' ').trim()));
 
 console.log('=== what the list reads like ===\n');
 hits.slice(0, 6).forEach((h) => console.log('   ' + h));
@@ -121,18 +147,11 @@ ok(hits.every((h) => h.length <= 42),
    'every name is short enough to read down a list',
    'longest ' + Math.max(...hits.map((h) => h.length)));
 
-console.log('\n=== generic before branded ===\n');
-
-const firstBrandIdx = await page.evaluate(() => {
-  const rows = [...window.DEMO.screens.fuel.root
-    .querySelectorAll('[data-testid^="search-hit-"]')];
-  return rows.findIndex((r) => /tesco/i.test(r.textContent));
-});
-ok(firstBrandIdx === -1 || firstBrandIdx >= 2,
-   'a brand does not outrank the plain food',
-   'brand at position ' + firstBrandIdx);
-
-/* The database's own words are not lost. */
+/* Which of several rows wins is decided in the Worker now, not here --
+   the screen is handed one item per food rather than a list to choose
+   from -- so the ordering checks that used to live here belong with
+   food-search.test.mjs and are not duplicated as UI assertions. What is
+   still this screen's job is saying where a figure came from. */
 const kept = await page.evaluate(() =>
   (window.DEMO.screens.fuel.root.textContent || '').indexOf('USDA') >= 0);
 ok(kept, 'the source is still named on the row');
@@ -140,7 +159,8 @@ ok(kept, 'the source is still named on the row');
 console.log('\n=== a name that is already a name is left alone ===\n');
 
 const all = await page.evaluate(() =>
-  [...window.DEMO.screens.fuel.root.querySelectorAll('[data-testid^="search-hit-"]')]
+  [...window.DEMO.screens.fuel.root
+    .querySelectorAll('[data-testid="mic-preview"] .row')]
     .map((r) => r.textContent.replace(/\s+/g, ' ').trim()).join(' | '));
 ok(/New York strip steak/.test(all),
    'proper nouns keep their capitals', /New \w+ strip/.exec(all) || '(not found)');

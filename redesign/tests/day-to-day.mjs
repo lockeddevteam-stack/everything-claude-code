@@ -220,37 +220,38 @@ ok((await shown()) === 'fuel', 'Fuel opens', await shown());
 const t0 = await text('fuel');
 ok(!/undefined|NaN/.test(t0), 'and shows no hole before anything is logged');
 
-/* by name, through the search field */
-let opened = await tap('log-search');
-if (opened !== 'ok') opened = await tap('foods-search');
-ok(opened === 'ok', 'the food search opens', opened);
+/* By name, in a sentence. The search field this used is gone: a food is
+   named and weighed in one line now and the server reads it back out. */
+let opened = await tap('log-type');
+if (opened !== 'ok') opened = await tap('foods-log');
+ok(opened === 'ok', 'the sentence box opens', opened);
 await page.waitForTimeout(600);
 const typed = await page.evaluate(() => {
   const rec = window.DEMO.screens['fuel'];
   const root = rec && (rec.root || (rec.host && rec.host.shadowRoot));
-  const i = root && root.querySelector('[data-testid="search-input"]');
+  const i = root && root.querySelector('[data-testid="mic-text"]');
   if (!i) return 'no field';
-  i.focus(); i.value = 'chicken';
+  i.focus(); i.value = '200 g chicken breast';
   i.dispatchEvent(new Event('input', { bubbles: true }));
   i.dispatchEvent(new Event('change', { bubbles: true }));
   return 'ok';
 });
-ok(typed === 'ok', 'a food name can be typed', typed);
-await page.waitForTimeout(900);
+ok(typed === 'ok', 'what was eaten can be typed', typed);
+await page.waitForTimeout(2400);
 const hits = await page.evaluate(() => {
   const rec = window.DEMO.screens['fuel'];
   const root = rec && (rec.root || (rec.host && rec.host.shadowRoot));
-  return root.querySelectorAll('[data-testid^="search-hit"], [data-action="pick-food"]').length;
+  return root.querySelectorAll('[data-testid="mic-preview"] .row').length;
 });
-ok(hits > 0, 'and the search offers something to log', hits + ' hits');
-ok(!errs.length, 'nothing throws searching for food', errs[0] || '');
+ok(hits > 0, 'and it is read into something to log', hits + ' items');
+ok(!errs.length, 'nothing throws reading the sentence', errs[0] || '');
 
-/* ONE TAP LOGS IT. A search that finds a food and cannot log it is a
-   search, not a food log, so the figure is read back out of the diary
+/* ONE TAP LOGS IT. A reader that finds a food and cannot log it is a
+   parser, not a food log, so the figure is read back out of the diary
    rather than off the sheet that claimed it. */
 errs.length = 0;
-const logged = await tap('search-hit-0');
-ok(logged === 'ok', 'the first hit logs in one tap', logged);
+const logged = await tap('mic-confirm');
+ok(logged === 'ok', 'the read items log in one tap', logged);
 await page.waitForTimeout(800);
 const diary = await raw('lk_fuelLog');
 const day = (diary && diary[TODAY]) || null;
@@ -292,8 +293,10 @@ errs.length = 0;
    whatever is open, which is what a reader does too. */
 await page.keyboard.press('Escape');
 await page.waitForTimeout(500);
-let man = await tap('log-search');
-if (man === 'ok') { await page.waitForTimeout(500); man = await tap('search-manual'); }
+let man = await tap('log-type');
+/* "Type the numbers by hand" hung off the search sheet. It hangs off the
+   sentence sheet now, which is the sheet that replaced it. */
+if (man === 'ok') { await page.waitForTimeout(500); man = await tap('mic-manual'); }
 ok(man === 'ok', 'the manual sheet opens', man);
 await page.waitForTimeout(500);
 const filled = await page.evaluate(() => {

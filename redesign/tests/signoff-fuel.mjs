@@ -51,16 +51,17 @@ out('supp-0 after tap:', await p.locator('[data-testid=supp-0]').getAttribute('a
 await p.click('[data-testid=supp-0]');
 await p.keyboard.press('Escape');
 
-out('\n== SEARCH ==');
-await p.click('[data-testid=log-search]');
-out('initial:', (await txt('[data-testid=sheet-search]')).slice(0, 400).replace(/\n/g, ' | '));
-await p.fill('[data-testid=search-input]', 'chick');
-out('after "chick":', (await txt('[data-testid=sheet-search]')).replace(/\n/g, ' | '));
-await p.fill('[data-testid=search-input]', 'zzz');
-out('no hits:', (await txt('[data-testid=sheet-search]')).replace(/\n/g, ' | '));
-await p.fill('[data-testid=search-input]', 'skyr');
+out('\n== SAY IT OR TYPE IT ==');
+await p.click('[data-testid=log-type]');
+out('initial:', (await txt('[data-testid=sheet-mic]')).slice(0, 400).replace(/\n/g, ' | '));
+await p.fill('[data-testid=mic-text]', 'zzz');
+await p.waitForTimeout(2200);
+out('nothing readable:', (await txt('[data-testid=sheet-mic]')).replace(/\n/g, ' | '));
+await p.fill('[data-testid=mic-text]', '150 g skyr');
+await p.waitForTimeout(2200);
+out('after a sentence:', (await txt('[data-testid=sheet-mic]')).replace(/\n/g, ' | '));
 const beforeEaten = await txt('[data-testid=hero-value]');
-await p.click('[data-testid=search-hit-0]');
+await p.click('[data-testid=mic-confirm]');
 out('toast:', await txt('[data-testid=toast]'));
 out('hero before/after:', beforeEaten, '->', await txt('[data-testid=hero-value]'));
 out('macros:', (await txt('[data-testid=macros]')).replace(/\n/g, ' | '));

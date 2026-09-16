@@ -761,6 +761,24 @@
             return { ok: false, error: 'nofood', why: d.why || '',
                      message: d.error || 'No food found in that.' };
           }
+          /* THE SAME NAME TIDYING THE SEARCH GOT. USDA answers in
+             sentences -- "Beef, loin, top loin steak, boneless,
+             separable lean only, trimmed to 0" -- and foodSearch has
+             run those through prettyFood since the day a row from a
+             database first reached the screen. This route returned the
+             raw string, so the ordinary way of logging food showed the
+             ugly name and the way nobody uses any more showed the clean
+             one. The full name is kept beside it, because tidying is a
+             judgement and the original should still be there. */
+          items = items.map(function (it) {
+            var nice = prettyFood(it.name);
+            if (!nice || nice === it.name) return it;
+            var copy = {};
+            Object.keys(it).forEach(function (k) { copy[k] = it[k]; });
+            copy.fullName = it.name;
+            copy.name = nice.slice(0, 60);
+            return copy;
+          });
           return { ok: true, data: { items: items, totals: d.totals || null,
                                      text: d.text || said } };
         });

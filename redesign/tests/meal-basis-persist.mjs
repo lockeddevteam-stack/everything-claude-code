@@ -84,15 +84,29 @@ const type = (id, v) => page.evaluate(([i, x]) => {
   el.value = x; el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
 }, [id, v]);
 
-/* Log 200 g of something with a database row behind it. */
-await click('log-search'); await waitFor('search-input');
-await type('search-input', '200 g chicken breast');
-await waitFor('food-detail-0'); await page.waitForTimeout(700);
-await click('food-detail-0'); await waitFor('sheet-portion');
-await page.waitForTimeout(450);
-await click('pt-log'); await page.waitForTimeout(700);
+/* Log 200 g of something with a database row behind it. Said rather
+   than searched: the box that used to do this is gone, and the weight
+   now rides in the sentence instead of being dialled in afterwards. */
+await click('log-type'); await waitFor('mic-text');
+await type('mic-text', '200 g chicken breast');
+await waitFor('mic-preview');
+await page.waitForFunction(() => {
+  const el = window.DEMO.screens.fuel.root.querySelector('[data-testid="mic-confirm"]');
+  return el && !el.disabled;
+}, null, { timeout: 15000 });
+await click('mic-confirm'); await page.waitForTimeout(700);
 
 console.log('=== what reaches storage ===\n');
+
+/* The store is written a beat after the click, so a fixed pause is a
+   race: this read the day while the entry was there and its basis was
+   not, and reported the basis missing. Waited on instead. */
+await page.waitForFunction(() => {
+  const raw = JSON.parse(localStorage.getItem('lk_fuelLog') || '{}');
+  const days = Object.keys(raw);
+  const m = ((raw[days[days.length - 1]] || {}).meals || [])[0];
+  return !!(m && m.g > 0 && m.per100);
+}, null, { timeout: 12000 });
 
 const stored = await page.evaluate(() => {
   const raw = JSON.parse(localStorage.getItem('lk_fuelLog') || '{}');

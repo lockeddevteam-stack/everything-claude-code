@@ -69,7 +69,7 @@ const raise = (px) => page.evaluate((h) => {
 
 const geom = () => page.evaluate(() => {
   const root = window.DEMO.screens.fuel.root;
-  const input = root.querySelector('[data-testid="search-input"]');
+  const input = root.querySelector('[data-testid="mic-text"]');
   const sheet = input ? input.closest('.sheet') : null;
   const tab = root.querySelector('[data-lk-duck]');
   const box = (e) => { if (!e) return null; const b = e.getBoundingClientRect();
@@ -79,11 +79,14 @@ const geom = () => page.evaluate(() => {
            state: document.documentElement.getAttribute('data-keyboard') };
 });
 
+/* The search sheet is gone. This suite is about a sheet with a field in
+   it rising clear of the keyboard, so it uses the sheet that now has
+   one: the sentence box. */
 await page.evaluate(() => {
-  window.DEMO.screens.fuel.root.querySelector('[data-testid="log-search"]').click();
+  window.DEMO.screens.fuel.root.querySelector('[data-testid="log-type"]').click();
 });
 await page.waitForFunction(() =>
-  !!window.DEMO.screens.fuel.root.querySelector('[data-testid="search-input"]'), null, { timeout: 8000 });
+  !!window.DEMO.screens.fuel.root.querySelector('[data-testid="mic-text"]'), null, { timeout: 8000 });
 await page.waitForTimeout(900);
 
 console.log('=== with no keyboard, nothing has moved ===\n');
@@ -126,7 +129,7 @@ ok(back.tabOpacity === '1', 'and the tab bar comes back', back.tabOpacity);
 console.log('\n=== the motion is a spring, not a jump ===\n');
 const motion = await page.evaluate(() => {
   const root = window.DEMO.screens.fuel.root;
-  const input = root.querySelector('[data-testid="search-input"]');
+  const input = root.querySelector('[data-testid="mic-text"]');
   const sheet = input ? input.closest('.sheet') : null;
   const tab = root.querySelector('[data-lk-duck]');
   return { sheet: getComputedStyle(sheet).transition,

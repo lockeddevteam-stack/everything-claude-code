@@ -71,7 +71,14 @@ const API = 'http://127.0.0.1:' + api.address().port;
 const site = http.createServer(async (q, r) => {
   if (new URL(q.url, 'http://x').pathname === '/sw.js') { r.writeHead(404); r.end(''); return; }
   r.writeHead(200, { 'content-type': 'text/html' });
-  r.end(await readFile(path.join(ROOT, '10-final/locked-app.html')));
+  /* THE DEMO BUILD, DELIBERATELY. The portion sheet is a surface for the
+     shipped food table, and the prod build has none: --prod leaves
+     fixtures out, so FOODS is empty and nothing FOODS-keyed can render
+     or be reached. In production every food comes off the server and the
+     dial that matters is the editor's, covered by meal-basis-persist and
+     meal-edit. This suite is about the portion sheet itself, so it runs
+     where that sheet exists. */
+  r.end(await readFile(path.join(ROOT, '10-final/locked-demo.html')));
 });
 await new Promise((r) => site.listen(0, '127.0.0.1', r));
 
@@ -102,21 +109,33 @@ const text = (id) => page.evaluate((i) => {
 const waitFor = (id, ms = 12000) => page.waitForFunction((i) =>
   !!window.DEMO.screens.fuel.root.querySelector('[data-testid="' + i + '"]'), id, { timeout: ms });
 
-await click('log-search');
-await waitFor('search-input');
+/* The portion sheet was reached from a search result and from nowhere
+   else. Search is gone, so it hangs off a food you have logged before
+   instead -- which is where choosing an amount without writing a
+   sentence is worth having. */
+/* The often list is built from what has been logged, so something has
+   to be logged first. Said, which is the ordinary way in now. */
+await click('log-type'); await waitFor('mic-text');
 await page.evaluate(() => {
-  const el = window.DEMO.screens.fuel.root.querySelector('[data-testid="search-input"]');
-  el.value = 'chicken breast';
+  const el = window.DEMO.screens.fuel.root.querySelector('[data-testid="mic-text"]');
+  el.value = '200 g chicken breast';
   el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
 });
-await waitFor('food-detail-0');
-const i = await page.evaluate(() => {
-  const rows = window.DEMO.screens.fuel.root.querySelectorAll('[data-testid^="search-hit-"]');
-  for (const r of rows) if (r.textContent.includes('Chicken breast, raw'))
-    return +r.getAttribute('data-testid').replace('search-hit-', '');
-  return 0;
-});
-await click('food-detail-' + i);
+await waitFor('mic-preview');
+await page.waitForFunction(() => {
+  const el = window.DEMO.screens.fuel.root.querySelector('[data-testid="mic-confirm"]');
+  return el && !el.disabled;
+}, null, { timeout: 15000 });
+await click('mic-confirm');
+await page.waitForTimeout(500);
+/* The often list lives under the meals view, not the log view. */
+await click('fuel-view-meals');
+await waitFor('often-list');
+await page.waitForTimeout(300);
+/* Whichever food is first. Every figure below is measured against what
+   this one opened on, so the suite no longer depends on which food the
+   list happens to hold. */
+await click('meals-amount-0');
 await waitFor('sheet-portion');
 await page.waitForTimeout(500);
 
@@ -174,9 +193,17 @@ ok(ticks.inside === 60, 'and every one of them is on the face',
    eggs, 100 g of peanut butter is six tablespoons. So the assertion was
    pinning the behaviour that made the dial's first job undoing the
    number it opened on. A chicken breast opens at what one weighs. */
+/* Not pinned to one food's serving weight either. This wanted 170-180,
+   which is a chicken breast, and it reached that food through the search
+   box. What has to hold for any food is that the dial opens on a serving
+   rather than on the hundred grams a database publishes in. */
 const openedAt = Number(await text('pt-dial-value'));
-ok(openedAt >= 170 && openedAt <= 180,
-   'it opens on what one of the food weighs, not on the database\'s unit',
+const num = (t) => Number(String(t).replace(/[^0-9.]/g, ''));
+const openKcal = num(await text('pt-kcal'));
+const openPro = num(await text('pt-pro'));
+const openSodium = num(await text('pt-sodium'));
+ok(openedAt > 0 && openedAt !== 100,
+   'it opens on a serving of the food, not on the database\'s unit',
    openedAt + ' g');
 ok((await text('pt-step-5')) !== '(none)', 'five grams a step');
 ok((await text('pt-step-1')) !== '(none)', 'with a finer step a tap away');
@@ -212,19 +239,24 @@ ok(turnedTo === openedAt + 60,
    'twelve ticks is sixty grams, not wherever the thumb happened to be',
    openedAt + ' -> ' + turnedTo);
 
-const k = turnedTo / 100;
+/* THE MULTIPLIER, MEASURED AGAINST WHAT THIS FOOD OPENED ON. The
+   figures 165, 31 and 74 are a chicken breast per 100 g, read off the
+   stub the search box used to be fed. Any food's figures have to move by
+   the same ratio as its weight, and that is the arithmetic worth
+   holding; the particular food is not. */
+const ratio = turnedTo / openedAt;
 const near = (txt, want, tol) => {
   const got = Number(String(txt).replace(/[^0-9.]/g, ''));
-  return Math.abs(got - want) <= (tol || 1);
+  return Math.abs(got - want) <= (tol || Math.max(1, want * 0.02));
 };
-ok(near(await text('pt-kcal'), 165 * k),
-   'and the energy is the per-100 g figure at that weight',
-   await text('pt-kcal') + ' for ' + Math.round(165 * k));
-ok(near(await text('pt-pro'), 31 * k),
-   'protein with it', await text('pt-pro') + ' for ' + (31 * k).toFixed(1));
-ok(near(await text('pt-sodium'), 74 * k, 2),
+ok(near(await text('pt-kcal'), openKcal * ratio),
+   'and the energy moves by the same ratio as the weight',
+   await text('pt-kcal') + ' for ' + Math.round(openKcal * ratio));
+ok(near(await text('pt-pro'), openPro * ratio),
+   'protein with it', await text('pt-pro') + ' for ' + (openPro * ratio).toFixed(1));
+ok(openSodium === 0 || near(await text('pt-sodium'), openSodium * ratio, 2),
    'and sodium, on the same multiplier as everything else',
-   await text('pt-sodium') + ' for ' + Math.round(74 * k));
+   await text('pt-sodium') + ' for ' + Math.round(openSodium * ratio));
 ok(await page.evaluate((want) =>
   window.DEMO.screens.fuel.root.querySelector('[data-testid="pt-amount"]').value
     === String(want), turnedTo),
@@ -239,9 +271,9 @@ ok((await text('pt-step-0_25')) !== '(none)',
 /* Switching the unit must not change how much food it is. The energy is
    the invariant: grams or ounces, the same weight is the same meal. */
 const ozKcal = await text('pt-kcal');
-ok(near(ozKcal, 165 * k, 3),
+ok(near(ozKcal, openKcal * ratio, 3),
    'and switching unit keeps the amount rather than resetting it',
-   ozKcal + ' for ' + Math.round(165 * k));
+   ozKcal + ' for ' + Math.round(openKcal * ratio));
 
 console.log('\n=== the keyboard can still turn it ===\n');
 

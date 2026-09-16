@@ -16806,6 +16806,24 @@ window.LK_CLOUD = {
             return { ok: false, error: 'nofood', why: d.why || '',
                      message: d.error || 'No food found in that.' };
           }
+          /* THE SAME NAME TIDYING THE SEARCH GOT. USDA answers in
+             sentences -- "Beef, loin, top loin steak, boneless,
+             separable lean only, trimmed to 0" -- and foodSearch has
+             run those through prettyFood since the day a row from a
+             database first reached the screen. This route returned the
+             raw string, so the ordinary way of logging food showed the
+             ugly name and the way nobody uses any more showed the clean
+             one. The full name is kept beside it, because tidying is a
+             judgement and the original should still be there. */
+          items = items.map(function (it) {
+            var nice = prettyFood(it.name);
+            if (!nice || nice === it.name) return it;
+            var copy = {};
+            Object.keys(it).forEach(function (k) { copy[k] = it[k]; });
+            copy.fullName = it.name;
+            copy.name = nice.slice(0, 60);
+            return copy;
+          });
           return { ok: true, data: { items: items, totals: d.totals || null,
                                      text: d.text || said } };
         });
@@ -28368,7 +28386,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
                Log every time the tab is opened. */
             view: null,
             /* The camera sheet's one question. null until it is answered. */
-            camOil: null, toast: null, undo: null, targetError: null, searchQ: '',
+            camOil: null, toast: null, undo: null, targetError: null,
             remote: null, remoteQ: '', remoteBusy: false,
             camState: 'idle', camWhy: null,
             brAsking: false, brWhy: null,
@@ -28722,25 +28740,6 @@ DEMO.define("fuel", function (document, window, location, fetch) {
      "strip steak", and the sheet opens at 227 g with ounces selected,
      which is what was asked for. A query with no quantity in it is
      unchanged: term is the whole string and want is null. */
-  function readSearchQuery(raw) {
-    var text = String(raw || '').trim();
-    if (!text) return { term: '', want: null };
-    var toks = decimalise(text.toLowerCase())
-                 .replace(/[^a-z0-9. ]/g, ' ').split(/\s+/).filter(Boolean);
-    var q = readQtyFront(toks);
-    var words = keepWords(toks);
-    /* Nothing left once the numbers came out -- "200 g" on its own -- is
-       not a search for a food, so the raw text stands. */
-    if (!words.length) return { term: text, want: null };
-    /* A bare number with no unit in front of a food is ambiguous ("2
-       eggs" is a count, "8 chicken" is nothing), and the sheet has no way
-       to price a count from a database row. Only a real weight is taken. */
-    var take = q.counted && q.unit && UNIT_G[q.unit] > 0;
-    return { term: words.join(' '),
-             want: take ? { qty: q.qty, unit: q.unit,
-                            grams: q.qty * UNIT_G[q.unit] } : null };
-  }
-
   /* ---------------------------------------------------------------
      Reading a sentence
      --------------------------------------------------------------- */
@@ -29713,6 +29712,16 @@ DEMO.define("fuel", function (document, window, location, fetch) {
                 '<small class="t-caption-2 quiet"> kcal</small></span>' +
               '<span class="row__chev">' + ICO.plus + '</span>' +
             '</button>' +
+            /* THE AMOUNT, FOR A FOOD YOU DO NOT WANT TO TYPE OUT. The
+               portion sheet was reached from a search result and from
+               nowhere else, so removing search left it unreachable: a
+               dial, an ounce switch and four micronutrients that no tap
+               could get to. A food you have logged before is exactly
+               where choosing an amount without writing a sentence is
+               worth having, so it hangs here. */
+            '<button class="iconbtn" type="button" data-action="food-detail" data-k="' + r.key + '" ' +
+              'aria-label="Set the amount of ' + esc(r.name) + '" ' +
+              'data-testid="meals-amount-' + i + '">' + ICO.scale + '</button>' +
             '<button class="iconbtn" type="button" data-action="fav" data-k="' + r.key + '" ' +
               'aria-pressed="' + isFav(r.key) + '" aria-label="' +
               (isFav(r.key) ? 'Stop keeping ' : 'Keep ') + esc(r.name) + '" ' +
@@ -33689,7 +33698,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
            the same weight the figures were. A food the table does not
            have still has none, which is honest; a food it has keeps
            them, which it did before. */
-        var tbl = tableMicros(it.name, it.g);
+        var tbl = tableMicrosPer100(it.name);
         var row = {
           key: '@srv' + i + '-' + Date.now(),
           name: it.name,
@@ -33699,14 +33708,26 @@ DEMO.define("fuel", function (document, window, location, fetch) {
           amount: it.amount,
           unit: it.unit,
           kcal: it.cal, pro: it.pro, carb: it.carb, fat: it.fat,
-          per100: it.per100 || null,
+          /* cal ON THE WIRE, kcal IN HERE. The Worker answers per100 as
+             {cal,pro,carb,fat}; every reader in this screen takes
+             per100.kcal. Passed through untouched, the rate landed with
+             the one field nobody reads, so the dial doubled the protein
+             and set the calories to nought -- figures that move apart
+             from each other, which is worse than figures that do not
+             move. */
+          per100: it.per100 ? { kcal: it.per100.cal, pro: it.per100.pro,
+                                carb: it.per100.carb, fat: it.per100.fat } : null,
           src: it.src === 'estimate' ? 'estimate' : 'lookup',
           from: it.brand || sourceLabel(it.src),
           exact: !!it.exact,
           assumed: it.assumed || ''
         };
         if (tbl) {
-          Object.keys(tbl).forEach(function (k) { row[k] = tbl[k]; });
+          var k100 = it.g / 100;
+          Object.keys(tbl).forEach(function (k) {
+            row[k] = Math.round(tbl[k] * k100 * 10) / 10;
+            if (row.per100) row.per100[k] = tbl[k];
+          });
         }
         return row;
       });
@@ -33726,8 +33747,21 @@ DEMO.define("fuel", function (document, window, location, fetch) {
      Matched on a normalised name, because a database calls it "Bread,
      french" and the table calls it "French baguette" -- close enough to
      be the same food and never equal as strings. */
-  function tableMicros(name, grams) {
-    if (!(grams > 0)) return null;
+  /* The shipped table's entry for a food, matched on a normalised name:
+     a database calls it "Bread, french" and the table calls it "French
+     baguette", close enough to be the same food and never equal as
+     strings. */
+  function tableFoodFor(name) {
+    var want = dedupeKey(name);
+    if (!want) return null;
+    var list = searchable();
+    for (var i = 0; i < list.length; i++) {
+      if (dedupeKey(list[i].name) === want) return list[i];
+    }
+    return null;
+  }
+
+  function tableMicrosPer100(name) {
     var want = dedupeKey(name);
     if (!want) return null;
     var list = searchable();
@@ -33736,13 +33770,16 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       if (dedupeKey(list[i].name) === want) { hit = list[i]; break; }
     }
     if (!hit) return null;
+    /* Per 100 g, because that is the shape the editor rescales from.
+       Returning the scaled figure instead stored a number that was
+       right once and never moved again: the dial changed the weight,
+       the macros followed, and sodium stayed where it was. */
     var per = Number(hit.g) > 0 ? Number(hit.g) : 100;
-    var f = grams / per;
     var out = null;
     MICROS.forEach(function (mi) {
       if (typeof hit[mi.key] === 'number') {
         out = out || {};
-        out[mi.key] = Math.round(hit[mi.key] * f * 10) / 10;
+        out[mi.key] = Math.round(hit[mi.key] / per * 100 * 10) / 10;
       }
     });
     return out;
@@ -33838,7 +33875,15 @@ DEMO.define("fuel", function (document, window, location, fetch) {
           carb: Math.round((row.hit.carb || 0) * f * 10) / 10,
           fat: Math.round((row.hit.fat || 0) * f * 10) / 10,
           src: 'lookup',
-          from: row.hit.from || 'Food database'
+          from: row.hit.from || 'Food database',
+          /* THE RATE IT WAS SCALED FROM. Every figure on this row was
+             worked out by multiplying these four by the weight, and
+             then they were thrown away -- so the entry landed with
+             numbers and no basis, and the editor had nothing to turn a
+             dial against. The same omission, in the same shape, as the
+             one that cost the dial the first time. */
+          per100: { kcal: row.hit.kcal || 0, pro: row.hit.pro || 0,
+                    carb: row.hit.carb || 0, fat: row.hit.fat || 0 }
         };
         /* THE FOUR MICRONUTRIENTS, which this dropped. Fuel shows fibre,
            sugar, saturated fat and sodium against a target on the day
@@ -33846,16 +33891,19 @@ DEMO.define("fuel", function (document, window, location, fetch) {
            of them -- so the same food logged by sentence and logged off
            the table gave different days. Taken from the row when it
            carries them, and from the shipped table when it does not. */
-        var mHit = null;
+        var mPer = null;
         MICROS.forEach(function (mi) {
           if (typeof row.hit[mi.key] === 'number') {
-            mHit = mHit || {};
-            mHit[mi.key] = Math.round(row.hit[mi.key] * f * 10) / 10;
+            mPer = mPer || {};
+            mPer[mi.key] = row.hit[mi.key];
           }
         });
-        var mAny = mHit || tableMicros(nm, g);
-        if (mAny) {
-          Object.keys(mAny).forEach(function (k) { list[row.i][k] = mAny[k]; });
+        mPer = mPer || tableMicrosPer100(nm);
+        if (mPer) {
+          Object.keys(mPer).forEach(function (k) {
+            list[row.i][k] = Math.round(mPer[k] * f * 10) / 10;
+            list[row.i].per100[k] = mPer[k];
+          });
         }
         changed = true;
       });
@@ -34400,7 +34448,17 @@ DEMO.define("fuel", function (document, window, location, fetch) {
          move, on the route a person takes by default: type what you ate,
          press Log. */
       var row = (!it.est && it.key) ? FOODS[it.key] : null;
-      var meal = { key: row ? it.key : null, icon: it.icon,
+      /* THE TABLE'S KEY, WHEN THE TABLE HAS THE FOOD. A row read out of
+         a sentence carried no key, and the "logged often" list counts
+         entries by key -- so the ordinary way of logging built no
+         history at all and the shortcut list stayed empty however many
+         times you ate the same thing. */
+      var tKey = null;
+      if (!row) {
+        var tf = tableFoodFor(it.name);
+        if (tf && FOODS[tf.key]) { tKey = tf.key; row = FOODS[tf.key]; }
+      }
+      var meal = { key: tKey || (row ? it.key : null), icon: it.icon,
                    name: row && it.grams !== row.g
                      ? it.name + ', ' + n(it.grams) + ' g'
                      : it.name,
@@ -34413,7 +34471,20 @@ DEMO.define("fuel", function (document, window, location, fetch) {
                       server read the amount out of the sentence; losing
                       it here would throw that away at the last step. */
                    g: it.grams > 0 ? it.grams : undefined,
-                   per100: it.per100 || undefined,
+                   /* A BASIS ON EVERY ENTRY, whichever path found it.
+                      The server sends one, the database lookup now
+                      keeps one, and a row matched straight off the
+                      shipped table had none -- so whether the editor
+                      offered a dial depended on which of three routes
+                      happened to recognise your dinner. Derived from
+                      the figures and the weight when nothing supplied
+                      it, which is exact arithmetic, not a guess. */
+                   per100: it.per100 || (it.grams > 0 ? {
+                     kcal: Math.round(it.kcal / it.grams * 100),
+                     pro: Math.round(it.pro / it.grams * 1000) / 10,
+                     carb: Math.round(it.carb / it.grams * 1000) / 10,
+                     fat: Math.round(it.fat / it.grams * 1000) / 10
+                   } : undefined),
                    unit: it.unit || undefined };
       MICROS.forEach(function (mi) {
         if (typeof it[mi.key] === 'number') meal[mi.key] = it[mi.key];
@@ -34561,6 +34632,18 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     m.fat = Math.round((Number(E.fat) || 0) * 10) / 10;
     if (E.g != null) m.g = Math.round(E.g);
     m.unit = E.unit;
+    /* THE LABEL FOLLOWS THE WEIGHT. A diary row carries its amount in
+       its name -- nothing else on the row says it -- so re-weighing an
+       entry moved every figure and left the words saying the old
+       amount. A row reading "Chicken breast, 200 g" beside 371 kcal is
+       worse than one with no weight at all: it is specific and wrong.
+
+       Left alone when somebody typed the name themselves, because then
+       the words are theirs and not a label. */
+    if (!E.namedByHand && m.g > 0) {
+      var bare = m.name.replace(/,\s*[\d.,/]+\s*(g|kg|oz|lb|lbs|ml|l|servings?)\s*$/i, '');
+      m.name = (bare + ', ' + n(m.g) + ' g').slice(0, 80);
+    }
     if (E.namedByHand) m.base = undefined;
     /* A figure typed by hand is no longer that row at that weight, so the
        basis goes. Keeping it would let a later turn of the dial silently

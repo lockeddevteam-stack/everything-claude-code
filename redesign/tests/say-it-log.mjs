@@ -227,8 +227,12 @@ const logged = await page.evaluate(() => {
 ok(!!logged, 'the entry lands in the day', JSON.stringify(logged));
 ok(logged && logged.g === 227,
    'carrying the weight the sentence stated', String(logged && logged.g));
-ok(logged && logged.per100 && logged.per100.cal === 250,
-   'and the rate it was priced at, so the editor has a dial to turn',
+/* kcal, not cal. The Worker answers per100 as {cal,...} and every
+   reader in the screen takes per100.kcal, so the store is checked in the
+   screen's own spelling: asserting the wire's would have passed while
+   the dial moved protein and left the calories at nought. */
+ok(logged && logged.per100 && logged.per100.kcal === 250,
+   'and the rate it was priced at, in the spelling the editor reads',
    JSON.stringify(logged && logged.per100));
 
 ok(errs.length === 0, 'no page errors', errs.slice(0, 2).join(' | '));
