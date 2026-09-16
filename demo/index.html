@@ -43818,6 +43818,22 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
   };
   function planFor(d) { return PLANS[d] || PLANS['4']; }
 
+  /* Hands the first day of the freshly written split to the workout log.
+     Silent when there is nothing to hand over: the log then opens an
+     empty session, which is the right answer for somebody with no plan
+     and the wrong one for somebody who has just been given one. */
+  function startFirstSession() {
+    try {
+      var all = window.LKStore ? window.LKStore.get('lk_splits', null) : null;
+      if (!all || !all.length) return;
+      var sp = all[0];
+      var day = (sp.days || [])[0];
+      if (!day) return;
+      var slug = String(day.name || 'day0').toLowerCase().replace(/\W+/g, '-');
+      localStorage.setItem('lk_startDay', sp.id + ':' + slug);
+    } catch (e) {}
+  }
+
   /* What finishing setup actually leaves behind: five answers written to the
      same keys every other screen reads, so the app opens knowing who you are
      and what you are training. */
@@ -45418,6 +45434,24 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
   /* ---------------------------------------------------------------
      Events
      --------------------------------------------------------------- */
+  /* THE HAND-OVER HAPPENS HERE, not in the click handler below.
+
+     "Start Upper A" is a screen crossing, and the router takes a crossing
+     click in the CAPTURE phase and stops it, so the switch below never
+     runs for it. The button navigated and nothing else: the log arrived
+     having been told nothing, found no session to open, and fell through
+     to an empty "Quick Workout" with no exercises in it. A new account
+     finished setup, pressed the one thing the screen offered, and got a
+     blank session -- while the split written moments earlier held all
+     five lifts.
+
+     Train already does this for its own crossings and says why. This is
+     the same announcement and the same key. */
+  document.addEventListener('lk:handoff', function (e) {
+    var d = e.detail || {};
+    if (d.selector === '[data-testid="overview-start"]') startFirstSession();
+  });
+
   document.addEventListener('click', function (e) {
     var t = e.target.closest('[data-testid]');
     if (!t) return;
@@ -45522,7 +45556,24 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
 
       case 'toast-dismiss': clearToast(); break;
 
-      case 'overview-start': LKGo('workout-log'); break;
+      /* WHICH SESSION, not merely "the workout log". The button says
+         "Start Upper A" and it navigated and nothing else, so the log had
+         nothing to open: it fell through to an empty Quick Workout with
+         no exercises in it. A brand new account finished setup, pressed
+         the one thing the screen offered, and got a blank session --
+         while the split sitting in storage held all five lifts.
+
+         lk_startDay is the handover Train already uses, so this is the
+         same mechanism rather than a second one. The split is read back
+         from storage rather than held in a variable, because setup wrote
+         it there a moment ago and that copy is the one the log reads.
+         The day is addressed by the slug of its name, which is what
+         splitDayFor matches on. */
+      /* Reached only OUTSIDE the assembled app, where no router claims
+         the click. In the app the crossing is announced as lk:handoff and
+         handled there; see the listener below. Both call the same
+         function, so the two paths cannot drift. */
+      case 'overview-start': startFirstSession(); LKGo('workout-log'); break;
       case 'overview-week': LKGo('train'); break;
       case 'overview-freestyle': LKGo('workout-log'); break;
       case 'overview-finish-setup': S.step = 0; go('setup'); break;

@@ -67,6 +67,7 @@ reorder-everywhere|node reorder-everywhere.mjs
 reorder-physics|node reorder-physics.mjs
 keypad-stable|node keypad-stable.mjs
 body-hidden-view|node body-hidden-view.mjs
+onboarding-handoff|node onboarding-handoff.mjs
 quick-workout|node quick-workout.mjs
 pounds-history|node pounds-history.mjs
 gestures2|node gestures2.mjs
