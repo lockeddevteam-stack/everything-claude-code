@@ -2354,16 +2354,69 @@
      often. The list used to come back in table order whatever was typed, so
      "chicken" put Chicken rice bowl above Chicken and rice for no reason at
      all and the ordering carried no information. */
+  /* ------------------------------------------------------------------
+     RANKING BY WORDS, NOT BY SUBSTRING.
+
+     This scored on nm.indexOf(q), so the query had to appear in the name
+     as one unbroken run. "raw chicken breast" scored -1 against "Chicken
+     breast, raw" -- every word present, in a name that is obviously the
+     food, and no match at all. So did "chicken breast raw", "breast
+     chicken", and anything typed in a different order to the database's.
+     People do not type a database's word order.
+
+     Every word is matched on its own now. A name holding all of them
+     ranks above one holding some; a word at the start of the name or of
+     a word beats one buried inside; an exact name is best of all. What
+     you log often still lifts, because the food you ate yesterday is the
+     likeliest thing you are typing today.
+     ------------------------------------------------------------------ */
+  function rankWords(q) {
+    return String(q || '').toLowerCase().split(/[^a-z0-9.]+/).filter(Boolean);
+  }
+
   function rank(f, q) {
     if (!q) return logCount(f.key) * 2;
-    var nm = f.name.toLowerCase();
-    var at = nm.indexOf(q);
-    if (at < 0) return -1;
-    var sc = 20;
-    if (at === 0) sc += 30;
-    else if (' ,'.indexOf(nm.charAt(at - 1)) >= 0) sc += 18;
-    if (nm.length === q.length) sc += 25;
-    sc -= Math.min(15, Math.round((nm.length - q.length) / 3));
+    var nm = String(f.name || '').toLowerCase();
+    var words = rankWords(q);
+    if (!words.length) return logCount(f.key) * 2;
+
+    var sc = 0, hit = 0;
+    for (var i = 0; i < words.length; i++) {
+      var w = words[i];
+      var at = nm.indexOf(w);
+      if (at < 0) continue;
+      hit++;
+      sc += 12;
+      if (at === 0) sc += 14;                              /* starts the name */
+      else if (' ,-'.indexOf(nm.charAt(at - 1)) >= 0) sc += 9;  /* starts a word */
+    }
+    /* A NAME THAT IS MISSING A WORD YOU TYPED IS NOT THE FOOD YOU MEANT.
+       Half-matches used to rank, so "chicken breast" returned every
+       chicken and every breast ahead of the thing itself. */
+    if (!hit) return -1;
+    /* A NAME HOLDING EVERY WORD YOU TYPED ALWAYS BEATS ONE THAT DOES NOT,
+       whatever else is in its favour. Scoring them on one scale let a
+       frequently-logged partial match win: searching "chicken breast"
+       answered "Chicken and rice" first, because it matched "chicken"
+       and had been eaten a lot. Frequency is a tiebreak between right
+       answers, not a way to become one. The two bands are far enough
+       apart that nothing bridges them. */
+    if (hit === words.length) {
+      sc += 1000;
+    } else {
+      /* Half the words missing is not the food; it is a coincidence of
+         vocabulary. */
+      if (words.length > 1 && hit / words.length <= 0.5) return -1;
+      sc -= (words.length - hit) * 18;
+    }
+
+    var joined = words.join(' ');
+    if (nm === joined) sc += 45;                 /* exactly what was typed */
+    else if (nm.indexOf(joined) === 0) sc += 20; /* the name begins with it */
+
+    /* Between two names that both match, the shorter is the plainer food:
+       "Chicken breast, raw" before "Chicken breast tenderloin, raw". */
+    sc -= Math.min(18, Math.max(0, Math.round((nm.length - joined.length) / 4)));
     sc += Math.min(20, logCount(f.key) * 3);
     if (f.recipe !== undefined) sc += 4;   /* your own recipe, over a table row */
     return sc;
@@ -2378,12 +2431,32 @@
      A name already in the local set is dropped from the remote one: two
      rows reading "Chicken breast" with different numbers is worse than
      either row on its own. */
+  /* THE SAME FOOD FROM THREE DATABASES IS ONE FOOD.
+
+     Dedupe was an exact lowercase name match, which catches nothing:
+     USDA, Open Food Facts and FatSecret spell the same chicken breast
+     three different ways, and after the names are tidied they differ by
+     a comma or a plural. So a search returned the same food three times
+     with three sets of figures, and picking between them was a job
+     nobody can do -- they are the same food.
+
+     The key ignores punctuation, spacing and plurals, so the three
+     collapse into one. The first survivor wins, and the list is ordered
+     with the local table and the plainest rows first, so the one kept is
+     the one worth keeping. */
+  function dedupeKey(name) {
+    return String(name || '').toLowerCase()
+      .replace(/[^a-z0-9 ]/g, ' ')
+      .replace(/\b(\w+?)s\b/g, '$1')      /* breasts -> breast */
+      .replace(/\s+/g, ' ').trim();
+  }
+
   function remoteHits(q) {
     if (!q || !S.remote || S.remoteQ !== q) return [];
     var seen = {};
-    searchable().forEach(function (f) { seen[String(f.name).toLowerCase()] = 1; });
+    searchable().forEach(function (f) { seen[dedupeKey(f.name)] = 1; });
     return S.remote.filter(function (f) {
-      var k = String(f.name).toLowerCase();
+      var k = dedupeKey(f.name);
       if (seen[k]) return false;
       seen[k] = 1;
       return true;
@@ -2396,15 +2469,14 @@
       /* GENERIC FIRST. Search "chicken breast" and the databases answer
          with every own-brand chilled fillet anybody ever scanned before
          they answer with chicken breast. A brand is the right row when
-         you scanned a barcode and the wrong one when you typed a food,
-         so a row with no brand on it sorts above one that has. Within
-         each group the source's own order stands: it already ranked
-         them for the term. */
+         you scanned a barcode and the wrong one when you typed a food. */
       var ab = a.brand ? 1 : 0, bb = b.brand ? 1 : 0;
       if (ab !== bb) return ab - bb;
-      /* Then the shorter name, which after prettyFood means the less
-         qualified food: "Chicken breast, raw" before "Chicken breast
-         tenderloin, raw". */
+      /* Then by how well the name answers what was typed, rather than by
+         the order three databases happened to reply in. Arrival order is
+         not relevance: it is whichever source was quickest. */
+      var ar = rank(a, q), br = rank(b, q);
+      if (ar !== br) return br - ar;
       return String(a.name || '').length - String(b.name || '').length;
     });
   }
@@ -3960,10 +4032,111 @@
   function servingKey(name) {
     return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
+  /* ------------------------------------------------------------------
+     WHAT ONE OF IT WEIGHS.
+
+     Every row a database returns is per 100 g, and 100 g was also what
+     the sheet opened on -- for everything. 100 g of chicken breast is
+     most of a fillet; 100 g of egg is two; 100 g of peanut butter is six
+     tablespoons; 100 g of almonds is a bowlful. So the first thing
+     anybody did with the dial was undo a number that was never an
+     amount, only a unit of measure wearing one.
+
+     These are ordinary servings, in grams, matched on the longest
+     keyword in the food's name. They are a STARTING POINT and nothing
+     else: the dial is right there, and a portion you set yourself is
+     remembered against that food and wins from then on.
+
+     Sources are the usual reference weights -- a large egg is 50 g, a
+     medium banana 118 g, a cup of cooked rice 158 g, two tablespoons of
+     peanut butter 32 g. Where a food has no obvious unit ("mince",
+     "flour", "oil") it is left alone and 100 g stands, because inventing
+     a serving for something nobody serves in units is a worse guess than
+     the honest one.
+     ------------------------------------------------------------------ */
+  var TYPICAL = [
+    ['chicken breast', 174], ['chicken thigh', 130], ['chicken', 140],
+    ['turkey breast', 140], ['bacon', 30], ['sausage', 75],
+    ['steak', 227], ['beef mince', 130], ['beef', 150], ['pork chop', 150],
+    ['lamb chop', 100], ['pork', 150], ['tenderloin', 150], ['ham', 56],
+    ['duck', 150], ['mince', 130], ['salmon', 170], ['tuna', 140], ['cod', 150],
+    ['prawn', 85], ['shrimp', 85],
+    ['egg white', 33], ['egg', 50],
+    ['bread', 30], ['toast', 30], ['bagel', 99], ['baguette', 250],
+    ['tortilla', 45], ['pitta', 60], ['pita', 60], ['croissant', 57],
+    ['rice', 158], ['pasta', 140], ['spaghetti', 140], ['noodle', 140],
+    ['couscous', 157], ['quinoa', 185], ['oats', 40], ['cereal', 40],
+    ['potato', 173], ['sweet potato', 150], ['chips', 117], ['fries', 117],
+    ['banana', 118], ['apple', 182], ['orange', 131], ['pear', 178],
+    ['strawberr', 144], ['blueberr', 148], ['grape', 92], ['mango', 165],
+    ['avocado', 150], ['tomato', 123], ['broccoli', 91], ['carrot', 61],
+    ['spinach', 30], ['salad', 85], ['cucumber', 104], ['pepper', 119],
+    ['onion', 110], ['mushroom', 70], ['bean', 130], ['lentil', 198],
+    ['milk', 244], ['yogurt', 170], ['yoghurt', 170], ['skyr', 150],
+    ['cheese', 28], ['butter', 14], ['cream', 30],
+    ['peanut butter', 32], ['almond', 28], ['cashew', 28], ['walnut', 28],
+    ['nut', 28], ['seed', 28],
+    ['protein powder', 30], ['whey', 30], ['protein bar', 60],
+    ['shake', 300], ['smoothie', 300], ['juice', 248], ['coffee', 240],
+    ['tea', 240], ['beer', 355], ['wine', 148], ['water', 250],
+    ['pizza', 107], ['burger', 150], ['sandwich', 150], ['wrap', 150],
+    ['soup', 245], ['curry', 300], ['stew', 250],
+    ['chocolate', 40], ['biscuit', 15], ['cookie', 30], ['cake', 80],
+    ['ice cream', 66], ['honey', 21], ['jam', 20], ['sugar', 4],
+    ['oil', 14], ['sauce', 30], ['dressing', 15]
+  ];
+
+  /* THE HEAD OF THE NAME, THEN THE LONGEST KEYWORD IN IT.
+
+     Two failures shaped this rule, in opposite directions.
+
+     Taking the longest keyword anywhere in the name read "Eggs, toast,
+     butter" as BUTTER and opened a plate of eggs at 14 g: the longest
+     match was the smallest thing on the plate. Taking the earliest
+     keyword instead read "Beef top loin steak" as BEEF and opened a
+     strip steak at 150 g, because the category is what a database puts
+     first.
+
+     Both are answered by looking only at the head -- everything before
+     the first comma, which after the names are tidied is the food itself
+     with its state and its list of other ingredients stripped off -- and
+     taking the most specific keyword in there. "Beef top loin steak"
+     yields steak, "Eggs, toast, butter" yields eggs, "chicken breast"
+     still beats "chicken" and "sweet potato" still beats "potato". */
+  function longestKeywordIn(nm) {
+    var best = 0, bestLen = 0;
+    for (var i = 0; i < TYPICAL.length; i++) {
+      var k = TYPICAL[i][0];
+      if (nm.indexOf(k) >= 0 && k.length > bestLen) {
+        bestLen = k.length; best = TYPICAL[i][1];
+      }
+    }
+    return best;
+  }
+
+  function typicalServing(name) {
+    var nm = String(name || '').toLowerCase();
+    var head = nm.split(',')[0].trim();
+    return longestKeywordIn(head) || longestKeywordIn(nm) || 0;
+  }
+
   function servingWeights() { return stored('lk_foodServing', {}) || {}; }
   function servingWeight(food) {
+    /* A portion you set yourself always wins: it is the only figure here
+       that somebody actually weighed. */
     var w = servingWeights()[servingKey(food && food.name)];
-    return (typeof w === 'number' && w > 0) ? w : Math.round((food && food.g) || 100);
+    if (typeof w === 'number' && w > 0) return w;
+    /* ONLY WHERE NOBODY HAS SAID. The shipped table carries a real
+       serving for each of its foods; a database row carries 100 g
+       because that is the unit it publishes in, not because anybody
+       thinks 100 g is a portion. So a guess is offered for the second
+       kind and never allowed to overrule the first. */
+    var g = Number(food && food.g);
+    if (!(g > 0) || g === 100) {
+      var typ = typicalServing(food && food.name);
+      if (typ > 0) return typ;
+    }
+    return Math.round(g > 0 ? g : 100);
   }
   function rememberServing(name, grams) {
     if (!ST) return;
@@ -4039,9 +4212,17 @@
         ? String(Math.round(want.grams / OZ_G * 4) / 4)
         : String(Math.round(want.grams));
     } else {
-      amount = unit === 'oz' ? String(Math.round((food.g || 100) / OZ_G * 4) / 4)
+      /* OPEN ON A SERVING, NOT ON THE UNIT THE DATA HAPPENS TO USE.
+         Every database row is per 100 g, and the sheet used to open on
+         that figure for everything -- so logging one egg started at two
+         eggs, and a chicken breast started at most of a fillet. It opens
+         on what one of the thing weighs now, which is the number most
+         people are reaching for, and the dial is right there for the
+         rest. */
+      var openG = servG > 0 ? servG : Math.round(food.g || 100);
+      amount = unit === 'oz' ? String(Math.round(openG / OZ_G * 4) / 4)
              : unit === 'serv' ? '1'
-             : String(Math.round(food.g || 100));
+             : String(Math.round(openG));
     }
     S.portion = {
       food: food, key: key || null, unit: unit, servG: servG,

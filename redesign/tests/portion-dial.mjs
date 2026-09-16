@@ -167,8 +167,17 @@ ok(ticks.batonW > ticks.fineW * 1.5,
 ok(ticks.inside === 60, 'and every one of them is on the face',
    ticks.inside + ' of ' + ticks.total);
 
-ok((await text('pt-dial-value')) === '100', 'it opens on the row\'s own 100 g',
-   await text('pt-dial-value'));
+/* IT OPENS ON A SERVING, NOT ON 100 g.
+
+   This asserted the literal 100, which is the figure a database
+   publishes in and not an amount anybody eats -- 100 g of egg is two
+   eggs, 100 g of peanut butter is six tablespoons. So the assertion was
+   pinning the behaviour that made the dial's first job undoing the
+   number it opened on. A chicken breast opens at what one weighs. */
+const openedAt = Number(await text('pt-dial-value'));
+ok(openedAt >= 170 && openedAt <= 180,
+   'it opens on what one of the food weighs, not on the database\'s unit',
+   openedAt + ' g');
 ok((await text('pt-step-5')) !== '(none)', 'five grams a step');
 ok((await text('pt-step-1')) !== '(none)', 'with a finer step a tap away');
 
@@ -193,17 +202,33 @@ await page.waitForTimeout(300);
    every pointer event -- a range input takes its value from where along
    its width you press, so dragging the bezel set the amount by how far
    right your thumb was, and this same drag produced 1715 g. */
-ok((await text('pt-dial-value')) === '160',
+/* THE RELATIONSHIP, NOT A REMEMBERED PAIR OF NUMBERS. Twelve ticks is
+   sixty grams from wherever the dial started, and every figure is the
+   per-100 g row times the weight over a hundred. Written as the literal
+   160 and 264, these assertions said nothing about the arithmetic and
+   broke the moment the opening amount stopped being a hundred. */
+const turnedTo = Number(await text('pt-dial-value'));
+ok(turnedTo === openedAt + 60,
    'twelve ticks is sixty grams, not wherever the thumb happened to be',
-   await text('pt-dial-value'));
-ok((await text('pt-kcal')).indexOf('264') > -1,
-   'and the energy is 1.6 times the hundred-gram figure', await text('pt-kcal'));
-ok((await text('pt-pro')).indexOf('49.6') > -1, 'protein with it', await text('pt-pro'));
-ok((await text('pt-sodium')).indexOf('118') > -1,
-   'and sodium, on the same multiplier as everything else', await text('pt-sodium'));
-ok(await page.evaluate(() =>
-  window.DEMO.screens.fuel.root.querySelector('[data-testid="pt-amount"]').value === '160'),
-  'the field underneath holds the same number');
+   openedAt + ' -> ' + turnedTo);
+
+const k = turnedTo / 100;
+const near = (txt, want, tol) => {
+  const got = Number(String(txt).replace(/[^0-9.]/g, ''));
+  return Math.abs(got - want) <= (tol || 1);
+};
+ok(near(await text('pt-kcal'), 165 * k),
+   'and the energy is the per-100 g figure at that weight',
+   await text('pt-kcal') + ' for ' + Math.round(165 * k));
+ok(near(await text('pt-pro'), 31 * k),
+   'protein with it', await text('pt-pro') + ' for ' + (31 * k).toFixed(1));
+ok(near(await text('pt-sodium'), 74 * k, 2),
+   'and sodium, on the same multiplier as everything else',
+   await text('pt-sodium') + ' for ' + Math.round(74 * k));
+ok(await page.evaluate((want) =>
+  window.DEMO.screens.fuel.root.querySelector('[data-testid="pt-amount"]').value
+    === String(want), turnedTo),
+  'the field underneath holds the same number', String(turnedTo));
 
 console.log('\n=== ounces are the same data, converted ===\n');
 
@@ -211,9 +236,12 @@ await click('pt-unit-oz');
 await page.waitForTimeout(500);
 ok((await text('pt-step-0_25')) !== '(none)',
    'an ounce steps in quarters, which is how an ounce is spoken');
+/* Switching the unit must not change how much food it is. The energy is
+   the invariant: grams or ounces, the same weight is the same meal. */
 const ozKcal = await text('pt-kcal');
-ok(ozKcal.indexOf('264') > -1 || ozKcal.indexOf('26') > -1,
-   'and switching unit keeps the amount rather than resetting it', ozKcal);
+ok(near(ozKcal, 165 * k, 3),
+   'and switching unit keeps the amount rather than resetting it',
+   ozKcal + ' for ' + Math.round(165 * k));
 
 console.log('\n=== the keyboard can still turn it ===\n');
 

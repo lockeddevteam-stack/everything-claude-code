@@ -134,7 +134,17 @@ const s2 = await search('strip steak');
    nowhere. What matters is that nothing but the food ever goes up. */
 ok(asked.every((a) => a === 'strip steak'), 'the term goes up as typed, or not at all',
    JSON.stringify(asked));
-ok(s2.dial === '100', 'and a search with no amount in it still opens at 100 g', s2.dial);
+/* A SEARCH WITH NO AMOUNT DOES NOT INVENT ONE FROM THE QUERY -- which is
+   what this was protecting -- but it does open on a serving rather than
+   on 100 g, because 100 g is the unit a database publishes in and not a
+   portion anybody eats. Written as the literal 100 it was pinning that
+   default in place. What matters is that nothing from the words was
+   read as a weight. */
+const s2g = Number(s2.dial);
+ok(s2g >= 200 && s2g <= 240,
+   'a search with no amount opens on a serving of the food', s2.dial + ' g');
+ok(s2g !== 8 && s2g !== 227,
+   'and takes nothing from the previous search\'s words', s2.dial);
 
 await close();
 

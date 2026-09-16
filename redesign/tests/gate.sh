@@ -81,6 +81,7 @@ portion-dial|node portion-dial.mjs
 search-amount|node search-amount.mjs
 generic-names|node generic-names.mjs
 server-reason|node server-reason.mjs
+fuel-curation|node fuel-curation.mjs
 meal-basis-persist|node meal-basis-persist.mjs
 meal-edit|node meal-edit.mjs
 keyboard-lift|node keyboard-lift.mjs

@@ -123,8 +123,17 @@ ok(await has('meal-again'), 'and a way to log the same thing again');
 await click('meal-open-edit'); await waitFor('sheet-meal-edit');
 await page.waitForTimeout(400);
 ok(await has('me-dial'), 'with a dial, because this entry kept the row it was weighed from');
-ok(val ? (await val('me-pro')) === '31' : false, 'and the figures it was logged with',
-   await val('me-pro'));
+/* THE FIGURES IT WAS LOGGED WITH, whatever weight that was. Written as
+   the literal 31 -- the per-100 g protein -- this only held while every
+   food was logged at exactly 100 g, which was the default the curation
+   pass removed. The entry is logged at a serving now, so the figure to
+   check against is the row at that weight. */
+const loggedG = Number(await text('me-dial-value'));
+const at = (per100) => Math.round(per100 * loggedG / 100 * 10) / 10;
+ok(loggedG > 0, 'the entry knows what it was logged at', loggedG + ' g');
+ok(val ? Math.abs(Number(await val('me-pro')) - at(31)) <= 0.6 : false,
+   'and the figures it was logged with',
+   (await val('me-pro')) + ' for ' + at(31));
 
 console.log('\n=== re-weighing rescales every figure at once ===\n');
 
@@ -141,38 +150,59 @@ for (let s = 1; s <= 10; s++) {
 }
 await page.mouse.up(); await page.waitForTimeout(400);
 
-ok((await text('me-dial-value')) === '150', '100 g becomes 150 g on ten ticks',
-   await text('me-dial-value'));
-ok((await val('me-kcal')) === '248', 'energy follows the weight', await val('me-kcal'));
-ok((await val('me-pro')) === '46.5', 'protein with it', await val('me-pro'));
-ok((await val('me-sodium')) === '111', 'and sodium, on the same multiplier',
-   await val('me-sodium'));
+/* Ten ticks is fifty grams from wherever it started, and every figure
+   follows the new weight off the same per-100 g row. The relationship is
+   the thing under test; the old literals only described one starting
+   point. */
+const turned = Number(await text('me-dial-value'));
+ok(turned === loggedG + 50, 'ten ticks is fifty grams on from where it was',
+   loggedG + ' -> ' + turned);
+const now = (per100) => per100 * turned / 100;
+const close = (got, want, tol) =>
+  Math.abs(Number(String(got).replace(/[^0-9.]/g, '')) - want) <= (tol || 1);
+ok(close(await val('me-kcal'), now(165), 2), 'energy follows the weight',
+   (await val('me-kcal')) + ' for ' + Math.round(now(165)));
+ok(close(await val('me-pro'), now(31)), 'protein with it',
+   (await val('me-pro')) + ' for ' + now(31).toFixed(1));
+ok(close(await val('me-sodium'), now(74), 2), 'and sodium, on the same multiplier',
+   (await val('me-sodium')) + ' for ' + Math.round(now(74)));
 
 console.log('\n=== typing a macro moves the energy, not the other way ===\n');
 
 await type('me-pro', '50');
 await page.waitForTimeout(350);
-/* 50 x 4 + 0 x 4 + 5.4 x 9 = 248.6 */
-ok((await val('me-kcal')) === '249', 'protein at four calories a gram', await val('me-kcal'));
+/* FOUR, FOUR AND NINE, off whatever the macros actually are. The literal
+   249 here assumed a 150 g entry; it described one starting weight
+   rather than the rule the screen runs on. */
+const macroKcal = Math.round(
+  50 * 4 +
+  Number(await val('me-carb')) * 4 +
+  Number(await val('me-fat')) * 9);
+ok(Number(await val('me-kcal')) === macroKcal,
+   'protein at four calories a gram',
+   (await val('me-kcal')) + ' for ' + macroKcal);
 
 await type('me-kcal', '400');
 await page.waitForTimeout(350);
 ok(await has('me-gap'), 'a figure that disagrees with the macros is flagged');
-ok((await text('me-gap')).indexOf('400') > -1 && (await text('me-gap')).indexOf('249') > -1,
+ok((await text('me-gap')).indexOf('400') > -1 &&
+   (await text('me-gap')).indexOf(String(macroKcal)) > -1,
    'and both numbers are named, rather than one being overwritten',
    (await text('me-gap')).slice(0, 90));
 ok((await val('me-kcal')) === '400', 'the typed figure stands', await val('me-kcal'));
 
 await click('me-match'); await page.waitForTimeout(350);
-ok((await val('me-kcal')) === '249', 'and one tap closes the gap when that is what you meant',
-   await val('me-kcal'));
+ok(Number(await val('me-kcal')) === macroKcal,
+   'and one tap closes the gap when that is what you meant',
+   (await val('me-kcal')) + ' for ' + macroKcal);
 
 console.log('\n=== saving writes it, and the label keeps up ===\n');
 
 await click('me-save'); await page.waitForTimeout(600);
 const row = await text('meal-0');
-ok(row.indexOf('150 g') > -1, 'the row says the weight it now holds, not the one it was logged at',
-   row.slice(0, 60));
+ok(row.indexOf(turned + ' g') > -1,
+   'the row says the weight it now holds, not the one it was logged at',
+   row.slice(0, 60) + ' (wanted ' + turned + ' g)');
 ok(row.indexOf('50 P') > -1, 'and the edited protein', row.slice(0, 60));
 ok(await has('toast'), 'with an undo, because an edit to a log is destructive');
 

@@ -120,9 +120,18 @@ ok(!/100 g/.test(p1), 'nothing is priced at a flat 100 g', p1);
 console.log('\n=== a count is a count, not a hundred grams ===\n');
 
 const p2 = await say('a third of a baguette');
-/* Nothing on this device knows what a baguette weighs, so one is taken
-   as 100 g and a third of it is 33 g -- and the row says so. */
-ok(/33 g/.test(p2), 'a third is a third of one, not a whole 100 g', p2);
+/* A THIRD OF A BAGUETTE, not a third of a hundred grams.
+
+   This used to assert 33 g, because nothing knew what a baguette weighed
+   and one was taken as 100 g. That was the honest answer at the time and
+   a poor one: nobody's baguette weighs 100 g. A serving is 250 g now, so
+   a third is 83 g, and the row still says it guessed -- the guess simply
+   became a sensible one. The fraction is what is under test here, so
+   that is what is asserted: a third of whatever one is taken to be. */
+const oneBaguette = 250, aThird = Math.round(oneBaguette / 3);
+ok(new RegExp(aThird + ' g').test(p2),
+   'a third is a third of one, not a whole one', p2);
+ok(!/100 g/.test(p2), 'and one is not assumed to be a hundred grams', p2);
 ok(/set the portion/i.test(p2), 'and the row admits it guessed what one weighs', p2);
 
 console.log('\n=== once you have said what one weighs, it is used ===\n');
@@ -141,7 +150,8 @@ console.log('\n=== both halves of one sentence ===\n');
 await page.evaluate(() => { localStorage.removeItem('lk_foodServing'); });
 const p4 = await say('7 oz chicken breast and 1/3 of a baguette');
 ok(/198 g/.test(p4), 'the weight survives the split', p4);
-ok(/33 g/.test(p4), 'and the fraction survives the punctuation strip', p4);
+ok(new RegExp(aThird + ' g').test(p4),
+   'and the fraction survives the punctuation strip', p4);
 
 console.log('\n=== nothing blew up ===\n');
 /* ---- THE WAY A TRANSCRIBER WRITES IT ---------------------------------
@@ -170,7 +180,8 @@ ok(/454 g/.test(p7), 'a pound is 454 g', p7);
 
 const p8 = await say('200 grams rice and third baguette');
 ok(/200 g/.test(p8), 'grams still reads, spelled out', p8);
-ok(/33 g/.test(p8), 'and a spoken fraction still survives beside it', p8);
+ok(new RegExp(aThird + ' g').test(p8),
+   'and a spoken fraction still survives beside it', p8);
 
 ok(errs.length === 0, 'no page errors', errs.join(' | '));
 
