@@ -11230,8 +11230,37 @@ window.LK_CLOUD = {
       .then(function (r) {
         return r.json().catch(function () { return {}; }).then(function (j) {
           if (!r.ok) {
+            /* `error` IS THE FIELD THE SERVER USES. This read message,
+               error_description and msg -- none of which the Worker
+               writes -- so every reason it gave was thrown away and
+               replaced with "The server refused that."
+
+               That sentence is the reason a dead API key looked
+               identical to a spent quota, a malformed request and an
+               outage, and it is why somebody staring at a broken coach
+               had nothing to tell anyone. The Worker says what went
+               wrong on every route; this now prints it. */
+            /* ORDER MATTERS, because two servers answer this app and they
+               use `error` for opposite things. Supabase follows the OAuth
+               convention where `error` is a MACHINE CODE -- "invalid_grant"
+               -- and the sentence is in error_description. The Worker has
+               no such convention and puts its sentence in `error`.
+
+               Reading `error` first turned "Wrong email or password" into
+               "invalid_grant" on every failed sign-in. So the fields that
+               are always prose are read first, and `error` is taken only
+               when it reads like a sentence rather than a code: a space
+               is the difference between "invalid_grant" and "The server's
+               Google key is not allowed to call Gemini". */
+            var code = typeof j.error === 'string' ? j.error : '';
+            var said = j.message || j.error_description || j.msg ||
+                       (code.indexOf(' ') > 0 ? code : '');
+            /* `why` is the machine-readable tag the Worker attaches
+               beside the sentence; kept for the caller, not shown. */
             return { ok: false, error: 'server', status: r.status,
-                     message: j.message || j.error_description || j.msg || 'The server refused that.', body: j };
+                     why: j.why || '',
+                     message: said || ('The server refused that (' + r.status + ').'),
+                     body: j };
           }
           return { ok: true, data: j };
         });
