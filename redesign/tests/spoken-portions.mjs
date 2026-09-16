@@ -144,6 +144,34 @@ ok(/198 g/.test(p4), 'the weight survives the split', p4);
 ok(/33 g/.test(p4), 'and the fraction survives the punctuation strip', p4);
 
 console.log('\n=== nothing blew up ===\n');
+/* ---- THE WAY A TRANSCRIBER WRITES IT ---------------------------------
+
+   Every case above is spelled the way you would TYPE it: "7 oz". No
+   speech-to-text writes "oz" -- it writes "ounce". The unit table held
+   oz and lb and neither of their spoken forms, so "16 ounce New York
+   steak" lost its weight: "ounce" stayed in the food's name, the 16 had
+   nothing to attach to, and it was read as SIXTEEN SERVINGS. A
+   sixteen-ounce steak logged as 1,600 g and 3,472 kcal.
+
+   This is a sentence box fed by a microphone. It has to be tested in
+   the words people say. */
+
+console.log('\n=== the units people say out loud, not the ones they type ===\n');
+
+const p5 = await say('16 ounce New York steak');
+ok(/454 g/.test(p5), 'sixteen OUNCE is 454 g, the same as sixteen oz', p5);
+ok(!/1,600 g/.test(p5), 'not sixteen servings of it', p5);
+
+const p6 = await say('8 ounces salmon');
+ok(/227 g/.test(p6), 'the plural reads too', p6);
+
+const p7 = await say('1 pound beef mince');
+ok(/454 g/.test(p7), 'a pound is 454 g', p7);
+
+const p8 = await say('200 grams rice and third baguette');
+ok(/200 g/.test(p8), 'grams still reads, spelled out', p8);
+ok(/33 g/.test(p8), 'and a spoken fraction still survives beside it', p8);
+
 ok(errs.length === 0, 'no page errors', errs.join(' | '));
 
 await br.close(); api.close(); site.close();
