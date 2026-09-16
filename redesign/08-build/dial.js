@@ -76,40 +76,105 @@
     var svg = el('svg', { viewBox: '0 0 200 200', class: 'dial__face',
       'aria-hidden': 'true' }, doc);
 
-    /* The bezel, drawn once. A dark ring with a hairline inside it, the
-       way a steel bezel has a polished edge against a brushed face. */
-    var grad = el('radialGradient', { id: 'dialface-' + id, cx: '50%', cy: '38%', r: '72%' }, doc);
-    grad.appendChild(el('stop', { offset: '0%', 'stop-color': 'var(--dial-hi, #23252B)' }, doc));
-    grad.appendChild(el('stop', { offset: '100%', 'stop-color': 'var(--dial-lo, #101116)' }, doc));
+    /* ------------------------------------------------------------------
+       THE FACE. Built the way a watch is built, outside in: a fluted
+       bezel, a black dial plate with the light coming from one place, a
+       minute track close to the edge, and applied indices standing on it.
+
+       The point is not decoration. A bezel reads at a glance because
+       every part of it says something: the flutes are where you grip,
+       the fine ticks are the small step, the applied batons are the
+       count, and the one marker at twelve is where you are. Making the
+       small ticks and the batons the same weight -- which is what this
+       was -- gives you sixty identical marks and nothing to count by.
+       ------------------------------------------------------------------ */
     var defs = el('defs', {}, doc);
-    defs.appendChild(grad);
+
+    /* The plate. Light from the upper left, as on a sunburst dial, so the
+       face has a direction instead of being a flat black hole. */
+    var face = el('radialGradient', { id: 'dialface-' + id, cx: '38%', cy: '30%', r: '85%' }, doc);
+    face.appendChild(el('stop', { offset: '0%', 'stop-color': 'var(--dial-hi, #26282F)' }, doc));
+    face.appendChild(el('stop', { offset: '55%', 'stop-color': 'var(--dial-mid, #15161A)' }, doc));
+    face.appendChild(el('stop', { offset: '100%', 'stop-color': 'var(--dial-lo, #090A0D)' }, doc));
+    defs.appendChild(face);
+
+    /* The bezel, and the indices, share one steel. Angled rather than
+       radial, because a brushed ring catches the light across itself. */
+    var steel = el('linearGradient', { id: 'dialsteel-' + id,
+      x1: '18%', y1: '0%', x2: '82%', y2: '100%' }, doc);
+    steel.appendChild(el('stop', { offset: '0%', 'stop-color': 'var(--dial-steel-hi, #4C5059)' }, doc));
+    steel.appendChild(el('stop', { offset: '38%', 'stop-color': 'var(--dial-steel-mid, #23252B)' }, doc));
+    steel.appendChild(el('stop', { offset: '62%', 'stop-color': 'var(--dial-steel-hi, #4C5059)' }, doc));
+    steel.appendChild(el('stop', { offset: '100%', 'stop-color': 'var(--dial-steel-lo, #191B20)' }, doc));
+    defs.appendChild(steel);
     svg.appendChild(defs);
 
-    svg.appendChild(el('circle', { cx: 100, cy: 100, r: 96, class: 'dial__bezel' }, doc));
-    svg.appendChild(el('circle', { cx: 100, cy: 100, r: 84,
+    /* The bezel band. */
+    svg.appendChild(el('circle', { cx: 100, cy: 100, r: 97,
+      fill: 'url(#dialsteel-' + id + ')', class: 'dial__bezel' }, doc));
+
+    /* FLUTES. Sixty short strokes across the band, which is what makes a
+       ring read as knurled metal you could grip rather than as a painted
+       circle. They do not turn: the bezel is the housing. */
+    var flutes = el('g', { class: 'dial__flutes' }, doc);
+    for (var fi = 0; fi < 60; fi++) {
+      var fa = (fi / 60) * Math.PI * 2;
+      flutes.appendChild(el('line', {
+        x1: (100 + Math.cos(fa) * 90.5).toFixed(2), y1: (100 + Math.sin(fa) * 90.5).toFixed(2),
+        x2: (100 + Math.cos(fa) * 96.5).toFixed(2), y2: (100 + Math.sin(fa) * 96.5).toFixed(2),
+        class: 'dial__flute'
+      }, doc));
+    }
+    svg.appendChild(flutes);
+
+    /* The dial plate, sunk inside the bezel with a dark lip. */
+    svg.appendChild(el('circle', { cx: 100, cy: 100, r: 89, class: 'dial__lip' }, doc));
+    svg.appendChild(el('circle', { cx: 100, cy: 100, r: 87.5,
       fill: 'url(#dialface-' + id + ')', class: 'dial__plate' }, doc));
 
-    /* THE RING THAT TURNS. Sixty ticks, long every fifth, exactly as a
-       watch marks its minutes and its hours. The ring rotates; the marker
-       at twelve does not, because on a real bezel the ring is what moves
-       under your finger and the reference stays put. */
+    /* ------------------------------------------------------------------
+       THE RING THAT TURNS: minute track, fine ticks, applied indices.
+       It rotates under the finger; the bezel and the marker do not,
+       because on a real watch the reference stays put and the scale
+       moves past it.
+       ------------------------------------------------------------------ */
     var ring = el('g', { class: 'dial__ring' }, doc);
+
+    /* The minute track itself: one thin circle the ticks stand on. */
+    ring.appendChild(el('circle', { cx: 100, cy: 100, r: 77, class: 'dial__track' }, doc));
+
     for (var i = 0; i < 60; i++) {
       var major = i % 5 === 0;
       var a = (i / 60) * Math.PI * 2 - Math.PI / 2;
-      var r1 = major ? 68 : 74, r2 = 80;
-      ring.appendChild(el('line', {
-        x1: (100 + Math.cos(a) * r1).toFixed(2), y1: (100 + Math.sin(a) * r1).toFixed(2),
-        x2: (100 + Math.cos(a) * r2).toFixed(2), y2: (100 + Math.sin(a) * r2).toFixed(2),
-        class: 'dial__tick' + (major ? ' dial__tick--major' : '')
-      }, doc));
+      if (major) {
+        /* An APPLIED INDEX: a baton standing on the track, in the same
+           steel as the bezel, with a bright inner face. Drawn upright at
+           twelve and rotated into place, so every one is identical. */
+        var deg = (i / 60) * 360;
+        var g = el('g', { transform: 'rotate(' + deg.toFixed(2) + ' 100 100)' }, doc);
+        g.appendChild(el('rect', { x: 96.4, y: 100 - 77, width: 7.2, height: 13,
+          rx: 1.6, fill: 'url(#dialsteel-' + id + ')', class: 'dial__index' }, doc));
+        g.appendChild(el('rect', { x: 97.9, y: 100 - 75.4, width: 4.2, height: 9.8,
+          rx: 1, class: 'dial__index-face' }, doc));
+        ring.appendChild(g);
+      } else {
+        /* A minute tick: fine, short, and quieter than the batons, so the
+           batons are what the eye counts. */
+        ring.appendChild(el('line', {
+          x1: (100 + Math.cos(a) * 77).toFixed(2), y1: (100 + Math.sin(a) * 77).toFixed(2),
+          x2: (100 + Math.cos(a) * 82).toFixed(2), y2: (100 + Math.sin(a) * 82).toFixed(2),
+          class: 'dial__tick'
+        }, doc));
+      }
     }
     svg.appendChild(ring);
 
-    /* The marker: a single wedge at twelve, in the accent, so where the
-       ring has got to is readable at a glance rather than by counting. */
-    var mark = el('path', { d: 'M100 8 L106 22 L94 22 Z', class: 'dial__marker' }, doc);
-    svg.appendChild(mark);
+    /* The marker at twelve: the inverted triangle a diver's bezel puts at
+       zero, in the accent, because this one is not decoration -- it is
+       where the reading is taken. */
+    svg.appendChild(el('path', {
+      d: 'M100 24 L106.5 11 L93.5 11 Z', class: 'dial__marker'
+    }, doc));
 
     wrap.appendChild(svg);
 

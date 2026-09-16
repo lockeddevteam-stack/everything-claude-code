@@ -22,10 +22,18 @@
 
    THE DIAL. A number field is right for a number you know and wrong for
    one you are deciding, and it puts a keyboard over the figures you are
-   deciding against. This is a watch bezel instead: sixty ticks, long
-   every fifth, a marker at twelve, five grams a step with a finer step a
+   deciding against. This is a watch bezel instead: sixty positions round
+   the face, a marker at twelve, five grams a step with a finer step a
    toggle away. The field stays underneath, because the dial is the fast
-   way to 185 g and the field is the only way to 187. */
+   way to 185 g and the field is the only way to 187.
+
+   Those sixty are not sixty of the same thing, and that is the point.
+   Forty-eight are hairline minute ticks and twelve are applied batons at
+   the fives, because sixty identical marks give the eye nothing to count
+   by. This used to assert sixty `.dial__tick` elements, which measured
+   the markup rather than the property -- so it would have passed a face
+   with no batons on it at all, and failed the moment the fives were made
+   distinguishable, which is what actually happened. */
 import path from 'node:path';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
@@ -134,15 +142,28 @@ const ticks = await page.evaluate(() => {
   const root = window.DEMO.screens.fuel.root;
   const svg = root.querySelector('[data-testid="pt-dial"] svg');
   const face = svg.getBoundingClientRect();
-  const marks = [...svg.querySelectorAll('.dial__tick')];
+  const fine = [...svg.querySelectorAll('.dial__tick')];
+  const batons = [...svg.querySelectorAll('.dial__index')];
+  const marks = fine.concat(batons);
   const inside = marks.filter((t) => {
     const b = t.getBoundingClientRect();
     return b.x >= face.x - 2 && b.right <= face.right + 2 &&
            b.y >= face.y - 2 && b.bottom <= face.bottom + 2;
   });
-  return { total: marks.length, inside: inside.length };
+  /* A baton has to actually be bigger than a hairline, or "two kinds of
+     mark" is a class name and not something anybody can see. */
+  const fw = fine.length ? fine[0].getBoundingClientRect().width : 0;
+  const bw = batons.length ? batons[0].getBoundingClientRect().width : 0;
+  return { total: marks.length, inside: inside.length,
+           fine: fine.length, batons: batons.length, fineW: fw, batonW: bw };
 });
-ok(ticks.total === 60, 'sixty ticks, the way a bezel is marked', String(ticks.total));
+ok(ticks.total === 60, 'sixty positions round the face, the way a bezel is marked',
+   ticks.fine + ' minute ticks + ' + ticks.batons + ' batons');
+ok(ticks.batons === 12, 'a baton at every fifth, so there is something to count by',
+   String(ticks.batons));
+ok(ticks.batonW > ticks.fineW * 1.5,
+   'and a baton reads as heavier than a minute tick',
+   ticks.fineW.toFixed(1) + 'px vs ' + ticks.batonW.toFixed(1) + 'px');
 ok(ticks.inside === 60, 'and every one of them is on the face',
    ticks.inside + ' of ' + ticks.total);
 

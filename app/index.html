@@ -4938,22 +4938,42 @@ textarea,
 .dial__face { width: 100%; height: 100%; display: block; cursor: grab; }
 .dial[data-turning] .dial__face { cursor: grabbing; }
 
-.dial__bezel {
-  fill: var(--surface-2, #17181D);
-  stroke: color-mix(in srgb, var(--text, #fff) 10%, transparent);
+/* A WATCH FACE, NOT A CIRCLE WITH MARKS ON IT. Every ring here does a
+   different job, and they are weighted so the eye can tell them apart:
+   the flutes are grip, the fine ticks are the small step, the applied
+   batons are what you count, and the one accent marker is where the
+   reading is taken. Sixty marks of the same weight -- which is what this
+   was -- give you nothing to count by. */
+.dial__bezel { stroke: color-mix(in srgb, #000 70%, transparent); stroke-width: 1; }
+/* The knurling. Dark strokes cut across the steel, so the band reads as
+   something machined rather than something filled. */
+.dial__flute {
+  stroke: color-mix(in srgb, #000 62%, transparent);
+  stroke-width: 1.3;
+  stroke-linecap: butt;
+}
+/* The step down from bezel to dial. A real one is a shadowed lip, and
+   without it the plate and the bezel read as one flat disc. */
+.dial__lip { fill: color-mix(in srgb, #000 82%, transparent); }
+.dial__plate { stroke: color-mix(in srgb, #000 60%, transparent); stroke-width: 1; }
+
+/* The track the indices stand on. Barely there on purpose: it organises
+   the marks without becoming one of them. */
+.dial__track {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text, #fff) 8%, transparent);
   stroke-width: 1;
 }
-.dial__plate { stroke: color-mix(in srgb, #000 55%, transparent); stroke-width: 1; }
-
 .dial__tick {
-  stroke: color-mix(in srgb, var(--text, #fff) 34%, transparent);
-  stroke-width: 2;
+  stroke: color-mix(in srgb, var(--text, #fff) 26%, transparent);
+  stroke-width: 1.5;
   stroke-linecap: round;
 }
-.dial__tick--major {
-  stroke: color-mix(in srgb, var(--text, #fff) 72%, transparent);
-  stroke-width: 3;
-}
+/* Applied indices: a steel surround with a bright face inside it, which
+   is how a real applied marker catches light -- the frame stays metal
+   and the fill is what glows. */
+.dial__index { stroke: color-mix(in srgb, #000 55%, transparent); stroke-width: 0.6; }
+.dial__index-face { fill: color-mix(in srgb, var(--text, #fff) 88%, transparent); }
 /* The ring turns under the finger. No CSS transition on it: the rotation
    follows the thumb, and easing a value that is being dragged makes the
    control feel like it is arguing with you.
@@ -4969,7 +4989,13 @@ textarea,
    somewhere off the side of the phone. */
 .dial__ring { transform-box: view-box; }
 
-.dial__marker { fill: var(--accent, #FF8A3D); }
+/* The reference at twelve. It sits ON the bezel, pointing in, the way a
+   diver's bezel marks zero -- and it is the accent because it is the one
+   part of this that is not decoration. */
+.dial__marker {
+  fill: var(--accent, #FF8A3D);
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent, #FF8A3D) 55%, transparent));
+}
 
 .dial__read {
   position: absolute; inset: 0;
@@ -10515,40 +10541,105 @@ textarea,
     var svg = el('svg', { viewBox: '0 0 200 200', class: 'dial__face',
       'aria-hidden': 'true' }, doc);
 
-    /* The bezel, drawn once. A dark ring with a hairline inside it, the
-       way a steel bezel has a polished edge against a brushed face. */
-    var grad = el('radialGradient', { id: 'dialface-' + id, cx: '50%', cy: '38%', r: '72%' }, doc);
-    grad.appendChild(el('stop', { offset: '0%', 'stop-color': 'var(--dial-hi, #23252B)' }, doc));
-    grad.appendChild(el('stop', { offset: '100%', 'stop-color': 'var(--dial-lo, #101116)' }, doc));
+    /* ------------------------------------------------------------------
+       THE FACE. Built the way a watch is built, outside in: a fluted
+       bezel, a black dial plate with the light coming from one place, a
+       minute track close to the edge, and applied indices standing on it.
+
+       The point is not decoration. A bezel reads at a glance because
+       every part of it says something: the flutes are where you grip,
+       the fine ticks are the small step, the applied batons are the
+       count, and the one marker at twelve is where you are. Making the
+       small ticks and the batons the same weight -- which is what this
+       was -- gives you sixty identical marks and nothing to count by.
+       ------------------------------------------------------------------ */
     var defs = el('defs', {}, doc);
-    defs.appendChild(grad);
+
+    /* The plate. Light from the upper left, as on a sunburst dial, so the
+       face has a direction instead of being a flat black hole. */
+    var face = el('radialGradient', { id: 'dialface-' + id, cx: '38%', cy: '30%', r: '85%' }, doc);
+    face.appendChild(el('stop', { offset: '0%', 'stop-color': 'var(--dial-hi, #26282F)' }, doc));
+    face.appendChild(el('stop', { offset: '55%', 'stop-color': 'var(--dial-mid, #15161A)' }, doc));
+    face.appendChild(el('stop', { offset: '100%', 'stop-color': 'var(--dial-lo, #090A0D)' }, doc));
+    defs.appendChild(face);
+
+    /* The bezel, and the indices, share one steel. Angled rather than
+       radial, because a brushed ring catches the light across itself. */
+    var steel = el('linearGradient', { id: 'dialsteel-' + id,
+      x1: '18%', y1: '0%', x2: '82%', y2: '100%' }, doc);
+    steel.appendChild(el('stop', { offset: '0%', 'stop-color': 'var(--dial-steel-hi, #4C5059)' }, doc));
+    steel.appendChild(el('stop', { offset: '38%', 'stop-color': 'var(--dial-steel-mid, #23252B)' }, doc));
+    steel.appendChild(el('stop', { offset: '62%', 'stop-color': 'var(--dial-steel-hi, #4C5059)' }, doc));
+    steel.appendChild(el('stop', { offset: '100%', 'stop-color': 'var(--dial-steel-lo, #191B20)' }, doc));
+    defs.appendChild(steel);
     svg.appendChild(defs);
 
-    svg.appendChild(el('circle', { cx: 100, cy: 100, r: 96, class: 'dial__bezel' }, doc));
-    svg.appendChild(el('circle', { cx: 100, cy: 100, r: 84,
+    /* The bezel band. */
+    svg.appendChild(el('circle', { cx: 100, cy: 100, r: 97,
+      fill: 'url(#dialsteel-' + id + ')', class: 'dial__bezel' }, doc));
+
+    /* FLUTES. Sixty short strokes across the band, which is what makes a
+       ring read as knurled metal you could grip rather than as a painted
+       circle. They do not turn: the bezel is the housing. */
+    var flutes = el('g', { class: 'dial__flutes' }, doc);
+    for (var fi = 0; fi < 60; fi++) {
+      var fa = (fi / 60) * Math.PI * 2;
+      flutes.appendChild(el('line', {
+        x1: (100 + Math.cos(fa) * 90.5).toFixed(2), y1: (100 + Math.sin(fa) * 90.5).toFixed(2),
+        x2: (100 + Math.cos(fa) * 96.5).toFixed(2), y2: (100 + Math.sin(fa) * 96.5).toFixed(2),
+        class: 'dial__flute'
+      }, doc));
+    }
+    svg.appendChild(flutes);
+
+    /* The dial plate, sunk inside the bezel with a dark lip. */
+    svg.appendChild(el('circle', { cx: 100, cy: 100, r: 89, class: 'dial__lip' }, doc));
+    svg.appendChild(el('circle', { cx: 100, cy: 100, r: 87.5,
       fill: 'url(#dialface-' + id + ')', class: 'dial__plate' }, doc));
 
-    /* THE RING THAT TURNS. Sixty ticks, long every fifth, exactly as a
-       watch marks its minutes and its hours. The ring rotates; the marker
-       at twelve does not, because on a real bezel the ring is what moves
-       under your finger and the reference stays put. */
+    /* ------------------------------------------------------------------
+       THE RING THAT TURNS: minute track, fine ticks, applied indices.
+       It rotates under the finger; the bezel and the marker do not,
+       because on a real watch the reference stays put and the scale
+       moves past it.
+       ------------------------------------------------------------------ */
     var ring = el('g', { class: 'dial__ring' }, doc);
+
+    /* The minute track itself: one thin circle the ticks stand on. */
+    ring.appendChild(el('circle', { cx: 100, cy: 100, r: 77, class: 'dial__track' }, doc));
+
     for (var i = 0; i < 60; i++) {
       var major = i % 5 === 0;
       var a = (i / 60) * Math.PI * 2 - Math.PI / 2;
-      var r1 = major ? 68 : 74, r2 = 80;
-      ring.appendChild(el('line', {
-        x1: (100 + Math.cos(a) * r1).toFixed(2), y1: (100 + Math.sin(a) * r1).toFixed(2),
-        x2: (100 + Math.cos(a) * r2).toFixed(2), y2: (100 + Math.sin(a) * r2).toFixed(2),
-        class: 'dial__tick' + (major ? ' dial__tick--major' : '')
-      }, doc));
+      if (major) {
+        /* An APPLIED INDEX: a baton standing on the track, in the same
+           steel as the bezel, with a bright inner face. Drawn upright at
+           twelve and rotated into place, so every one is identical. */
+        var deg = (i / 60) * 360;
+        var g = el('g', { transform: 'rotate(' + deg.toFixed(2) + ' 100 100)' }, doc);
+        g.appendChild(el('rect', { x: 96.4, y: 100 - 77, width: 7.2, height: 13,
+          rx: 1.6, fill: 'url(#dialsteel-' + id + ')', class: 'dial__index' }, doc));
+        g.appendChild(el('rect', { x: 97.9, y: 100 - 75.4, width: 4.2, height: 9.8,
+          rx: 1, class: 'dial__index-face' }, doc));
+        ring.appendChild(g);
+      } else {
+        /* A minute tick: fine, short, and quieter than the batons, so the
+           batons are what the eye counts. */
+        ring.appendChild(el('line', {
+          x1: (100 + Math.cos(a) * 77).toFixed(2), y1: (100 + Math.sin(a) * 77).toFixed(2),
+          x2: (100 + Math.cos(a) * 82).toFixed(2), y2: (100 + Math.sin(a) * 82).toFixed(2),
+          class: 'dial__tick'
+        }, doc));
+      }
     }
     svg.appendChild(ring);
 
-    /* The marker: a single wedge at twelve, in the accent, so where the
-       ring has got to is readable at a glance rather than by counting. */
-    var mark = el('path', { d: 'M100 8 L106 22 L94 22 Z', class: 'dial__marker' }, doc);
-    svg.appendChild(mark);
+    /* The marker at twelve: the inverted triangle a diver's bezel puts at
+       zero, in the accent, because this one is not decoration -- it is
+       where the reading is taken. */
+    svg.appendChild(el('path', {
+      d: 'M100 24 L106.5 11 L93.5 11 Z', class: 'dial__marker'
+    }, doc));
 
     wrap.appendChild(svg);
 
@@ -21044,11 +21135,32 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     if (!ST || !persisting()) return;
     FUELLOG[DAY.iso] = {
       date: DAY.iso,
+      /* EVERY FIELD THE ENTRY HAS, not a chosen few.
+
+         This rebuilt each meal by hand and quietly left out g, per100,
+         unit and pantry -- so addMeal stored the weight and the per-100 g
+         row it was scaled from, and the very next save threw both away.
+         The weight survived only as words inside the name.
+
+         What that cost: the editor draws its dial, its unit switch and
+         its whole re-weighing arithmetic off per100, so after one save
+         there was NO WAY TO CHANGE THE AMOUNT of anything. The dial was
+         not missing from the build, it was missing its basis. And
+         `pantry` going the same way broke putting stock back when a meal
+         is deleted, which addMeal explicitly stores it for.
+
+         Nothing caught it because the editor's suite logs a meal and
+         edits it in the same breath, off the in-memory object, and never
+         reloads. */
       meals: DAY.meals.map(function (m) {
         return { key: m.key || null, icon: m.icon, name: m.name, at: m.at, src: m.src,
                  slot: m.slot || slotOf(m),
                  kcal: m.kcal, pro: m.pro, carb: m.carb, fat: m.fat,
                  fibre: m.fibre, sugar: m.sugar, satfat: m.satfat, sodium: m.sodium,
+                 g: (typeof m.g === 'number' && m.g > 0) ? m.g : undefined,
+                 per100: m.per100 || undefined,
+                 unit: m.unit || undefined,
+                 pantry: m.pantry || undefined,
                  base: m.base || null, scale: m.scale || 1 };
       }),
       eaten: DAY.eaten,
@@ -21654,11 +21766,18 @@ DEMO.define("fuel", function (document, window, location, fetch) {
         { name: 'Carbs', have: 0, want: isRefeed ? rf.carb : tg.carb, unit: 'g', key: 'carb' },
         { name: 'Fat', have: 0, want: tg.fat, unit: 'g', key: 'fat' }
       ],
+      /* The same list as saveDay writes, for the same reason: a field
+         dropped on the way in is a field the screen cannot use, however
+         carefully it was stored. */
       meals: src.meals.map(function (m) {
         return { key: m.key || null, icon: m.icon, name: m.name, at: m.at,
                  slot: slotOf(m),
                  pro: m.pro, carb: m.carb, fat: m.fat, kcal: m.kcal, src: m.src,
                  fibre: m.fibre, sugar: m.sugar, satfat: m.satfat, sodium: m.sodium,
+                 g: (typeof m.g === 'number' && m.g > 0) ? m.g : undefined,
+                 per100: m.per100 || undefined,
+                 unit: m.unit || undefined,
+                 pantry: m.pantry || undefined,
                  base: m.base || null, scale: m.scale || 1 };
       }),
       /* Not a target and not a nag: a pattern this person already has. */
@@ -23116,7 +23235,41 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     });
   }
 
+  /* WHAT YOU TYPED, SPLIT INTO AN AMOUNT AND A FOOD.
+
+     "8 ounce strip steak" went to the database whole. Nothing searches
+     for that, so the name matched loosely at best, and the portion sheet
+     then opened at a flat 100 g -- the eight ounces thrown away without
+     a word. The sentence box has read quantities since the start; the
+     search box, which is where most people type, never did.
+
+     Both now go through the same reader. The database is asked about
+     "strip steak", and the sheet opens at 227 g with ounces selected,
+     which is what was asked for. A query with no quantity in it is
+     unchanged: term is the whole string and want is null. */
+  function readSearchQuery(raw) {
+    var text = String(raw || '').trim();
+    if (!text) return { term: '', want: null };
+    var toks = decimalise(text.toLowerCase())
+                 .replace(/[^a-z0-9. ]/g, ' ').split(/\s+/).filter(Boolean);
+    var q = readQtyFront(toks);
+    var words = keepWords(toks);
+    /* Nothing left once the numbers came out -- "200 g" on its own -- is
+       not a search for a food, so the raw text stands. */
+    if (!words.length) return { term: text, want: null };
+    /* A bare number with no unit in front of a food is ambiguous ("2
+       eggs" is a count, "8 chicken" is nothing), and the sheet has no way
+       to price a count from a database row. Only a real weight is taken. */
+    var take = q.counted && q.unit && UNIT_G[q.unit] > 0;
+    return { term: words.join(' '),
+             want: take ? { qty: q.qty, unit: q.unit,
+                            grams: q.qty * UNIT_G[q.unit] } : null };
+  }
+
   function searchHits(q) {
+    /* The local table is matched on the food too, so "8 ounce strip
+       steak" finds steak here as well as at the database. */
+    q = readSearchQuery(q).term.toLowerCase();
     var local = searchable().map(function (f) { return { f: f, s: rank(f, q) }; })
       .filter(function (e) { return e.s >= 0; })
       .sort(function (a, b) { return b.s - a.s || (a.f.name < b.f.name ? -1 : 1); })
@@ -23130,7 +23283,9 @@ DEMO.define("fuel", function (document, window, location, fetch) {
   var remoteT = null;
   function askServer(q) {
     if (!(window.LKCloud && LKCloud.ready() && LKCloud.foodSearch)) return;
-    var term = String(q || '').trim();
+    /* The FOOD, not the phrase. "8 ounce strip steak" was sent whole and
+       no database indexes that. */
+    var term = readSearchQuery(q).term;
     clearTimeout(remoteT);
     if (term.length < 2) { S.remote = null; S.remoteQ = ''; S.remoteBusy = false; return; }
     if (S.remoteQ === term.toLowerCase()) return;
@@ -24409,9 +24564,42 @@ DEMO.define("fuel", function (document, window, location, fetch) {
      its own arithmetic preferred that would be lying to somebody reading
      their own food. The gap is shown instead, with one tap to close it if
      that is what you meant. */
+  /* THE PER-100 g ROW, RECOVERED WHEN IT WAS NEVER WRITTEN DOWN.
+
+     The dial and the unit switch only appear when the entry carries a
+     per-100 g basis, because that is what every figure is scaled from.
+     Entries logged before the dial shipped do not carry one, and neither
+     does anything logged by a path that did not store it -- so opening
+     one of those to edit gave a sheet with no dial, no ounces and NO WAY
+     TO CHANGE THE AMOUNT AT ALL. The one control the screen exists for
+     was missing on exactly the meals a person is most likely to want to
+     correct: the old ones.
+
+     It does not need to have been stored. A weight and the figures at
+     that weight are a rate, and the rate is what a basis is. Only the
+     arithmetic the whole screen already runs on. Nothing is invented: an
+     entry with no weight recorded has no rate to recover and still gets
+     the plain editor. */
+  function basisFor(m) {
+    if (m.per100) return m.per100;
+    var g = Number(m.g);
+    if (!(g > 0)) return null;
+    var k = 100 / g;
+    var out = { kcal: Math.round((Number(m.kcal) || 0) * k),
+                pro: Math.round((Number(m.pro) || 0) * k * 10) / 10,
+                carb: Math.round((Number(m.carb) || 0) * k * 10) / 10,
+                fat: Math.round((Number(m.fat) || 0) * k * 10) / 10 };
+    MICROS.forEach(function (mi) {
+      if (typeof m[mi.key] === 'number') {
+        out[mi.key] = Math.round(m[mi.key] * k * 10) / 10;
+      }
+    });
+    return out;
+  }
+
   function mealEditSheet(m, i) {
     var E = S.mealEdit;
-    var basis = m.per100;
+    var basis = basisFor(m);
     var macroKcal = kcalOfMacros(E);
     var gap = Math.abs(macroKcal - (Number(E.kcal) || 0));
     var field = function (key, label, unit, tid) {
@@ -24661,14 +24849,29 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     return pretty + (amt === 1 ? ' serving' : ' servings');
   }
 
-  function openPortion(food, key) {
+  /* `want` is an amount the person already stated -- typed into the
+     search box as "8 ounce strip steak", or spoken. When there is one the
+     sheet opens on it, in the unit they said it in, rather than on the
+     food's default and a silent 100 g. */
+  function openPortion(food, key, want) {
     var servG = servingWeight(food);
     var unit = foodUnit();
+    var amount;
+    if (want && want.grams > 0) {
+      unit = (want.unit === 'oz' || want.unit === 'ounce' || want.unit === 'ounces' ||
+              want.unit === 'lb' || want.unit === 'lbs' ||
+              want.unit === 'pound' || want.unit === 'pounds') ? 'oz' : 'g';
+      amount = unit === 'oz'
+        ? String(Math.round(want.grams / OZ_G * 4) / 4)
+        : String(Math.round(want.grams));
+    } else {
+      amount = unit === 'oz' ? String(Math.round((food.g || 100) / OZ_G * 4) / 4)
+             : unit === 'serv' ? '1'
+             : String(Math.round(food.g || 100));
+    }
     S.portion = {
       food: food, key: key || null, unit: unit, servG: servG,
-      amount: unit === 'oz' ? String(Math.round((food.g || 100) / OZ_G * 4) / 4)
-            : unit === 'serv' ? '1'
-            : String(Math.round(food.g || 100)),
+      amount: amount,
       step: PT_STEPS[unit][0],
       error: null
     };
@@ -26817,8 +27020,13 @@ DEMO.define("fuel", function (document, window, location, fetch) {
            through it. A figure the reader has typed by hand detaches the
            entry from that row, and then the dial only records the weight
            rather than rewriting what they wrote. */
-        if (!EE.detached && DAY.meals[EE.i] && DAY.meals[EE.i].per100) {
-          var fresh = atGrams(DAY.meals[EE.i].per100, EE.g);
+        /* Through basisFor, so an entry whose per-100 g row was never
+           written down rescales off the rate recovered from its own
+           weight and figures. Reading per100 straight left the dial on
+           screen and inert on exactly those entries. */
+        var mBasis = DAY.meals[EE.i] ? basisFor(DAY.meals[EE.i]) : null;
+        if (!EE.detached && mBasis) {
+          var fresh = atGrams(mBasis, EE.g);
           EE.kcal = fresh.kcal; EE.pro = fresh.pro; EE.carb = fresh.carb; EE.fat = fresh.fat;
           MICROS.forEach(function (mi) { if (fresh[mi.key] != null) EE[mi.key] = fresh[mi.key]; });
           paintMealEditFigures();
@@ -27426,7 +27634,8 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       MICROS.forEach(function (mi) {
         if (typeof sh[mi.key] === 'number') norm[mi.key] = per(sh[mi.key]);
       });
-      openPortion(norm, sh.storeId ? null : (sh.key || null));
+      openPortion(norm, sh.storeId ? null : (sh.key || null),
+                  readSearchQuery(S.searchQ).want);
       render(); return;
     }
     if (a === 'food-detail') {
@@ -27444,7 +27653,10 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       MICROS.forEach(function (mi) {
         if (typeof fdf[mi.key] === 'number') fdNorm[mi.key] = fdPer(fdf[mi.key]);
       });
-      openPortion(fdNorm, fdk);
+      /* A food already in the table gets the same reading of the query
+         as one from a database: the amount is the person's, not the
+         table's default. */
+      openPortion(fdNorm, fdk, readSearchQuery(S.searchQ).want);
       render(); return;
     }
     if (a === 'fd-chip') { S.foodG = +act.getAttribute('data-g'); render(); return; }
