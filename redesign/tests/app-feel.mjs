@@ -264,9 +264,12 @@ async function sheetOf(screen, openTestid) {
   }, screen);
 }
 
-const fuelSheet = await sheetOf('fuel', 'log-search');
+/* The search sheet is gone; the sentence sheet is the one with a body
+   that scrolls now, and the property under test is the sheet's, not that
+   particular sheet's. */
+const fuelSheet = await sheetOf('fuel', 'log-type');
 ok(fuelSheet && fuelSheet.contain === 'contain',
-   'Fuel: the food search sheet keeps its scroll to itself',
+   'Fuel: the logging sheet keeps its scroll to itself',
    JSON.stringify(fuelSheet));
 
 /* Coach's chat is the .body rather than a sheet, and it is the one
