@@ -79,6 +79,7 @@ muscle-split|node muscle-split.mjs
 catalogue-curation|node catalogue-curation.mjs
 portion-dial|node portion-dial.mjs
 search-amount|node search-amount.mjs
+generic-names|node generic-names.mjs
 meal-basis-persist|node meal-basis-persist.mjs
 meal-edit|node meal-edit.mjs
 keyboard-lift|node keyboard-lift.mjs

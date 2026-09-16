@@ -10945,6 +10945,142 @@ window.LK_CLOUD = {
     estimate: 'Estimate'
   };
 
+  /* ------------------------------------------------------------------
+     A FOOD DATABASE WRITES FOR A FILING CABINET, NOT FOR A PERSON.
+
+     USDA calls a chicken breast "Chicken, broilers or fryers, breast,
+     meat only, cooked, roasted", and a strip steak "Beef, loin, top loin
+     steak, boneless, lip off, separable lean only, trimmed to 0 fat,
+     select, cooked, grilled". Those went straight onto the row, so a
+     search for chicken returned a wall of near-identical sentences and
+     you had to read to the end of each one to tell them apart.
+
+     This turns them back into names. The shelf heading goes -- "fish
+     salmon" is not a thing anybody says -- and so do the butchery
+     section, the grade, the trim and the packaging boilerplate. A
+     modifier that belongs in front is moved there, so "Bread, french"
+     becomes "French bread". And the one state word that matters is kept,
+     because cooked chicken and raw chicken are different foods and that
+     is exactly the distinction somebody scanning a list is looking for.
+
+     The database's own words are not thrown away: they stay on the row
+     as `fullName`, because they are the record of what was looked up
+     even when they are unreadable.
+     ------------------------------------------------------------------ */
+  var NAME_NOISE = [
+    /\bseparable lean (and fat|only)\b/g, /\btrimmed to [^,]*/gi,
+    /\b(all )?(commercial varieties|grades)\b/g, /\bbroilers or fryers\b/gi,
+    /\bmeat (only|and skin)\b/g, /\blip off\b/g, /\bboneless\b/gi,
+    /\b(select|choice|prime)\b/g, /\bns as to [^,]*/gi,
+    /\b(un)?enriched\b/g, /\bregular\b/g, /\bwithout( added)? [^,]*/gi,
+    /\bwith(out)? salt( added)?\b/g, /\bfresh\b/g, /\bflesh and skin\b/gi,
+    /\bdry heat\b/g, /\bfarmed\b/g, /\bold fashioned\b/gi,
+    /\bwhole grain\b/g, /\bstyle\b/g, /\blong-?grain\b/gi,
+    /\bincludes[^)]*/g, /\bupc:?\s*\d+/gi,
+    /\b\d+(\.\d+)?%\s*milkfat\b/g, /\b(tap|drinking|bottled)\b/gi,
+    /\bwith salt\b/g, /\blow sodium\b/gi
+  ];
+  var NAME_STATE = ['raw', 'cooked', 'roasted', 'grilled', 'baked', 'boiled',
+                    'fried', 'steamed', 'braised', 'dry roasted', 'smoked'];
+  /* A trailing word that reads better in front. */
+  var NAME_LEADS = ['french', 'italian', 'greek', 'white', 'brown', 'wholemeal',
+                    'whole wheat', 'plain', 'nonfat', 'skimmed', 'russet',
+                    'cheddar', 'whole', 'skim', 'red', 'green', 'rolled',
+                    'atlantic', 'smooth', 'crunchy', 'dried', 'frozen',
+                    'canned', 'sweet'];
+  /* Shelf headings and butchery sections: the cut that follows names the
+     food, the section it came off does not. */
+  var NAME_CATEGORY = ['beverages', 'nuts', 'fish', 'seeds', 'snacks', 'sweets',
+    'soups', 'sauces', 'spices and herbs', 'legumes', 'vegetables', 'fruits',
+    'baked products', 'poultry products', 'beef products', 'pork products',
+    'fast foods', 'restaurant foods', 'cereal grains', 'dairy and egg products',
+    'finfish', 'shellfish', 'game meat',
+    'loin', 'short loin', 'rib', 'round', 'chuck', 'flank', 'shank',
+    'brisket', 'plate', 'sirloin', 'leg', 'shoulder'];
+
+  /* Places and peoples keep their capital wherever they land in a name. */
+  var NAME_PROPER = ['greek', 'french', 'italian', 'atlantic', 'pacific',
+    'mexican', 'spanish', 'english', 'swiss', 'german', 'japanese', 'thai',
+    'chinese', 'indian', 'brazilian', 'york', 'new', 'jersey', 'danish',
+    'belgian', 'cajun', 'sicilian', 'moroccan', 'korean', 'vietnamese'];
+
+  /* SHOUTING IS NOT A NAME, but neither is flattening one. Only an
+     all-capitals string is recased; anything else keeps the capitals it
+     came with, because "New York", "Big Mac" and "Coca-Cola" are how
+     those things are spelled. A blanket lowercasing pass made the list
+     look wrong in a way no amount of shortening makes up for. */
+  function nameDecase(v) {
+    if (!/[a-z]/.test(v) && /[A-Z]/.test(v)) {
+      return v.charAt(0) + v.slice(1).toLowerCase();
+    }
+    return v;
+  }
+
+  function prettyFood(raw) {
+    var original = String(raw || '').trim();
+    if (!original) return '';
+    var s = original.replace(/\([^)]*\)/g, ' ');
+    var hitNoise = false;
+    for (var n = 0; n < NAME_NOISE.length; n++) {
+      if (NAME_NOISE[n].test(s)) hitNoise = true;
+      s = s.replace(NAME_NOISE[n], ' ');
+    }
+    /* A name with no filing-cabinet grammar in it is already a name, and
+       is left exactly as written apart from shouting. */
+    if (!hitNoise && original.indexOf(',') < 0) return nameDecase(original);
+
+    var parts = s.split(',').map(function (p) {
+      return p.replace(/\s+/g, ' ').trim();
+    }).filter(Boolean);
+    /* "french or vienna" is one food offered two ways; take the first. */
+    parts = parts.map(function (p) { return p.split(/\s+or\s+/i)[0].trim(); })
+                 .filter(Boolean);
+    var lc = function (p) { return p.toLowerCase(); };
+    var states = [];
+    parts = parts.filter(function (p) {
+      if (NAME_STATE.indexOf(lc(p)) >= 0) { states.push(lc(p)); return false; }
+      return true;
+    });
+    if (parts.length > 1) {
+      var kept = parts.filter(function (p) { return NAME_CATEGORY.indexOf(lc(p)) < 0; });
+      if (kept.length) parts = kept;
+    }
+    /* WORD BOUNDARIES, not substrings: "milk" sits inside "milkfat", and a
+       plain indexOf ate the word the food is actually called. */
+    var holds = function (hay, needle) {
+      return new RegExp('(^|\\s)' +
+        needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|\\s)', 'i').test(hay);
+    };
+    parts = parts.filter(function (p, i) {
+      return !parts.some(function (q, j) {
+        return j !== i && q.length > p.length && holds(q, p);
+      });
+    });
+    if (!parts.length) return nameDecase(original).slice(0, 60);
+    while (parts.length > 1 &&
+           NAME_LEADS.indexOf(lc(parts[parts.length - 1])) >= 0) {
+      parts.unshift(parts.pop());
+    }
+    /* Five words is a name; more is a description. */
+    var words = parts.join(' ').replace(/\s+/g, ' ').trim().split(' ');
+    if (words.length > 5) words = words.slice(0, 5);
+    /* THIS NAME WAS REBUILT, so its capitals are the database's sentence
+       casing rather than anybody's intent: USDA capitalises the first word
+       of every comma segment, and once the segments are reordered those
+       capitals land mid-phrase -- "French Bread", "Smooth Peanut butter".
+       Everything goes down except the genuinely proper words, and the
+       first, which starts the name. */
+    words = words.map(function (w) {
+      return NAME_PROPER.indexOf(w.toLowerCase()) >= 0
+        ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+        : w.toLowerCase();
+    });
+    var name = words.join(' ');
+    name = name.charAt(0).toUpperCase() + name.slice(1);
+    if (states.length) name += ', ' + states[states.length - 1];
+    return name;
+  }
+
   function isWorker(url) {
     var path;
     try { path = new URL(String(url), 'https://x.invalid').pathname; }
@@ -11453,8 +11589,10 @@ window.LK_CLOUD = {
           return { ok: true, data: items.map(function (it) {
             var kcal = Math.round(Number(it.cal) || 0);
             if (!kcal) return null;
+            var rawName = String(it.name || '').slice(0, 120);
             var row = {
-              name: String(it.name || '').slice(0, 80),
+              name: prettyFood(rawName).slice(0, 60),
+              fullName: rawName,
               kcal: kcal,
               pro: Math.round((Number(it.pro) || 0) * 10) / 10,
               carb: Math.round((Number(it.carb) || 0) * 10) / 10,
@@ -23232,6 +23370,20 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       Object.keys(f).forEach(function (k) { c[k] = f[k]; });
       c.icon = c.icon || '\u{1F37D}\u{FE0F}';
       return c;
+    }).sort(function (a, b) {
+      /* GENERIC FIRST. Search "chicken breast" and the databases answer
+         with every own-brand chilled fillet anybody ever scanned before
+         they answer with chicken breast. A brand is the right row when
+         you scanned a barcode and the wrong one when you typed a food,
+         so a row with no brand on it sorts above one that has. Within
+         each group the source's own order stands: it already ranked
+         them for the term. */
+      var ab = a.brand ? 1 : 0, bb = b.brand ? 1 : 0;
+      if (ab !== bb) return ab - bb;
+      /* Then the shorter name, which after prettyFood means the less
+         qualified food: "Chicken breast, raw" before "Chicken breast
+         tenderloin, raw". */
+      return String(a.name || '').length - String(b.name || '').length;
     });
   }
 
