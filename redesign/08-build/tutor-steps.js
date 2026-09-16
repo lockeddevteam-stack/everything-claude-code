@@ -137,11 +137,11 @@
         { screen: 'home', testid: 'tab-fuel', hint: 'Tap Fuel',
           say: 'The other half of the app is food.' },
 
-        { screen: 'fuel', testid: 'log-search', hint: 'Tap',
-          say: 'One number: what is left today. Search for something.' },
+        { screen: 'fuel', testid: 'log-type', hint: 'Tap',
+          say: 'One number: what is left today. Tell it what you ate.' },
 
-        { screen: 'fuel', testid: 'search-hit-0', hint: 'Tap',
-          before: typeSearch('fuel', 'search-input', 'chicken'),
+        { screen: 'fuel', testid: 'mic-confirm', hint: 'Tap',
+          before: typeSearch('fuel', 'mic-text', '200 g chicken breast'),
           say: 'Log it.',
           note: 'The number at the top moves by exactly what you logged.' },
 
@@ -241,19 +241,22 @@
           say: 'One number leads the screen. What is left today.',
           note: 'Not what you ate. What you have left, which is the number you act on.' },
 
-        { screen: 'fuel', testid: 'log-search', hint: 'Tap',
-          say: 'Four ways in. Search is the one that works with no signal.',
-          note: 'Scan reads a barcode, Say it takes a sentence, Snap it reads a plate.' },
+        { screen: 'fuel', testid: 'log-type', hint: 'Tap',
+          say: 'Three ways in. Type what you ate, in your own words.',
+          note: 'Scan reads a barcode, Say it takes the same sentence out loud, ' +
+                'Snap it reads a plate.' },
 
-        { screen: 'fuel', testid: 'search-hit-0', hint: 'Tap',
-          before: typeSearch('fuel', 'search-input', 'chicken'),
+        { screen: 'fuel', testid: 'mic-confirm', hint: 'Tap',
+          before: typeSearch('fuel', 'mic-text', '200 g chicken breast'),
           say: 'Log it.',
-          note: 'Watch the number at the top, and the three bars.' },
+          note: 'The amount is read out of the sentence. Say eight ounces and it ' +
+                'logs eight ounces.' },
 
         { screen: 'fuel', testid: 'macros', read: true,
           say: 'Every row says where its numbers came from.',
-          note: 'TABLE is a looked-up food, ESTIMATE is a photo read. Drawing them the ' +
-                'same would be lying about confidence.' },
+          note: 'A measured figure reads plainly. One that was worked out carries the ' +
+                'approximate sign and says which half was guessed, the food or the ' +
+                'amount. Drawing them the same would be lying about confidence.' },
 
         { screen: 'fuel', testid: 'water-card-250', hint: 'Tap',
           say: 'Water is on the same screen. Add a glass.',

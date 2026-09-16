@@ -730,6 +730,42 @@
        results say where they came from -- a looked-up food and a guess
        must never be drawn the same way. */
     /* The three the endpoint asks, in the words a reader would use. */
+    /* ---- LOGGING A MEAL FROM A SENTENCE ------------------------------
+       One call replaces search-pick-portion-repeat. The sentence goes up
+       whole, the Worker reads it into foods and amounts and prices each
+       one against the same databases the search used, and what comes
+       back is a list of items ready to log.
+
+       Every item says whether its figure is exact and, when it is not,
+       which half was assumed: the food, the amount, or both. That flag
+       is passed through untouched. A screen that dropped it would be
+       showing a worked-out number and a measured one in the same type,
+       which is the thing this whole route exists to avoid. */
+    logMeal: function (text) {
+      var c = cfg();
+      var said = String(text || '').trim();
+      if (!said) {
+        return Promise.resolve({ ok: false, error: 'empty',
+          message: 'Say or type what you ate.' });
+      }
+      if (!c || !c.apiUrl) {
+        return Promise.resolve({ ok: false, error: 'not_configured',
+          message: 'Working out a meal needs a server, and this build has none.' });
+      }
+      return post(c.apiUrl.replace(/\/$/, '') + '/log-meal', { text: said })
+        .then(function (r) {
+          if (!r.ok) return r;
+          var d = r.data || {};
+          var items = Array.isArray(d.items) ? d.items : [];
+          if (!items.length) {
+            return { ok: false, error: 'nofood', why: d.why || '',
+                     message: d.error || 'No food found in that.' };
+          }
+          return { ok: true, data: { items: items, totals: d.totals || null,
+                                     text: d.text || said } };
+        });
+    },
+
     foodSearch: function (q) {
       var c = cfg();
       if (!c || !c.apiUrl) {

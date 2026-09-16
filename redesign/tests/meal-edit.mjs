@@ -98,19 +98,24 @@ const type = async (id, v) => page.evaluate(([i, x]) => {
 const rows = () => page.evaluate(() =>
   window.DEMO.screens.fuel.root.querySelectorAll('[data-testid^="meal-"][data-testid$="0"], [data-testid^="meal-"]').length);
 
+/* SAID, NOT SEARCHED. This reached the log through the search box: type
+   a word, read a list, find the right row, open the portion sheet, set
+   the weight, log. That box is gone -- an amount is stated in the
+   sentence now and read out of it, which is the same six steps done in
+   one. What this suite is actually about starts at the logged entry, so
+   it only needs a shorter way to get one. */
 async function logOne() {
-  await click('log-search'); await waitFor('search-input');
-  await type('search-input', 'chicken breast');
-  await waitFor('food-detail-0');
-  const i = await page.evaluate(() => {
-    const rs = window.DEMO.screens.fuel.root.querySelectorAll('[data-testid^="search-hit-"]');
-    for (const r of rs) if (r.textContent.includes('Chicken breast, raw'))
-      return +r.getAttribute('data-testid').replace('search-hit-', '');
-    return 0;
-  });
-  await click('food-detail-' + i); await waitFor('sheet-portion');
-  await page.waitForTimeout(350);
-  await click('pt-log'); await page.waitForTimeout(500);
+  await click('log-type'); await waitFor('mic-text');
+  await type('mic-text', '200g chicken breast');
+  await waitFor('mic-preview');
+  /* The sentence is read after a pause in the typing and then a round
+     trip, so a row that is still "not recognised" at 350 ms is only
+     early. Waited on by state rather than by clock. */
+  await page.waitForFunction(() => {
+    const el = window.DEMO.screens.fuel.root.querySelector('[data-testid="mic-confirm"]');
+    return el && !el.disabled;
+  }, null, { timeout: 15000 });
+  await click('mic-confirm'); await page.waitForTimeout(600);
 }
 
 await logOne();

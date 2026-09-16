@@ -2253,14 +2253,20 @@
         ICO.cam + '<span class="t-headline">Snap it</span>' +
       '</button>' +
     '</div>' +
-    /* The fourth way, and the ordinary one. Scan, Say it and Snap it each
-       need the food to be in front of you; a person eating something new,
-       remembered, or already eaten had nowhere to put it. A DOM sweep of
-       this screen for a search field returned nothing -- every search box in
-       the build belonged to an exercise picker. */
-    '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="search" ' +
-      'data-testid="log-search"><span class="btn__label">Search foods</span></button>' +
-    '<p class="t-caption-1 quiet fuel-log__hint">Search by name, say what you ate, or snap the plate.</p>';
+    /* THE SAME SHEET, REACHED BY TYPING. This was "Search foods", and a
+       search is four steps and a decision per food: type a word, read a
+       list, pick a row, set a portion, then again for the next thing on
+       the plate. The decision is the one nobody wants to make -- which
+       of these nine chicken breasts is my chicken breast.
+
+       Saying it and typing it are one route now. The sentence goes to
+       the server whole, which reads the foods and the amounts out of it
+       and prices them against the databases. Two buttons because a
+       phone in a quiet room and a phone in a gym are different, not
+       because the two do different things. */
+    '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="mic" ' +
+      'data-typed="1" data-testid="log-type"><span class="btn__label">Type it</span></button>' +
+    '<p class="t-caption-1 quiet fuel-log__hint">Say what you ate, type it, or snap the plate.</p>';
   }
 
   /* Everything this build can log by name, in one list: the food table the
@@ -2451,36 +2457,6 @@
       .replace(/\s+/g, ' ').trim();
   }
 
-  function remoteHits(q) {
-    if (!q || !S.remote || S.remoteQ !== q) return [];
-    var seen = {};
-    searchable().forEach(function (f) { seen[dedupeKey(f.name)] = 1; });
-    return S.remote.filter(function (f) {
-      var k = dedupeKey(f.name);
-      if (seen[k]) return false;
-      seen[k] = 1;
-      return true;
-    }).map(function (f) {
-      var c = {};
-      Object.keys(f).forEach(function (k) { c[k] = f[k]; });
-      c.icon = c.icon || '\u{1F37D}\u{FE0F}';
-      return c;
-    }).sort(function (a, b) {
-      /* GENERIC FIRST. Search "chicken breast" and the databases answer
-         with every own-brand chilled fillet anybody ever scanned before
-         they answer with chicken breast. A brand is the right row when
-         you scanned a barcode and the wrong one when you typed a food. */
-      var ab = a.brand ? 1 : 0, bb = b.brand ? 1 : 0;
-      if (ab !== bb) return ab - bb;
-      /* Then by how well the name answers what was typed, rather than by
-         the order three databases happened to reply in. Arrival order is
-         not relevance: it is whichever source was quickest. */
-      var ar = rank(a, q), br = rank(b, q);
-      if (ar !== br) return br - ar;
-      return String(a.name || '').length - String(b.name || '').length;
-    });
-  }
-
   /* WHAT YOU TYPED, SPLIT INTO AN AMOUNT AND A FOOD.
 
      "8 ounce strip steak" went to the database whole. Nothing searches
@@ -2510,50 +2486,6 @@
     return { term: words.join(' '),
              want: take ? { qty: q.qty, unit: q.unit,
                             grams: q.qty * UNIT_G[q.unit] } : null };
-  }
-
-  function searchHits(q) {
-    /* The local table is matched on the food too, so "8 ounce strip
-       steak" finds steak here as well as at the database. */
-    q = readSearchQuery(q).term.toLowerCase();
-    var local = searchable().map(function (f) { return { f: f, s: rank(f, q) }; })
-      .filter(function (e) { return e.s >= 0; })
-      .sort(function (a, b) { return b.s - a.s || (a.f.name < b.f.name ? -1 : 1); })
-      .map(function (e, i) { e.f.best = i === 0 && !!q; return e.f; });
-    return local.concat(remoteHits(q));
-  }
-
-  /* Asked for once per pause in the typing, not once per keystroke. The
-     answer is kept against the query it answered, so a slow reply for
-     "chi" never paints itself under "chicken". */
-  var remoteT = null;
-  function askServer(q) {
-    if (!(window.LKCloud && LKCloud.ready() && LKCloud.foodSearch)) return;
-    /* The FOOD, not the phrase. "8 ounce strip steak" was sent whole and
-       no database indexes that. */
-    var term = readSearchQuery(q).term;
-    clearTimeout(remoteT);
-    if (term.length < 2) { S.remote = null; S.remoteQ = ''; S.remoteBusy = false; return; }
-    if (S.remoteQ === term.toLowerCase()) return;
-    S.remoteBusy = true;
-    remoteT = setTimeout(function () {
-      LKCloud.foodSearch(term).then(function (r) {
-        S.remoteBusy = false;
-        /* A LOOKUP THAT COULD NOT RUN IS NOT AN EMPTY LIST. Both used
-           to clear S.remote and say nothing, so a food database that was
-           unreachable read exactly like one that had never heard of your
-           dinner. */
-        if (!r || !r.ok) { S.remote = null; S.remoteDown = true; render(); return; }
-        S.remoteDown = false;
-        S.remote = r.data;
-        S.remoteQ = term.toLowerCase();
-        if (S.sheet === 'search') {
-          render();
-          var f2 = document.getElementById('fs-q');
-          if (f2) { f2.focus(); try { f2.setSelectionRange(f2.value.length, f2.value.length); } catch (e) {} }
-        }
-      });
-    }, 320);
   }
 
   /* ---------------------------------------------------------------
@@ -3544,7 +3476,8 @@
     var mine = myStore();
     return '<div class="section"><div class="section__head">' +
         '<h2 class="t-label">Your foods</h2>' +
-        '<button class="hdr__action" type="button" data-action="search" data-testid="foods-search">Search</button>' +
+        '<button class="hdr__action" type="button" data-action="mic" data-typed="1" ' +
+          'data-testid="foods-log">Log food</button>' +
       '</div>' +
       (mine.length
         ? '<div class="card card--flush" data-testid="my-foods">' + mine.map(function (x, i) {
@@ -4259,7 +4192,7 @@
       S.micText = r.text;
       S.micItems = parseMeal(S.micText);
       S.micVoiceMsg = 'Heard that as \u201c' + r.text + '\u201d. Correct it if it is wrong.';
-      lookupMissing();
+      readSentence();
       render();
     }, function () {
       S.micSending = false;
@@ -4699,115 +4632,6 @@
        credential collected for no purpose and stored under a key name this
        package would have to invent. The key belongs with the proxy that will
        hold it, at cutover. */
-    if (S.sheet === 'search') {
-      var q = (S.searchQ || '').trim().toLowerCase();
-      /* A barcode is not a word. Typed into a food search it matches nothing
-         and the sheet says "nothing matches 5060123456789", which is true and
-         useless: the one thing that can resolve it is one sheet away. */
-      if (/^[0-9]{8,14}$/.test(q)) {
-        return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
-          '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="fs-title" ' +
-            'data-testid="sheet-search">' +
-            '<div class="sheet__head"><h2 class="t-headline grow" id="fs-title">That is a barcode</h2>' +
-              '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="search-close">' +
-                '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
-              '</button></div>' +
-            '<div class="sheet__body">' +
-              '<input class="field" id="fs-q" type="search" autocomplete="off" ' +
-                'aria-label="Search foods" data-testid="search-input" value="' + esc(S.searchQ || '') + '">' +
-              '<p class="t-detail mt-3">' + esc(prettyCode(q)) + ' is ' + q.length + ' digits, which ' +
-                'is a barcode rather than a food name. The scanner is the thing that can resolve ' +
-                'it.</p>' +
-            '</div>' +
-            '<div class="sheet__foot">' +
-              '<button class="btn btn--primary btn--block" type="button" data-action="search-to-scan" ' +
-                'data-c="' + esc(q) + '" data-testid="search-to-scan">' +
-                '<span class="btn__label">Look it up as a barcode</span></button>' +
-            '</div>' +
-          '</div>';
-      }
-      var hits = searchHits(q);
-      return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
-        '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="fs-title" ' +
-          'data-detents="0.6 0.94" data-testid="sheet-search">' +
-          '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
-          '<div class="sheet__head"><h2 class="t-headline grow" id="fs-title">Search foods</h2>' +
-            '<button class="iconbtn" type="button" data-action="close" aria-label="Close" data-testid="search-close">' +
-              '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
-            '</button></div>' +
-          '<div class="sheet__body">' +
-            '<input class="field" id="fs-q" type="search" autocomplete="off" ' +
-              'placeholder="Chicken, oats, skyr\u2026" aria-label="Search foods" ' +
-              'data-testid="search-input" value="' + esc(S.searchQ || '') + '">' +
-            slotPicker(S.logSlot || slotForNow(), 'pick-slot', 'search-slot') +
-            /* This line used to end "nothing here is coming off the
-               network", which was true of a build with no server and is a
-               lie in one that has it. It now says which of the two it is. */
-            '<p class="t-detail quiet mt-2" data-testid="search-scope">' + hits.length +
-              (hits.length === 1 ? ' food' : ' foods') + ' across this build\u2019s table, your own ' +
-              'recipes and the foods you have kept' +
-              (window.LKCloud && LKCloud.ready()
-                ? (S.remoteDown
-                    ? '. The food database could not be reached, so this is the offline list only.'
-                    : ', and the food database. Rows from the database say where they came from.' +
-                      (S.remoteBusy ? ' Still looking.' : ''))
-                : '. A wider search reaches a food database, which needs a server this build ' +
-                  'does not have: nothing here is coming off the network.') +
-            '</p>' +
-            (hits.length
-              ? '<div class="card card--flush mt-3">' + hits.map(function (f, i) {
-                  /* The row logs the standard serving, which is the common
-                     case and should cost one tap. The aside opens the detail
-                     for the times it was not a standard serving. */
-                  return '<div class="row row--withaside">' +
-                    '<button class="row__main row__main--btn" type="button" data-action="log-search" data-i="' + i +
-                      '" data-testid="search-hit-' + i + '">' +
-                      '<span class="fuel-thumb" aria-hidden="true">' + f.icon + '</span>' +
-                      '<span class="row__main stack">' +
-                        '<span class="row__title">' + esc(f.name) +
-                          (f.best ? ' <span class="pill pill--best" data-testid="search-best">Best match</span>' : '') +
-                          /* A row nobody measured. Every database missed
-                             this food, so the figures were worked out
-                             rather than looked up, and the row says so
-                             where the name is rather than in small print
-                             below it. */
-                          (f.source === 'estimate'
-                            ? ' <span class="pill pill--est" data-testid="search-estimate">Estimate</span>' : '') +
-                        '</span>' +
-                        /* WHICH DATABASE, as well as which brand. A row
-                           from USDA and a row from crowd-edited Open Food
-                           Facts are not the same kind of fact, and on a
-                           branded row `from` is the brand -- so the source
-                           was visible on exactly the rows that needed it
-                           least. Shown only when it adds something the
-                           brand does not already say. */
-                        '<span class="row__sub">' + esc(f.from) +
-                          (f.sourceName && f.sourceName !== f.from
-                            ? ' \u00b7 ' + esc(f.sourceName) : '') +
-                          (f.g ? ' \u00b7 ' + n(f.g) + ' g' : '') + ' \u00b7 ' + n(f.pro) + ' P \u00b7 ' +
-                          n(f.carb) + ' C \u00b7 ' + n(f.fat) + ' F</span>' +
-                      '</span>' +
-                      '<span class="row__value num">' + n(f.kcal) +
-                        '<small class="t-caption-2 quiet"> kcal</small></span>' +
-                      '<span class="row__chev">' + ICO.plus + '</span>' +
-                    '</button>' +
-                    /* EVERY row gets this, not only the ones already in the
-                       table. A food that came back from a database could be
-                       logged at 100 g and at nothing else, which is how
-                       "seven ounces of chicken" became "100 g of chicken". */
-                    '<button class="iconbtn" type="button" data-action="search-portion" data-i="' + i + '" ' +
-                      'aria-label="Set the amount of ' + esc(f.name) + '" data-testid="food-detail-' + i + '">' +
-                      ICO.scale + '</button>' +
-                  '</div>';
-                }).join('') + '</div>'
-              : '<p class="t-body mt-4">Nothing here matches \u201c' + esc(S.searchQ || '') + '\u201d.</p>' +
-                '<p class="t-detail quiet mt-1">Snap the plate, build it as a recipe, or type the ' +
-                  'numbers off the packet.</p>') +
-            '<button class="btn btn--secondary btn--block mt-4" type="button" data-action="manual" ' +
-              'data-testid="search-manual"><span class="btn__label">Type the numbers by hand</span></button>' +
-          '</div>' +
-        '</div>';
-    }
     if (S.sheet === 'meals') {
       return '<div class="scrim" data-action="close" data-testid="scrim"></div>' +
         '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="me-title" ' +
@@ -6146,6 +5970,13 @@
               ? '<h3 class="t-label mt-5">What that reads as</h3>' +
                 '<div class="card card--flush mt-2" data-testid="mic-preview">' +
                   items.map(function (it, i) {
+                    /* HOW SURE THIS ROW IS, BESIDE THE ROW. A worked-out
+                       figure set in the same type as a measured one is
+                       the thing that makes a food log quietly untrue:
+                       you cannot tell, a week later, which of your days
+                       were real. The approximate sign rides on the
+                       number itself, where the number is read. */
+                    var sure = sureness(it);
                     return '<div class="row row--withaside">' +
                       '<span class="fuel-thumb" aria-hidden="true">' + (it.icon || '\u2753') + '</span>' +
                       '<span class="row__main stack">' +
@@ -6157,11 +5988,17 @@
                           ? n(it.grams) + ' g \u00b7 ' + n(it.pro) + ' P \u00b7 ' + n(it.carb) +
                             ' C \u00b7 ' + n(it.fat) + ' F'
                           : 'nothing in the table matches this, so it is not counted') + '</span>' +
+                        (it.key
+                          ? '<span class="row__sub quiet" data-testid="mic-sure-' + i + '">' +
+                              esc(sure.word) + (it.from ? ' \u00b7 ' + esc(it.from) : '') +
+                              (sure.why ? ' \u2014 ' + esc(sure.why) : '') + '</span>'
+                          : '') +
                         (it.note ? '<span class="row__sub quiet">' + esc(it.note) + '</span>' : '') +
                         (it.key && !(it.grams > 0)
                           ? '<span class="row__sub quiet">None of it, so nothing is logged.</span>' : '') +
                       '</span>' +
-                      (it.key ? '<span class="row__value num">' + n(it.kcal) +
+                      (it.key ? '<span class="row__value num" data-testid="mic-kcal-' + i + '">' +
+                        (sure.sign ? sure.sign + '\u202f' : '') + n(it.kcal) +
                         '<small class="t-caption-2 quiet"> kcal</small></span>' : '') +
                       '<button class="iconbtn" type="button" data-action="mic-drop" data-i="' + i + '" ' +
                         'aria-label="Remove ' + esc(it.key ? it.name : it.raw) + '" ' +
@@ -6169,11 +6006,33 @@
                         '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
                     '</div>';
                   }).join('') + '</div>' +
+                /* A TOTAL IS ONLY AS EXACT AS ITS SOFTEST ITEM. One
+                   guessed baguette makes the whole number approximate,
+                   and rounding that away would be the comfortable lie. */
+                (S.micReading
+                  ? '<p class="t-detail quiet mt-2" data-testid="mic-reading">' +
+                      'Working out the amounts.</p>'
+                  : '') +
+                (S.micServerMsg
+                  ? '<p class="t-detail mt-2" data-testid="mic-server-msg">' +
+                      esc(S.micServerMsg) + '</p>'
+                  : '') +
                 '<p class="t-detail quiet mt-2" data-testid="mic-sum">' + hit.length +
-                  (hit.length === 1 ? ' item' : ' items') + ', ' + n(tot) + ' kcal' +
+                  (hit.length === 1 ? ' item' : ' items') + ', ' +
+                  /* EVERY OF NOTHING IS TRUE, which had an empty list
+                     announcing itself as measured against a food
+                     database. Nought items is not a measured nought. */
+                  (hit.length && hit.every(function (it) { return it.exact; })
+                    ? '' : '\u2248\u202f') +
+                  n(tot) + ' kcal' +
                   (miss.length ? ' \u00b7 ' + miss.length + ' not recognised and not counted' : '') +
                   (zero.length ? ' \u00b7 ' + zero.length + ' at no quantity, so not counted' : '') +
-                  '.</p>' +
+                  '. ' + (!hit.length
+                    ? ''
+                    : hit.every(function (it) { return it.exact; })
+                    ? 'Measured against a food database.'
+                    : 'Approximate: some of this was worked out rather than looked up.') +
+                  '</p>' +
                 slotPicker(S.logSlot || slotForNow(), 'pick-slot', 'mic-slot')
               : '<p class="t-detail quiet mt-4">Type a sentence and it will be read out into ' +
                 'items here before anything is logged.</p>') +
@@ -6474,7 +6333,20 @@
     var act = e.target.closest ? e.target.closest('[data-action]') : null;
     if (!act) return;
     var a = act.getAttribute('data-action');
-    if (a === 'mic') { S.sheet = 'mic'; S.micText = ''; S.micItems = null; render(); return; }
+    if (a === 'mic') {
+      S.sheet = 'mic'; S.micText = ''; S.micItems = null;
+      S.micServerMsg = ''; S.micReading = false;
+      /* Opened by "Type it" rather than "Say it", so the keyboard should
+         already be up: the two buttons reach one sheet and differ only
+         in which way in they expect. */
+      S.micTyped = act.getAttribute('data-typed') === '1';
+      render();
+      if (S.micTyped) {
+        var mt = document.getElementById('mic-text');
+        if (mt) mt.focus();
+      }
+      return;
+    }
     if (a === 'cam') {
       S.sheet = 'cam'; S.camOil = null; S.camItems = null; S.camShot = null;
       S.camState = 'idle'; S.camWhy = null;
@@ -6499,11 +6371,6 @@
       S.sheet = 'scan'; S.scanServings = 1; S.scanState = 'idle';
       S.scanCode = ''; S.scanError = null; S.scanHit = null;
       render(); return;
-    }
-    if (a === 'search-to-scan') {
-      S.sheet = 'scan'; S.scanServings = 1; S.scanHit = null;
-      S.scanCode = act.getAttribute('data-c'); S.scanError = null;
-      scanLook(); return;
     }
     if (a === 'scan-try') { S.scanCode = act.getAttribute('data-c'); S.scanError = null; scanLook(); return; }
     if (a === 'scan-look') {
@@ -6612,23 +6479,6 @@
     if (a === 'cam-log') { camLog(); return; }
     if (a === 'mic-log') { micLog(); return; }
     if (a === 'log-often') { logOften(+act.getAttribute('data-i')); return; }
-    if (a === 'search') {
-      S.sheet = 'search'; S.searchQ = ''; render();
-      var fq = document.getElementById('fs-q'); if (fq) fq.focus();
-      return;
-    }
-    if (a === 'log-search') {
-      var q2 = (S.searchQ || '').trim().toLowerCase();
-      var hit = searchHits(q2)[+act.getAttribute('data-i')];
-      if (!hit) return;
-      addMeal(withMicros({ key: hit.storeId ? null : (hit.key || null), icon: hit.icon,
-                name: hit.name, kcal: hit.kcal,
-                pro: hit.pro, carb: hit.carb, fat: hit.fat, src: hit.src,
-                slot: S.logSlot || slotForNow() }, hit));
-      S.sheet = null;
-      say(esc(hit.name) + ' logged, ' + n(hit.kcal) + ' kcal.');
-      return;
-    }
     if (a === 'build-plan') {
       S.gen = { days: 5, perDay: 3, avoid: '', preview: null };
       S.sheet = 'build-plan'; render(); return;
@@ -6896,7 +6746,7 @@
     if (a === 'mic-eg') {
       S.micText = act.getAttribute('data-t');
       S.micItems = parseMeal(S.micText);
-      lookupMissing();
+      readSentence();
       render(); return;
     }
     if (a === 'mic-drop') {
@@ -6976,23 +6826,6 @@
     }
     /* Any search result, not only the ones already in the table. A row
        from a food database used to have no way to say how much at all. */
-    if (a === 'search-portion') {
-      var sh = searchHits((S.searchQ || '').trim().toLowerCase())[+act.getAttribute('data-i')];
-      if (!sh) return;
-      /* Rows carry a serving and per-serving figures; the sheet works in
-         per 100 g, so they are converted once here. */
-      var shG = Number(sh.g) || 100;
-      var per = function (v) { return Math.round(((Number(v) || 0) / shG) * 100 * 10) / 10; };
-      var norm = { name: sh.name, icon: sh.icon, g: shG,
-                   kcal: per(sh.kcal), pro: per(sh.pro), carb: per(sh.carb), fat: per(sh.fat),
-                   src: sh.src, sourceName: sh.sourceName || '' };
-      MICROS.forEach(function (mi) {
-        if (typeof sh[mi.key] === 'number') norm[mi.key] = per(sh[mi.key]);
-      });
-      openPortion(norm, sh.storeId ? null : (sh.key || null),
-                  readSearchQuery(S.searchQ).want);
-      render(); return;
-    }
     if (a === 'food-detail') {
       var fdk = act.getAttribute('data-k');
       var fdf = FOODS[fdk];
@@ -7008,10 +6841,11 @@
       MICROS.forEach(function (mi) {
         if (typeof fdf[mi.key] === 'number') fdNorm[mi.key] = fdPer(fdf[mi.key]);
       });
-      /* A food already in the table gets the same reading of the query
-         as one from a database: the amount is the person's, not the
-         table's default. */
-      openPortion(fdNorm, fdk, readSearchQuery(S.searchQ).want);
+      /* The amount used to be read off the search box, which no longer
+         exists. A food opened from the table opens on its serving and
+         the dial does the rest; an amount stated in a sentence is read
+         by the server on the way in, not here. */
+      openPortion(fdNorm, fdk, null);
       render(); return;
     }
     if (a === 'fd-chip') { S.foodG = +act.getAttribute('data-g'); render(); return; }
@@ -7537,6 +7371,163 @@
 
      Quiet on failure: no server, no network, nothing found -- the row
      stays exactly as it was and the estimate button still offers. */
+  /* ---- THE SENTENCE, READ BY THE SERVER ---------------------------
+     lookupMissing below asks the food database once per unmatched word
+     and then does its own arithmetic on whatever comes back, using the
+     remembered portion or a flat 100 g when a sentence counted a thing
+     rather than weighing it. That was the best a screen could do on its
+     own, and it is why "a third of a baguette" could log 100 g.
+
+     The Worker does the whole job in one call now: it reads the
+     sentence into foods and amounts, prices each against USDA, Open
+     Food Facts, FatSecret and the shared table, and converts the
+     amount. It also answers the question this screen could never
+     answer -- whether a figure was measured or worked out, and which
+     half was assumed.
+
+     The local reader still runs first, so the list appears while the
+     request is in the air, and it still stands when there is no server
+     to ask. A screen that goes blank waiting for a network is worse
+     than one that shows its best guess and then corrects it. */
+  function readSentence() {
+    var C = window.LKCloud;
+    var text = String(S.micText || '').trim();
+    if (!text) { S.micReading = false; return; }
+    if (!C || !C.ready || !C.ready() || !C.logMeal) { lookupMissing(); return; }
+    var token = (S.micLookupToken = (S.micLookupToken || 0) + 1);
+    S.micReading = true;
+    S.micServerMsg = '';
+    render();
+    C.logMeal(text).then(function (r) {
+      /* A later edit wins. This answer is about a sentence nobody is
+         looking at any more. */
+      if (token !== S.micLookupToken) return;
+      S.micReading = false;
+      if (!r || !r.ok) {
+        /* WHAT COULD NOT BE READ IS NOT AN EMPTY PLATE.
+
+           The old per-food lookup runs instead. That matters more than
+           it looks: the shipped table is small, and most of what makes a
+           typed sentence resolve at all comes from the food database
+           rather than from the table. Dropping straight to the local
+           parse left "200 g rice" reading "nothing in the table matches
+           this" -- the screen refusing a food every database knows,
+           because one newer route was unavailable.
+
+           The reason is still said. A quieter fallback that says nothing
+           is how somebody ends up believing the estimate was the best
+           anything could do. */
+        S.micServerMsg = (r && r.message) || 'That could not be worked out.';
+        render();
+        lookupMissing();
+        return;
+      }
+      var rows = (r.data && r.data.items) || [];
+      S.micItems = rows.map(function (it, i) {
+        /* FIBRE, SUGAR, SATURATED FAT AND SODIUM. The three food
+           databases answer with calories and the three macros and
+           nothing else, so a food logged from a sentence arrived with
+           four micronutrients missing that the same food logged off the
+           shipped table had. Fuel shows all four against a target on the
+           day screen, so the target quietly stopped being reachable by
+           the ordinary way of logging.
+
+           The table is asked for them by name, and they are scaled by
+           the same weight the figures were. A food the table does not
+           have still has none, which is honest; a food it has keeps
+           them, which it did before. */
+        var tbl = tableMicros(it.name, it.g);
+        var row = {
+          key: '@srv' + i + '-' + Date.now(),
+          name: it.name,
+          said: it.said || '',
+          icon: '\u{1F37D}\u{FE0F}',
+          grams: it.g,
+          amount: it.amount,
+          unit: it.unit,
+          kcal: it.cal, pro: it.pro, carb: it.carb, fat: it.fat,
+          per100: it.per100 || null,
+          src: it.src === 'estimate' ? 'estimate' : 'lookup',
+          from: it.brand || sourceLabel(it.src),
+          exact: !!it.exact,
+          assumed: it.assumed || ''
+        };
+        if (tbl) {
+          Object.keys(tbl).forEach(function (k) { row[k] = tbl[k]; });
+        }
+        return row;
+      });
+      S.micTotals = (r.data && r.data.totals) || null;
+      S.micServerMsg = '';
+      render();
+    }, function () {
+      if (token !== S.micLookupToken) return;
+      S.micReading = false;
+      S.micServerMsg = 'That could not be worked out. Each food was looked up on its own instead.';
+      render();
+      lookupMissing();
+    });
+  }
+
+  /* The shipped table's micronutrients for a food, scaled to a weight.
+     Matched on a normalised name, because a database calls it "Bread,
+     french" and the table calls it "French baguette" -- close enough to
+     be the same food and never equal as strings. */
+  function tableMicros(name, grams) {
+    if (!(grams > 0)) return null;
+    var want = dedupeKey(name);
+    if (!want) return null;
+    var list = searchable();
+    var hit = null;
+    for (var i = 0; i < list.length; i++) {
+      if (dedupeKey(list[i].name) === want) { hit = list[i]; break; }
+    }
+    if (!hit) return null;
+    var per = Number(hit.g) > 0 ? Number(hit.g) : 100;
+    var f = grams / per;
+    var out = null;
+    MICROS.forEach(function (mi) {
+      if (typeof hit[mi.key] === 'number') {
+        out = out || {};
+        out[mi.key] = Math.round(hit[mi.key] * f * 10) / 10;
+      }
+    });
+    return out;
+  }
+
+  /* Which database a figure came from, in words a person reads. */
+  function sourceLabel(src) {
+    if (src === 'usda') return 'USDA';
+    if (src === 'off') return 'Open Food Facts';
+    if (src === 'fatsecret') return 'FatSecret';
+    if (src === 'estimate') return 'Worked out';
+    return 'Food database';
+  }
+
+  /* HOW SURE THIS NUMBER IS, IN ONE LINE.
+
+     Exact means two hard halves: a row from a real database and a
+     weight somebody stated. Everything else is approximate, and which
+     half was soft is said rather than averaged into one vague word --
+     "8oz steak" being approximate and "a baguette" being approximate
+     are different claims and a person can act on the difference. */
+  function sureness(it) {
+    if (it.exact) return { sign: '', word: 'Measured', why: '' };
+    if (it.assumed === 'amount') {
+      return { sign: '≈', word: 'Approximate',
+               why: 'the weight of one is assumed' };
+    }
+    if (it.assumed === 'food') {
+      return { sign: '≈', word: 'Approximate',
+               why: 'no database had this food, so the figures were worked out' };
+    }
+    if (it.assumed === 'both') {
+      return { sign: '≈', word: 'Approximate',
+               why: 'the food and the amount were both worked out' };
+    }
+    return { sign: '≈', word: 'Approximate', why: '' };
+  }
+
   function lookupMissing() {
     var C = window.LKCloud;
     if (!C || !C.ready || !C.ready() || !C.foodSearch) return;
@@ -7596,6 +7587,23 @@
           src: 'lookup',
           from: row.hit.from || 'Food database'
         };
+        /* THE FOUR MICRONUTRIENTS, which this dropped. Fuel shows fibre,
+           sugar, saturated fat and sodium against a target on the day
+           screen, and a food filled in by this lookup arrived with none
+           of them -- so the same food logged by sentence and logged off
+           the table gave different days. Taken from the row when it
+           carries them, and from the shipped table when it does not. */
+        var mHit = null;
+        MICROS.forEach(function (mi) {
+          if (typeof row.hit[mi.key] === 'number') {
+            mHit = mHit || {};
+            mHit[mi.key] = Math.round(row.hit[mi.key] * f * 10) / 10;
+          }
+        });
+        var mAny = mHit || tableMicros(nm, g);
+        if (mAny) {
+          Object.keys(mAny).forEach(function (k) { list[row.i][k] = mAny[k]; });
+        }
         changed = true;
       });
       if (changed) { S.micItems = list; render(); }
@@ -8144,7 +8152,16 @@
                      ? it.name + ', ' + n(it.grams) + ' g'
                      : it.name,
                    kcal: it.kcal, pro: it.pro, carb: it.carb, fat: it.fat,
-                   src: it.est ? 'estimate' : (row ? 'table' : 'lookup'), slot: slot };
+                   src: it.est ? 'estimate' : (row ? 'table' : 'lookup'), slot: slot,
+                   /* THE WEIGHT AND THE RATE, CARRIED IN. Without these
+                      the entry lands with a figure and no basis, which
+                      is what left the editor with no dial and no way to
+                      change the amount of something already logged. The
+                      server read the amount out of the sentence; losing
+                      it here would throw that away at the last step. */
+                   g: it.grams > 0 ? it.grams : undefined,
+                   per100: it.per100 || undefined,
+                   unit: it.unit || undefined };
       MICROS.forEach(function (mi) {
         if (typeof it[mi.key] === 'number') meal[mi.key] = it[mi.key];
       });
@@ -8407,16 +8424,6 @@
   /* The servings field re-renders the figures under it as it is typed, and
      LKPatch keeps the caret. */
   document.addEventListener('input', function (e) {
-    if (e.target.id === 'fs-q') {
-      S.searchQ = e.target.value;
-      askServer(S.searchQ);
-      render();
-      /* Re-render replaces the field, so the caret has to be put back where
-         the typist left it or every keystroke jumps to the start. */
-      var f = document.getElementById('fs-q');
-      if (f) { f.focus(); try { f.setSelectionRange(f.value.length, f.value.length); } catch (err) {} }
-      return;
-    }
     /* The ingredient search repaints its hits as it is typed, and the caret
        goes back where the typist left it. */
     if (e.target.id === 'br-q') {
@@ -8508,7 +8515,7 @@
          water" is fourteen characters and fourteen requests would be a
          denial of service aimed at ourselves. */
       if (S.micLookupTimer) clearTimeout(S.micLookupTimer);
-      S.micLookupTimer = setTimeout(function () { lookupMissing(); }, 600);
+      S.micLookupTimer = setTimeout(function () { readSentence(); }, 600);
       render();
       var mf = document.getElementById('mic-text');
       if (mf) { mf.focus(); try { mf.setSelectionRange(mf.value.length, mf.value.length); } catch (err) {} }
