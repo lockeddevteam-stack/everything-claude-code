@@ -1172,7 +1172,18 @@
             (isWeight ? '<span class="padsheet__unit" data-testid="pad-unit">' + unitLabel(pu) + '</span>' : '') +
           '</span>' +
         '</div>' +
-        (pending ? '<p class="padsheet__hint" data-testid="pad-hint">Last session. Type to replace it.</p>' : '') +
+        /* ALWAYS RENDERED, hidden when it does not apply. Rendered
+           conditionally, the first digit removed this <p> from the middle of
+           the sheet, and LKPatch matches unkeyed siblings by position: the
+           chips, the key grid and the foot all failed sameType() against the
+           stale <p>, so all three were rebuilt from scratch. Their entry
+           animations replayed and the pressed key lost its state -- the pad
+           bounced under the finger that had just tapped it. Keeping the node
+           and hiding it WITHOUT taking its space back keeps every sibling
+           in place and keeps the sheet the same height, so the keys do
+           not move 21px up under the finger that just hit one. */
+        '<p class="padsheet__hint' + (pending ? '' : ' padsheet__hint--gone') +
+          '" data-testid="pad-hint">Last session. Type to replace it.</p>' +
         '<div class="padchips">' + steps.map(function (s) {
           return '<button class="padchip" type="button" data-act="pad-step" data-step="' + s + '" data-testid="pad-step-' + String(s).replace('.', '_').replace('-', 'm') + '" aria-label="' + (s > 0 ? 'Add ' : 'Subtract ') + Math.abs(s) + '">' + (s > 0 ? '+' : '') + s + '</button>';
         }).join('') + '</div>' +
@@ -3464,11 +3475,13 @@
   function endDrag(commit) {
     if (!DRAG) return;
     var d = DRAG; DRAG = null;
+    /* Through LKReorder, so the workout log cannot drift out of step with
+       the other three lists that do the same gesture. It clears `scale`
+       and `translate` too, which a hand-rolled reset here kept forgetting. */
     d.cards.forEach(function (c) {
-      c.style.transition = '';
-      c.style.transform = '';
-      c.style.zIndex = '';
-      c.style.opacity = '';
+      if (window.LKReorder) LKReorder.clear(c);
+      else { c.style.transition = ''; c.style.transform = ''; c.style.translate = '';
+             c.style.scale = ''; c.style.zIndex = ''; c.style.opacity = ''; }
     });
     S.dragEx = -1;
     if (commit && d.to !== null && d.to !== d.from) {
@@ -3600,8 +3613,7 @@
     ev.preventDefault();
     var dy = ev.clientY - DRAG.y0;
     var card = DRAG.cards[DRAG.from];
-    card.style.transition = 'none';
-    card.style.transform = 'translateY(' + dy + 'px) scale(1.03)';
+    if (window.LKReorder) LKReorder.carry(card, dy);
     var y = DRAG.boxes[DRAG.from].mid + dy;
     var to = DRAG.boxes.length;
     for (var i = 0; i < DRAG.boxes.length; i++) {
@@ -3611,14 +3623,7 @@
     if (to !== DRAG.to) {
       if (DRAG.to !== null) buzzSafe(10);
       DRAG.to = to;
-      DRAG.cards.forEach(function (c, i) {
-        if (i === DRAG.from) return;
-        var shift = 0;
-        if (to <= DRAG.from && i >= to && i < DRAG.from) shift = DRAG.h;
-        if (to > DRAG.from && i > DRAG.from && i < to) shift = -DRAG.h;
-        c.style.transition = 'transform var(--dur-quick, .18s) var(--spring-soft, ease)';
-        c.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
-      });
+      if (window.LKReorder) LKReorder.layout(DRAG.cards, DRAG.from, to, DRAG.h);
     }
   });
 

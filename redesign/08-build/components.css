@@ -355,7 +355,27 @@ button.cal__d:active { background: var(--fill-press); transform: scale(0.96); }
   color: var(--text);
 }
 .row:active { background: var(--fill-press); }
-.row + .row { box-shadow: inset 0 1px 0 var(--hairline); }
+/* THE SEPARATOR STARTS WHERE THE TEXT STARTS.
+
+   A hairline drawn edge to edge under every row turns a list into ruled
+   paper: the lines are the loudest thing on the screen and they cut
+   across the thumbnail as well as the text. Inset to the text column, the
+   same line reads as the gap between two rows rather than as a rule drawn
+   over them, which is what every list on this phone already does.
+
+   Drawn as a pseudo-element because an inset box-shadow cannot be inset
+   from one side. */
+.row { position: relative; }
+.row + .row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: var(--sp-4);
+  right: 0;
+  height: 1px;
+  background: var(--hairline);
+  pointer-events: none;
+}
 /* Wraps rather than crushes. At AX5 the value and the chevron beside it
    squeezed this column to 6px and "Barbell Squat" rendered as a column of
    half letters.
@@ -369,9 +389,48 @@ button.cal__d:active { background: var(--fill-press); transform: scale(0.96); }
    and it only exceeds the row once the reader's type is large enough to
    need it. Measured: 82px at the default ladder before and after. */
 .row { flex-wrap: wrap; }
-.row__main { flex: 1 1 0%; min-width: min(100%, 8em); }
-.row__title { display: block; font-size: var(--type-15); letter-spacing: var(--tr-15); line-height: var(--lh-15); font-weight: var(--w-medium); }
-.row__sub { display: block; font-size: var(--type-13); letter-spacing: var(--tr-13); line-height: var(--lh-13); color: var(--text-secondary); margin-top: 2px; font-variant-numeric: tabular-nums; }
+/* min-width: 0 rather than 8em. A flex item will not shrink below its
+   content by default, and the 8em floor made the text column wider than
+   the row could afford, which is what pushed the subtitle into wrapping
+   in the first place. */
+/* SHRINKS, BUT NOT TO NOTHING. min-width: 0 is what lets the subtitle
+   ellipsize instead of wrapping under the thumbnail, and it is also how
+   this column collapsed to 24px at the largest accessibility size, with
+   every row title running off the edge. 8em was the old floor and it was
+   too rigid at normal sizes. A floor in ch units tracks the reader's own
+   type size and still leaves the value column room. */
+/* SHRINKS, BUT NOT TO NOTHING. min-width: 0 is what lets the subtitle
+   ellipsize instead of wrapping under the thumbnail, and it is also how
+   this column collapsed to 24px at the largest accessibility size, with
+   every row title running off the edge of the row. 8em was the old floor
+   and it was too rigid at normal sizes -- it is what pushed the value
+   column out of line. A floor in ch tracks the reader's own type size
+   and still leaves the value column its place. */
+.row__main { flex: 1 1 0%; min-width: 8ch; }
+.row > .row__main { min-width: 8ch; }
+/* A title in a column narrow enough to break a word BREAKS THE WORD. The
+   main column shrinks to nothing (min-width: 0) so the subtitle can
+   ellipsize and the value column can hold its place, and at the largest
+   accessibility size a single word -- "Deadlift", "butter" -- is then
+   wider than the box and simply ran off the edge of the row. It wraps
+   inside the word instead. Only the title: the subtitle truncates and
+   the value is a number. */
+.row__title { display: block; font-size: var(--type-15); letter-spacing: var(--tr-15); line-height: var(--lh-15); font-weight: var(--w-medium); overflow-wrap: anywhere; }
+/* ONE LINE. A food row's subtitle is a run of figures -- "USDA . 100 g .
+   31 P . 0 C . 3.6 F" -- and in a column 160px wide it wrapped onto a
+   second line that began back under the thumbnail, with the energy
+   sitting to the right of the first line. Nothing overlapped in the box
+   model and it read as overlapping text, because a number between two
+   ragged lines of other numbers is not something the eye can parse.
+
+   Truncated instead, so every row is the same height and the column of
+   energy figures on the right stays a column. The full figures are one
+   tap away on the food itself, which is where somebody reading them is
+   going anyway. .row__sub--wrap opts out where a row is a sentence
+   rather than a stat line. */
+.row__sub { display: block; font-size: var(--type-13); letter-spacing: var(--tr-13); line-height: var(--lh-13); color: var(--text-secondary); margin-top: 2px; font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row__sub--wrap { white-space: normal; overflow: visible; }
 .row__value { font-size: var(--type-15); line-height: var(--lh-15); letter-spacing: var(--tr-15); font-weight: var(--w-semibold); font-variant-numeric: tabular-nums; }
 .row__chev { color: var(--text-tertiary); flex: none; }
 .row--selected { background: var(--accent-quiet); }
@@ -2003,6 +2062,12 @@ textarea, select {
 .padsheet__value--pending { color: var(--text-tertiary); }
 .padsheet__unit { font-size: var(--type-13); line-height: var(--lh-13); letter-spacing: var(--tr-13); color: var(--text-secondary); }
 .padsheet__hint { font-size: var(--type-11); line-height: var(--lh-11); letter-spacing: var(--tr-11); color: var(--text-tertiary); margin: 0 0 var(--sp-2); }
+/* VISIBILITY, NOT DISPLAY. The hint goes away on the first digit, and
+   removing its box took 21px out of the middle of the sheet -- the key
+   grid and both buttons jumped up under the finger that had just tapped
+   one. It keeps its line and gives up its ink. visibility:hidden also
+   takes it out of the accessibility tree, so nothing reads it out. */
+.padsheet__hint--gone { visibility: hidden; }
 .padchips { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-2); margin-bottom: var(--sp-3); }
 /* Neutral, not accent. Four outlined accent steppers plus an accent Done
    plus a red DEL put six tinted objects on one surface: the sheet had more
@@ -2171,6 +2236,17 @@ textarea, select {
    which reads as a turn rather than a cut. */
 .view { transition: opacity var(--dur-slow) var(--spring-snappy), transform var(--dur-slow) var(--spring-snappy); }
 .view[data-hidden="true"] { opacity: 0; transform: scaleX(0.1); pointer-events: none; }
+/* AND ITS HIT PATHS, EXPLICITLY. pointer-events is not inherited the way
+   it reads: it is decided per element, so `.hit { pointer-events: all }`
+   re-enabled every target inside the view that is meant to be gone. The
+   back figure's reach strokes are 30-40px wide and the hidden view sits
+   at the left edge of the same box, so they reached across into the
+   visible figure's left arm: every tap on the left biceps selected
+   triceps, and biceps could not be chosen anywhere on the body. It is
+   invisible because getBoundingClientRect on an SVG path reports the
+   fill box and leaves the stroke out, so the stolen area never showed up
+   in any geometry anybody measured. */
+.view[data-hidden="true"] .hit { pointer-events: none; }
 
 /* The inert body: head, neck, limbs and trunk that carry no muscle,
    plus the shorts. No hue, no meaning. */
@@ -3766,7 +3842,10 @@ button.shelf:active { background: var(--fill-press); }
 .exc--tab .badge { display: none; }
 .exc--tab .exc__head { box-shadow: none; }
 .exc--tab {
-  transition: transform var(--dur-quick, .18s) var(--spring-soft, ease);
+  /* --dur-quick and --spring-soft were never defined, so every one of
+     these fell through to .18s ease. Real tokens, and on `translate`,
+     which is the property the drag now writes. */
+  transition: translate var(--dur-slow) var(--spring-bouncy);
 }
 .exc--tab .exc__name {
   font-size: var(--type-15);
@@ -3774,10 +3853,17 @@ button.shelf:active { background: var(--fill-press); }
   letter-spacing: var(--tr-15);
 }
 
+/* ROTATE, NOT TRANSFORM. A CSS animation outranks an inline style, so
+   while this wiggled on `transform` it also OVERWROTE the inline
+   `transform: translateY(...)` the drag writes on every neighbour. The
+   list shook and nothing ever moved out of the way -- the one thing the
+   gesture exists to show you. `rotate` is an individual transform
+   property, so it composes with `translate` and `scale` instead of
+   replacing them, and the drag writes those two. */
 @keyframes lk-wiggle {
-  0%   { transform: rotate(-0.55deg); }
-  50%  { transform: rotate(0.55deg); }
-  100% { transform: rotate(-0.55deg); }
+  0%   { rotate: -0.55deg; }
+  50%  { rotate: 0.55deg; }
+  100% { rotate: -0.55deg; }
 }
 /* The wiggle itself is .is-lifting, shared with every other reorderable
    list in the app; what is particular to this one is the fold above. Each
@@ -3848,7 +3934,20 @@ button.shelf:active { background: var(--fill-press); }
 }
 /* The one under the finger holds still. Something moving with your hand
    should not also be shaking. */
-.is-dragging { opacity: 0.96; animation: none !important; }
+/* The one under the finger holds still, sits above and grows a shadow,
+   so it reads as an object lifted off the list rather than a row that
+   changed colour. It carries no transition: it tracks the finger. */
+.is-dragging {
+  opacity: 0.96;
+  animation: none !important;
+  transition: none !important;
+  z-index: 20;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28), 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+/* Everything that is NOT under the finger moves on a spring that
+   overshoots, which is what makes the row look pushed rather than
+   repositioned. LKReorder writes the distance and the per-row delay. */
+.is-lifting { transition: translate var(--dur-slow) var(--spring-bouncy); }
 @media (prefers-reduced-motion: reduce) {
   .is-lifting { animation: none; }
 }

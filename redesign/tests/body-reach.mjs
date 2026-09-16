@@ -74,8 +74,34 @@ const measure = () => page.evaluate(() => {
   return { box: { w: Math.round(b.width), h: Math.round(b.height) }, hit };
 });
 
+/* PER VIEW, AND THEN THE UNION. This used to sweep one render and count
+   twelve groups off it, which was only ever possible because the hidden
+   figure's reach strokes were leaking through the visible one -- the
+   front view genuinely carries nine muscle groups and the back eight.
+   So every number this suite reported was partly measured on a figure
+   nobody could see, including the "triceps 39px" it recorded as a known
+   shortfall. Each view is now swept on its own and the areas are taken
+   per view, which is how a thumb meets them. */
+const flip = (v) => page.evaluate((view) => {
+  const r = window.DEMO.screens['exercise-library'].root;
+  const vs = [...r.querySelectorAll('.view')];
+  vs.forEach((el, i) => el.setAttribute('data-hidden',
+    String(view === 'back' ? i === 0 : i !== 0)));
+}, v);
+
 const m = await measure();
-const groups = Object.entries(m.hit);
+await flip('back');
+await page.waitForTimeout(600);
+const mb = await measure();
+await flip('front');
+await page.waitForTimeout(400);
+
+/* A muscle is as reachable as its best side. */
+const best = Object.assign({}, m.hit);
+Object.entries(mb.hit).forEach(([g, a]) => {
+  if (!(g in best) || a > best[g]) best[g] = a;
+});
+const groups = Object.entries(best);
 
 console.log('=== the map gets the screen it is the whole point of ===\n');
 
@@ -89,11 +115,12 @@ console.log('\n=== and every muscle is something a thumb can hit ===\n');
    area rather than for a square: a long thin target of the same area is
    still reachable along its length, which is how a bicep is aimed at. */
 const FLOOR = 1936;
-/* Triceps is the one that does not clear it: thin, on the back view,
-   crowded by back and forearms on every side. 39px measured. It is
-   recorded rather than waved through, so nobody reads this suite as
-   saying all twelve are fine. */
-const KNOWN_SHORT = { triceps: 1400 };
+/* EMPTY, AND IT SHOULD STAY EMPTY. Triceps used to sit here at 1400,
+   recorded as the one muscle too thin to reach. Measured per view rather
+   than off the leak that was padding the sweep, all twelve clear a full
+   44px square. An entry here excuses a muscle a thumb cannot hit, so add
+   one only after measuring, and never to make a failure go away. */
+const KNOWN_SHORT = {};
 const short = [];
 groups.forEach(([g, area]) => {
   const floor = KNOWN_SHORT[g] || FLOOR;

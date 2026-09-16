@@ -38,6 +38,74 @@
   var HOLD_MS = 350;
   var ESCAPE = 10;
 
+  /* ---------------------------------------------------------------
+     THE PHYSICS, in one place, because three surfaces drag the same
+     list and they were writing three different inline styles.
+
+     Everything here writes `translate`, `scale` and `rotate` -- the
+     individual transform properties -- and never `transform`. That is
+     not a style preference. The wiggle is a CSS animation, a CSS
+     animation outranks an inline style, and the wiggle animated
+     `transform`. So every neighbour's `transform: translateY(...)` was
+     silently thrown away: the list shook and nothing moved aside. Split
+     across three properties, the wiggle owns `rotate`, the drag owns
+     `translate` and `scale`, and they compose.
+     --------------------------------------------------------------- */
+
+  /* Rows further from the drop point start later, so the list opens like
+     a row of objects being pushed rather than a block sliding. Capped,
+     or the far end of a long list is still settling after the drop. */
+  function delayFor(distance) {
+    return Math.min(Math.abs(distance), 5) * 16;
+  }
+
+  /* The row under the finger. No transition: it tracks the hand. */
+  function carry(el, dy) {
+    if (!el) return;
+    el.style.transition = 'none';
+    el.style.translate = '0 ' + dy + 'px';
+    el.style.scale = '1.04';
+  }
+
+  /* A row being pushed out of the way. */
+  function shift(el, px, distance) {
+    if (!el) return;
+    el.style.transition = '';                 /* the class owns the curve */
+    el.style.transitionDelay = delayFor(distance) + 'ms';
+    el.style.translate = px ? '0 ' + px + 'px' : '';
+  }
+
+  /* Back to nothing, on every property this module ever writes. Leaving
+     `scale` behind is how a dropped row stayed 4% too big for the rest
+     of the session. */
+  function clear(el) {
+    if (!el) return;
+    el.style.transition = '';
+    el.style.transitionDelay = '';
+    el.style.translate = '';
+    el.style.scale = '';
+    el.style.transform = '';
+    el.style.zIndex = '';
+    el.style.opacity = '';
+  }
+
+  /* Where each row sits given a drop target, so the two hosts cannot
+     disagree about which way a row moves. Returns pixels. */
+  function shiftFor(i, from, to, h) {
+    if (i === from) return 0;
+    if (to <= from && i >= to && i < from) return h;
+    if (to > from && i > from && i < to) return -h;
+    return 0;
+  }
+
+  /* The whole list, laid out for one drop target. */
+  function layout(rows, from, to, h) {
+    rows.forEach(function (r, i) {
+      if (i === from) return;
+      shift(r, shiftFor(i, from, to, h), i - to);
+    });
+  }
+
   function buzz(p) { try { if (g.navigator && navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
 
   function attach(doc, opts) {
@@ -71,11 +139,7 @@
       });
     }
 
-    function clearStyles(rows) {
-      rows.forEach(function (r) {
-        r.style.transition = ''; r.style.transform = ''; r.style.zIndex = '';
-      });
-    }
+    function clearStyles(rows) { rows.forEach(clear); }
 
     function end(commit) {
       if (!DRAG) return;
@@ -127,11 +191,7 @@
       if (!DRAG) return;
       ev.preventDefault();
       var dy = ev.clientY - DRAG.y0;
-      var row = DRAG.rows[DRAG.from];
-      if (row) {
-        row.style.transition = 'none';
-        row.style.transform = 'translateY(' + dy + 'px) scale(1.03)';
-      }
+      carry(DRAG.rows[DRAG.from], dy);
       var y = (DRAG.boxes[DRAG.from] ? DRAG.boxes[DRAG.from].mid : 0) + dy;
       var to = DRAG.boxes.length;
       for (var i = 0; i < DRAG.boxes.length; i++) {
@@ -141,14 +201,7 @@
       if (to === DRAG.to) return;
       buzz(10);
       DRAG.to = to;
-      DRAG.rows.forEach(function (r, i) {
-        if (i === DRAG.from) return;
-        var shift = 0;
-        if (to <= DRAG.from && i >= to && i < DRAG.from) shift = DRAG.h;
-        if (to > DRAG.from && i > DRAG.from && i < to) shift = -DRAG.h;
-        r.style.transition = 'transform var(--dur-quick, .18s) var(--spring-soft, ease)';
-        r.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
-      });
+      layout(DRAG.rows, DRAG.from, to, DRAG.h);
     }
 
     function onUp() { clearHold(); end(true); }
@@ -168,5 +221,7 @@
     };
   }
 
-  g.LKReorder = { attach: attach, HOLD_MS: HOLD_MS, ESCAPE: ESCAPE };
+  g.LKReorder = { attach: attach, HOLD_MS: HOLD_MS, ESCAPE: ESCAPE,
+                  carry: carry, shift: shift, clear: clear,
+                  layout: layout, shiftFor: shiftFor, delayFor: delayFor };
 })(typeof window !== 'undefined' ? window : this);

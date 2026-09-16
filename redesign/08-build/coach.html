@@ -2692,8 +2692,13 @@
           '<div id="panel-' + S.view + '" role="tabpanel" aria-labelledby="tab-' + S.view + '">' + body + '</div>' +
         '</main>' +
         (S.view === 'chat' && S.chat.status !== 'empty'
-          ? '<button class="jump" type="button" data-act="jump" data-testid="chat-jump"' +
-            (S.chat.pinned ? ' hidden' : '') + '>Jump to latest</button>'
+          /* Hidden on every paint. The scroll handler is the only thing
+             that shows it, and it only does so once the reader is far
+             enough up for the journey back to be worth a button. Painting
+             it visible from `pinned` meant it flashed on during any
+             re-render that happened while somebody was reading. */
+          ? '<button class="jump" type="button" data-act="jump" data-testid="chat-jump" hidden' +
+            '>Jump to latest</button>'
           : '') +
         /* The composer rides the keyboard: it is the thing being typed into,
            and it sat in a footer pinned to the bottom of the screen with no
@@ -2727,16 +2732,51 @@
            when nothing had been said. A message arriving is the only thing
            that should move the view. */
         var grew = S.chat.msgs.length !== lastMsgCount;
+        var first = lastMsgCount === -1;
         lastMsgCount = S.chat.msgs.length;
-        if (S.chat.pinned && grew) scroll.scrollTop = scroll.scrollHeight;
+        if (S.chat.pinned && grew) {
+          scroll.scrollTop = scroll.scrollHeight;
+          /* OPENING A CONVERSATION LANDS ON THE LAST THING SAID.
+
+             The scroll was set in the same frame the messages were written
+             into the DOM, before the browser had laid any of them out, so
+             scrollHeight was whatever the container had been a moment
+             earlier and the thread opened at the top. Fine on a short
+             conversation, and on a long one it opened weeks back and left
+             you scrolling to find today.
+
+             Set again after a frame, when the heights are real. Only on
+             the first paint of a thread: after that the in-frame set is
+             correct and doing it twice would fight a reader who had
+             already started scrolling. */
+          if (first && window.requestAnimationFrame) {
+            window.requestAnimationFrame(function () {
+              if (S.chat.pinned) scroll.scrollTop = scroll.scrollHeight;
+            });
+          }
+        }
         if (!scroll.__lkPin) {
           scroll.__lkPin = true;
           scroll.addEventListener('scroll', function () {
-            var atEnd = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 48;
-            if (atEnd === S.chat.pinned) return;
-            S.chat.pinned = atEnd;
+            var fromEnd = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight;
+            /* PINNED, AND SHOWING THE PILL, ARE TWO DIFFERENT QUESTIONS.
+
+               Both used to be the same 48px line. Scroll up by the height
+               of one message -- which is what reading back one answer is --
+               and a button appeared over the conversation offering to undo
+               it. A control that turns up every time you read is not
+               helping, it is interrupting.
+
+               Following the thread still stops the moment you scroll at
+               all, because a thread that scrolls itself while you are
+               reading is worse. The pill waits until you are more than a
+               screen and a half from the bottom, which is far enough that
+               getting back is a real journey rather than a flick. */
+            var atEnd = fromEnd < 48;
+            var farUp = fromEnd > Math.max(600, scroll.clientHeight * 1.5);
+            if (atEnd !== S.chat.pinned) S.chat.pinned = atEnd;
             var pill = phone.querySelector('[data-testid="chat-jump"]');
-            if (pill) pill.hidden = atEnd;
+            if (pill) pill.hidden = !farUp;
           });
         }
       }

@@ -64,6 +64,9 @@ worker-cors|node worker-cors.mjs
 tutor-copy|node tutor-copy.mjs
 app-feel|node app-feel.mjs
 reorder-everywhere|node reorder-everywhere.mjs
+reorder-physics|node reorder-physics.mjs
+keypad-stable|node keypad-stable.mjs
+body-hidden-view|node body-hidden-view.mjs
 quick-workout|node quick-workout.mjs
 pounds-history|node pounds-history.mjs
 gestures2|node gestures2.mjs
@@ -76,6 +79,7 @@ catalogue-curation|node catalogue-curation.mjs
 portion-dial|node portion-dial.mjs
 meal-edit|node meal-edit.mjs
 keyboard-lift|node keyboard-lift.mjs
+no-zoom|node no-zoom.mjs
 voice|node voice.mjs
 keyboard|node keyboard.mjs
 cloud-contract|node cloud-contract.mjs

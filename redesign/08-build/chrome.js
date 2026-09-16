@@ -870,17 +870,60 @@
     var lastTouch = 0;
     doc.addEventListener('touchend', function (e) {
       var now = Date.now();
-      if (now - lastTouch <= 300) {
+      if (now - lastTouch <= 320) {
+        /* EVERYWHERE, not only over the app's own controls.
+
+           This used to allow double-tap zoom on anything that was not a
+           button or a row, on the reasoning that text being read is what
+           the gesture is for. In an app it is not: there is no page to
+           zoom into, every screen is already laid out for the phone, and
+           the gesture's real effect is that a second tap landing near a
+           first one -- which happens constantly while logging sets and
+           tapping food rows -- throws the reader into a zoomed viewport.
+
+           And there is no way back out. Pinch-to-zoom is blocked by
+           gesturestart, so once the double tap has zoomed in, the gesture
+           that would undo it is the one gesture already prevented. The
+           app becomes a magnified fragment of itself with no exit.
+
+           So: no exceptions. A selection inside a text field is a
+           different gesture and is untouched, because a field's own
+           handling runs before this. */
         var t = e.target;
-        /* Only over the app's own controls. Text somebody is reading can
-           still be double-tapped to zoom, which is what that gesture is
-           for. */
-        if (t && t.closest && t.closest('button, .row, .chip, .seg__item, [data-act], [data-action]')) {
-          e.preventDefault();
-        }
+        var typing = t && t.closest &&
+          t.closest('input, textarea, [contenteditable="true"], .selectable');
+        if (!typing) e.preventDefault();
       }
       lastTouch = now;
     }, { passive: false });
+
+    /* THE WAY BACK, if something zooms anyway.
+
+       Every lock above can be defeated -- an accessibility setting, a
+       browser that ignores the meta, a gesture that slips through -- and
+       the result is the trap: zoomed in, with the un-zoom gesture
+       blocked. Rewriting the viewport meta forces the viewport back to
+       scale 1, which is the only way to undo a zoom from script.
+
+       Only on a real zoom, never on the rounding that ordinary scrolling
+       produces, and only once per drift so it cannot fight a reader who
+       is deliberately zoomed via an accessibility feature that survives
+       this. */
+    var vv = global.visualViewport;
+    if (!vv) return;
+    var fixing = false;
+    vv.addEventListener('resize', function () {
+      if (fixing || !vv.scale || vv.scale <= 1.02) return;
+      var meta = doc.querySelector('meta[name="viewport"]');
+      if (!meta) return;
+      fixing = true;
+      var was = meta.getAttribute('content');
+      meta.setAttribute('content', was + ', maximum-scale=1');
+      global.setTimeout(function () {
+        meta.setAttribute('content', was);
+        fixing = false;
+      }, 80);
+    });
   }
 
   /* ------------------------------------------------------------------

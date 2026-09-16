@@ -1274,7 +1274,13 @@ function build() {
      10 anyway -- so it cost the audit and bought nothing on the phone this
      ships to. The standalone screens never carried it; the assembled build
      was the only thing that did. -->
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- NO ZOOM, FROM ANYWHERE.
+
+     maximum-scale and user-scalable are ignored by Safari in a browser
+     tab, on purpose, and honoured in a standalone PWA -- which is how
+     this app is used. Declared for that case, and the JavaScript below
+     covers the tab. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>${PROD ? 'LOCKED' : 'LOCKED demo'}</title>
 <!-- Installable, and it says what it is on the home screen. None of this
      existed: a web app with no manifest and no apple metas installs as a
