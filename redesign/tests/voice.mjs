@@ -54,7 +54,16 @@ const api = http.createServer((q, r) => {
   q.on('data', (c) => chunks.push(c));
   q.on('end', () => {
     const body = Buffer.concat(chunks);
-    got = { type: q.headers['content-type'] || '', bytes: body };
+    /* THE RECORDING, NOT WHATEVER WENT UP LAST. This kept the most
+       recent POST of any kind, which held while /voice was the only
+       thing this flow sent. Speaking now sends a second request -- the
+       transcript goes to /log-meal to be read into foods -- and that
+       one is JSON, so every assertion about the WAV was being made
+       against the wrong request and reported the audio as
+       application/json, 27 bytes, 8242 channels. */
+    if (q.url.indexOf('/voice') === 0) {
+      got = { type: q.headers['content-type'] || '', bytes: body };
+    }
     if (plan.status === 429) {
       r.writeHead(429, cors);
       r.end(JSON.stringify({ error: 'Daily voice limit reached.', action: 'unknown', data: {} }));
