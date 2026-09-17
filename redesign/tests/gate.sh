@@ -92,6 +92,7 @@ cloud-contract|node cloud-contract.mjs
 session-refresh|node session-refresh.mjs
 account-identity|node account-identity.mjs
 coach-brief|node coach-brief.mjs
+weigh-in-tenths|node weigh-in-tenths.mjs
 JOBS_EOF
 
 # shellcheck disable=SC2016

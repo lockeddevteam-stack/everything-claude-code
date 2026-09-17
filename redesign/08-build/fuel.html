@@ -875,8 +875,13 @@
     return wtNum(kg) + ' ' + LKUnits.label();
   }
   /* A weight typed into the field is in whatever unit is on screen. */
+  /* A weight typed on this screen, as the kilograms the store holds. It
+     used to round to a tenth of a KILOGRAM, which is a coarser step than
+     the tenth of a POUND the field accepts, so a reader in pounds who
+     typed 124.4 got 56.4 kg back and 124.3 on the screen. */
   function wtToKg(v) {
-    return LKUnits.useKg() ? v : Math.round((v / 2.20462262) * 10) / 10;
+    return window.LKUnits && LKUnits.toKg ? LKUnits.toKg(v)
+         : (LKUnits.useKg() ? Number(v) : Number(v) / 2.2046226218);
   }
   if (window.LKUnits && LKUnits.onChange) LKUnits.onChange(function () { render(); });
 
@@ -7918,7 +7923,7 @@
     /* Read in the unit on screen, stored in kilograms, which is the one unit
        lk_profile holds. */
     var shown = num('fp-w', LKUnits.useKg() ? 20 : 45, LKUnits.useKg() ? 400 : 880, wtNum(S.fp.weightKg));
-    S.fp.weightKg = Math.round(wtToKg(Number(shown)) * 10) / 10;
+    S.fp.weightKg = wtToKg(Number(shown));
     /* Feet and inches are two fields and one height. Stored in centimetres,
        which is the only unit lk_profile holds. */
     if (S.fp.ft && document.getElementById('fp-ft')) {
@@ -8007,7 +8012,7 @@
       say('A weight between ' + lo + ' and ' + hi + ' ' + LKUnits.label() + '.');
       return;
     }
-    var kg = Math.round(wtToKg(v) * 10) / 10;
+    var kg = wtToKg(v);
     var log = (WEIGHTLOG || []).slice();
     var last = log[log.length - 1];
     /* One entry a day: weighing twice should correct today, not invent a

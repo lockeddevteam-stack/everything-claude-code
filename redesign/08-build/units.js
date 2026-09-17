@@ -29,7 +29,9 @@
   'use strict';
 
   var KEY = 'lk_profile';
-  var LB_PER_KG = 2.20462;
+  /* The exact figure. A truncated one converting in and an exact one
+   converting back is a round trip that does not close. */
+var LB_PER_KG = 2.2046226218;
   var listeners = [];
 
   function profile() {
@@ -77,8 +79,24 @@
     /* A number of kilograms, as the number this app would show. */
     v: function (kg) {
       if (kg === null || kg === undefined || isNaN(kg)) return kg;
-      if (API.useKg()) return kg;
+      /* A tenth either way. The stored kilograms now keep whatever
+         precision was typed -- 124.4 lb is 56.42723 kg and stays that --
+         so the rounding that used to happen on the way IN has to happen
+         here, on the way out, or a reader who switches to kilograms sees
+         56.42723 on the card. */
+      if (API.useKg()) return Math.round(kg * 10) / 10;
       return Math.round(kg * LB_PER_KG * 10) / 10;
+    },
+
+    /* THE INVERSE OF v(), AND IT DOES NOT ROUND. A number typed in the
+       unit on screen, as the kilograms to store. Rounding the kilograms
+       to a tenth here is what quietly ate a tenth of a pound: 124.4 lb
+       is 56.4272 kg, rounded to 56.4, printed again as 124.3. Store what
+       was typed; round only what is printed. */
+    toKg: function (shown) {
+      var x = Number(shown);
+      if (shown === null || shown === undefined || shown === '' || isNaN(x)) return null;
+      return API.useKg() ? x : x / LB_PER_KG;
     },
 
     /* The same, rounded to whole units -- for totals, where a tenth of a

@@ -15528,7 +15528,9 @@ textarea,
   'use strict';
 
   var KEY = 'lk_profile';
-  var LB_PER_KG = 2.20462;
+  /* The exact figure. A truncated one converting in and an exact one
+   converting back is a round trip that does not close. */
+var LB_PER_KG = 2.2046226218;
   var listeners = [];
 
   function profile() {
@@ -15576,8 +15578,24 @@ textarea,
     /* A number of kilograms, as the number this app would show. */
     v: function (kg) {
       if (kg === null || kg === undefined || isNaN(kg)) return kg;
-      if (API.useKg()) return kg;
+      /* A tenth either way. The stored kilograms now keep whatever
+         precision was typed -- 124.4 lb is 56.42723 kg and stays that --
+         so the rounding that used to happen on the way IN has to happen
+         here, on the way out, or a reader who switches to kilograms sees
+         56.42723 on the card. */
+      if (API.useKg()) return Math.round(kg * 10) / 10;
       return Math.round(kg * LB_PER_KG * 10) / 10;
+    },
+
+    /* THE INVERSE OF v(), AND IT DOES NOT ROUND. A number typed in the
+       unit on screen, as the kilograms to store. Rounding the kilograms
+       to a tenth here is what quietly ate a tenth of a pound: 124.4 lb
+       is 56.4272 kg, rounded to 56.4, printed again as 124.3. Store what
+       was typed; round only what is printed. */
+    toKg: function (shown) {
+      var x = Number(shown);
+      if (shown === null || shown === undefined || shown === '' || isNaN(x)) return null;
+      return API.useKg() ? x : x / LB_PER_KG;
     },
 
     /* The same, rounded to whole units -- for totals, where a tenth of a
@@ -28413,8 +28431,13 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     return wtNum(kg) + ' ' + LKUnits.label();
   }
   /* A weight typed into the field is in whatever unit is on screen. */
+  /* A weight typed on this screen, as the kilograms the store holds. It
+     used to round to a tenth of a KILOGRAM, which is a coarser step than
+     the tenth of a POUND the field accepts, so a reader in pounds who
+     typed 124.4 got 56.4 kg back and 124.3 on the screen. */
   function wtToKg(v) {
-    return LKUnits.useKg() ? v : Math.round((v / 2.20462262) * 10) / 10;
+    return window.LKUnits && LKUnits.toKg ? LKUnits.toKg(v)
+         : (LKUnits.useKg() ? Number(v) : Number(v) / 2.2046226218);
   }
   if (window.LKUnits && LKUnits.onChange) LKUnits.onChange(function () { render(); });
 
@@ -35456,7 +35479,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     /* Read in the unit on screen, stored in kilograms, which is the one unit
        lk_profile holds. */
     var shown = num('fp-w', LKUnits.useKg() ? 20 : 45, LKUnits.useKg() ? 400 : 880, wtNum(S.fp.weightKg));
-    S.fp.weightKg = Math.round(wtToKg(Number(shown)) * 10) / 10;
+    S.fp.weightKg = wtToKg(Number(shown));
     /* Feet and inches are two fields and one height. Stored in centimetres,
        which is the only unit lk_profile holds. */
     if (S.fp.ft && document.getElementById('fp-ft')) {
@@ -35545,7 +35568,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       say('A weight between ' + lo + ' and ' + hi + ' ' + LKUnits.label() + '.');
       return;
     }
-    var kg = Math.round(wtToKg(v) * 10) / 10;
+    var kg = wtToKg(v);
     var log = (WEIGHTLOG || []).slice();
     var last = log[log.length - 1];
     /* One entry a day: weighing twice should correct today, not invent a
@@ -49139,7 +49162,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
      Formatting. One place converts, so a label can never disagree
      with the number beside it.
      ============================================================= */
-  var LB = 2.20462;
+  var LB = 2.2046226218;
   function round1(v) { return Math.round(v * 10) / 10; }
   function wt(kgv) {
     return S.unit === 'kg'
@@ -50179,7 +50202,9 @@ DEMO.define("settings", function (document, window, location, fetch) {
     var log = get('lk_weightLog', []) || [];
     var last = log.length ? log[log.length - 1] : null;
     var kg = last && last.kg ? Number(last.kg) : Number(p.weightKg);
-    if (kg > 0 && kg !== S.body.weightKg) { S.body.weightKg = Math.round(kg * 10) / 10; render(); }
+    /* Held as it was logged. Rounding to a tenth of a kilogram here put
+       the tenth of a pound back at risk on the very next paint. */
+    if (kg > 0 && kg !== S.body.weightKg) { S.body.weightKg = kg; render(); }
     /* A screen that mounts once would otherwise check for a new build at the
        moment the demo booted and never again -- and in the demo the worker is
        registered on window load, which can be after this screen's first pass,
@@ -50550,7 +50575,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
       S.body.age = Math.round(age);
       /* Read back into the stored unit, never into the displayed one. */
       S.body.heightCm = Math.round(hCm);
-      S.body.weightKg = round1(wKg);
+      S.body.weightKg = wKg;
       /* One key, in kilograms and centimetres, which is what every other
          screen reads. Save Stats used to change four variables on this page
          and nothing else. */
