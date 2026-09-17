@@ -5244,8 +5244,9 @@ textarea,
    read as "this one", not so far that the split stops being visible --
    the other parts are still the way back. */
 .map__svg[data-part-on] .part:not([data-on]) .part__gnd { opacity: .34; }
-.map__svg[data-part-on] .part__label:not([data-on]) { opacity: .5; }
-.part__label[data-on] { stroke-width: calc(4px / var(--cam-s, 1)); }
+.map__svg[data-part-on] .part__label:not([data-on]),
+.map__svg[data-part-on] .part__label-lift:not([data-on]) { opacity: .55; }
+
 
 /* THE NAME OF EACH PIECE, HELD AT ONE SIZE. The text lives inside the
    camera group so it travels with the muscle, which means the camera
@@ -5253,29 +5254,40 @@ textarea,
    it names. --cam-s is published by the camera on every move and divided
    out here, so the label is the same size on screen at every zoom.
 
-   White with a dark outline rather than a plate behind it. A plate is a
-   second rectangle over anatomy; paint-order puts the stroke under the
-   fill and the word reads on any hue, in either theme. */
-.part__label {
+   Cut into the muscle rather than laid on it. A plate or an outlined
+   white word is a caption about the picture; a real engraving is two
+   marks, a dark trough and the lit far wall of the cut a hair below it,
+   so each label is drawn twice and reads as part of the tissue. */
+.part__label, .part__label-lift {
   /* Named rather than inherited. An SVG text node inside a shadow root
      takes the family from whatever the host happens to set, and this one
      has to be the app's face wherever it is mounted. */
   font-family: "Helvetica Neue", -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif;
-  font-size: calc(10px / var(--cam-s, 1));
+  font-size: calc(9.5px / var(--cam-s, 1));
   font-weight: var(--w-bold);
-  letter-spacing: calc(0.2px / var(--cam-s, 1));
-  fill: #FFFFFF;
-  paint-order: stroke;
-  stroke: rgba(0, 0, 0, 0.72);
-  stroke-width: calc(3.2px / var(--cam-s, 1));
-  stroke-linejoin: round;
+  /* Cut letters are set open. Tight tracking reads as a label printed on
+     top; a little air reads as something stamped into the surface. */
+  letter-spacing: calc(0.38px / var(--cam-s, 1));
   text-anchor: middle;
   dominant-baseline: middle;
   /* A tap on the word is a tap on the part beneath it, which is what
      anybody aiming at a label means. */
   pointer-events: none;
   user-select: none;
+  paint-order: normal;
+  stroke: none;
 }
+/* The trough: the muscle's own colour taken most of the way to black, so
+   the letter belongs to the tissue rather than sitting on it. */
+.part__label { fill: rgba(0, 0, 0, 0.55); }
+/* The lit far wall of the cut, one hair below. */
+.part__label-lift {
+  fill: rgba(255, 255, 255, 0.40);
+  transform: translateY(calc(0.8px / var(--cam-s, 1)));
+}
+/* The chosen part's name is cut deeper. */
+.part__label[data-on] { fill: rgba(0, 0, 0, 0.78); }
+.part__label-lift[data-on] { fill: rgba(255, 255, 255, 0.46); }
 .part:focus-visible .part__gnd {
   stroke: var(--focus, #FF8A3D);
   stroke-width: 3;
@@ -7736,7 +7748,7 @@ textarea,
        and the anterior head faces forward, so their border runs down the
        arm rather than across it. `at` is measured along the cut, which
        for a 90 degree axis is across the limb from the outside in. */
-    shoulders: [{ at: 0.46, deg: 90 }]
+    shoulders: [{ at: 0.55, deg: 90 }]
   };
   var BAND_AXIS = { chest: -14, shoulders: 90, biceps: 90 };
   /* A CUT ACROSS A PAIR IS A CUT BETWEEN THE PAIR. The biceps and the
@@ -8042,6 +8054,51 @@ textarea,
      the renderer can answer: parsing the numbers out of a `d` string
      counts control points, which sit outside the curve they bend. */
   var derivedCache = {};
+  var spanCache = {};
+
+  /* HOW WIDE THE MUSCLE ITSELF IS, EITHER SIDE OF THE SPINE. A group's
+     measured box runs from one limb to the other, so half of it is the
+     body in between: for a chest that gap is nothing, for a pair of
+     deltoids it is the whole ribcage. A vertical border placed at the
+     middle of that half-box therefore landed off the far edge of a delt
+     and cut it into a muscle and a sliver. Asked of the art instead, so
+     the answer is where the tissue is. */
+  function sideSpan(api, gid, view) {
+    var key = gid + '|' + view;
+    if (spanCache[key] !== undefined) return spanCache[key];
+    var ds = (ART[view].groups[gid] || []);
+    if (!ds.length) { spanCache[key] = null; return null; }
+    var probe = api.el('g', { transform: fitAttr(view), opacity: '0' });
+    var nodes = ds.map(function (d) {
+      var p = api.el('path', { d: d });
+      probe.appendChild(p);
+      return p;
+    });
+    api.cam.appendChild(probe);
+    var rows = null;
+    try {
+      rows = nodes.map(function (p) {
+        var b = p.getBBox();
+        return [b.x, b.x + b.width];
+      });
+    } catch (e) { rows = null; }
+    api.cam.removeChild(probe);
+    if (!rows) { spanCache[key] = null; return null; }
+    var mid = FIGURE[view][0] + FIGURE[view][2] / 2;
+    var out = { l: null, r: null };
+    rows.forEach(function (r) {
+      var k = (r[0] + r[1]) / 2 < mid ? 'l' : 'r';
+      if (!out[k]) out[k] = [r[0], r[1]];
+      else { out[k][0] = Math.min(out[k][0], r[0]); out[k][1] = Math.max(out[k][1], r[1]); }
+    });
+    ['l', 'r'].forEach(function (k) {
+      if (!out[k]) return;
+      var fr = boxIn(view, [out[k][0], 0, out[k][1] - out[k][0], 1]);
+      out[k] = [fr.x, fr.x + fr.w];
+    });
+    spanCache[key] = out;
+    return out;
+  }
   function derivePaths(api, gid, view) {
     var key = gid + '|' + view;
     if (derivedCache[key] !== undefined) return derivedCache[key];
@@ -8482,7 +8539,7 @@ textarea,
         if (partSel && g.getAttribute('data-part') === partSel) g.setAttribute('data-on', '');
         else g.removeAttribute('data-on');
       });
-      Array.prototype.forEach.call(partsLayer.querySelectorAll('.part__label'), function (t) {
+      Array.prototype.forEach.call(partsLayer.querySelectorAll('.part__label, .part__label-lift'), function (t) {
         if (partSel && t.getAttribute('data-for') === partSel) t.setAttribute('data-on', '');
         else t.removeAttribute('data-on');
       });
@@ -8548,6 +8605,12 @@ textarea,
           });
           g.appendChild(mover);
           layer.appendChild(g);
+          /* Kept so it can be labelled. These shapes carry no anchor of
+             their own -- a band knows the wedge it was cut to, a drawn
+             muscle only knows where it rendered -- so the measuring pass
+             below finds it. Left out of this list, quads, triceps and
+             the back came out divided and unnamed. */
+          parts.push({ el: g, name: nm, i: i, gid: gid });
           names.push(nm);
         });
       } else {
@@ -8589,7 +8652,7 @@ textarea,
            comes from the striation crossing it rather than from blurring
            the boundary away. */
         /* The same border as a hard edge, for the tap target. */
-        function cutClip(uid, cut, keepAbove, flip, lo, hi) {
+        function cutClip(uid, cut, keepAbove, flip, lo, hi, m) {
           var deg = (flip ? -cut.deg : cut.deg);
           var py = b.y + b.h * cut.at;
           /* PIVOT ON THE MUSCLE, NOT ON THE BODY. Rotating a border about
@@ -8599,6 +8662,17 @@ textarea,
              side and almost none of the other. Each side turns about its
              own centre, so `at` means the same thing on both. */
           var pivot = (lo + hi) / 2;
+          /* A STEEP BORDER IS PLACED ACROSS THE MUSCLE, NOT DOWN IT. At
+             ninety degrees the line is vertical and its height means
+             nothing: where it falls is entirely the point it turns
+             about. That point is `at` measured across the muscle's own
+             width, from the midline outwards, so a delt divides into a
+             front and a side head rather than a head and a sliver. */
+          if (m && Math.abs(cut.deg) >= 45) {
+            var lo2 = Math.min(m.in, m.out), hi2 = Math.max(m.in, m.out);
+            var t = flip ? 1 - cut.at : cut.at;
+            pivot = lo2 + (hi2 - lo2) * t;
+          }
           var cp = api.el('clipPath', { id: uid + (keepAbove ? '-ca' : '-cb'),
                                         clipPathUnits: 'userSpaceOnUse' });
           cp.appendChild(api.el('rect', {
@@ -8610,9 +8684,20 @@ textarea,
           return cp.getAttribute('id');
         }
 
-        var sides = mirrored ? [{ k: 'r', flip: false, lo: mxv, hi: b.x + b.w + 20 },
-                                { k: 'l', flip: true, lo: b.x - 20, hi: mxv }]
-                             : [{ k: 'x', flip: false, lo: b.x - 20, hi: b.x + b.w + 20 }];
+        /* The clip still reaches to the midline so nothing is left
+           unpainted between the two, but the border is placed against
+           the muscle's own edges. */
+        var span = sideSpan(api, gid, v);
+        var sideBox = function (k, lo, hi) {
+          var sp = span && span[k];
+          return { in: sp ? sp[0] : lo, out: sp ? sp[1] : hi };
+        };
+        var sides = mirrored ? [{ k: 'r', flip: false, lo: mxv, hi: b.x + b.w + 20,
+                                  m: sideBox('r', mxv, b.x + b.w) },
+                                { k: 'l', flip: true, lo: b.x - 20, hi: mxv,
+                                  m: sideBox('l', b.x, mxv) }]
+                             : [{ k: 'x', flip: false, lo: b.x - 20, hi: b.x + b.w + 20,
+                                  m: { in: b.x, out: b.x + b.w } }];
 
         spec.names.forEach(function (nm, i) {
           var uid0 = 'prt-' + api.uid + '-' + v + '-' + gid + '-' + i;
@@ -8655,11 +8740,11 @@ textarea,
                local, and it cannot move the border itself. */
             var node = paint;
             if (bot) {
-              var wrapB = api.el('g', { 'clip-path': 'url(#' + cutClip(uid + '-pb', bot, true, S2.flip, S2.lo, S2.hi) + ')' });
+              var wrapB = api.el('g', { 'clip-path': 'url(#' + cutClip(uid + '-pb', bot, true, S2.flip, S2.lo, S2.hi, S2.m) + ')' });
               wrapB.appendChild(node); node = wrapB;
             }
             if (top) {
-              var wrapT = api.el('g', { 'clip-path': 'url(#' + cutClip(uid + '-pt', top, false, S2.flip, S2.lo, S2.hi) + ')' });
+              var wrapT = api.el('g', { 'clip-path': 'url(#' + cutClip(uid + '-pt', top, false, S2.flip, S2.lo, S2.hi, S2.m) + ')' });
               wrapT.appendChild(node); node = wrapT;
             }
             /* And the side itself, so a mirrored plan never paints across
@@ -8706,7 +8791,7 @@ textarea,
               var bleed = api.el('g', { class: 'part__bleed',
                                         mask: 'url(#' + sid + '-m)' });
               var bclip = api.el('g', { 'clip-path': 'url(#' +
-                cutClip(sid, cut, !isBot, S2.flip, S2.lo, S2.hi) + ')' });
+                cutClip(sid, cut, !isBot, S2.flip, S2.lo, S2.hi, S2.m) + ')' });
               var binner = api.el('g', { transform: fitAttr(v) });
               (ART[v].groups[gid] || []).forEach(function (d) {
                 binner.appendChild(api.el('path', { d: d, class: 'part__gnd' }));
@@ -8734,11 +8819,11 @@ textarea,
             hit.appendChild(hinner);
             var hnode = hit;
             if (bot) {
-              var hb = api.el('g', { 'clip-path': 'url(#' + cutClip(uid + '-b', bot, true, S2.flip, S2.lo, S2.hi) + ')' });
+              var hb = api.el('g', { 'clip-path': 'url(#' + cutClip(uid + '-b', bot, true, S2.flip, S2.lo, S2.hi, S2.m) + ')' });
               hb.appendChild(hnode); hnode = hb;
             }
             if (top) {
-              var ht = api.el('g', { 'clip-path': 'url(#' + cutClip(uid + '-t', top, false, S2.flip, S2.lo, S2.hi) + ')' });
+              var ht = api.el('g', { 'clip-path': 'url(#' + cutClip(uid + '-t', top, false, S2.flip, S2.lo, S2.hi, S2.m) + ')' });
               ht.appendChild(hnode); hnode = ht;
             }
             if (mirrored) {
@@ -8757,26 +8842,63 @@ textarea,
           var fromT = i > 0 ? plan[i - 1].at : 0;
           var toT = i < bands - 1 ? plan[i].at : 1;
           var midT = (fromT + toT) / 2;
-          /* WHERE THE CAMERA LOOKS. zoomTo frames one side only when a
-             group is wider than half the figure -- two arms, two delts.
-             A chest is one region in the middle and stays whole, so its
-             labels belong on the midline where they have always sat.
-             Keying this off MIRROR instead pushed them onto one
-             pectoral of a muscle the camera shows both of. */
+          /* A CUT WORD NEEDS SOMETHING TO CUT INTO. The label used to sit
+             on the figure's midline whenever the camera framed a whole
+             group, which for a chest is the gap between the two
+             pectorals: white-in-black read there, engraved ink does not,
+             because there is no muscle behind it to be cut. Every
+             mirrored group now labels one side, the side the camera
+             favours, and the word lands in the meat. */
           var camPairs = box[2] > FIGURE[v][2] * 0.5;
-          var labX = camPairs ? (b.x + mxv) / 2 : cx;
+          var onSide = camPairs || MIRROR[gid];
+          /* The side the camera favours, measured where the tissue is
+             rather than half way to the spine: a pectoral runs up to the
+             sternum and a deltoid stops at the shoulder, and the middle
+             of the second one's half-box is the middle of a pec. */
+          var sp = span && span.l;
+          var sLo = sp ? sp[0] : b.x, sHi = sp ? sp[1] : mxv;
+          var labX = onSide ? (sLo + sHi) / 2 : cx;
+          /* A BAND CUT ACROSS THE MUSCLE IS PLACED ACROSS IT TOO. The
+             deltoid divides down its length, so its two heads are side
+             by side and their names belong side by side: sliding them up
+             and down the shoulder, the way a pectoral's three heads
+             stack, put both words on the same spot. */
+          var steepCut = plan.length && Math.abs(plan[0].deg) >= 45;
+          if (steepCut) {
+            var edge = function (k) {
+              if (k < 0) return sLo;
+              if (k > plan.length - 1) return sHi;
+              var t = 1 - plan[k].at;
+              return sLo + (sHi - sLo) * t;
+            };
+            var e0 = edge(i - 1), e1 = edge(i);
+            var xa = Math.min(e0, e1), xb = Math.max(e0, e1);
+            /* Set a little apart down the muscle as well, so two names
+               on a shoulder are not one line of type with a gap in it. */
+            var ry = bands > 1 ? 0.40 + (0.26 * i) / (bands - 1) : 0.52;
+            parts.push({ el: g, name: nm, i: i, gid: gid,
+                         at: { x: (xa + xb) / 2, y: b.y + b.h * ry,
+                               w: xb - xa } });
+            names.push(nm);
+            return;
+          }
           /* A WEDGE IS NOT CENTRED ON THE MUSCLE. The clavicular head
              sits high and towards the shoulder, the abdominal head low
              and towards the sternum, so a label at the band's vertical
              middle lands on the head above or below it. It slides along
              the border's own direction: outward as the band rises,
              inward as it falls. */
-          if (camPairs) {
-            var halfW = (mxv - b.x) / 2;
-            labX = labX - (0.5 - midT) * halfW * 1.6;
+          if (onSide) {
+            var halfW = (sHi - sLo) / 2;
+            labX = labX - (0.5 - midT) * halfW * 0.8;
+            /* And held inside the side it names. A word that slides past
+               the sternum is engraved half in muscle and half in the gap
+               between the two, where there is nothing to cut. */
+            labX = Math.max(sLo + halfW * 0.45, Math.min(labX, sHi - halfW * 0.45));
           }
           parts.push({ el: g, name: nm, i: i, gid: gid,
-                       at: { x: labX, y: b.y + b.h * midT } });
+                       at: { x: labX, y: b.y + b.h * midT,
+                             w: onSide ? (sHi - sLo) : b.w } });
           names.push(nm);
         });
       }
@@ -8798,7 +8920,7 @@ textarea,
         /* A band knows its own place; a derived part has to be measured. */
         if (P.at) {
           labels.push({ x: Math.max(VBOX.x + 42, Math.min(P.at.x, VBOX.x + VBOX.w - 42)),
-                        y: P.at.y, name: P.name, i: P.i, gid: P.gid });
+                        y: P.at.y, w: P.at.w, name: P.name, i: P.i, gid: P.gid });
           return;
         }
         var shapes = P.el.querySelectorAll('.part__gnd');
@@ -8809,6 +8931,20 @@ textarea,
           if (x1 === null || b.x + b.width > x1) x1 = b.x + b.width;
           if (y1 === null || b.y + b.height > y1) y1 = b.y + b.height;
         };
+        /* A PART DRAWN TWICE IS A PART WITH A GAP DOWN THE MIDDLE. The
+           lats, the traps and the abs are each a pair of shapes either
+           side of the spine, and the union of the pair is centred on the
+           spine, where the muscle is not. Asked of the shapes rather
+           than of a table, so it is true of whatever the art draws:
+           anything with tissue on both sides is labelled on one. */
+        var onLeft = false, onRight = false;
+        Array.prototype.forEach.call(shapes, function (sh) {
+          var b;
+          try { b = sh.getBBox(); } catch (e) { return; }
+          if (!b || !b.width) return;
+          if (b.x + b.width / 2 > artMid) onRight = true; else onLeft = true;
+        });
+        var twoSided = paired || (onLeft && onRight);
         var any = false;
         Array.prototype.forEach.call(shapes, function (sh) {
           var b;
@@ -8819,7 +8955,7 @@ textarea,
              to just past the midline, so labels placed on the right limb
              sat outside the picture entirely -- clamped to a frame the
              camera was no longer showing. Same side as the zoom. */
-          if (paired && (b.x + b.width / 2) > artMid) return;
+          if (twoSided && (b.x + b.width / 2) > artMid) return;
           take(b); any = true;
         });
         if (!any) {
@@ -8857,24 +8993,87 @@ textarea,
            stay at their centres. */
         var ly = fr.y + fr.h / 2;
         if (paired && parts.length > 1) {
-          ly = fr.y + fr.h * (0.30 + (0.40 * P.i) / (parts.length - 1));
+          ly = fr.y + fr.h * (0.30 + (0.32 * P.i) / (parts.length - 1));
         }
         /* Held inside the frame. A triceps sits at the edge of the
            figure and "Lateral Head" is wider than the arm, so the word
            ran off the picture. The margin is half of a long label at the
            size these render. */
         var lx = Math.max(VBOX.x + 42, Math.min(fr.x + fr.w / 2, VBOX.x + VBOX.w - 42));
-        labels.push({ x: lx, y: ly, name: P.name, i: P.i, gid: P.gid });
+        labels.push({ x: lx, y: ly, w: fr.w, name: P.name, i: P.i, gid: P.gid });
       });
 
       /* Every label after every shape, so no part paints over a word.
          They take no pointer events, so a tap on a label is a tap on the
          part under it -- which is what anybody aiming at the word means. */
+      /* THE WORD THAT FITS THE MUSCLE. A triceps head is narrower than
+         the words "Lateral Head", and a name engraved wider than the
+         tissue runs onto the background, where a cut letter has nothing
+         to be cut into. Every one of these names is two words with one
+         doing the work: the heads are Lateral, Long and Medial, the
+         glutes are Maximus and Medius. The shared word is the one worth
+         dropping, so each label keeps the word its neighbours do not
+         have and falls back to its whole name when every word is its
+         own. */
+      var wordCount = {};
       labels.forEach(function (L) {
+        var seen = {};
+        L.name.split(/\s+/).forEach(function (w) {
+          if (seen[w]) return; seen[w] = 1;
+          wordCount[w] = (wordCount[w] || 0) + 1;
+        });
+      });
+      labels.forEach(function (L) {
+        var own = L.name.split(/\s+/).filter(function (w) { return wordCount[w] === 1; });
+        L.short = own.length ? own[0] : L.name;
+      });
+
+      labels.forEach(function (L) {
+        /* ENGRAVED, NOT PRINTED ON. White text in a black outline is a
+           sticker laid over anatomy: it reads as a caption about the
+           picture rather than as part of it. A cut letter is two things,
+           a dark trough and a lit edge just below it where the light
+           catches the far wall, so each label is drawn twice: a highlight
+           a hair lower, then the ink over it. Both take their colour from
+           the muscle rather than from ink and paper. */
+        var lift = api.el('text', { class: 'part__label-lift', x: n2(L.x), y: n2(L.y),
+                                    'data-for': L.name, 'aria-hidden': 'true' });
+        lift.textContent = L.name;
+        layer.appendChild(lift);
         var t = api.el('text', { class: 'part__label', x: n2(L.x), y: n2(L.y),
                                  'data-for': L.name, 'aria-hidden': 'true' });
         t.textContent = L.name;
         layer.appendChild(t);
+        /* AND IT HAS TO FIT THE MUSCLE IT IS CUT INTO. "Lateral Head" is
+           wider than an upper arm, so at one size the word ran off the
+           tissue onto the background, where a cut letter has nothing to
+           be cut into and simply disappears. The text and the part are
+           measured in the same space, so the ratio is the answer: the
+           word steps down until it sits inside its own shape, and never
+           below two thirds, where it would be a footnote instead of a
+           name. */
+        var room = L.w;
+        if (!room) return;
+        var fits = function () {
+          var len = 0;
+          try { len = t.getComputedTextLength(); } catch (e) { return true; }
+          return !len || len <= room * 0.80;
+        };
+        if (fits()) return;
+        /* The short name first: a smaller word is still the app's type,
+           a shrunk one is a footnote. */
+        if (L.short !== L.name) {
+          lift.textContent = L.short; t.textContent = L.short;
+          if (fits()) return;
+        }
+        var len2 = 0;
+        try { len2 = t.getComputedTextLength(); } catch (e) { return; }
+        if (!len2) return;
+        var k = Math.max(0.62, (room * 0.8) / len2);
+        [lift, t].forEach(function (node) {
+          node.style.fontSize = 'calc(' + n2(9.5 * k) + 'px / var(--cam-s, 1))';
+          node.style.letterSpacing = 'calc(' + n2(0.38 * k) + 'px / var(--cam-s, 1))';
+        });
       });
 
       partsLayer = layer;
