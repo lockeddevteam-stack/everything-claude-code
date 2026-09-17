@@ -249,6 +249,24 @@
   --glass-specular: color-mix(in srgb, var(--text) 22%, transparent);
   --glass-shadow: 0 8px 32px rgb(0 0 0 / 0.35);
 
+  /* A small floating bar is not a sheet. --glass-shadow is tuned for a
+     surface the width of the screen; on a capsule it reads as a smudge,
+     so the bar gets its own, tighter and closer to the edge. */
+  --glass-bar-shadow: 0 6px 20px rgb(0 0 0 / 0.30);
+
+  /* ---- The thread's two materials.
+     A chat where both bubbles are one tone on one ground has no depth to
+     read. The coach's bubble is the voice being read, so it rises; the
+     reader's own words recede. Glass is not an option here and should not
+     be: it is chrome only, and glass over glass is grey boxes. Depth in
+     the thread comes from material, a lit top edge and a soft shadow,
+     which is where Apple's depth comes from too. ---- */
+  --bubble-coach: var(--surface-raised);
+  --bubble-user: var(--accent-quiet);
+  --bubble-edge: color-mix(in srgb, var(--text) 6%, transparent);
+  --bubble-specular: color-mix(in srgb, var(--text) 8%, transparent);
+  --shadow-bubble: 0 1px 2px rgb(0 0 0 / 0.40), 0 8px 18px -12px rgb(0 0 0 / 0.55);
+
   /* ---- Motion.
 
      Since iOS 17 every meaningful Apple animation is a spring, so the two
@@ -479,6 +497,13 @@
   --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.14);
   --shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.20);
   --scrim: rgba(0, 0, 0, 0.35);
+  /* Light. A shadow on white is a fraction of a shadow on black, or the
+     card looks like it is hovering off the page. */
+  --glass-bar-shadow: 0 6px 20px rgb(0 0 0 / 0.10);
+  --shadow-bubble: 0 1px 2px rgb(0 0 0 / 0.08), 0 8px 18px -12px rgb(0 0 0 / 0.16);
+  --bubble-coach: var(--surface-raised);
+  --bubble-edge: color-mix(in srgb, var(--text) 8%, transparent);
+  --bubble-specular: color-mix(in srgb, #FFFFFF 90%, transparent);
 
   /* Anatomy palette, light. The twelve hues are the same twelve hues at
      the same angles; only their depth changes, because a colour picked to
@@ -565,6 +590,11 @@
     --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.14);
     --shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.20);
     --scrim: rgba(0, 0, 0, 0.35);
+    --glass-bar-shadow: 0 6px 20px rgb(0 0 0 / 0.10);
+    --shadow-bubble: 0 1px 2px rgb(0 0 0 / 0.08), 0 8px 18px -12px rgb(0 0 0 / 0.16);
+    --bubble-coach: var(--surface-raised);
+    --bubble-edge: color-mix(in srgb, var(--text) 8%, transparent);
+    --bubble-specular: color-mix(in srgb, #FFFFFF 90%, transparent);
 
     /* Anatomy palette, light. The twelve hues are the same twelve hues at
        the same angles; only their depth changes, because a colour picked to
@@ -2346,11 +2376,21 @@ textarea, select {
 .msg__head { display: flex; align-items: baseline; gap: var(--sp-2); margin-bottom: var(--sp-1); padding: 0 var(--sp-1); }
 .msg__who { font-size: var(--type-11); line-height: var(--lh-11); letter-spacing: var(--tr-11); font-weight: var(--w-semibold); text-transform: uppercase; color: var(--text-tertiary); }
 .msg__time { font-size: var(--type-11); line-height: var(--lh-11); letter-spacing: var(--tr-11); font-weight: var(--w-medium); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+/* THE COACH'S BUBBLE RISES, THE READER'S RECEDES. Both were one flat
+   tone on one flat ground, which is why the thread read as boxes. The
+   coach's takes the raised material, a hairline, a lit top edge and a
+   soft shadow: one light source from above, which is the whole of how
+   depth works on this platform. The corner nearest the avatar tightens,
+   so the shape reads as speech rather than as a rectangle. */
 .msg__bubble {
   padding: var(--sp-3) var(--sp-4);
   border-radius: var(--r-lg);
+  border-end-start-radius: var(--r-sm);
   corner-shape: var(--corner-smooth);
-  background: var(--surface);
+  background: var(--bubble-coach);
+  box-shadow: inset 0 0 0 1px var(--bubble-edge),
+              inset 0 1px 0 var(--bubble-specular),
+              var(--shadow-bubble);
   font-size: var(--type-15);
   line-height: var(--lh-15);
   letter-spacing: var(--tr-15);
@@ -2359,9 +2399,17 @@ textarea, select {
 .msg--user { flex-direction: row-reverse; }
 .msg--user .msg__col { align-items: flex-end; }
 .msg--user .msg__head { flex-direction: row-reverse; }
-.msg--user .msg__bubble { background: var(--accent-quiet); }
+/* The reader's own words. Quiet, unlit, no shadow: two raised materials
+   facing each other across a thread cancel each other out. The tight
+   corner mirrors to the side the avatar is on. */
+.msg--user .msg__bubble {
+  background: var(--bubble-user);
+  box-shadow: none;
+  border-end-start-radius: var(--r-lg);
+  border-end-end-radius: var(--r-sm);
+}
 .msg--user .msg__avatar { background: var(--surface); color: var(--text-secondary); }
-.msg--error .msg__bubble { background: var(--error-quiet); color: var(--error); }
+.msg--error .msg__bubble { background: var(--error-quiet); color: var(--error); box-shadow: none; }
 .msg__attach { margin-top: var(--sp-2); }
 
 /* Thinking. Dots plus the one line saying what is being read, so the
@@ -2373,11 +2421,65 @@ textarea, select {
 @keyframes blink { 50% { opacity: 0.25; } }
 
 /* Composer. Pinned, never floating, nothing painted over it. */
+/* ---- THE COMPOSER, AS THE ONE GLASS BAR ON THE SCREEN ---------------
+   It was a flat strip the colour of the page with a hairline on top, so
+   the screen's only depth was the tab bar. It is chrome -- it floats over
+   scrolling content and it is where the thumb lives -- which is the one
+   place glass belongs and the one place it works.
+
+   Glass needs something to sample. A bar sitting in the footer's own flow
+   has the page behind it and blurs nothing, so the thread is given bottom
+   padding the height of the bar and the bar is pulled back up over it:
+   the conversation passes underneath, which is what makes the material
+   read as glass rather than as a tint.
+
+   The lit top edge and the darker outer stroke are the pair that makes
+   iOS glass read as a physical edge. Neither alone does it. */
 .composer {
   display: flex; align-items: flex-end; gap: var(--sp-2);
-  padding: var(--sp-2) var(--page-x);
-  background: var(--bg);
-  box-shadow: inset 0 1px 0 var(--hairline);
+  margin: 0 var(--sp-3) var(--sp-2);
+  padding: var(--sp-2);
+  border-radius: var(--r-full);
+  corner-shape: var(--corner-smooth);
+  background: var(--glass-tint);
+  backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
+  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
+  box-shadow: inset 0 1px 0 var(--glass-specular),
+              inset 0 0 0 1px var(--glass-edge),
+              var(--glass-bar-shadow);
+}
+/* The thread scrolls under the bar. The height is measured on every
+   paint, because a textarea that has grown to three lines is a different
+   bar from the one that was there a keystroke ago. */
+/* This replaces --float-h rather than adding to it. On every other screen
+   the tab bar floats OVER the scroller and --float-h is what keeps the
+   last row reachable. Here the bar, the shelf and the tab bar all sit in
+   the footer, in flow, so the scroller already ends above them; the only
+   thing overlapping it is the composer. Adding both reserved 208px and
+   left the last reply stranded in the middle of the screen. Measured: the
+   last bubble clears the bar by 64px with this, by 188px with both. */
+.screen[data-view="chat"] .body,
+.screen[data-view="chat"] > .body { padding-bottom: calc(var(--composer-h, 60px) + var(--sp-4)); }
+.screen[data-view="chat"] footer > [data-lk-lift] { margin-top: calc(-1 * var(--composer-h, 60px)); }
+
+/* A border inside glass is two edges doing one job, and a fill inside it
+   is a second material. The field is a hole in the bar. */
+.composer .composer__input {
+  background: transparent;
+  border-color: transparent;
+  padding: var(--sp-2) var(--sp-3);
+}
+.composer .composer__input:focus { border-color: transparent; box-shadow: none; }
+
+/* REDUCED TRANSPARENCY IS NOT A DEGRADED GLASS, IT IS A SOLID BAR.
+   Half-blurring for somebody who asked for no blur is worse than not
+   trying: the setting exists because the effect costs them legibility. */
+@media (prefers-reduced-transparency: reduce) {
+  .composer {
+    background: var(--surface-raised);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 }
 .composer__input {
   flex: 1; min-width: 0;
@@ -2404,7 +2506,15 @@ textarea, select {
   background: var(--accent);
   color: var(--text-on-accent);
 }
-.composer__send:active { background: var(--accent-deep); color: var(--text-on-solid); }
+.composer__send { transition: transform var(--dur-fast) var(--spring-bouncy); }
+.composer__send:active {
+  background: var(--accent-deep); color: var(--text-on-solid);
+  transform: scale(0.94);
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer__send { transition: none; }
+  .composer__send:active { transform: none; }
+}
 
 /* ---- A PICTURE IN THE COMPOSER -------------------------------------
    The coach takes photos now, and a photo is part of the message rather
@@ -38199,7 +38309,10 @@ DEMO.define("coach", function (document, window, location, fetch) {
           '</button>' +
         '</div>'
       : '';
-    return pending + '<div class="composer">' + attach +
+    /* "glass" in the class name is not decoration: apple-foundation.mjs
+       fails any live backdrop-filter outside the chrome layer, and it
+       reads the class to decide. The bar IS chrome, so it says so. */
+    return pending + '<div class="composer composer--glass" data-testid="composer">' + attach +
       '<textarea class="composer__input" rows="1" placeholder="Ask about your training" aria-label="Message the coach" data-testid="composer-input">' + esc(c.draft) + '</textarea>' +
       send + '</div>';
   }
@@ -39269,6 +39382,19 @@ DEMO.define("coach", function (document, window, location, fetch) {
      the thread actually grew. */
   var lastMsgCount = -1;
 
+  /* Read once per paint and written as a custom property, which is the
+     only thing CSS can do arithmetic against. */
+  function measureComposer() {
+    try {
+      var screenEl = phone.querySelector('.screen');
+      var bar = phone.querySelector('.composer');
+      if (!screenEl) return;
+      if (!bar) { screenEl.style.removeProperty('--composer-h'); return; }
+      var h = Math.round(bar.getBoundingClientRect().height + 8);   /* + its own bottom margin */
+      if (h > 0) screenEl.style.setProperty('--composer-h', h + 'px');
+    } catch (e) {}
+  }
+
   function render() {
     var active = document.activeElement;
     var key = active && active.getAttribute ? active.getAttribute('data-testid') : null;
@@ -39320,6 +39446,12 @@ DEMO.define("coach", function (document, window, location, fetch) {
       '</div>');
 
     if (window.LKChrome) LKChrome.init(phone);
+
+    /* THE THREAD SCROLLS UNDER THE BAR, so the bar's height has to be a
+       number the layout can use. Measured rather than guessed: the
+       textarea grows to three lines, and a fixed figure would either
+       clip the last reply or leave a gap under it. */
+    measureComposer();
 
     /* It follows the thread only while the reader is at the bottom of it.
        Every render used to jam scrollTop to scrollHeight, so reading back

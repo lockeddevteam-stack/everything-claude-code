@@ -1623,7 +1623,10 @@
           '</button>' +
         '</div>'
       : '';
-    return pending + '<div class="composer">' + attach +
+    /* "glass" in the class name is not decoration: apple-foundation.mjs
+       fails any live backdrop-filter outside the chrome layer, and it
+       reads the class to decide. The bar IS chrome, so it says so. */
+    return pending + '<div class="composer composer--glass" data-testid="composer">' + attach +
       '<textarea class="composer__input" rows="1" placeholder="Ask about your training" aria-label="Message the coach" data-testid="composer-input">' + esc(c.draft) + '</textarea>' +
       send + '</div>';
   }
@@ -2693,6 +2696,19 @@
      the thread actually grew. */
   var lastMsgCount = -1;
 
+  /* Read once per paint and written as a custom property, which is the
+     only thing CSS can do arithmetic against. */
+  function measureComposer() {
+    try {
+      var screenEl = phone.querySelector('.screen');
+      var bar = phone.querySelector('.composer');
+      if (!screenEl) return;
+      if (!bar) { screenEl.style.removeProperty('--composer-h'); return; }
+      var h = Math.round(bar.getBoundingClientRect().height + 8);   /* + its own bottom margin */
+      if (h > 0) screenEl.style.setProperty('--composer-h', h + 'px');
+    } catch (e) {}
+  }
+
   function render() {
     var active = document.activeElement;
     var key = active && active.getAttribute ? active.getAttribute('data-testid') : null;
@@ -2744,6 +2760,12 @@
       '</div>');
 
     if (window.LKChrome) LKChrome.init(phone);
+
+    /* THE THREAD SCROLLS UNDER THE BAR, so the bar's height has to be a
+       number the layout can use. Measured rather than guessed: the
+       textarea grows to three lines, and a fixed figure would either
+       clip the last reply or leave a gap under it. */
+    measureComposer();
 
     /* It follows the thread only while the reader is at the bottom of it.
        Every render used to jam scrollTop to scrollHeight, so reading back
