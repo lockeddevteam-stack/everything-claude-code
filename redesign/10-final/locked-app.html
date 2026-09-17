@@ -21854,16 +21854,78 @@ DEMO.define("train", function (document, window, location, fetch) {
      Upper Chest are Chest and the screen does not report thirteen separate
      regions nobody plans around.
      ============================================================= */
+  /* ONE EXERCISE, ONE MUSCLE: ITS OWN.
+
+     A bench press is a chest exercise. It uses the triceps and the front
+     delt to do the job, and counting it as triceps volume is how a week
+     that trained chest three times reports arms as well covered and sends
+     somebody home from a session they needed. The catalogue already
+     settles this -- every row carries exactly one group, the one the
+     movement is for -- so the rule here is to read that group and nothing
+     else. No secondary-muscle table, because the moment one exists every
+     compound starts inflating three counts at once.
+
+     THE CATALOGUE, NOT THE MUSCLE STRING. A logged set carries the
+     muscle ("Long Head") and not the group, and Long Head is a head of
+     the biceps AND a head of the triceps. Keyed on that string alone,
+     arms could never be split: the two are indistinguishable. Resolved
+     through the exercise id they are never confused.
+
+     It also fixes a count that was silently zero. Ab exercises carry
+     "Weighted" or "Bodyweight" as their muscle, which the old table had
+     no key for, so every ab set was dropped and Core read as untrained
+     however much of it somebody did. */
   var MUSCLE_GROUP = {
     'Quads': 'Legs', 'Hamstrings': 'Legs', 'Calves': 'Legs', 'Glutes': 'Legs',
+    'Inner/Outer Thigh': 'Legs',
     'Lats': 'Back', 'Mid Back': 'Back', 'Lower Back': 'Back', 'Traps': 'Back',
     'Mid Chest': 'Chest', 'Upper Chest': 'Chest', 'Lower Chest': 'Chest',
     'Front Delt': 'Shoulders', 'Side Delt': 'Shoulders', 'Rear Delt': 'Shoulders',
-    'Long Head': 'Arms', 'Short Head': 'Arms', 'Lateral Head': 'Arms',
-    'Medial Head': 'Arms', 'Biceps': 'Arms', 'Triceps': 'Arms', 'Forearms': 'Arms',
-    'Abs': 'Core', 'Obliques': 'Core'
+    'Biceps': 'Biceps', 'Short Head': 'Biceps',
+    'Triceps': 'Triceps', 'Lateral Head': 'Triceps', 'Medial Head': 'Triceps',
+    'Forearms': 'Forearms',
+    'Abs': 'Core', 'Obliques': 'Core', 'Weighted': 'Core', 'Bodyweight': 'Core'
   };
-  var GROUP_ORDER = ['Legs', 'Back', 'Chest', 'Shoulders', 'Arms', 'Core'];
+  /* The catalogue's own twelve groups, folded into the buckets a week is
+     actually planned around. */
+  var CAT_GROUP = {
+    'Quads': 'Legs', 'Hamstrings': 'Legs', 'Calves': 'Legs', 'Glutes': 'Legs',
+    'Inner/Outer Thigh': 'Legs',
+    'Back': 'Back', 'Chest': 'Chest', 'Shoulders': 'Shoulders',
+    'Biceps': 'Biceps', 'Triceps': 'Triceps', 'Forearms': 'Forearms',
+    'Abs': 'Core'
+  };
+  var GROUP_ORDER = ['Legs', 'Back', 'Chest', 'Shoulders',
+                     'Biceps', 'Triceps', 'Forearms', 'Core'];
+
+  /* id -> the catalogue's group, built once. */
+  var CAT_BY_ID = null;
+  function catGroupOf(id) {
+    if (!CAT_BY_ID) {
+      CAT_BY_ID = {};
+      try {
+        (window.LKExercises && LKExercises.all ? LKExercises.all() : []).forEach(function (e) {
+          if (e && e.id != null) CAT_BY_ID[e.id] = e.group;
+        });
+      } catch (e) {}
+    }
+    return CAT_BY_ID[id] || null;
+  }
+  /* A custom lift is not in the catalogue, so its own record answers. */
+  function customGroupOf(id) {
+    var rows = rd('lk_customEx', [], false) || [];
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i] && String(rows[i].id) === String(id)) return rows[i].group || null;
+    }
+    return null;
+  }
+  function bucketOf(ex) {
+    if (!ex) return null;
+    var cg = catGroupOf(ex.id) || customGroupOf(ex.id) || ex.group || null;
+    if (cg && CAT_GROUP[cg]) return CAT_GROUP[cg];
+    /* Last resort, for a row logged before any of this existed. */
+    return MUSCLE_GROUP[ex.muscle] || null;
+  }
 
   /* Sets and days since, per group, from the logged sets only. A warm-up is
      not volume and an unfinished set is not work. */
@@ -21876,7 +21938,7 @@ DEMO.define("train", function (document, window, location, fetch) {
       var iso = String(w.date || w.dateISO || '').slice(0, 10);
       if (!iso) return;
       (w.exercises || []).forEach(function (ex) {
-        var g = MUSCLE_GROUP[ex.muscle];
+        var g = bucketOf(ex);
         if (!g || !out[g]) return;
         var work = (ex.sets || []).filter(function (st) { return st.done && !st.warm; }).length;
         if (!work) return;
@@ -21958,9 +22020,10 @@ DEMO.define("train", function (document, window, location, fetch) {
         '</div>';
       }).join('') + '</div>' +
       '<p class="t-caption-1 quiet mt-3">Working sets in the last seven days, counted from what ' +
-        'you ticked. Warm-ups are not volume. The bar is each group against the hardest-worked ' +
-        'one, not against a target: this screen does not have an opinion about how much is ' +
-        'right for you.</p>' +
+        'you ticked. Warm-ups are not volume. Each lift counts once, for the muscle it is for: ' +
+        'a bench press is chest, not chest and triceps. The bar is each group against the ' +
+        'hardest-worked one, not against a target: this screen does not have an opinion about ' +
+        'how much is right for you.</p>' +
       '</div>' +
     '</section>';
   }

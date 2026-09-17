@@ -94,6 +94,7 @@ account-identity|node account-identity.mjs
 coach-brief|node coach-brief.mjs
 weigh-in-tenths|node weigh-in-tenths.mjs
 body-zoom|node body-zoom.mjs
+muscle-week|node muscle-week.mjs
 JOBS_EOF
 
 # shellcheck disable=SC2016
