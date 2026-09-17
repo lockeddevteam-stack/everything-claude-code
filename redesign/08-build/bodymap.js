@@ -502,6 +502,10 @@
       cam.setAttribute('transform',
         'translate(' + n2(c.tx) + ' ' + n2(c.ty) + ') scale(' + (Math.round(c.s * 1e4) / 1e4) + ')');
       cam.setAttribute('data-zoomed', c.s > 1.02 ? 'true' : 'false');
+      /* Text inside the camera is scaled by the camera. A label that
+         doubles with the zoom stops being a label and becomes a banner,
+         so the scale is published and the stylesheet divides by it. */
+      svg.style.setProperty('--cam-s', String(Math.round(c.s * 1e3) / 1e3));
       /* A figure at rest lets the page scroll under a finger. A figure
          that has been zoomed into keeps the finger for panning, which is
          the only way to reach the parts now off-frame. Scoped to the SVG,
@@ -608,6 +612,7 @@
 
       var layer = api.el('g', { class: 'parts', 'data-g': gid });
       var names = [];
+      var labels = [];
 
       if (spec.kind === 'muscles') {
         /* The art draws these apart already, so each is its own shape. */
@@ -621,6 +626,15 @@
           });
           g.appendChild(inner);
           layer.appendChild(g);
+          /* THE SPLIT HAS TO SAY WHAT THE PIECES ARE. Three tones of one
+             hue tell you a muscle has parts. They do not tell you which
+             part is which, and "the light one" is not a name anybody can
+             act on. Each piece is labelled where it sits. */
+          var pb = PART_BOX[v] && PART_BOX[v][gid] && PART_BOX[v][gid][nm];
+          if (pb) {
+            var lb = boxIn(v, pb);
+            labels.push({ x: lb.x + lb.w / 2, y: lb.y + lb.h / 2, name: nm, i: i, gid: gid });
+          }
           names.push(nm);
         });
       } else {
@@ -648,9 +662,24 @@
           });
           g.appendChild(inner);
           layer.appendChild(g);
+          /* The middle of the band. On a paired muscle that lands on the
+             midline between the two bellies, which is the one place a
+             word can sit without covering either of them. */
+          labels.push({ x: b.x + b.w / 2, y: b.y + (b.h / bands) * (i + 0.5),
+                        name: nm, i: i, gid: gid });
           names.push(nm);
         });
       }
+
+      /* Every label after every shape, so no part paints over a word.
+         They take no pointer events, so a tap on a label is a tap on the
+         part under it -- which is what anybody aiming at the word means. */
+      labels.forEach(function (L) {
+        var t = api.el('text', { class: 'part__label', x: n2(L.x), y: n2(L.y),
+                                 'data-for': L.name, 'aria-hidden': 'true' });
+        t.textContent = L.name;
+        layer.appendChild(t);
+      });
 
       cam.appendChild(layer);
       partsLayer = layer;
@@ -850,6 +879,28 @@
         }
       }, { passive: false });
 
+      /* ---- ZOOM AND DIVIDE ARE ONE GESTURE ---------------------------
+         The split arrived with the tap that framed a muscle, and the
+         fingers could not reach it: pinching into the same muscle showed
+         the same undivided shape, bigger. Close enough IS the condition
+         for showing the parts, however the camera got there.
+
+         Two thresholds rather than one, because a single one at the
+         boundary flickers the whole split on and off while a finger
+         hovers around it. */
+      function syncSplit() {
+        var gid = api.selected;
+        if (!gid) return;
+        if (cam3.s >= 1.6 && !partsLayer) {
+          var names = api.showParts(gid, api.view);
+          if (names && names.length > 1 && opts.onSplit) opts.onSplit(gid, names);
+          else if (!names || names.length < 2) api.clearParts();
+        } else if (cam3.s < 1.3 && partsLayer) {
+          api.clearParts();
+          if (opts.onSplit) opts.onSplit(null, null);
+        }
+      }
+
       function endGesture(e) {
         if (pinch && (!e.touches || e.touches.length < 2)) { pinch = null; live(false); }
         if (pan && (!e.touches || e.touches.length === 0)) {
@@ -867,6 +918,7 @@
         /* Snap home rather than resting at 1.01, where the figure is
            still holding the finger for a pan it no longer needs. */
         if (!pinch && !pan && cam3.s < 1.03 && cam3.s !== 1) mine(1, 0, 0);
+        if (!pinch && !pan) syncSplit();
       }
       svg.addEventListener('touchend', endGesture);
       svg.addEventListener('touchcancel', endGesture);
@@ -879,10 +931,11 @@
         var near = lastTap && (now - lastTap) < 300;
         lastTap = near ? 0 : now;
         if (!near) return;
-        if (cam3.s > 1.02) { mine(1, 0, 0); return; }
+        if (cam3.s > 1.02) { mine(1, 0, 0); syncSplit(); return; }
         var p = svgPoint(e.clientX, e.clientY);
         var s = 2.2;
         mine(s, (VB.x + VB.w / 2) - s * p.x, (VB.y + VB.h / 2) - s * p.y);
+        syncSplit();
       });
 
       /* A trackpad pinch arrives as a wheel with ctrlKey. Desktop is not

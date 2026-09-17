@@ -193,6 +193,113 @@ await pinch(220, 40);
 const out = await scale();
 ok(out < 1.2, 'the reader can always pinch back out', 'scale ' + out);
 
+/* ---- 6. the split says what the pieces are ------------------------
+   Three tones of one hue tell you a muscle has parts. They do not tell
+   you which is which, and "the light one" is not a name anybody can act
+   on. */
+await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  r.querySelector('.map__svg [data-g="chest"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+});
+await page.waitForTimeout(600);
+const split = await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  const svg = r.querySelector('.map__svg');
+  const parts = [...svg.querySelectorAll('.part')];
+  const labels = [...svg.querySelectorAll('.part__label')];
+  return {
+    names: parts.map((p) => p.getAttribute('data-part')),
+    fills: parts.map((p) => getComputedStyle(p).fill),
+    labels: labels.map((t) => t.textContent),
+    labelSize: labels.length ? getComputedStyle(labels[0]).fontSize : '',
+    camS: svg.style.getPropertyValue('--cam-s')
+  };
+});
+ok(split.names.join(',') === 'Upper,Mid,Lower', 'chest divides into its three heads', split.names.join(','));
+ok(new Set(split.fills).size === 3, 'each one a different tone of the same hue', split.fills.join(' | '));
+ok(split.labels.join(',') === 'Upper,Mid,Lower', 'and each one carries its name', split.labels.join(','));
+
+/* A label inside the camera is scaled by the camera unless something
+   divides it back out. At 2.6x a 10px word would render 26px and cover
+   the muscle it names. */
+const px = parseFloat(split.labelSize);
+ok(px > 3 && px < 5.5, 'the label is held at one size on screen, whatever the zoom',
+   split.labelSize + ' at ' + split.camS + 'x');
+
+/* ---- 7. picking a part opens that part's exercises ----------------
+   Not "the list changed": the list must be THAT PART and nothing else.
+   Chest has three sub-lists, and answering a tap on Upper with all three
+   under their own headings is the screen ignoring what was asked. */
+/* The repaint above typed into the search box, and a screen showing
+   search results is not showing a group. Clear it, or this section tests
+   the search rather than the split. */
+await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  const clear = r.querySelector('[data-testid="search-clear"]');
+  if (clear) clear.click();
+  const q = r.querySelector('[data-testid="search-input"]');
+  if (q && q.value) { q.value = ''; q.dispatchEvent(new Event('input', { bubbles: true })); }
+});
+await page.waitForTimeout(400);
+await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  const chest = r.querySelector('.map__svg [data-g="chest"]');
+  if (chest) chest.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+});
+await page.waitForTimeout(600);
+const before = await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  return { rows: r.querySelectorAll('[data-testid^="row-ex-"]').length,
+           heads: [...r.querySelectorAll('.section__head, .t-label')].map((e) => e.textContent.trim()) };
+});
+await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  r.querySelector('.part[data-part="Upper"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+});
+await page.waitForTimeout(600);
+const after2 = await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  return { rows: r.querySelectorAll('[data-testid^="row-ex-"]').length,
+           heads: [...r.querySelectorAll('.section__head, .t-label')].map((e) => e.textContent.trim()) };
+});
+ok(after2.rows > 0, 'picking a part opens its exercises', after2.rows + ' rows');
+ok(after2.heads.length === 1 && /upper/i.test(after2.heads[0]),
+   'and only that part, not the whole group under headings',
+   JSON.stringify(after2.heads));
+ok(after2.rows !== before.rows || before.rows === 0,
+   'the list is not the one that was there before', before.rows + ' -> ' + after2.rows);
+
+/* ---- 8. pinching in divides it too -------------------------------- */
+await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  const back = r.querySelector('[data-testid="libmap-back"], [data-act="map-back"]');
+  if (back) back.click();
+});
+await page.waitForTimeout(400);
+await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  r.querySelector('.map__svg [data-g="chest"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+});
+await page.waitForTimeout(600);
+/* Pinch out to life size: the split should go with it. */
+await pinch(240, 30);
+await page.waitForTimeout(400);
+const outAgain = await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  return { parts: r.querySelectorAll('.part').length, s: r.querySelector('.map__svg').style.getPropertyValue('--cam-s') };
+});
+ok(outAgain.parts === 0, 'pinching back out puts the split away', JSON.stringify(outAgain));
+/* And pinching back in brings it back, with no tap involved. */
+await pinch(40, 240);
+await page.waitForTimeout(500);
+const inAgain = await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  return { parts: r.querySelectorAll('.part').length,
+           labels: r.querySelectorAll('.part__label').length };
+});
+ok(inAgain.parts >= 2 && inAgain.labels >= 2,
+   'and pinching in divides the muscle with no tap involved', JSON.stringify(inAgain));
+
 ok(errors.length === 0, 'no page errors', errors.slice(0, 2).join(' | '));
 
 await browser.close();
