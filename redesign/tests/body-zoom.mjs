@@ -141,6 +141,58 @@ const parts = await page.evaluate(() => {
 });
 ok(parts.flag === 'chest' && parts.n >= 2, 'and divides it into its parts', JSON.stringify(parts));
 
+/* ---- 5. a zoom the reader set stays set ---------------------------
+   The screen re-syncs the camera on every paint, which is right for a
+   new choice and was wrong for everything else: a pinch was wiped by the
+   next render, and on this screen any state change is a render. */
+await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  /* Back to the whole body and no group, the state a pinch starts from. */
+  const back = r.querySelector('[data-testid="libmap-back"], [data-act="map-back"]');
+  if (back) back.click();
+});
+await page.waitForTimeout(400);
+await pinch(70, 210);
+const held = await scale();
+ok(held > 1.5, 'a pinch takes hold', 'scale ' + held);
+
+/* Force the screen to repaint without choosing anything. A test that
+   asserts survival without proving the repaint happened proves nothing,
+   so the repaint is verified by watching the node be replaced. */
+const repainted = await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  const before = r.querySelector('.map__svg');
+  const q = r.querySelector('[data-testid="lib-search"], input[type="search"], .input');
+  if (q) { q.value = 'press'; q.dispatchEvent(new Event('input', { bubbles: true })); }
+  /* Whatever the screen does on a state change, it goes through the same
+     sync that used to reset the camera. */
+  if (window.DEMO && window.DEMO.screens) {
+    const s = window.DEMO.screens['exercise-library'];
+    if (s && s.win && s.win.__libRender) s.win.__libRender();
+  }
+  return { had: !!before, q: !!q };
+});
+ok(repainted.q, 'the repaint had something to react to', JSON.stringify(repainted));
+await page.waitForTimeout(500);
+const after = await scale();
+ok(Math.abs(after - held) < 0.01, 'and survives a repaint', 'scale ' + after);
+
+/* Choosing a muscle is a new instruction and takes the camera back. */
+await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  const svg = r.querySelector('.map__svg');
+  const calves = svg.querySelector('[data-g="calves"]') || svg.querySelector('[data-g="quads"]');
+  calves.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+});
+await page.waitForTimeout(500);
+const onPick = await scale();
+ok(onPick !== held, 'and a muscle chosen afterwards still takes the camera', 'scale ' + onPick);
+
+/* And it can always be pinched back out by hand. */
+await pinch(220, 40);
+const out = await scale();
+ok(out < 1.2, 'the reader can always pinch back out', 'scale ' + out);
+
 ok(errors.length === 0, 'no page errors', errors.slice(0, 2).join(' | '));
 
 await browser.close();

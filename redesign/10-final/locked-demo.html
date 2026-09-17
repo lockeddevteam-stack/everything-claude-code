@@ -8094,8 +8094,31 @@ textarea,
     }
     api.cam3 = function () { return { s: cam3.s, tx: cam3.tx, ty: cam3.ty }; };
 
+    /* ---- A ZOOM THE READER SET THEMSELVES OUTRANKS A RE-SYNC ----------
+       The screen calls zoomTo on every paint, so the camera follows the
+       chosen group rather than being reset behind it. That is right for a
+       new choice and wrong for everything else: a pinch was wiped by the
+       very next render, which on this screen is any state change at all.
+       Zoom in by hand, and the figure snapped back before the fingers
+       were off it.
+
+       So a repeat of the SAME instruction is a re-sync and leaves a
+       hand-set camera alone. A different group, or a different side of
+       the body, is a new instruction and takes the camera back. */
+    var userCam = false;
+    var lastTarget = null;
+    function held(gid, v) {
+      var key = (gid || '') + '|' + v;
+      if (userCam && key === lastTarget) return true;
+      lastTarget = key;
+      userCam = false;
+      return false;
+    }
+    api.zoomHeld = function () { return userCam; };
+
     api.zoomTo = function (gid, view) {
       var v = view || api.view;
+      if (held(gid, v)) return cam3.s > 1.02;
       var box = gid && MEASURED[v] && MEASURED[v][gid];
       if (!box) {
         setCam(1, 0, 0);
@@ -8342,6 +8365,9 @@ textarea,
          flagged for the duration and the stylesheet drops the transition.
          A person who asked for reduced motion already gets the cut. */
       var pinch = null, pan = null, lastTap = 0;
+      /* Anything a finger does to the camera is the reader's, and stays
+         until they choose a different muscle. */
+      function mine(s, tx, ty) { userCam = true; return setCam(s, tx, ty); }
 
       function svgPoint(clientX, clientY) {
         var r = svg.getBoundingClientRect();
@@ -8388,7 +8414,7 @@ textarea,
           /* Hold the midpoint of the two fingers still: the model point
              under it before the pinch must land under it after. */
           var m = pinch.mid;
-          setCam(s, m.x - (m.x - pinch.tx) * (s / pinch.s), m.y - (m.y - pinch.ty) * (s / pinch.s));
+          mine(s, m.x - (m.x - pinch.tx) * (s / pinch.s), m.y - (m.y - pinch.ty) * (s / pinch.s));
           e.preventDefault();
           return;
         }
@@ -8402,7 +8428,7 @@ textarea,
           if (!pan.moved) { pan.moved = true; live(true); }
           var r = svg.getBoundingClientRect();
           var k2 = Math.min(r.width / VB.w, r.height / VB.h) || 1;
-          setCam(cam3.s, pan.tx + dx / k2, pan.ty + dy / k2);
+          mine(cam3.s, pan.tx + dx / k2, pan.ty + dy / k2);
           e.preventDefault();
         }
       }, { passive: false });
@@ -8423,7 +8449,7 @@ textarea,
         }
         /* Snap home rather than resting at 1.01, where the figure is
            still holding the finger for a pan it no longer needs. */
-        if (!pinch && !pan && cam3.s < 1.03 && cam3.s !== 1) setCam(1, 0, 0);
+        if (!pinch && !pan && cam3.s < 1.03 && cam3.s !== 1) mine(1, 0, 0);
       }
       svg.addEventListener('touchend', endGesture);
       svg.addEventListener('touchcancel', endGesture);
@@ -8436,10 +8462,10 @@ textarea,
         var near = lastTap && (now - lastTap) < 300;
         lastTap = near ? 0 : now;
         if (!near) return;
-        if (cam3.s > 1.02) { setCam(1, 0, 0); return; }
+        if (cam3.s > 1.02) { mine(1, 0, 0); return; }
         var p = svgPoint(e.clientX, e.clientY);
         var s = 2.2;
-        setCam(s, (VB.x + VB.w / 2) - s * p.x, (VB.y + VB.h / 2) - s * p.y);
+        mine(s, (VB.x + VB.w / 2) - s * p.x, (VB.y + VB.h / 2) - s * p.y);
       });
 
       /* A trackpad pinch arrives as a wheel with ctrlKey. Desktop is not
@@ -8449,7 +8475,7 @@ textarea,
         e.preventDefault();
         var p = svgPoint(e.clientX, e.clientY);
         var s = Math.max(1, Math.min(cam3.s * (1 - e.deltaY / 200), MAX_S));
-        setCam(s, p.x - (p.x - cam3.tx) * (s / cam3.s), p.y - (p.y - cam3.ty) * (s / cam3.s));
+        mine(s, p.x - (p.x - cam3.tx) * (s / cam3.s), p.y - (p.y - cam3.ty) * (s / cam3.s));
       }, { passive: false });
 
       setCam(1, 0, 0);
