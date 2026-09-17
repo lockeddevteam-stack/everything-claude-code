@@ -766,6 +766,203 @@
        Subscription state lives on the profile row, written by the
        payment webhook with the service key. Nothing a person does in
        this app can make them Pro: the client only ever reads. */
+    /* ---- WHO YOU ARE, BEYOND AN EMAIL ------------------------------
+       A username and a picture live on the profile row, which RLS lets
+       a person update for themselves and column grants limit to the
+       three fields that are actually theirs. Nothing here can touch
+       subscription_status: that is the server's to write and this end's
+       to read. */
+    profile: function () {
+      var c = cfg();
+      if (!API.ready()) return Promise.resolve(NOT_READY);
+      if (!session()) {
+        return Promise.resolve({ ok: false, error: 'signed_out',
+          message: 'Sign in to see your profile.' });
+      }
+      return authed(function () {
+        return fetch(c.supabaseUrl +
+          '/rest/v1/profiles?select=id,email,display_name,username,avatar_url&limit=1',
+          { headers: headers() });
+      }).then(function (r) {
+        return r.json().catch(function () { return []; }).then(function (rows) {
+          var p = Array.isArray(rows) && rows[0];
+          if (!p) return { ok: false, error: 'missing', message: 'No profile row yet.' };
+          return { ok: true, data: { id: p.id, email: p.email,
+                                     name: p.display_name || '',
+                                     username: p.username || '',
+                                     avatar: p.avatar_url || '' } };
+        });
+      }, fail);
+    },
+
+    /* The rules, in one place, so the field can say what is wrong while
+       somebody types rather than after they submit. The database holds
+       the same shape as a check constraint: this is the courtesy copy,
+       not the enforcement. */
+    usernameProblem: function (name) {
+      var u = String(name || '').trim();
+      if (!u) return 'Pick a username.';
+      if (u.length < 3) return 'At least three characters.';
+      if (u.length > 20) return 'Twenty characters at most.';
+      if (!/^[a-zA-Z]/.test(u)) return 'Start with a letter.';
+      if (!/^[a-zA-Z0-9_]+$/.test(u)) return 'Letters, numbers and underscores only.';
+      return '';
+    },
+
+    /* IS IT FREE. A courtesy check, and it is only ever a courtesy: by
+       the time somebody presses the button the answer may have changed,
+       which is why claiming does not trust this and relies on the
+       database's own uniqueness instead. */
+    usernameFree: function (name) {
+      var c = cfg();
+      var bad = API.usernameProblem(name);
+      if (bad) return Promise.resolve({ ok: false, error: 'shape', message: bad });
+      if (!API.ready()) return Promise.resolve(NOT_READY);
+      var u = String(name).trim().toLowerCase();
+      return authed(function () {
+        return fetch(c.supabaseUrl + '/rest/v1/reserved_usernames?select=name&name=eq.' +
+                     encodeURIComponent(u), { headers: headers() });
+      }).then(function (r) {
+        return r.json().catch(function () { return []; });
+      }).then(function (res) {
+        if (Array.isArray(res) && res.length) {
+          return { ok: true, data: { free: false, why: 'reserved',
+            message: 'That one is reserved.' } };
+        }
+        return authed(function () {
+          return fetch(c.supabaseUrl + '/rest/v1/profiles?select=id&username=ilike.' +
+                       encodeURIComponent(u) + '&limit=1', { headers: headers() });
+        }).then(function (r2) {
+          return r2.json().catch(function () { return []; }).then(function (rows) {
+            var taken = Array.isArray(rows) && rows.length > 0;
+            var me = session() && rows[0] && rows[0].id === API.user() && API.user().id;
+            return { ok: true, data: { free: !taken || !!me,
+              why: taken ? 'taken' : '',
+              message: taken ? 'Someone already has that one.' : 'That one is free.' } };
+          });
+        });
+      }, fail);
+    },
+
+    /* CLAIMED BY THE DATABASE, NOT BY A CHECK.
+       Asking "is it free" and then writing it are two statements, and
+       between them somebody else can take the same name. The unique
+       index decides; a 409 back from PostgREST means somebody won the
+       race and is reported as taken rather than as a server error. */
+    claimUsername: function (name) {
+      var c = cfg();
+      var bad = API.usernameProblem(name);
+      if (bad) return Promise.resolve({ ok: false, error: 'shape', message: bad });
+      if (!API.ready()) return Promise.resolve(NOT_READY);
+      var s = session();
+      if (!s) {
+        return Promise.resolve({ ok: false, error: 'signed_out',
+          message: 'Sign in to pick a username.' });
+      }
+      var u = String(name).trim();
+      var me = API.user();
+      if (!me || !me.id) {
+        return Promise.resolve({ ok: false, error: 'signed_out',
+          message: 'Sign in to pick a username.' });
+      }
+      return authed(function () {
+        return fetch(c.supabaseUrl + '/rest/v1/profiles?id=eq.' + encodeURIComponent(me.id), {
+          method: 'PATCH',
+          headers: headers({ Prefer: 'return=representation' }),
+          body: JSON.stringify({ username: u })
+        });
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          if (r.status === 409 || (j && j.code === '23505')) {
+            return { ok: false, error: 'taken',
+              message: 'Someone already has that one. Try another.' };
+          }
+          if (r.status === 400 && j && j.code === '23514') {
+            return { ok: false, error: 'shape',
+              message: 'Three to twenty characters, starting with a letter.' };
+          }
+          if (!r.ok) {
+            return { ok: false, error: 'server',
+              message: (j && (j.message || j.hint)) || 'That could not be saved.' };
+          }
+          var row = Array.isArray(j) ? j[0] : j;
+          return { ok: true, data: { username: (row && row.username) || u } };
+        });
+      }, fail);
+    },
+
+    /* ---- A PICTURE -------------------------------------------------
+       Straight to storage with the person's own token, into a folder
+       named after their id, which is the only folder the bucket's
+       policies let them write. The profile row then points at it.
+
+       The old file is deleted after the new one is pointed at, not
+       before: a failure halfway should leave somebody with their old
+       picture rather than none. */
+    uploadAvatar: function (dataUrl) {
+      var c = cfg();
+      if (!API.ready()) return Promise.resolve(NOT_READY);
+      var me = API.user();
+      if (!me || !me.id) {
+        return Promise.resolve({ ok: false, error: 'signed_out',
+          message: 'Sign in to set a picture.' });
+      }
+      var m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(String(dataUrl || ''));
+      if (!m) {
+        return Promise.resolve({ ok: false, error: 'shape',
+          message: 'That is not an image this can store.' });
+      }
+      var type = m[1];
+      var bytes;
+      try {
+        var bin = g.atob(m[2]);
+        bytes = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      } catch (e) {
+        return Promise.resolve({ ok: false, error: 'shape',
+          message: 'That image could not be read.' });
+      }
+      if (bytes.length > 2 * 1024 * 1024) {
+        return Promise.resolve({ ok: false, error: 'too_big',
+          message: 'That picture is too large. Two megabytes at most.' });
+      }
+      /* The name changes every time, so a phone or a CDN holding the old
+         picture cannot show it in place of the new one. */
+      var ext = type === 'image/png' ? 'png' : type === 'image/webp' ? 'webp' : 'jpg';
+      var path = me.id + '/' + Date.now() + '.' + ext;
+      var base = c.supabaseUrl.replace(/\/$/, '');
+      return authed(function () {
+        var s = session();
+        return fetch(base + '/storage/v1/object/avatars/' + path, {
+          method: 'POST',
+          headers: { 'content-type': type, apikey: c.supabaseKey || '',
+                     authorization: 'Bearer ' + (s ? s.access_token : '') },
+          body: bytes
+        });
+      }).then(function (r) {
+        if (!r.ok) {
+          return r.json().catch(function () { return {}; }).then(function (j) {
+            return { ok: false, error: 'server',
+              message: (j && (j.message || j.error)) || 'The picture could not be uploaded.' };
+          });
+        }
+        var url = base + '/storage/v1/object/public/avatars/' + path;
+        return authed(function () {
+          return fetch(base + '/rest/v1/profiles?id=eq.' + encodeURIComponent(me.id), {
+            method: 'PATCH',
+            headers: headers({ Prefer: 'return=minimal' }),
+            body: JSON.stringify({ avatar_url: url })
+          });
+        }).then(function (r2) {
+          if (!r2.ok) {
+            return { ok: false, error: 'server',
+              message: 'The picture uploaded but the profile would not point at it.' };
+          }
+          return { ok: true, data: { avatar: url, path: path } };
+        });
+      }, fail);
+    },
+
     entitlement: function () {
       if (!API.ready() || !session()) {
         return Promise.resolve({ ok: true, data: FREE_TIER });
@@ -815,7 +1012,17 @@
       var body = {
         system: systemPrompt(context || {}),
         messages: (messages || []).map(function (m) {
-          return { role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content || '') };
+          var out = { role: m.role === 'assistant' ? 'assistant' : 'user',
+                      content: String(m.content || '') };
+          /* A PICTURE RIDES WITH THE TURN IT BELONGS TO. Rebuilding a
+             message from role and content alone is exactly how the
+             Worker lost it before, so the image is carried here too and
+             only when it is one: anything else would be sent, refused,
+             and take the question down with it. */
+          if (m.image && /^data:image\/(jpeg|png|webp|heic|heif);base64,/.test(m.image)) {
+            out.image = m.image;
+          }
+          return out;
         }),
         max_tokens: 3500
       };

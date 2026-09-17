@@ -2395,6 +2395,71 @@ textarea, select {
   color: var(--text-on-accent);
 }
 .composer__send:active { background: var(--accent-deep); color: var(--text-on-solid); }
+
+/* ---- A PICTURE IN THE COMPOSER -------------------------------------
+   The coach takes photos now, and a photo is part of the message rather
+   than an errand of its own, so it attaches beside the words and rides
+   with them when send is pressed.
+
+   The pending thumbnail sits ABOVE the composer rather than inside it:
+   a field that grows a picture inside itself pushes the caret around
+   while somebody is still typing. */
+.composer__attach {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap);
+  height: var(--tap);
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: var(--r-md);
+  corner-shape: var(--corner-smooth);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.composer__attach:active { background: var(--fill); }
+.composer__attach .ico { width: 22px; height: 22px; }
+
+.composer__pending {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  margin: 0 0 var(--sp-2) var(--sp-2);
+  border-radius: var(--r-md);
+  corner-shape: var(--corner-smooth);
+  overflow: hidden;
+  background: var(--fill);
+}
+.composer__pending img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* On the picture, not beside it: a remove control in the margin moves
+   the composer every time a photo is added or dropped. */
+.composer__drop {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  corner-shape: round;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+}
+
+/* In the thread, the photo the question was asked about. Without it a
+   reader scrolls back to an answer about something they cannot see. */
+.msg__photo {
+  display: block;
+  width: 100%;
+  max-width: 220px;
+  border-radius: var(--r-md);
+  corner-shape: var(--corner-smooth);
+  margin-bottom: var(--sp-2);
+}
 /* When a card in the thread is the thing to act on, the accent moves to
    it and the send button steps back. One accent fill, always. */
 .screen[data-accent="card"] .composer__send { background: var(--fill); color: var(--accent-text); }
@@ -3898,6 +3963,13 @@ button.shelf:active { background: var(--fill-press); }
   font-size: var(--type-22); line-height: 1; letter-spacing: 0;
   font-weight: var(--w-semibold);
 }
+
+/* A REAL PICTURE, IN THE SAME CIRCLE. The initial and the photograph are
+   the same control in two states, so they have to occupy the same space
+   exactly: a photo that is a few pixels larger shifts the row it sits in
+   the moment somebody sets one. */
+img.avatar { object-fit: cover; background: var(--fill); }
+.avatar--lg { width: 4.4em; height: 4.4em; font-size: var(--type-28); }
 /* A badge face is a count, so it is tabular and it is never an icon: the
    number IS the badge. */
 .badge-face {
@@ -11348,8 +11420,77 @@ textarea,
     try { return c.toDataURL('image/jpeg', quality || 0.82); } catch (e) { return null; }
   }
 
+  /* A FILE FROM THE LIBRARY, CUT DOWN TO SIZE.
+
+     A photo off a modern phone is several megabytes and eight megapixels,
+     and nothing this app sends one to needs either: a vision model reads
+     a 1024px image as well as a 4032px one, an avatar is shown at 96px,
+     and the difference is entirely somebody's data allowance on a train.
+
+     This lived inside the Fuel screen. Three screens want it now -- the
+     plate, the coach and the profile picture -- and a helper copied three
+     times is a helper that will differ three ways within a month. */
+  function shrink(file, max, quality) {
+    return new Promise(function (done) {
+      try {
+        var img = new g.Image();
+        var url = g.URL.createObjectURL(file);
+        var finish = function (v) {
+          try { g.URL.revokeObjectURL(url); } catch (e) {}
+          done(v);
+        };
+        img.onload = function () {
+          try {
+            var cap = max || 1024;
+            var w = img.width, h = img.height;
+            var f = Math.min(1, cap / Math.max(w, h));
+            var cv = g.document.createElement('canvas');
+            cv.width = Math.round(w * f);
+            cv.height = Math.round(h * f);
+            cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+            finish(cv.toDataURL('image/jpeg', quality || 0.82));
+          } catch (e) { finish(null); }
+        };
+        img.onerror = function () { finish(null); };
+        img.src = url;
+      } catch (e) { done(null); }
+    });
+  }
+
+  /* SQUARE, FROM THE MIDDLE. An avatar is drawn in a circle, so a
+     portrait cropped to a square keeps the face and a portrait squashed
+     into one does not. */
+  function square(file, size) {
+    return new Promise(function (done) {
+      try {
+        var img = new g.Image();
+        var url = g.URL.createObjectURL(file);
+        var finish = function (v) {
+          try { g.URL.revokeObjectURL(url); } catch (e) {}
+          done(v);
+        };
+        img.onload = function () {
+          try {
+            var side = size || 512;
+            var src = Math.min(img.width, img.height);
+            var sx = Math.round((img.width - src) / 2);
+            var sy = Math.round((img.height - src) / 2);
+            var cv = g.document.createElement('canvas');
+            cv.width = side; cv.height = side;
+            cv.getContext('2d').drawImage(img, sx, sy, src, src, 0, 0, side, side);
+            finish(cv.toDataURL('image/jpeg', 0.85));
+          } catch (e) { finish(null); }
+        };
+        img.onerror = function () { finish(null); };
+        img.src = url;
+      } catch (e) { done(null); }
+    });
+  }
+
   g.LKCam = {
     supported: supported,
+    shrink: shrink,
+    square: square,
     start: start,
     attach: attach,
     running: running,
@@ -12168,6 +12309,203 @@ window.LK_CLOUD = {
        Subscription state lives on the profile row, written by the
        payment webhook with the service key. Nothing a person does in
        this app can make them Pro: the client only ever reads. */
+    /* ---- WHO YOU ARE, BEYOND AN EMAIL ------------------------------
+       A username and a picture live on the profile row, which RLS lets
+       a person update for themselves and column grants limit to the
+       three fields that are actually theirs. Nothing here can touch
+       subscription_status: that is the server's to write and this end's
+       to read. */
+    profile: function () {
+      var c = cfg();
+      if (!API.ready()) return Promise.resolve(NOT_READY);
+      if (!session()) {
+        return Promise.resolve({ ok: false, error: 'signed_out',
+          message: 'Sign in to see your profile.' });
+      }
+      return authed(function () {
+        return fetch(c.supabaseUrl +
+          '/rest/v1/profiles?select=id,email,display_name,username,avatar_url&limit=1',
+          { headers: headers() });
+      }).then(function (r) {
+        return r.json().catch(function () { return []; }).then(function (rows) {
+          var p = Array.isArray(rows) && rows[0];
+          if (!p) return { ok: false, error: 'missing', message: 'No profile row yet.' };
+          return { ok: true, data: { id: p.id, email: p.email,
+                                     name: p.display_name || '',
+                                     username: p.username || '',
+                                     avatar: p.avatar_url || '' } };
+        });
+      }, fail);
+    },
+
+    /* The rules, in one place, so the field can say what is wrong while
+       somebody types rather than after they submit. The database holds
+       the same shape as a check constraint: this is the courtesy copy,
+       not the enforcement. */
+    usernameProblem: function (name) {
+      var u = String(name || '').trim();
+      if (!u) return 'Pick a username.';
+      if (u.length < 3) return 'At least three characters.';
+      if (u.length > 20) return 'Twenty characters at most.';
+      if (!/^[a-zA-Z]/.test(u)) return 'Start with a letter.';
+      if (!/^[a-zA-Z0-9_]+$/.test(u)) return 'Letters, numbers and underscores only.';
+      return '';
+    },
+
+    /* IS IT FREE. A courtesy check, and it is only ever a courtesy: by
+       the time somebody presses the button the answer may have changed,
+       which is why claiming does not trust this and relies on the
+       database's own uniqueness instead. */
+    usernameFree: function (name) {
+      var c = cfg();
+      var bad = API.usernameProblem(name);
+      if (bad) return Promise.resolve({ ok: false, error: 'shape', message: bad });
+      if (!API.ready()) return Promise.resolve(NOT_READY);
+      var u = String(name).trim().toLowerCase();
+      return authed(function () {
+        return fetch(c.supabaseUrl + '/rest/v1/reserved_usernames?select=name&name=eq.' +
+                     encodeURIComponent(u), { headers: headers() });
+      }).then(function (r) {
+        return r.json().catch(function () { return []; });
+      }).then(function (res) {
+        if (Array.isArray(res) && res.length) {
+          return { ok: true, data: { free: false, why: 'reserved',
+            message: 'That one is reserved.' } };
+        }
+        return authed(function () {
+          return fetch(c.supabaseUrl + '/rest/v1/profiles?select=id&username=ilike.' +
+                       encodeURIComponent(u) + '&limit=1', { headers: headers() });
+        }).then(function (r2) {
+          return r2.json().catch(function () { return []; }).then(function (rows) {
+            var taken = Array.isArray(rows) && rows.length > 0;
+            var me = session() && rows[0] && rows[0].id === API.user() && API.user().id;
+            return { ok: true, data: { free: !taken || !!me,
+              why: taken ? 'taken' : '',
+              message: taken ? 'Someone already has that one.' : 'That one is free.' } };
+          });
+        });
+      }, fail);
+    },
+
+    /* CLAIMED BY THE DATABASE, NOT BY A CHECK.
+       Asking "is it free" and then writing it are two statements, and
+       between them somebody else can take the same name. The unique
+       index decides; a 409 back from PostgREST means somebody won the
+       race and is reported as taken rather than as a server error. */
+    claimUsername: function (name) {
+      var c = cfg();
+      var bad = API.usernameProblem(name);
+      if (bad) return Promise.resolve({ ok: false, error: 'shape', message: bad });
+      if (!API.ready()) return Promise.resolve(NOT_READY);
+      var s = session();
+      if (!s) {
+        return Promise.resolve({ ok: false, error: 'signed_out',
+          message: 'Sign in to pick a username.' });
+      }
+      var u = String(name).trim();
+      var me = API.user();
+      if (!me || !me.id) {
+        return Promise.resolve({ ok: false, error: 'signed_out',
+          message: 'Sign in to pick a username.' });
+      }
+      return authed(function () {
+        return fetch(c.supabaseUrl + '/rest/v1/profiles?id=eq.' + encodeURIComponent(me.id), {
+          method: 'PATCH',
+          headers: headers({ Prefer: 'return=representation' }),
+          body: JSON.stringify({ username: u })
+        });
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          if (r.status === 409 || (j && j.code === '23505')) {
+            return { ok: false, error: 'taken',
+              message: 'Someone already has that one. Try another.' };
+          }
+          if (r.status === 400 && j && j.code === '23514') {
+            return { ok: false, error: 'shape',
+              message: 'Three to twenty characters, starting with a letter.' };
+          }
+          if (!r.ok) {
+            return { ok: false, error: 'server',
+              message: (j && (j.message || j.hint)) || 'That could not be saved.' };
+          }
+          var row = Array.isArray(j) ? j[0] : j;
+          return { ok: true, data: { username: (row && row.username) || u } };
+        });
+      }, fail);
+    },
+
+    /* ---- A PICTURE -------------------------------------------------
+       Straight to storage with the person's own token, into a folder
+       named after their id, which is the only folder the bucket's
+       policies let them write. The profile row then points at it.
+
+       The old file is deleted after the new one is pointed at, not
+       before: a failure halfway should leave somebody with their old
+       picture rather than none. */
+    uploadAvatar: function (dataUrl) {
+      var c = cfg();
+      if (!API.ready()) return Promise.resolve(NOT_READY);
+      var me = API.user();
+      if (!me || !me.id) {
+        return Promise.resolve({ ok: false, error: 'signed_out',
+          message: 'Sign in to set a picture.' });
+      }
+      var m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(String(dataUrl || ''));
+      if (!m) {
+        return Promise.resolve({ ok: false, error: 'shape',
+          message: 'That is not an image this can store.' });
+      }
+      var type = m[1];
+      var bytes;
+      try {
+        var bin = g.atob(m[2]);
+        bytes = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      } catch (e) {
+        return Promise.resolve({ ok: false, error: 'shape',
+          message: 'That image could not be read.' });
+      }
+      if (bytes.length > 2 * 1024 * 1024) {
+        return Promise.resolve({ ok: false, error: 'too_big',
+          message: 'That picture is too large. Two megabytes at most.' });
+      }
+      /* The name changes every time, so a phone or a CDN holding the old
+         picture cannot show it in place of the new one. */
+      var ext = type === 'image/png' ? 'png' : type === 'image/webp' ? 'webp' : 'jpg';
+      var path = me.id + '/' + Date.now() + '.' + ext;
+      var base = c.supabaseUrl.replace(/\/$/, '');
+      return authed(function () {
+        var s = session();
+        return fetch(base + '/storage/v1/object/avatars/' + path, {
+          method: 'POST',
+          headers: { 'content-type': type, apikey: c.supabaseKey || '',
+                     authorization: 'Bearer ' + (s ? s.access_token : '') },
+          body: bytes
+        });
+      }).then(function (r) {
+        if (!r.ok) {
+          return r.json().catch(function () { return {}; }).then(function (j) {
+            return { ok: false, error: 'server',
+              message: (j && (j.message || j.error)) || 'The picture could not be uploaded.' };
+          });
+        }
+        var url = base + '/storage/v1/object/public/avatars/' + path;
+        return authed(function () {
+          return fetch(base + '/rest/v1/profiles?id=eq.' + encodeURIComponent(me.id), {
+            method: 'PATCH',
+            headers: headers({ Prefer: 'return=minimal' }),
+            body: JSON.stringify({ avatar_url: url })
+          });
+        }).then(function (r2) {
+          if (!r2.ok) {
+            return { ok: false, error: 'server',
+              message: 'The picture uploaded but the profile would not point at it.' };
+          }
+          return { ok: true, data: { avatar: url, path: path } };
+        });
+      }, fail);
+    },
+
     entitlement: function () {
       if (!API.ready() || !session()) {
         return Promise.resolve({ ok: true, data: FREE_TIER });
@@ -12217,7 +12555,17 @@ window.LK_CLOUD = {
       var body = {
         system: systemPrompt(context || {}),
         messages: (messages || []).map(function (m) {
-          return { role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content || '') };
+          var out = { role: m.role === 'assistant' ? 'assistant' : 'user',
+                      content: String(m.content || '') };
+          /* A PICTURE RIDES WITH THE TURN IT BELONGS TO. Rebuilding a
+             message from role and content alone is exactly how the
+             Worker lost it before, so the image is carried here too and
+             only when it is one: anything else would be sent, refused,
+             and take the question down with it. */
+          if (m.image && /^data:image\/(jpeg|png|webp|heic|heif);base64,/.test(m.image)) {
+            out.image = m.image;
+          }
+          return out;
         }),
         max_tokens: 3500
       };
@@ -30867,6 +31215,7 @@ DEMO.define("coach", function (document, window, location, fetch) {
     coach:  '<path d="M20 15a3 3 0 0 1-3 3H9l-4 3V7a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3z"/>',
     user:   '<circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/>',
     send:   '<path d="M5 12h13M12 5l7 7-7 7"/>',
+    camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
     stop:   '<rect x="7" y="7" width="10" height="10" rx="2"/>',
     copy:   '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a1 1 0 0 1 1-1h9"/>',
     retry:  '<path d="M4 12a8 8 0 1 1 2.5 5.8M4 18v-5h5"/>',
@@ -31699,7 +32048,14 @@ DEMO.define("coach", function (document, window, location, fetch) {
         '<div class="msg__col">' +
           '<div class="msg__head"><span class="msg__who">' + (isUser ? 'You' : 'Coach') + '</span>' +
             '<span class="msg__time">' + esc(m.time) + '</span></div>' +
-          '<div class="msg__bubble">' + esc(m.text) + (m.offer ? planCard() : '') +
+          '<div class="msg__bubble">' +
+            /* The picture, in the turn that carried it. A photo shown
+               only while it was pending and then vanishing on send
+               would leave a thread where the coach answers a question
+               nobody can see. */
+            (m.image ? '<img class="msg__photo" src="' + esc(m.image) +
+                       '" alt="The photo you sent" data-testid="msg-photo-' + i + '">' : '') +
+            esc(m.text) + (m.offer ? planCard() : '') +
             (m.limit ? limitCard(m) : '') +
             (m.acts ? actionsBlock(m, i) : '') + '</div>' +
           acts +
@@ -32356,9 +32712,31 @@ DEMO.define("coach", function (document, window, location, fetch) {
   function composer() {
     var c = S.chat;
     var busy = c.status === 'thinking';
-    var send = '<button class="composer__send" data-act="send" ' + (busy || !c.draft.trim() ? 'disabled ' : '') +
+    /* A PICTURE IS A QUESTION TOO. "Does this look like good form", "what
+       is in this", "is this bar loaded right" -- none of which could be
+       asked of a coach that took words only. The photo attaches to the
+       message rather than living in a sheet of its own, because it is
+       part of what somebody is saying and not a separate errand.
+
+       Sending needs one or the other, not both: a photo with no words is
+       a perfectly good question. */
+    var canSend = !busy && (c.draft.trim() || c.photo);
+    var send = '<button class="composer__send" data-act="send" ' + (canSend ? '' : 'disabled ') +
       'aria-label="Send message" data-testid="composer-send">' + ico('send') + '</button>';
-    return '<div class="composer">' +
+    var attach = '<label class="composer__attach" for="chat-photo" ' +
+      'aria-label="Add a photo" data-testid="composer-photo">' + ico('camera') + '</label>' +
+      '<input class="vis-hidden" id="chat-photo" type="file" accept="image/*" ' +
+        'data-testid="composer-photo-input">';
+    var pending = c.photo
+      ? '<div class="composer__pending" data-testid="composer-pending">' +
+          '<img src="' + esc(c.photo) + '" alt="The photo you are about to send">' +
+          '<button class="composer__drop" data-act="drop-photo" type="button" ' +
+            'aria-label="Remove the photo" data-testid="composer-drop-photo">' +
+            '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+          '</button>' +
+        '</div>'
+      : '';
+    return pending + '<div class="composer">' + attach +
       '<textarea class="composer__input" rows="1" placeholder="Ask about your training" aria-label="Message the coach" data-testid="composer-input">' + esc(c.draft) + '</textarea>' +
       send + '</div>';
   }
@@ -33674,16 +34052,23 @@ DEMO.define("coach", function (document, window, location, fetch) {
   /* The thread as the endpoint wants it, newest last, capped so a long
      conversation cannot push the question itself out of the window. */
   function chatForServer() {
-    return S.chat.msgs.filter(function (m) { return !m.error && !m.limit && m.text; })
+    /* A message with a photo and no words is still a message. The filter
+       required text, so sending a picture on its own dropped the very
+       turn that carried it and the coach was asked nothing. */
+    return S.chat.msgs.filter(function (m) { return !m.error && !m.limit && (m.text || m.image); })
       .slice(-12)
       .map(function (m) {
-        return { role: m.role === 'user' ? 'user' : 'assistant', content: String(m.text) };
+        var out = { role: m.role === 'user' ? 'user' : 'assistant', content: String(m.text || '') };
+        if (m.image) out.image = m.image;
+        return out;
       });
   }
 
   function sendMessage(text) {
-    S.chat.msgs.push({ role: 'user', time: nowClock(), text: text });
+    S.chat.msgs.push({ role: 'user', time: nowClock(), text: text,
+                       image: S.chat.photo || null });
     S.chat.draft = '';
+    S.chat.photo = null;
     S.chat.status = 'thinking';
     S.chat.pinned = true;
     persistChat();
@@ -33949,9 +34334,16 @@ DEMO.define("coach", function (document, window, location, fetch) {
        again, posted it twice. */
     'send': function () {
       var text = S.chat.draft.trim();
-      if (!text) return;
+      /* A photo with no words is a perfectly good question -- "what is
+         this", asked by holding it up. Requiring text refused to send
+         one. */
+      if (!text && !S.chat.photo) return;
       S.chat.draft = '';
       sendMessage(text);
+    },
+    'drop-photo': function () {
+      S.chat.photo = null;
+      render();
     },
     'stop': function () {
       S.chat.status = 'ready';
@@ -34566,12 +34958,36 @@ DEMO.define("coach", function (document, window, location, fetch) {
     if (fn) { e.preventDefault(); fn(el); }
   });
 
+  /* THE PHOTO, PICKED AND CUT DOWN BEFORE IT GOES ANYWHERE.
+     A picture off a phone is several megabytes and the model reads a
+     1024px one just as well, so it is shrunk here rather than sent
+     whole over somebody's mobile data. */
+  document.addEventListener('change', function (e) {
+    var el = e.target;
+    if (el.getAttribute('data-testid') !== 'composer-photo-input') return;
+    var file = el.files && el.files[0];
+    el.value = '';
+    if (!file || !window.LKCam) return;
+    LKCam.shrink(file, 1024, 0.82).then(function (dataUrl) {
+      if (!dataUrl) {
+        S.chat.photoMsg = 'That image could not be read on this phone.';
+        render();
+        return;
+      }
+      S.chat.photo = dataUrl;
+      S.chat.photoMsg = '';
+      render();
+    });
+  });
+
   document.addEventListener('input', function (e) {
     var el = e.target;
     if (el.dataset.testid === 'composer-input' || el.getAttribute('data-testid') === 'composer-input') {
       S.chat.draft = el.value;
       var send = phone.querySelector('[data-testid="composer-send"]');
-      if (send) send.disabled = !el.value.trim() || S.chat.status === 'thinking';
+      /* A photo already attached is enough on its own, so the button
+         must not re-disable itself as the last word is deleted. */
+      if (send) send.disabled = (!el.value.trim() && !S.chat.photo) || S.chat.status === 'thinking';
       return;
     }
     if (el.getAttribute('data-act') === 'instr') {
@@ -42533,6 +42949,13 @@ DEMO.define("settings", function (document, window, location, fetch) {
        a name was shown somebody else's. */
     name: PROF.displayName || PROF.name || '',
     username: PROF.username || '',
+    /* Held here so the sheet can draw it before the server answers, and
+       so a picture set on this phone survives a re-render. */
+    avatar: PROF.avatar || '',
+    avatarMsg: '',
+    userMsg: '',
+    userBad: false,
+    acctBusy: false,
     email: PROF.email || '',
     /* lk_profile.useKg, through LKUnits. This screen converted its own rows
        correctly and stored nothing, so the choice reached no other screen and
@@ -43937,18 +44360,58 @@ DEMO.define("settings", function (document, window, location, fetch) {
       'sheet-' + key);
   }
 
+  /* WHO YOU ARE, ALL IN ONE PLACE.
+
+     This sheet held a display name and told you that your username and
+     email "cannot be changed here" -- which was true, because there was
+     nowhere else either. A username is now a thing you claim, and a
+     picture is a thing you set, so both live where the name already did.
+
+     The picture goes up before the sheet closes and the username is
+     claimed on save, because the two fail in different ways: an upload
+     fails on the network and a username fails because somebody else got
+     there first, and a single "could not save" for both would tell
+     nobody which. */
   function profileSheet() {
-    return sheetShell('Your name',
+    var av = S.avatar
+      ? '<img class="avatar avatar--lg" src="' + esc(S.avatar) + '" alt="Your picture" data-testid="acct-avatar">'
+      : '<span class="avatar avatar--lg" aria-hidden="true" data-testid="acct-avatar-none">' +
+          esc((S.name || '?').charAt(0).toUpperCase()) + '</span>';
+    var busy = S.acctBusy;
+    return sheetShell('Your account',
       '<div class="sheet__body">' +
-        '<label class="field">' +
+        '<div class="hstack hstack--3" data-testid="acct-picture">' + av +
+          '<span class="stack stack--1 grow">' +
+            '<label class="btn btn--secondary" for="f-avatar">' +
+              '<span class="btn__label">' + (S.avatar ? 'Change picture' : 'Add a picture') + '</span></label>' +
+            '<input class="vis-hidden" id="f-avatar" type="file" accept="image/*" ' +
+              'data-testid="acct-avatar-input">' +
+            (S.avatarMsg
+              ? '<span class="t-caption-1 quiet" data-testid="acct-avatar-msg">' + esc(S.avatarMsg) + '</span>'
+              : '') +
+          '</span>' +
+        '</div>' +
+        '<label class="field mt-4">' +
           '<span class="field__label t-detail">Display name</span>' +
           '<input class="input" id="f-name" value="' + esc(S.name) + '" data-testid="field-name" autocomplete="off">' +
         '</label>' +
-        '<p class="field__help">@' + esc(S.username) + ' and ' + esc(S.email) + ' cannot be changed here.</p>' +
+        '<label class="field mt-3">' +
+          '<span class="field__label t-detail">Username</span>' +
+          '<input class="input" id="f-username" value="' + esc(S.username) + '" ' +
+            'data-testid="field-username" autocomplete="off" autocapitalize="none" ' +
+            'spellcheck="false" placeholder="yourname">' +
+        '</label>' +
+        (S.userMsg
+          ? '<p class="field__help' + (S.userBad ? ' field__error' : '') + '" ' +
+              'data-testid="acct-username-msg">' + esc(S.userMsg) + '</p>'
+          : '<p class="field__help">Three to twenty characters, starting with a letter. ' +
+            'Yours alone once you take it.</p>') +
+        '<p class="field__help mt-2">' + esc(S.email) + ' cannot be changed here.</p>' +
       '</div>' +
       '<div class="sheet__foot stack stack--2">' +
-        '<button class="btn btn--secondary btn--block" data-action="save-name" data-testid="save-name">' +
-          '<span class="btn__label">Save</span></button>' +
+        '<button class="btn btn--secondary btn--block"' + (busy ? ' disabled aria-busy="true"' : '') +
+          ' data-action="save-name" data-testid="save-name">' +
+          '<span class="btn__label">' + (busy ? 'Saving' : 'Save') + '</span></button>' +
       '</div>', 'sheet-profile');
   }
 
@@ -44179,6 +44642,42 @@ DEMO.define("settings", function (document, window, location, fetch) {
     var tid = el && el.getAttribute ? el.getAttribute('data-testid') : null;
     handOnboarding(tid);
   });
+  /* THE PICTURE, CHOSEN AND SENT.
+     Cropped square from the middle before it goes up, because an avatar
+     is drawn in a circle and a portrait squashed into one is a portrait
+     nobody recognises. It uploads immediately rather than waiting for
+     Save: the file is already chosen, and a picture that only appears
+     after a button somebody did not press reads as not having worked. */
+  document.addEventListener('change', function (e) {
+    var el = e.target;
+    if (el.getAttribute('data-testid') !== 'acct-avatar-input') return;
+    var file = el.files && el.files[0];
+    el.value = '';
+    var C = window.LKCloud;
+    if (!file || !window.LKCam) return;
+    if (!C || !C.uploadAvatar || !C.signedIn || !C.signedIn()) {
+      S.avatarMsg = 'Sign in to set a picture.';
+      render();
+      return;
+    }
+    S.avatarMsg = 'Uploading.';
+    render();
+    LKCam.square(file, 512).then(function (dataUrl) {
+      if (!dataUrl) {
+        S.avatarMsg = 'That image could not be read on this phone.';
+        render();
+        return;
+      }
+      return C.uploadAvatar(dataUrl).then(function (r) {
+        if (!r.ok) { S.avatarMsg = r.message; render(); return; }
+        S.avatar = r.data.avatar;
+        S.avatarMsg = '';
+        patchKey('lk_profile', { avatar: S.avatar });
+        render();
+      });
+    });
+  });
+
   document.addEventListener('click', function (e) {
     var el = e.target.closest ? e.target.closest('[data-testid]') : null;
     if (el) handOnboarding(el.getAttribute('data-testid'));
@@ -44424,6 +44923,37 @@ DEMO.define("settings", function (document, window, location, fetch) {
       /* lk_profile.displayName, so Profile's header reads what was typed
          here. The old Save closed the sheet and wrote nothing at all. */
       patchKey('lk_profile', { displayName: S.name });
+
+      /* THE USERNAME IS CLAIMED, NOT SAVED. The name above is yours to
+         type; a username is a thing only one person can hold, so it goes
+         to the database and the database decides. A clash comes back as
+         a clash and the sheet stays open on the field, because closing
+         it would leave somebody believing they had the name. */
+      var uv = ((document.getElementById('f-username') || {}).value || '').trim();
+      var C = window.LKCloud;
+      if (uv && uv.toLowerCase() !== String(S.username || '').toLowerCase() &&
+          C && C.claimUsername) {
+        var shape = C.usernameProblem(uv);
+        if (shape) {
+          S.userMsg = shape; S.userBad = true; render();
+          return;
+        }
+        S.acctBusy = true; S.userMsg = ''; S.userBad = false; render();
+        C.claimUsername(uv).then(function (r) {
+          S.acctBusy = false;
+          if (!r.ok) {
+            S.userMsg = r.message; S.userBad = true; render();
+            return;
+          }
+          S.username = r.data.username;
+          S.userMsg = ''; S.userBad = false;
+          patchKey('lk_profile', { username: S.username });
+          closeOverlay('row-identity');
+          toast('Saved. You are @' + S.username + '.');
+        });
+        return;
+      }
+
       closeOverlay('row-identity');
       toast('Name saved.');
 

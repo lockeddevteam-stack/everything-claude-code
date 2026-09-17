@@ -161,8 +161,77 @@
     try { return c.toDataURL('image/jpeg', quality || 0.82); } catch (e) { return null; }
   }
 
+  /* A FILE FROM THE LIBRARY, CUT DOWN TO SIZE.
+
+     A photo off a modern phone is several megabytes and eight megapixels,
+     and nothing this app sends one to needs either: a vision model reads
+     a 1024px image as well as a 4032px one, an avatar is shown at 96px,
+     and the difference is entirely somebody's data allowance on a train.
+
+     This lived inside the Fuel screen. Three screens want it now -- the
+     plate, the coach and the profile picture -- and a helper copied three
+     times is a helper that will differ three ways within a month. */
+  function shrink(file, max, quality) {
+    return new Promise(function (done) {
+      try {
+        var img = new g.Image();
+        var url = g.URL.createObjectURL(file);
+        var finish = function (v) {
+          try { g.URL.revokeObjectURL(url); } catch (e) {}
+          done(v);
+        };
+        img.onload = function () {
+          try {
+            var cap = max || 1024;
+            var w = img.width, h = img.height;
+            var f = Math.min(1, cap / Math.max(w, h));
+            var cv = g.document.createElement('canvas');
+            cv.width = Math.round(w * f);
+            cv.height = Math.round(h * f);
+            cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+            finish(cv.toDataURL('image/jpeg', quality || 0.82));
+          } catch (e) { finish(null); }
+        };
+        img.onerror = function () { finish(null); };
+        img.src = url;
+      } catch (e) { done(null); }
+    });
+  }
+
+  /* SQUARE, FROM THE MIDDLE. An avatar is drawn in a circle, so a
+     portrait cropped to a square keeps the face and a portrait squashed
+     into one does not. */
+  function square(file, size) {
+    return new Promise(function (done) {
+      try {
+        var img = new g.Image();
+        var url = g.URL.createObjectURL(file);
+        var finish = function (v) {
+          try { g.URL.revokeObjectURL(url); } catch (e) {}
+          done(v);
+        };
+        img.onload = function () {
+          try {
+            var side = size || 512;
+            var src = Math.min(img.width, img.height);
+            var sx = Math.round((img.width - src) / 2);
+            var sy = Math.round((img.height - src) / 2);
+            var cv = g.document.createElement('canvas');
+            cv.width = side; cv.height = side;
+            cv.getContext('2d').drawImage(img, sx, sy, src, src, 0, 0, side, side);
+            finish(cv.toDataURL('image/jpeg', 0.85));
+          } catch (e) { finish(null); }
+        };
+        img.onerror = function () { finish(null); };
+        img.src = url;
+      } catch (e) { done(null); }
+    });
+  }
+
   g.LKCam = {
     supported: supported,
+    shrink: shrink,
+    square: square,
     start: start,
     attach: attach,
     running: running,

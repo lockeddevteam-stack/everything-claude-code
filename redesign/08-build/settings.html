@@ -380,6 +380,13 @@
        a name was shown somebody else's. */
     name: PROF.displayName || PROF.name || '',
     username: PROF.username || '',
+    /* Held here so the sheet can draw it before the server answers, and
+       so a picture set on this phone survives a re-render. */
+    avatar: PROF.avatar || '',
+    avatarMsg: '',
+    userMsg: '',
+    userBad: false,
+    acctBusy: false,
     email: PROF.email || '',
     /* lk_profile.useKg, through LKUnits. This screen converted its own rows
        correctly and stored nothing, so the choice reached no other screen and
@@ -1784,18 +1791,58 @@
       'sheet-' + key);
   }
 
+  /* WHO YOU ARE, ALL IN ONE PLACE.
+
+     This sheet held a display name and told you that your username and
+     email "cannot be changed here" -- which was true, because there was
+     nowhere else either. A username is now a thing you claim, and a
+     picture is a thing you set, so both live where the name already did.
+
+     The picture goes up before the sheet closes and the username is
+     claimed on save, because the two fail in different ways: an upload
+     fails on the network and a username fails because somebody else got
+     there first, and a single "could not save" for both would tell
+     nobody which. */
   function profileSheet() {
-    return sheetShell('Your name',
+    var av = S.avatar
+      ? '<img class="avatar avatar--lg" src="' + esc(S.avatar) + '" alt="Your picture" data-testid="acct-avatar">'
+      : '<span class="avatar avatar--lg" aria-hidden="true" data-testid="acct-avatar-none">' +
+          esc((S.name || '?').charAt(0).toUpperCase()) + '</span>';
+    var busy = S.acctBusy;
+    return sheetShell('Your account',
       '<div class="sheet__body">' +
-        '<label class="field">' +
+        '<div class="hstack hstack--3" data-testid="acct-picture">' + av +
+          '<span class="stack stack--1 grow">' +
+            '<label class="btn btn--secondary" for="f-avatar">' +
+              '<span class="btn__label">' + (S.avatar ? 'Change picture' : 'Add a picture') + '</span></label>' +
+            '<input class="vis-hidden" id="f-avatar" type="file" accept="image/*" ' +
+              'data-testid="acct-avatar-input">' +
+            (S.avatarMsg
+              ? '<span class="t-caption-1 quiet" data-testid="acct-avatar-msg">' + esc(S.avatarMsg) + '</span>'
+              : '') +
+          '</span>' +
+        '</div>' +
+        '<label class="field mt-4">' +
           '<span class="field__label t-detail">Display name</span>' +
           '<input class="input" id="f-name" value="' + esc(S.name) + '" data-testid="field-name" autocomplete="off">' +
         '</label>' +
-        '<p class="field__help">@' + esc(S.username) + ' and ' + esc(S.email) + ' cannot be changed here.</p>' +
+        '<label class="field mt-3">' +
+          '<span class="field__label t-detail">Username</span>' +
+          '<input class="input" id="f-username" value="' + esc(S.username) + '" ' +
+            'data-testid="field-username" autocomplete="off" autocapitalize="none" ' +
+            'spellcheck="false" placeholder="yourname">' +
+        '</label>' +
+        (S.userMsg
+          ? '<p class="field__help' + (S.userBad ? ' field__error' : '') + '" ' +
+              'data-testid="acct-username-msg">' + esc(S.userMsg) + '</p>'
+          : '<p class="field__help">Three to twenty characters, starting with a letter. ' +
+            'Yours alone once you take it.</p>') +
+        '<p class="field__help mt-2">' + esc(S.email) + ' cannot be changed here.</p>' +
       '</div>' +
       '<div class="sheet__foot stack stack--2">' +
-        '<button class="btn btn--secondary btn--block" data-action="save-name" data-testid="save-name">' +
-          '<span class="btn__label">Save</span></button>' +
+        '<button class="btn btn--secondary btn--block"' + (busy ? ' disabled aria-busy="true"' : '') +
+          ' data-action="save-name" data-testid="save-name">' +
+          '<span class="btn__label">' + (busy ? 'Saving' : 'Save') + '</span></button>' +
       '</div>', 'sheet-profile');
   }
 
@@ -2026,6 +2073,42 @@
     var tid = el && el.getAttribute ? el.getAttribute('data-testid') : null;
     handOnboarding(tid);
   });
+  /* THE PICTURE, CHOSEN AND SENT.
+     Cropped square from the middle before it goes up, because an avatar
+     is drawn in a circle and a portrait squashed into one is a portrait
+     nobody recognises. It uploads immediately rather than waiting for
+     Save: the file is already chosen, and a picture that only appears
+     after a button somebody did not press reads as not having worked. */
+  document.addEventListener('change', function (e) {
+    var el = e.target;
+    if (el.getAttribute('data-testid') !== 'acct-avatar-input') return;
+    var file = el.files && el.files[0];
+    el.value = '';
+    var C = window.LKCloud;
+    if (!file || !window.LKCam) return;
+    if (!C || !C.uploadAvatar || !C.signedIn || !C.signedIn()) {
+      S.avatarMsg = 'Sign in to set a picture.';
+      render();
+      return;
+    }
+    S.avatarMsg = 'Uploading.';
+    render();
+    LKCam.square(file, 512).then(function (dataUrl) {
+      if (!dataUrl) {
+        S.avatarMsg = 'That image could not be read on this phone.';
+        render();
+        return;
+      }
+      return C.uploadAvatar(dataUrl).then(function (r) {
+        if (!r.ok) { S.avatarMsg = r.message; render(); return; }
+        S.avatar = r.data.avatar;
+        S.avatarMsg = '';
+        patchKey('lk_profile', { avatar: S.avatar });
+        render();
+      });
+    });
+  });
+
   document.addEventListener('click', function (e) {
     var el = e.target.closest ? e.target.closest('[data-testid]') : null;
     if (el) handOnboarding(el.getAttribute('data-testid'));
@@ -2271,6 +2354,37 @@
       /* lk_profile.displayName, so Profile's header reads what was typed
          here. The old Save closed the sheet and wrote nothing at all. */
       patchKey('lk_profile', { displayName: S.name });
+
+      /* THE USERNAME IS CLAIMED, NOT SAVED. The name above is yours to
+         type; a username is a thing only one person can hold, so it goes
+         to the database and the database decides. A clash comes back as
+         a clash and the sheet stays open on the field, because closing
+         it would leave somebody believing they had the name. */
+      var uv = ((document.getElementById('f-username') || {}).value || '').trim();
+      var C = window.LKCloud;
+      if (uv && uv.toLowerCase() !== String(S.username || '').toLowerCase() &&
+          C && C.claimUsername) {
+        var shape = C.usernameProblem(uv);
+        if (shape) {
+          S.userMsg = shape; S.userBad = true; render();
+          return;
+        }
+        S.acctBusy = true; S.userMsg = ''; S.userBad = false; render();
+        C.claimUsername(uv).then(function (r) {
+          S.acctBusy = false;
+          if (!r.ok) {
+            S.userMsg = r.message; S.userBad = true; render();
+            return;
+          }
+          S.username = r.data.username;
+          S.userMsg = ''; S.userBad = false;
+          patchKey('lk_profile', { username: S.username });
+          closeOverlay('row-identity');
+          toast('Saved. You are @' + S.username + '.');
+        });
+        return;
+      }
+
       closeOverlay('row-identity');
       toast('Name saved.');
 

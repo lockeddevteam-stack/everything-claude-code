@@ -104,6 +104,7 @@
     coach:  '<path d="M20 15a3 3 0 0 1-3 3H9l-4 3V7a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3z"/>',
     user:   '<circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/>',
     send:   '<path d="M5 12h13M12 5l7 7-7 7"/>',
+    camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
     stop:   '<rect x="7" y="7" width="10" height="10" rx="2"/>',
     copy:   '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a1 1 0 0 1 1-1h9"/>',
     retry:  '<path d="M4 12a8 8 0 1 1 2.5 5.8M4 18v-5h5"/>',
@@ -936,7 +937,14 @@
         '<div class="msg__col">' +
           '<div class="msg__head"><span class="msg__who">' + (isUser ? 'You' : 'Coach') + '</span>' +
             '<span class="msg__time">' + esc(m.time) + '</span></div>' +
-          '<div class="msg__bubble">' + esc(m.text) + (m.offer ? planCard() : '') +
+          '<div class="msg__bubble">' +
+            /* The picture, in the turn that carried it. A photo shown
+               only while it was pending and then vanishing on send
+               would leave a thread where the coach answers a question
+               nobody can see. */
+            (m.image ? '<img class="msg__photo" src="' + esc(m.image) +
+                       '" alt="The photo you sent" data-testid="msg-photo-' + i + '">' : '') +
+            esc(m.text) + (m.offer ? planCard() : '') +
             (m.limit ? limitCard(m) : '') +
             (m.acts ? actionsBlock(m, i) : '') + '</div>' +
           acts +
@@ -1593,9 +1601,31 @@
   function composer() {
     var c = S.chat;
     var busy = c.status === 'thinking';
-    var send = '<button class="composer__send" data-act="send" ' + (busy || !c.draft.trim() ? 'disabled ' : '') +
+    /* A PICTURE IS A QUESTION TOO. "Does this look like good form", "what
+       is in this", "is this bar loaded right" -- none of which could be
+       asked of a coach that took words only. The photo attaches to the
+       message rather than living in a sheet of its own, because it is
+       part of what somebody is saying and not a separate errand.
+
+       Sending needs one or the other, not both: a photo with no words is
+       a perfectly good question. */
+    var canSend = !busy && (c.draft.trim() || c.photo);
+    var send = '<button class="composer__send" data-act="send" ' + (canSend ? '' : 'disabled ') +
       'aria-label="Send message" data-testid="composer-send">' + ico('send') + '</button>';
-    return '<div class="composer">' +
+    var attach = '<label class="composer__attach" for="chat-photo" ' +
+      'aria-label="Add a photo" data-testid="composer-photo">' + ico('camera') + '</label>' +
+      '<input class="vis-hidden" id="chat-photo" type="file" accept="image/*" ' +
+        'data-testid="composer-photo-input">';
+    var pending = c.photo
+      ? '<div class="composer__pending" data-testid="composer-pending">' +
+          '<img src="' + esc(c.photo) + '" alt="The photo you are about to send">' +
+          '<button class="composer__drop" data-act="drop-photo" type="button" ' +
+            'aria-label="Remove the photo" data-testid="composer-drop-photo">' +
+            '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+          '</button>' +
+        '</div>'
+      : '';
+    return pending + '<div class="composer">' + attach +
       '<textarea class="composer__input" rows="1" placeholder="Ask about your training" aria-label="Message the coach" data-testid="composer-input">' + esc(c.draft) + '</textarea>' +
       send + '</div>';
   }
@@ -2911,16 +2941,23 @@
   /* The thread as the endpoint wants it, newest last, capped so a long
      conversation cannot push the question itself out of the window. */
   function chatForServer() {
-    return S.chat.msgs.filter(function (m) { return !m.error && !m.limit && m.text; })
+    /* A message with a photo and no words is still a message. The filter
+       required text, so sending a picture on its own dropped the very
+       turn that carried it and the coach was asked nothing. */
+    return S.chat.msgs.filter(function (m) { return !m.error && !m.limit && (m.text || m.image); })
       .slice(-12)
       .map(function (m) {
-        return { role: m.role === 'user' ? 'user' : 'assistant', content: String(m.text) };
+        var out = { role: m.role === 'user' ? 'user' : 'assistant', content: String(m.text || '') };
+        if (m.image) out.image = m.image;
+        return out;
       });
   }
 
   function sendMessage(text) {
-    S.chat.msgs.push({ role: 'user', time: nowClock(), text: text });
+    S.chat.msgs.push({ role: 'user', time: nowClock(), text: text,
+                       image: S.chat.photo || null });
     S.chat.draft = '';
+    S.chat.photo = null;
     S.chat.status = 'thinking';
     S.chat.pinned = true;
     persistChat();
@@ -3186,9 +3223,16 @@
        again, posted it twice. */
     'send': function () {
       var text = S.chat.draft.trim();
-      if (!text) return;
+      /* A photo with no words is a perfectly good question -- "what is
+         this", asked by holding it up. Requiring text refused to send
+         one. */
+      if (!text && !S.chat.photo) return;
       S.chat.draft = '';
       sendMessage(text);
+    },
+    'drop-photo': function () {
+      S.chat.photo = null;
+      render();
     },
     'stop': function () {
       S.chat.status = 'ready';
@@ -3803,12 +3847,36 @@
     if (fn) { e.preventDefault(); fn(el); }
   });
 
+  /* THE PHOTO, PICKED AND CUT DOWN BEFORE IT GOES ANYWHERE.
+     A picture off a phone is several megabytes and the model reads a
+     1024px one just as well, so it is shrunk here rather than sent
+     whole over somebody's mobile data. */
+  document.addEventListener('change', function (e) {
+    var el = e.target;
+    if (el.getAttribute('data-testid') !== 'composer-photo-input') return;
+    var file = el.files && el.files[0];
+    el.value = '';
+    if (!file || !window.LKCam) return;
+    LKCam.shrink(file, 1024, 0.82).then(function (dataUrl) {
+      if (!dataUrl) {
+        S.chat.photoMsg = 'That image could not be read on this phone.';
+        render();
+        return;
+      }
+      S.chat.photo = dataUrl;
+      S.chat.photoMsg = '';
+      render();
+    });
+  });
+
   document.addEventListener('input', function (e) {
     var el = e.target;
     if (el.dataset.testid === 'composer-input' || el.getAttribute('data-testid') === 'composer-input') {
       S.chat.draft = el.value;
       var send = phone.querySelector('[data-testid="composer-send"]');
-      if (send) send.disabled = !el.value.trim() || S.chat.status === 'thinking';
+      /* A photo already attached is enough on its own, so the button
+         must not re-disable itself as the last word is deleted. */
+      if (send) send.disabled = (!el.value.trim() && !S.chat.photo) || S.chat.status === 'thinking';
       return;
     }
     if (el.getAttribute('data-act') === 'instr') {
