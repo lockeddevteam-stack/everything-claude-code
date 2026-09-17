@@ -478,12 +478,44 @@
        CSS carries it, so a person who has asked for less motion gets the
        cut rather than the move. */
     var VB = { x: -16, y: 8, w: 240, h: 402 };
+
+    /* ---- ONE CAMERA, TWO DRIVERS ---------------------------------------
+       zoomTo frames a muscle when one is chosen. Fingers move the same
+       camera. They have to share a state and a clamp, or a pinch after a
+       tap fights the transform the tap left behind. */
+    var cam3 = { s: 1, tx: 0, ty: 0 };
+    var MAX_S = 4;
+
+    function clampCam(s, tx, ty) {
+      s = Math.max(1, Math.min(s, MAX_S));
+      /* Never show past the figure's own edges. */
+      var minTx = VB.x + VB.w - s * (VB.x + VB.w), maxTx = VB.x - s * VB.x;
+      var minTy = VB.y + VB.h - s * (VB.y + VB.h), maxTy = VB.y - s * VB.y;
+      return { s: s,
+               tx: Math.max(Math.min(tx, maxTx), minTx),
+               ty: Math.max(Math.min(ty, maxTy), minTy) };
+    }
+
+    function setCam(s, tx, ty) {
+      var c = clampCam(s, tx, ty);
+      cam3 = c;
+      cam.setAttribute('transform',
+        'translate(' + n2(c.tx) + ' ' + n2(c.ty) + ') scale(' + (Math.round(c.s * 1e4) / 1e4) + ')');
+      cam.setAttribute('data-zoomed', c.s > 1.02 ? 'true' : 'false');
+      /* A figure at rest lets the page scroll under a finger. A figure
+         that has been zoomed into keeps the finger for panning, which is
+         the only way to reach the parts now off-frame. Scoped to the SVG,
+         so nothing else on the screen changes behaviour. */
+      svg.style.touchAction = c.s > 1.02 ? 'none' : 'pan-y';
+      return c;
+    }
+    api.cam3 = function () { return { s: cam3.s, tx: cam3.tx, ty: cam3.ty }; };
+
     api.zoomTo = function (gid, view) {
       var v = view || api.view;
       var box = gid && MEASURED[v] && MEASURED[v][gid];
       if (!box) {
-        cam.setAttribute('transform', 'translate(0 0) scale(1)');
-        cam.setAttribute('data-zoomed', 'false');
+        setCam(1, 0, 0);
         return false;
       }
       /* A PAIRED MUSCLE IS TWO MUSCLES WIDE, and framing both of them is
@@ -513,16 +545,7 @@
       var s = Math.min((VB.w - pad * 2) / b.w, (VB.h - pad * 2) / b.h);
       s = Math.max(1, Math.min(s, 2.6));
       var cx = b.x + b.w / 2, cy = b.y + b.h / 2;
-      var tx = (VB.x + VB.w / 2) - s * cx;
-      var ty = (VB.y + VB.h / 2) - s * cy;
-      /* Never show past the figure's own edges. */
-      var minTx = VB.x + VB.w - s * (VB.x + VB.w), maxTx = VB.x - s * VB.x;
-      var minTy = VB.y + VB.h - s * (VB.y + VB.h), maxTy = VB.y - s * VB.y;
-      tx = Math.max(Math.min(tx, maxTx), minTx);
-      ty = Math.max(Math.min(ty, maxTy), minTy);
-      cam.setAttribute('transform',
-        'translate(' + n2(tx) + ' ' + n2(ty) + ') scale(' + (Math.round(s * 1e4) / 1e4) + ')');
-      cam.setAttribute('data-zoomed', 'true');
+      setCam(s, (VB.x + VB.w / 2) - s * cx, (VB.y + VB.h / 2) - s * cy);
       return true;
     };
 
@@ -722,6 +745,131 @@
         if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
         choose(e.target, e);
       });
+
+      /* ---- FINGERS ON THE FIGURE, AND NOWHERE ELSE --------------------
+         Pinch to zoom, drag to pan once zoomed, double-tap to go in and
+         out. All of it bound to the SVG, so the page around it keeps the
+         behaviour it had: at rest the element allows pan-y and a finger
+         dragged over the body scrolls the screen as before; once zoomed
+         it takes the finger, because panning is the only way to reach the
+         parts now outside the frame.
+
+         The transform is animated by CSS. During a gesture that animation
+         is the enemy -- it lags the fingers by 300ms -- so the element is
+         flagged for the duration and the stylesheet drops the transition.
+         A person who asked for reduced motion already gets the cut. */
+      var pinch = null, pan = null, lastTap = 0;
+
+      function svgPoint(clientX, clientY) {
+        var r = svg.getBoundingClientRect();
+        if (!r.width || !r.height) return { x: 0, y: 0 };
+        /* preserveAspectRatio is xMidYMid meet, so the viewBox is letter-
+           boxed inside the element and the scale is the smaller of the
+           two ratios. Reading only the width was wrong on any frame that
+           is not the viewBox's own aspect. */
+        var k = Math.min(r.width / VB.w, r.height / VB.h);
+        var ox = r.left + (r.width - VB.w * k) / 2;
+        var oy = r.top + (r.height - VB.h * k) / 2;
+        return { x: VB.x + (clientX - ox) / k, y: VB.y + (clientY - oy) / k };
+      }
+      function live(on) {
+        if (on) svg.setAttribute('data-gesture', 'true');
+        else svg.removeAttribute('data-gesture');
+      }
+      function dist(a, b) {
+        var dx = a.clientX - b.clientX, dy = a.clientY - b.clientY;
+        return Math.sqrt(dx * dx + dy * dy) || 1;
+      }
+
+      svg.addEventListener('touchstart', function (e) {
+        if (e.touches.length === 2) {
+          pan = null;
+          var a = e.touches[0], b = e.touches[1];
+          var mid = svgPoint((a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2);
+          pinch = { d: dist(a, b), s: cam3.s, tx: cam3.tx, ty: cam3.ty, mid: mid };
+          live(true);
+          e.preventDefault();
+          return;
+        }
+        if (e.touches.length === 1 && cam3.s > 1.02) {
+          var t = e.touches[0];
+          pan = { x: t.clientX, y: t.clientY, tx: cam3.tx, ty: cam3.ty, moved: false };
+        }
+      }, { passive: false });
+
+      svg.addEventListener('touchmove', function (e) {
+        if (pinch && e.touches.length === 2) {
+          var a = e.touches[0], b = e.touches[1];
+          var k = dist(a, b) / pinch.d;
+          var s = Math.max(1, Math.min(pinch.s * k, MAX_S));
+          /* Hold the midpoint of the two fingers still: the model point
+             under it before the pinch must land under it after. */
+          var m = pinch.mid;
+          setCam(s, m.x - (m.x - pinch.tx) * (s / pinch.s), m.y - (m.y - pinch.ty) * (s / pinch.s));
+          e.preventDefault();
+          return;
+        }
+        if (pan && e.touches.length === 1) {
+          var t = e.touches[0];
+          var dx = t.clientX - pan.x, dy = t.clientY - pan.y;
+          /* A tap wobbles. Below the slop it is still a tap, and taking
+             the event would cost the reader the muscle they meant to
+             choose. */
+          if (!pan.moved && Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+          if (!pan.moved) { pan.moved = true; live(true); }
+          var r = svg.getBoundingClientRect();
+          var k2 = Math.min(r.width / VB.w, r.height / VB.h) || 1;
+          setCam(cam3.s, pan.tx + dx / k2, pan.ty + dy / k2);
+          e.preventDefault();
+        }
+      }, { passive: false });
+
+      function endGesture(e) {
+        if (pinch && (!e.touches || e.touches.length < 2)) { pinch = null; live(false); }
+        if (pan && (!e.touches || e.touches.length === 0)) {
+          /* A drag is not a tap. Swallow the click the browser is about
+             to synthesise, or panning across the figure also picks a
+             muscle. */
+          if (pan.moved) {
+            svg.addEventListener('click', function swallow(ev) {
+              ev.stopPropagation(); ev.preventDefault();
+              svg.removeEventListener('click', swallow, true);
+            }, true);
+          }
+          pan = null; live(false);
+        }
+        /* Snap home rather than resting at 1.01, where the figure is
+           still holding the finger for a pan it no longer needs. */
+        if (!pinch && !pan && cam3.s < 1.03 && cam3.s !== 1) setCam(1, 0, 0);
+      }
+      svg.addEventListener('touchend', endGesture);
+      svg.addEventListener('touchcancel', endGesture);
+
+      /* DOUBLE TAP. Two taps in 300ms within a thumb's width of each
+         other: in if we are out, out if we are in. */
+      svg.addEventListener('pointerup', function (e) {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        var now = Date.now();
+        var near = lastTap && (now - lastTap) < 300;
+        lastTap = near ? 0 : now;
+        if (!near) return;
+        if (cam3.s > 1.02) { setCam(1, 0, 0); return; }
+        var p = svgPoint(e.clientX, e.clientY);
+        var s = 2.2;
+        setCam(s, (VB.x + VB.w / 2) - s * p.x, (VB.y + VB.h / 2) - s * p.y);
+      });
+
+      /* A trackpad pinch arrives as a wheel with ctrlKey. Desktop is not
+         the target, but it is where this gets tested. */
+      svg.addEventListener('wheel', function (e) {
+        if (!e.ctrlKey) return;
+        e.preventDefault();
+        var p = svgPoint(e.clientX, e.clientY);
+        var s = Math.max(1, Math.min(cam3.s * (1 - e.deltaY / 200), MAX_S));
+        setCam(s, p.x - (p.x - cam3.tx) * (s / cam3.s), p.y - (p.y - cam3.ty) * (s / cam3.s));
+      }, { passive: false });
+
+      setCam(1, 0, 0);
     }
 
     return api;
