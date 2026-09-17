@@ -104,6 +104,85 @@ const blankCamera = `
   })();
 `;
 
+/* THE SAME BLANK CAMERA, BUT WITH A LAMP ON IT.
+
+   A canvas capture stream is a real MediaStream, which is exactly why
+   it cannot help here: a canvas track has no torch, and a browser will
+   never report one, so every torch path would be dead code under test.
+   The track's getCapabilities and applyConstraints are replaced with a
+   pair that behave the way a phone's do -- capabilities advertise the
+   lamp, applying the constraint resolves -- and every torch constraint
+   the app asks for is recorded on window.__torchCalls so a test can ask
+   what the app actually did to the hardware rather than only what it
+   drew on the screen. Those are two different claims and only the first
+   one is the feature. */
+const torchCamera = `
+  (function () {
+    var c = document.createElement('canvas');
+    c.width = 960; c.height = 640;
+    var x = c.getContext('2d');
+    var draw = function () {
+      x.fillStyle = '#9a9a9a';
+      x.fillRect(0, 0, c.width, c.height);
+      requestAnimationFrame(draw);
+    };
+    draw();
+    var stream = c.captureStream(20);
+    window.__torchCalls = [];
+    stream.getVideoTracks().forEach(function (t) {
+      t.getCapabilities = function () { return { torch: true }; };
+      t.applyConstraints = function (req) {
+        var adv = (req && req.advanced) || [];
+        for (var i = 0; i < adv.length; i++) {
+          if ('torch' in adv[i]) window.__torchCalls.push(!!adv[i].torch);
+        }
+        return Promise.resolve();
+      };
+    });
+    navigator.mediaDevices = navigator.mediaDevices || {};
+    navigator.mediaDevices.getUserMedia = function (req) {
+      if (req && req.audio) return Promise.reject(new DOMException('no', 'NotFoundError'));
+      return Promise.resolve(stream);
+    };
+  })();
+`;
+
+/* A camera that opens perfectly well and simply has no lamp -- a laptop
+   webcam, a front-facing phone camera. getCapabilities answers, it just
+   does not mention a torch. This is the case the button must disappear
+   for: a control that is drawn and does nothing teaches somebody that
+   the scanner is broken. */
+const noTorchCamera = `
+  (function () {
+    var c = document.createElement('canvas');
+    c.width = 960; c.height = 640;
+    var x = c.getContext('2d');
+    var draw = function () {
+      x.fillStyle = '#9a9a9a';
+      x.fillRect(0, 0, c.width, c.height);
+      requestAnimationFrame(draw);
+    };
+    draw();
+    var stream = c.captureStream(20);
+    window.__torchCalls = [];
+    stream.getVideoTracks().forEach(function (t) {
+      t.getCapabilities = function () { return { width: { max: 960 } }; };
+      t.applyConstraints = function (req) {
+        var adv = (req && req.advanced) || [];
+        for (var i = 0; i < adv.length; i++) {
+          if ('torch' in adv[i]) window.__torchCalls.push(!!adv[i].torch);
+        }
+        return Promise.resolve();
+      };
+    });
+    navigator.mediaDevices = navigator.mediaDevices || {};
+    navigator.mediaDevices.getUserMedia = function (req) {
+      if (req && req.audio) return Promise.reject(new DOMException('no', 'NotFoundError'));
+      return Promise.resolve(stream);
+    };
+  })();
+`;
+
 const noCamera = `
   navigator.mediaDevices = navigator.mediaDevices || {};
   navigator.mediaDevices.getUserMedia = function () {
@@ -139,7 +218,15 @@ async function open(init) {
     !!window.DEMO.screens.fuel.root.querySelector('[data-testid="' + i + '"]'), id);
   const txt = () => page.evaluate(() =>
     window.DEMO.screens.fuel.root.textContent.replace(/\s+/g, ' ').trim());
-  return { ctx, page, errs, click, has, txt };
+  /* What the button is telling a screen reader about its own state.
+     null when the control is not on the page at all, which is a
+     different answer from "off" and the tests below rely on that. */
+  const pressed = (id) => page.evaluate((i) => {
+    const el = window.DEMO.screens.fuel.root.querySelector('[data-testid="' + i + '"]');
+    return el ? el.getAttribute('aria-pressed') : null;
+  }, id);
+  const torchCalls = () => page.evaluate(() => window.__torchCalls || []);
+  return { ctx, page, errs, click, has, txt, pressed, torchCalls };
 }
 
 console.log('=== the scanner sees ===\n');
@@ -208,6 +295,100 @@ ok((await s.txt()).toLowerCase().includes('blocked'),
    'that says it is blocked rather than failing silently');
 ok(await s.has('scan-code'), 'and typing the digits is still there');
 ok(s.errs.length === 0, 'nothing thrown on that path either', s.errs[0] || '');
+await s.ctx.close();
+
+console.log('\n=== the torch ===\n');
+
+/* The scanner, on a phone that has a lamp. Food is scanned in cupboards,
+   pantries and the backs of fridges, and the decoder needs contrast
+   between a bar and the paper more than it needs anything else, so the
+   lamp comes on by itself and the button is there to turn it off again.
+   Both halves of that are asserted: the control being drawn is not the
+   same claim as the hardware having been switched on, and only the
+   second one is the feature. */
+s = await open(torchCamera);
+await s.click('log-scan');
+await s.page.waitForTimeout(900);
+ok(await s.has('scan-torch'), 'a camera with a lamp gets a torch button in the scanner');
+let calls = await s.torchCalls();
+ok(calls.length > 0 && calls[calls.length - 1] === true,
+   'and the lamp is actually switched on without anybody asking, because cupboards are dark',
+   JSON.stringify(calls));
+ok((await s.pressed('scan-torch')) === 'true',
+   'with the button saying so to a screen reader rather than only looking lit');
+
+/* Pressing it is the way out of a lamp in your face while scanning a
+   packet in daylight. It has to reach the track, not just the markup. */
+await s.click('scan-torch');
+await s.page.waitForTimeout(400);
+calls = await s.torchCalls();
+ok(calls[calls.length - 1] === false,
+   'pressing the button turns the lamp off at the camera', JSON.stringify(calls));
+ok((await s.pressed('scan-torch')) === 'false',
+   'and aria-pressed follows the lamp instead of drifting out of step with it');
+ok(s.errs.length === 0, 'with nothing thrown by any of it', s.errs[0] || '');
+await s.ctx.close();
+
+/* The plate camera offers the same lamp and does not reach for it. A
+   barcode is read in a fraction of a second; a plate is framed for
+   several, and a lamp pointed at somebody's dinner for that long is not
+   worth the better photo. */
+s = await open(torchCamera);
+await s.click('log-cam');
+await s.page.waitForTimeout(900);
+ok(await s.has('cam-torch'), 'the plate camera offers the torch too, for a dark kitchen');
+ok((await s.torchCalls()).length === 0,
+   'but does not switch it on by itself, because a plate is framed for seconds not milliseconds',
+   JSON.stringify(await s.torchCalls()));
+ok((await s.pressed('cam-torch')) === 'false', 'and it starts out saying it is off');
+await s.ctx.close();
+
+/* A camera with no lamp -- a laptop webcam, a front camera. The button
+   is not drawn at all. A control that is present and silently does
+   nothing is worse than no control: it tells somebody the scanner is
+   broken rather than that their camera has no lamp. */
+s = await open(noTorchCamera);
+await s.click('log-scan');
+await s.page.waitForTimeout(900);
+ok(!(await s.has('scan-torch')),
+   'a camera with no lamp gets no torch button in the scanner, rather than a dead one');
+ok((await s.torchCalls()).length === 0,
+   'and nothing is asked of a track that said it could not do it',
+   JSON.stringify(await s.torchCalls()));
+await s.page.evaluate(() => {
+  const r = window.DEMO.screens.fuel.root;
+  const el = r.querySelector('[data-testid="scan-close"]') ||
+             r.querySelector('[data-testid="scrim"]');
+  if (el) el.click();
+});
+await s.page.waitForTimeout(400);
+await s.click('log-cam');
+await s.page.waitForTimeout(900);
+ok(!(await s.has('cam-torch')), 'and none in the plate camera either');
+ok(s.errs.length === 0, 'with nothing thrown on the no-lamp path', s.errs[0] || '');
+await s.ctx.close();
+
+/* Closing the sheet with the lamp lit. The torch is a constraint on the
+   track, and a track that is stopped while lit stays glowing on some
+   devices until something else claims the camera -- a phone that will
+   not turn its light off is a bug somebody notices in a dark room. */
+s = await open(torchCamera);
+await s.click('log-scan');
+await s.page.waitForTimeout(900);
+await s.page.evaluate(() => {
+  const r = window.DEMO.screens.fuel.root;
+  const el = r.querySelector('[data-testid="scan-close"]') ||
+             r.querySelector('[data-testid="scrim"]');
+  if (el) el.click();
+});
+await s.page.waitForTimeout(600);
+const stillLive = await s.page.evaluate(() => window.LKCam && window.LKCam.running());
+ok(stillLive === false, 'closing the sheet with the lamp lit leaves no track running',
+   String(stillLive));
+ok((await s.torchCalls()).indexOf(false) > -1,
+   'and the lamp was put out before the track went, not left glowing',
+   JSON.stringify(await s.torchCalls()));
+ok(s.errs.length === 0, 'and closing it threw nothing', s.errs[0] || '');
 await s.ctx.close();
 
 console.log('\n' + (fails ? 'FAIL' : 'PASS') + ' — ' + (checks - fails) + '/' + checks);

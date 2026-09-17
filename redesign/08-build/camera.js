@@ -78,6 +78,41 @@
     } catch (e) { return Promise.resolve(false); }
   }
 
+  /* ---- THE TORCH ---------------------------------------------------
+     A barcode in a cupboard, a pantry shelf, a fridge: the places food
+     is scanned are the badly lit ones, and the decoder needs contrast
+     between a bar and the paper more than it needs anything else.
+
+     The torch is a constraint on the video track rather than a separate
+     API, so it only exists while the camera is open and only on cameras
+     that have one. Asked for rather than assumed: getCapabilities is
+     the device saying what it can do, and applying a constraint it does
+     not have throws. */
+  var torchOn = false;
+
+  function track() {
+    if (!stream) return null;
+    var vs = stream.getVideoTracks();
+    return vs && vs.length ? vs[0] : null;
+  }
+
+  function torchSupported() {
+    var t = track();
+    if (!t || !t.getCapabilities) return false;
+    try { return !!t.getCapabilities().torch; } catch (e) { return false; }
+  }
+
+  function torch(on) {
+    var t = track();
+    if (!t || !t.applyConstraints) return Promise.resolve(false);
+    if (!torchSupported()) return Promise.resolve(false);
+    return t.applyConstraints({ advanced: [{ torch: !!on }] })
+      .then(function () { torchOn = !!on; return torchOn; },
+            function () { return torchOn; });
+  }
+
+  function torchIsOn() { return torchOn; }
+
   function running() {
     return !!(stream && stream.getTracks().some(function (t) {
       return t.readyState === 'live';
@@ -85,6 +120,11 @@
   }
 
   function stop() {
+    /* Off before the track goes. A torch left on by a track that is
+       then stopped stays lit on some devices until something else
+       claims the camera, which is a phone that will not stop glowing. */
+    if (torchOn) { try { torch(false); } catch (e) {} }
+    torchOn = false;
     if (stream) {
       try {
         stream.getTracks().forEach(function (t) { t.stop(); });
@@ -128,6 +168,9 @@
     running: running,
     stop: stop,
     frame: frame,
-    shot: shot
+    shot: shot,
+    torchSupported: torchSupported,
+    torch: torch,
+    torchIsOn: torchIsOn
   };
 })(typeof window !== 'undefined' ? window : globalThis);

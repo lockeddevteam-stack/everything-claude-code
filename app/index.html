@@ -4361,6 +4361,57 @@ button.shelf:active { background: var(--fill-press); }
   50% { border-color: rgba(255, 255, 255, 0.45); }
 }
 
+/* The torch, on top of whatever the lens is looking at.
+
+   This button is the one control that cannot borrow the app's colours.
+   It sits over a live camera frame, and that frame is a bright kitchen
+   window one second and the dark back of a cupboard the next, so a
+   token that is legible against the app's background tells us nothing
+   about whether this is legible here. It gets its own dark translucent
+   disc and a near-white icon instead: the disc keeps the glyph readable
+   over a blown-out highlight, and the light glyph keeps it readable
+   over black. Both are fixed rather than themed, because the thing
+   behind them is not themed either.
+
+   Round rather than the app's usual smoothed square: it is floating on
+   a photograph with nothing to align to, and a circle is the shape that
+   does not look slightly crooked against a frame it shares no edge
+   with. var(--tap) is the app's touch minimum and is the floor here as
+   well -- this gets pressed one-handed, in the dark, by somebody
+   already holding a packet in the other hand. */
+.fuel-view__torch {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
+  z-index: 2;
+  width: var(--tap);
+  height: var(--tap);
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 999px;
+  corner-shape: round;
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+.fuel-view__torch .ico { width: 22px; height: 22px; }
+.fuel-view__torch:active { background: rgba(0, 0, 0, 0.62); }
+
+/* Lit. The state has to be obvious without looking away from the packet
+   you are pointing at, and a slightly different grey would not be: the
+   disc inverts to near-white with a dark glyph, and the glyph fills in,
+   so the button reads as switched on at a glance and from an angle. The
+   ring is warm rather than white to say "lamp" rather than "selected". */
+.fuel-view__torch[aria-pressed="true"] {
+  background: rgba(255, 255, 255, 0.92);
+  color: #141414;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.9), 0 0 0 3px rgba(255, 214, 138, 0.35);
+}
+.fuel-view__torch[aria-pressed="true"] .ico { fill: currentColor; }
+.fuel-view__torch[aria-pressed="true"]:active { background: rgba(255, 255, 255, 0.78); }
+
 /* A recipe's method. Numbered, because the order is the whole instruction,
    and spaced so a step can be found again after looking away at a pan. */
 .fuel-steps { padding-left: var(--sp-5); margin: 0; }
@@ -11214,6 +11265,41 @@ textarea,
     } catch (e) { return Promise.resolve(false); }
   }
 
+  /* ---- THE TORCH ---------------------------------------------------
+     A barcode in a cupboard, a pantry shelf, a fridge: the places food
+     is scanned are the badly lit ones, and the decoder needs contrast
+     between a bar and the paper more than it needs anything else.
+
+     The torch is a constraint on the video track rather than a separate
+     API, so it only exists while the camera is open and only on cameras
+     that have one. Asked for rather than assumed: getCapabilities is
+     the device saying what it can do, and applying a constraint it does
+     not have throws. */
+  var torchOn = false;
+
+  function track() {
+    if (!stream) return null;
+    var vs = stream.getVideoTracks();
+    return vs && vs.length ? vs[0] : null;
+  }
+
+  function torchSupported() {
+    var t = track();
+    if (!t || !t.getCapabilities) return false;
+    try { return !!t.getCapabilities().torch; } catch (e) { return false; }
+  }
+
+  function torch(on) {
+    var t = track();
+    if (!t || !t.applyConstraints) return Promise.resolve(false);
+    if (!torchSupported()) return Promise.resolve(false);
+    return t.applyConstraints({ advanced: [{ torch: !!on }] })
+      .then(function () { torchOn = !!on; return torchOn; },
+            function () { return torchOn; });
+  }
+
+  function torchIsOn() { return torchOn; }
+
   function running() {
     return !!(stream && stream.getTracks().some(function (t) {
       return t.readyState === 'live';
@@ -11221,6 +11307,11 @@ textarea,
   }
 
   function stop() {
+    /* Off before the track goes. A torch left on by a track that is
+       then stopped stays lit on some devices until something else
+       claims the camera, which is a phone that will not stop glowing. */
+    if (torchOn) { try { torch(false); } catch (e) {} }
+    torchOn = false;
     if (stream) {
       try {
         stream.getTracks().forEach(function (t) { t.stop(); });
@@ -11264,7 +11355,10 @@ textarea,
     running: running,
     stop: stop,
     frame: frame,
-    shot: shot
+    shot: shot,
+    torchSupported: torchSupported,
+    torch: torch,
+    torchIsOn: torchIsOn
   };
 })(typeof window !== 'undefined' ? window : globalThis);
 
@@ -21847,6 +21941,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
   function n(v) { return Number(v).toLocaleString('en-GB'); }
 
   var ICO = {
+    torch: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 2h6l-1 5h-4zM8 7h8l-1 4H9zM10 11h4v11h-4z"/></svg>',
     mic: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
     cam: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
     tick: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l5 5L19 7"/></svg>',
@@ -27363,6 +27458,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
                 '<video id="sc-video" class="fuel-view__feed" playsinline muted ' +
                   'data-testid="scan-video"></video>' +
                 '<div class="fuel-view__reticle" aria-hidden="true"></div>' +
+                torchButton('scan') +
               '</div>' +
               '<p class="t-detail mt-3" role="status" aria-live="polite" data-testid="scan-hint">' +
                 'Point it at the barcode.</p>') +
@@ -27810,6 +27906,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
                   : '<div class="fuel-view" data-testid="cam-view">' +
                       '<video id="cam-video" class="fuel-view__feed" playsinline muted ' +
                         'data-testid="cam-video"></video>' +
+                      torchButton('cam') +
                     '</div>') +
                 '<div class="hstack hstack--3 mt-3">' +
                   (S.camCamMsg
@@ -28073,6 +28170,11 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       S.camState = 'idle'; S.camWhy = null; S.camCamMsg = '';
       render();
       startPlateCam();
+      return;
+    }
+    if (a === 'scan-torch' || a === 'cam-torch') {
+      if (!window.LKCam) return;
+      LKCam.torch(!LKCam.torchIsOn()).then(function () { render(); });
       return;
     }
     if (a === 'cam-shoot') {
@@ -28985,7 +29087,11 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       if (!r.ok) { S.camCamMsg = r.message + ' Use a photo instead.'; render(); return; }
       S.camCamMsg = '';
       render();
-      LKCam.attach(document.getElementById('cam-video'));
+      /* No automatic torch here. The scanner needs contrast for a
+         fraction of a second; a plate is framed for several, and a lamp
+         in your face the whole time is not worth the better photo. The
+         button is there for a dark kitchen. */
+      LKCam.attach(document.getElementById('cam-video')).then(function () { render(); });
     });
   }
 
@@ -29904,6 +30010,21 @@ DEMO.define("fuel", function (document, window, location, fetch) {
   var scanTimer = null;
   var scanGaveUpAt = 0;
 
+  /* THE TORCH BUTTON, WHERE THERE IS A TORCH.
+
+     Drawn only when the camera says it has one, because a dead control
+     is worse than none: a phone with no torch would show a button that
+     silently does nothing, and the reader would decide the scanner is
+     broken rather than that their front camera has no lamp. */
+  function torchButton(which) {
+    if (!window.LKCam || !LKCam.torchSupported()) return '';
+    var on = LKCam.torchIsOn();
+    return '<button class="iconbtn fuel-view__torch" type="button" data-action="' + which + '-torch" ' +
+      'aria-pressed="' + (on ? 'true' : 'false') + '" ' +
+      'aria-label="' + (on ? 'Turn the light off' : 'Turn the light on') + '" ' +
+      'data-testid="' + which + '-torch">' + ICO.torch + '</button>';
+  }
+
   function startScanner() {
     if (!window.LKCam || !LKCam.supported()) {
       S.scanCamMsg = 'This browser will not give the page a camera. Type the digits instead.';
@@ -29921,6 +30042,12 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       render();
       var el = document.getElementById('sc-video');
       LKCam.attach(el).then(function () {
+        /* ON, WITHOUT BEING ASKED. The places food gets scanned are the
+           badly lit ones -- a cupboard, a pantry shelf, the inside of a
+           fridge -- and contrast between a bar and the paper is the one
+           thing the decoder cannot do without. The button turns it off
+           for anybody scanning in daylight. */
+        LKCam.torch(true).then(function () { render(); });
         scanGaveUpAt = Date.now() + 20000;
         scanTick();
       });

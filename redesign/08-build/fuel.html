@@ -145,6 +145,7 @@
   function n(v) { return Number(v).toLocaleString('en-GB'); }
 
   var ICO = {
+    torch: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 2h6l-1 5h-4zM8 7h8l-1 4H9zM10 11h4v11h-4z"/></svg>',
     mic: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
     cam: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
     tick: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l5 5L19 7"/></svg>',
@@ -5661,6 +5662,7 @@
                 '<video id="sc-video" class="fuel-view__feed" playsinline muted ' +
                   'data-testid="scan-video"></video>' +
                 '<div class="fuel-view__reticle" aria-hidden="true"></div>' +
+                torchButton('scan') +
               '</div>' +
               '<p class="t-detail mt-3" role="status" aria-live="polite" data-testid="scan-hint">' +
                 'Point it at the barcode.</p>') +
@@ -6108,6 +6110,7 @@
                   : '<div class="fuel-view" data-testid="cam-view">' +
                       '<video id="cam-video" class="fuel-view__feed" playsinline muted ' +
                         'data-testid="cam-video"></video>' +
+                      torchButton('cam') +
                     '</div>') +
                 '<div class="hstack hstack--3 mt-3">' +
                   (S.camCamMsg
@@ -6371,6 +6374,11 @@
       S.camState = 'idle'; S.camWhy = null; S.camCamMsg = '';
       render();
       startPlateCam();
+      return;
+    }
+    if (a === 'scan-torch' || a === 'cam-torch') {
+      if (!window.LKCam) return;
+      LKCam.torch(!LKCam.torchIsOn()).then(function () { render(); });
       return;
     }
     if (a === 'cam-shoot') {
@@ -7283,7 +7291,11 @@
       if (!r.ok) { S.camCamMsg = r.message + ' Use a photo instead.'; render(); return; }
       S.camCamMsg = '';
       render();
-      LKCam.attach(document.getElementById('cam-video'));
+      /* No automatic torch here. The scanner needs contrast for a
+         fraction of a second; a plate is framed for several, and a lamp
+         in your face the whole time is not worth the better photo. The
+         button is there for a dark kitchen. */
+      LKCam.attach(document.getElementById('cam-video')).then(function () { render(); });
     });
   }
 
@@ -8202,6 +8214,21 @@
   var scanTimer = null;
   var scanGaveUpAt = 0;
 
+  /* THE TORCH BUTTON, WHERE THERE IS A TORCH.
+
+     Drawn only when the camera says it has one, because a dead control
+     is worse than none: a phone with no torch would show a button that
+     silently does nothing, and the reader would decide the scanner is
+     broken rather than that their front camera has no lamp. */
+  function torchButton(which) {
+    if (!window.LKCam || !LKCam.torchSupported()) return '';
+    var on = LKCam.torchIsOn();
+    return '<button class="iconbtn fuel-view__torch" type="button" data-action="' + which + '-torch" ' +
+      'aria-pressed="' + (on ? 'true' : 'false') + '" ' +
+      'aria-label="' + (on ? 'Turn the light off' : 'Turn the light on') + '" ' +
+      'data-testid="' + which + '-torch">' + ICO.torch + '</button>';
+  }
+
   function startScanner() {
     if (!window.LKCam || !LKCam.supported()) {
       S.scanCamMsg = 'This browser will not give the page a camera. Type the digits instead.';
@@ -8219,6 +8246,12 @@
       render();
       var el = document.getElementById('sc-video');
       LKCam.attach(el).then(function () {
+        /* ON, WITHOUT BEING ASKED. The places food gets scanned are the
+           badly lit ones -- a cupboard, a pantry shelf, the inside of a
+           fridge -- and contrast between a bar and the paper is the one
+           thing the decoder cannot do without. The button turns it off
+           for anybody scanning in daylight. */
+        LKCam.torch(true).then(function () { render(); });
         scanGaveUpAt = Date.now() + 20000;
         scanTick();
       });
