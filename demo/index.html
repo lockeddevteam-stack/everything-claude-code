@@ -7730,7 +7730,13 @@ textarea,
        abdominal slip does the opposite but far more gently. Negative had
        both of them fat at the breastbone and pinched at the arm, which
        is the muscle inside out. */
-    chest: [{ at: 0.42, deg: 26 }, { at: 0.80, deg: 8 }]
+    chest: [{ at: 0.42, deg: 26 }, { at: 0.80, deg: 8 }],
+    /* A deltoid is three heads around one joint, and a view shows two:
+       from the front the lateral head wraps the outside of the shoulder
+       and the anterior head faces forward, so their border runs down the
+       arm rather than across it. `at` is measured along the cut, which
+       for a 90 degree axis is across the limb from the outside in. */
+    shoulders: [{ at: 0.46, deg: 90 }]
   };
   var BAND_AXIS = { chest: -14, shoulders: 90, biceps: 90 };
   /* A CUT ACROSS A PAIR IS A CUT BETWEEN THE PAIR. The biceps and the
@@ -8636,6 +8642,17 @@ textarea,
             });
             paint.appendChild(over);
 
+            /* ---- THE SEAM ------------------------------------------
+               A clipped wedge meets its neighbour at a hard step, which
+               reads as two colours touching rather than as one muscle
+               changing. Each band keeps its hard edge for the tap target
+               and gains a narrow overlap that fades out across the
+               border: the two tones cross for a few units either side,
+               which is what the eye reads as tissue.
+
+               Drawn as a copy of this band's paint, clipped to the other
+               side of the border and masked to fade away from it. Cheap,
+               local, and it cannot move the border itself. */
             var node = paint;
             if (bot) {
               var wrapB = api.el('g', { 'clip-path': 'url(#' + cutClip(uid + '-pb', bot, true, S2.flip, S2.lo, S2.hi) + ')' });
@@ -8656,6 +8673,54 @@ textarea,
               wrapS.appendChild(node); node = wrapS;
             }
             g.appendChild(node);
+
+            /* The overlap. One per border this band has, drawn past the
+               border into the neighbour and faded to nothing within a
+               few units of it. */
+            [[bot, true], [top, false]].forEach(function (pair, pi) {
+              var cut = pair[0], isBot = pair[1];
+              if (!cut) return;
+              var sid = uid + (isBot ? '-sb' : '-st');
+              var deg2 = (S2.flip ? -cut.deg : cut.deg);
+              var py2 = b.y + b.h * cut.at;
+              var pivot2 = (S2.lo + S2.hi) / 2;
+              var rad2 = deg2 * Math.PI / 180;
+              /* Across the border, which is its normal. */
+              var nx2 = -Math.sin(rad2), ny2 = Math.cos(rad2);
+              var reach2 = Math.max(2.5, b.h * 0.10);
+              var sgn = isBot ? 1 : -1;
+              var gr = api.el('linearGradient', { id: sid + '-g', gradientUnits: 'userSpaceOnUse',
+                x1: n2(pivot2), y1: n2(py2),
+                x2: n2(pivot2 + nx2 * reach2 * sgn), y2: n2(py2 + ny2 * reach2 * sgn) });
+              gr.appendChild(api.el('stop', { offset: '0', 'stop-color': '#fff', 'stop-opacity': '0.85' }));
+              gr.appendChild(api.el('stop', { offset: '1', 'stop-color': '#fff', 'stop-opacity': '0' }));
+              api.defs.appendChild(gr);
+              var mk2 = api.el('mask', { id: sid + '-m', maskUnits: 'userSpaceOnUse',
+                                         x: n2(S2.lo - b.w), y: n2(b.y - 60),
+                                         width: n2((S2.hi - S2.lo) + b.w * 2), height: n2(b.h + 120) });
+              mk2.appendChild(api.el('rect', { x: n2(S2.lo - b.w), y: n2(b.y - 60),
+                                               width: n2((S2.hi - S2.lo) + b.w * 2), height: n2(b.h + 120),
+                                               fill: 'url(#' + sid + '-g)' }));
+              api.defs.appendChild(mk2);
+
+              var bleed = api.el('g', { class: 'part__bleed',
+                                        mask: 'url(#' + sid + '-m)' });
+              var bclip = api.el('g', { 'clip-path': 'url(#' +
+                cutClip(sid, cut, !isBot, S2.flip, S2.lo, S2.hi) + ')' });
+              var binner = api.el('g', { transform: fitAttr(v) });
+              (ART[v].groups[gid] || []).forEach(function (d) {
+                binner.appendChild(api.el('path', { d: d, class: 'part__gnd' }));
+              });
+              bclip.appendChild(binner);
+              bleed.appendChild(bclip);
+              if (mirrored) {
+                var bs = api.el('g', { 'clip-path': 'url(#' + uid + '-side)' });
+                bs.appendChild(bleed);
+                g.appendChild(bs);
+              } else {
+                g.appendChild(bleed);
+              }
+            });
 
             /* PAINT SOFTLY, HIT SHARPLY. A mask feathers a boundary and
                does nothing to pointer events, so every band would cover
