@@ -1489,18 +1489,12 @@
     return html;
   }
 
-  /* SAID, NOT IMPLIED. The write-back below is whole -- check, preview,
-     approve, undo -- and the one thing missing is the model that would
-     propose an action in the first place. A screen that showed the cards
-     without saying that would read as a coach choosing not to use them. */
-  function modelNote() {
-    return '<p class="t-detail quiet mt-3" data-testid="chat-model-note">' +
-      'The coach cannot propose anything of its own in this build: there is no model ' +
-      'behind it, so the replies here are written on this phone. When it is connected, ' +
-      'a reply can carry a split, a recipe, a goal, a meal, a session or a shopping list, ' +
-      'and each one arrives as a card showing everything it would write, saved only if ' +
-      'you approve it.</p>';
-  }
+  /* The note that used to sit here said there was no model behind the
+     coach and that every reply was written on this phone. That was true
+     when it was written and has not been true since the endpoint went
+     live, so it was a paragraph telling every reader that the answer
+     above it was fake. Removed rather than reworded: a screen that
+     answers does not need a paragraph explaining that it answers. */
 
   function chatBody() {
     var c = S.chat;
@@ -1532,7 +1526,6 @@
            v6 carried it and the rebuild dropped it. */
         '<p class="t-detail quiet mt-4" data-testid="chat-disclaimer">A coach that reads your numbers can ' +
           'still be wrong. Sanity-check anything that affects your health.</p>' +
-        modelNote() +
         '<section class="section">' +
           '<div class="card card--outline card--flush">' +
             /* It expands where it stands. One tap used to leave the screen
@@ -1600,7 +1593,6 @@
         '</div>';
     }
     html += '</div>';
-    html += modelNote();
     return html;
   }
 
@@ -3286,8 +3278,25 @@
            through this screen's own parser when it did not. Either way
            every action goes through LKCoachActions before it is drawn,
            and nothing is applied on arrival. */
+        /* THE RAW ANSWER IS NOT THE REPLY. This handed the raw text to
+           the marker parser whenever no action came back, and the raw
+           text of a structured answer is the envelope itself -- so a
+           perfectly good reply was printed into the bubble as
+           {"reply":"...","actions":[]}, braces and all. That is what
+           anybody on the live build saw for every plain answer.
+
+           The raw text is only worth reading when it carries the older
+           sentinel-marker protocol, which is the one thing the parsed
+           envelope cannot represent. */
         if (d.actions && d.actions.length) { pushCoachActions(d.actions, d.reply); }
-        else { receiveReply(d.raw || d.reply || ''); }
+        else if (/###[A-Z_]+_START###/.test(String(d.raw || ''))) { receiveReply(d.raw); }
+        else {
+          S.chat.status = 'ready';
+          S.chat.msgs.push({ role: 'coach', time: nowClock(),
+                             text: d.reply || 'That answer came back empty. Ask again.' });
+          persistChat();
+          render();
+        }
       }, function () {
         if (S.chat.status !== 'thinking') return;
         S.chat.status = 'ready';

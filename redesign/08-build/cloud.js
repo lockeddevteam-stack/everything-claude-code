@@ -450,15 +450,20 @@
     'reading level. Age-agnostic. No hype, no bro-speak.',
     '',
     'STRUCTURE: Answer first, context second. Put the direct answer or key action in your',
-    'first sentence. Add a brief reason if useful. Keep most replies to 2 to 4 sentences.',
+    'first sentence, and make it something they can act on today, not a verdict on their idea.',
+    'Say what to do before you say what not to do. Add a brief reason if useful. Keep most',
+    'replies to 2 to 4 sentences.',
     'Expand only for how-to steps or safety. For emotional messages, 2 to 4 sentences, no',
     'lists, no data. Ask at most one clarifying question per turn. If you can reasonably',
     'assume what the user means, answer with a stated assumption.',
     '',
-    'FORMATTING: Bullets only for real lists, max 5 items. Bold at most one thing per reply,',
-    'a key number or a stop instruction. No tables. Point to the Train tab for full programs.',
-    'At most one emoji, only in positive or neutral replies. Never use an emoji in pain,',
-    'medical, disordered-eating, or venting replies. Paragraphs 1 to 2 sentences. No em dashes.',
+    'FORMATTING: The app prints your reply as plain text, exactly as you write it. There is no',
+    'markdown: asterisks, underscores, backticks and hash headings are printed as themselves, so',
+    'never write **bold** or *italics*. To give a number weight, put it first in the sentence.',
+    'Bullets only for real lists, max 5 items, each on its own line starting with "- ". No tables.',
+    'Point to the Train tab for full programs. At most one emoji, only in positive or neutral',
+    'replies. Never use an emoji in pain, medical, disordered-eating, or venting replies.',
+    'Paragraphs 1 to 2 sentences. No em dashes.',
     '',
     'DATA GROUNDING: Only cite the numbers given under "What you know about them" below.',
     'Never invent a weight, rep, RIR, macro, or date.',
@@ -628,28 +633,67 @@
     return lines.join('\n');
   }
 
-  /* Models put JSON in fenced blocks, in prose, or not at all. Each of
-     those is recoverable except the last, and the last is a reply with
-     no actions rather than an error: the gate refuses bad actions, so
-     the only thing this needs to be is honest about what it found. */
+  /* THE BUBBLE IS PLAIN TEXT. The reply is escaped and printed as it
+     arrives, so a model that writes **126.3 lb** puts the asterisks on
+     the screen. The prompt says not to, and the prompt is not a
+     guarantee, so they come off here as well. Paired markers only:
+     stripping a lone asterisk would eat "3 x 8 * 2". */
+  function unmark(text) {
+    return String(text || '')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/__([^_]+)__/g, '$1')
+      .replace(/(^|\s)\*([^*\n]+)\*(?=$|[\s.,;:!?])/g, '$1$2')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/^#{1,6}\s+/gm, '');
+  }
+
+  /* Models put JSON in fenced blocks, in prose, broken, or not at all.
+     The last of those is a reply with no actions, which is fine. The
+     broken one used to be printed to the reader verbatim -- an entire
+     {"reply": "...", "actions": []} blob in the chat bubble -- because
+     the fallback handed back the raw text whenever JSON.parse threw.
+     One literal newline inside the reply string is enough to throw.
+
+     So: parse, then repair and parse, then pull the reply out by hand.
+     A blob never reaches the screen. */
   function envelope(text) {
     var raw = String(text || '').trim();
     var body = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
     var tries = [body];
     var first = body.indexOf('{'), last = body.lastIndexOf('}');
     if (first > 0 && last > first) tries.push(body.slice(first, last + 1));
+    /* A raw newline or tab inside a string is the commonest break, and
+       it is the one repair that cannot change what the model meant. */
+    tries.slice().forEach(function (t) {
+      tries.push(t.replace(/\r/g, '').replace(/\n/g, '\\n').replace(/\t/g, '\\t'));
+    });
     for (var i = 0; i < tries.length; i++) {
       try {
         var o = JSON.parse(tries[i]);
         if (o && typeof o === 'object' && !Array.isArray(o)) {
           return {
-            reply: typeof o.reply === 'string' ? o.reply : raw,
+            reply: unmark(typeof o.reply === 'string' ? o.reply : raw),
             actions: Array.isArray(o.actions) ? o.actions : []
           };
         }
       } catch (e) { /* not this one */ }
     }
-    return { reply: raw, actions: [] };
+    /* Unparseable, but the reply is still in there. Take it and drop the
+       actions: an action list that could not be parsed is one the gate
+       could not check either, so it is not offered. */
+    var m = /"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(body);
+    if (m) {
+      var said = m[1];
+      try { said = JSON.parse('"' + m[1] + '"'); } catch (e2) {}
+      return { reply: unmark(said), actions: [] };
+    }
+    /* Still a blob, still not readable. Printing braces at somebody is
+       worse than saying the truth in one line. */
+    if (/^\s*[{[]/.test(body) && /"reply"|"actions"/.test(body)) {
+      return { reply: 'That answer came back malformed. Ask again and I will have another go.',
+               actions: [] };
+    }
+    return { reply: unmark(raw), actions: [] };
   }
 
   /* EVERY AUTHED REQUEST, THROUGH ONE DOOR.

@@ -27,6 +27,9 @@ const ok = (pass, name, detail) => {
 };
 
 const asked = [];
+/* What the fake endpoint answers with. The context tests do not care;
+   the rendering tests at the end set it deliberately. */
+let answer = JSON.stringify({ reply: 'Noted.', actions: [] });
 const body = (req) => new Promise((res) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => res(b)); });
 const server = http.createServer(async (req, res) => {
   const H = { 'content-type': 'application/json', 'access-control-allow-origin': '*',
@@ -37,8 +40,7 @@ const server = http.createServer(async (req, res) => {
   if (new URL(req.url, 'http://x').pathname === '/') {
     asked.push(raw ? JSON.parse(raw) : {});
     res.writeHead(200, H);
-    return res.end(JSON.stringify({ content: [{ type: 'text',
-      text: JSON.stringify({ reply: 'Noted.', actions: [] }) }] }));
+    return res.end(JSON.stringify({ content: [{ type: 'text', text: answer }] }));
   }
   res.writeHead(404, H); res.end('{}');
 });
@@ -244,6 +246,45 @@ await page.evaluate((b) => { window.LK_CLOUD = { supabaseUrl: b, supabaseKey: 'k
 const noCycle = await ask('how is my cycle going');
 ok(!/Their cycle tracking/.test(noCycle),
    'a reader who does not run cycle tracking sends none of it, switch on or not');
+
+/* ---- 6. what the reader actually sees ----------------------------
+   A reply that came back as JSON the parser choked on was printed
+   verbatim, braces and all, into the chat bubble. And the model writes
+   markdown by habit, which the bubble prints as asterisks. */
+await seed(allOn, 'direct');
+
+async function reply(text) {
+  answer = text;
+  await page.evaluate(() => { location.hash = '#/coach'; });
+  await page.waitForTimeout(400);
+  await page.evaluate(() => {
+    const r = document.getElementById('demo-screen-coach').shadowRoot;
+    const box = r.querySelector('[data-testid="composer-input"]');
+    box.value = 'what now';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    r.querySelector('[data-testid="composer-send"]').click();
+  });
+  await page.waitForTimeout(1200);
+  return page.evaluate(() => document.getElementById('demo-screen-coach').shadowRoot.textContent || '');
+}
+
+/* A literal newline inside the reply string: valid to a model, fatal to
+   JSON.parse, and the exact break that put a blob on the screen. */
+let seen = await reply('{ "reply": "Hold at maintenance.' + String.fromCharCode(10) + 'Protein first.", "actions": [] }');
+ok(/Hold at maintenance/.test(seen), 'a reply broken by a raw newline still reaches the reader');
+ok(!/"actions"/.test(seen), 'and the envelope around it does not');
+
+/* The markdown the brain forbids, which the bubble would print raw. */
+seen = await reply(JSON.stringify({ reply: 'At **126.3 lb**, hold calories and lift.', actions: [] }));
+ok(/126\.3 lb/.test(seen) && !/\*\*/.test(seen), 'asterisks are taken off the number, not shown');
+
+/* Unrecoverable is a sentence, never braces. */
+seen = await reply('{ "reply" "actions": [] }');
+ok(!/\{\s*"reply"/.test(seen), 'a blob that cannot be read is never printed at somebody');
+ok(/malformed|again/i.test(seen), 'they are told to ask again instead');
+
+/* The note that said there was no model behind the coach. */
+ok(!/there is no model/i.test(seen), 'the note claiming the replies are fake is gone');
 
 ok(errors.length === 0, 'no page errors', errors.slice(0, 2).join(' | '));
 
