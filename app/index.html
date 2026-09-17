@@ -5220,8 +5220,12 @@ textarea,
    that carries the shade, and the hit went through to the svg root.
    Stated on the shape, where the tap lands. */
 .parts { pointer-events: auto; }
-.part { cursor: pointer; outline: none; pointer-events: all; }
-.part .part__gnd { pointer-events: all; }
+/* The group carries the identity, the hit layer carries the target. The
+   painted copies take no events at all: they overlap each other by
+   design, because the boundary between two heads is a blend. */
+.part { cursor: pointer; outline: none; pointer-events: none; }
+.part .part__gnd { pointer-events: none; }
+.part .part__hit { pointer-events: all; }
 .part .part__gnd {
   stroke: color-mix(in srgb, #000 55%, transparent);
   stroke-width: 1.2;
@@ -5231,6 +5235,10 @@ textarea,
    gives, because a part that does not move under the thumb reads as a
    picture rather than as a button. */
 .part[data-press] .part__gnd { opacity: .7; }
+/* The striation takes no taps. It sits over the belly it belongs to, and
+   a finger that lands on a fibre means the muscle under it. */
+.part__fib { pointer-events: none; }
+.part[data-press] .part__fib { opacity: .7; }
 
 /* One part chosen: it keeps its colour, the rest step back. Enough to
    read as "this one", not so far that the split stops being visible --
@@ -5249,6 +5257,10 @@ textarea,
    second rectangle over anatomy; paint-order puts the stroke under the
    fill and the word reads on any hue, in either theme. */
 .part__label {
+  /* Named rather than inherited. An SVG text node inside a shadow root
+     takes the family from whatever the host happens to set, and this one
+     has to be the app's face wherever it is mounted. */
+  font-family: "Helvetica Neue", -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif;
   font-size: calc(10px / var(--cam-s, 1));
   font-weight: var(--w-bold);
   letter-spacing: calc(0.2px / var(--cam-s, 1));
@@ -7701,6 +7713,11 @@ textarea,
     return { s: s, tx: MID - (b[0] + b[2] / 2) * s, ty: TOP - b[1] * s };
   }
   var FIT = { front: fitOf('front'), back: fitOf('back') };
+  /* The body's centre line, in the frame's coordinates. */
+  function midX(view) {
+    var f = FIT[view], b = FIGURE[view];
+    return (b[0] + b[2] / 2) * f.s + f.tx;
+  }
   function fitAttr(view) {
     var f = FIT[view];
     return 'translate(' + n2(f.tx) + ' ' + n2(f.ty) + ') scale(' + (Math.round(f.s * 1e5) / 1e5) + ')';
@@ -7715,6 +7732,96 @@ textarea,
   /* The thinnest single belly in each group, measured: what a finger is
      actually aiming at when it goes for that group. */
   var THIN = {"front": {"chest": 103, "abs": 15, "biceps": 41, "back": 31, "shoulders": 84, "adduc": 19, "quads": 19, "calves": 30, "forearms": 57}, "back": {"back": 35, "shoulders": 67, "triceps": 22, "forearms": 17, "glutes": 50, "adduc": 33, "hams": 20, "calves": 18}};
+
+  /* ---- ANATOMY, AS TWO ANGLES ---------------------------------------
+
+     BAND_AXIS is the direction a sheet of muscle divides along, in
+     degrees from vertical. The pectoral's heads stack up the chest but
+     the boundaries between them rise towards the shoulder, so the cut is
+     turned rather than level. A group with no entry divides level, which
+     is right for anything stacked straight up the body.
+
+     FIBRE is the direction the fibres themselves run, which is a
+     different question and often close to a right angle to the first.
+     Pectoral fibres converge on the humerus, so they run flatter than
+     the cut: the clavicular head's fibres angle down and out, the costal
+     head's angle up and out, and the sternal head's run across. Degrees
+     from horizontal, positive clockwise on screen.
+
+     Neither is decoration. A striation running the wrong way makes a
+     muscle read as fabric. */
+  var BAND_AXIS = { chest: -14, shoulders: 90, biceps: 90 };
+  /* A CUT ACROSS A PAIR IS A CUT BETWEEN THE PAIR. The biceps and the
+     delts divide from the outside of the arm inwards, and one gradient
+     laid across the whole figure divides the LEFT arm from the RIGHT
+     one instead -- two heads, one per side, both wrong. These get a
+     gradient per side, each running from that side's outer edge to the
+     midline, so "outer" means outer on both arms. */
+  var MIRROR = { shoulders: true, biceps: true };
+  var FIBRE = {
+    chest: { Upper: 22, Mid: 4, Lower: -16 },
+    back: { Traps: 28, Lats: -38, 'Lower Back': 84 },
+    /* A limb's fibres run along the limb. These are all close to
+       vertical, with the small angles the bellies actually take: the
+       vastus lateralis wraps forward, the gastrocnemius heads converge
+       on the tendon, the hamstrings run straight. */
+    quads: { Outer: 78, 'Rectus Femoris': 88, Inner: 80 },
+    triceps: { 'Lateral Head': 80, 'Long Head': 88, 'Medial Head': 84 },
+    hams: { Outer: 84, Inner: 88 },
+    calves: { Gastrocnemius: 86, Soleus: 88 },
+    glutes: { 'Gluteus Medius': 55, 'Gluteus Maximus': 38 },
+    abs: { Upper: 4, Lower: 4 },
+    forearms: { Extensors: 80, Flexors: 84 }
+  };
+  function fibreAngle(gid, view, name, i, bands) {
+    var byName = FIBRE[gid] && FIBRE[gid][name];
+    if (typeof byName === 'number') return byName;
+    /* An unnamed part fans with its position: the top of a sheet angles
+       one way and the bottom the other, which is true of most of them and
+       reads as anatomy rather than as a grid wherever it is not. */
+    if (bands > 1) return 18 - (36 * i) / (bands - 1);
+    return 0;
+  }
+
+  /* WHICH SIDE OF THE BODY A PATH IS ON, from the first point it moves
+     to. A body is mirrored and its fibres are mirrored with it: run them
+     the same way on both pectorals and the two meet at the sternum in a
+     chevron that exists on no person. The art draws each side as its own
+     path, so the first coordinate settles it without measuring anything.
+     A path that cannot be read sits on the right, which is the same
+     answer the old code gave for every path. */
+  function sideOf(d, view) {
+    var m = /[Mm]\s*(-?[\d.]+)/.exec(String(d || ''));
+    if (!m) return 1;
+    var mid = FIGURE[view][0] + FIGURE[view][2] / 2;
+    return Number(m[1]) < mid ? -1 : 1;
+  }
+
+  /* The striation. A pattern rather than drawn lines, so one definition
+     tiles the whole belly however the muscle is shaped, and the browser
+     does the clipping. Two strokes per tile, a dark one and a light one
+     beside it, because a fibre reads as a ridge rather than as a scratch
+     only when it has a lit side. */
+  function fibrePattern(api, uid, deg) {
+    var id = uid + '-f';
+    if (api.defs.querySelector('#' + id)) return id;
+    /* THE TILE IS IN THE ART'S UNITS, NOT THE SCREEN'S. The paths it
+       fills sit inside the figure's fit transform, which is about a
+       third, so a 3-unit tile rendered a one-pixel corduroy. Eleven units
+       is roughly a 3.5px fibre on a phone: visible as texture, invisible
+       as stripes. */
+    var p = api.el('pattern', {
+      id: id, patternUnits: 'userSpaceOnUse', width: '11', height: '11',
+      patternTransform: 'rotate(' + (Math.round(deg * 10) / 10) + ')'
+    });
+    p.appendChild(api.el('rect', { width: '11', height: '11', fill: 'transparent' }));
+    p.appendChild(api.el('line', { x1: '0', y1: '3.6', x2: '11', y2: '3.6',
+                                   stroke: 'rgba(0,0,0,0.20)', 'stroke-width': '2.2' }));
+    p.appendChild(api.el('line', { x1: '0', y1: '6.4', x2: '11', y2: '6.4',
+                                   stroke: 'rgba(255,255,255,0.09)', 'stroke-width': '1.4' }));
+    api.defs.appendChild(p);
+    return id;
+  }
 
   /* Where a group divides into real muscles, each one measured too. */
   var PART_BOX = {"front": {"back": {"Traps": [284, 280, 160, 32]}}, "back": {"back": {"Traps": [1003, 297, 162, 176], "Lats": [956, 323, 255, 263], "Lower Back": [984, 487, 199, 152]}}};
@@ -7738,6 +7845,10 @@ textarea,
      The strokes live in one layer above the paint, laid down largest first,
      so where two grown outlines overlap the smaller muscle -- the harder
      target, and the one a finger near it was aiming at -- wins. */
+  /* The frame every figure is drawn into. mount() keeps its own copy for
+     the camera; this is the same rectangle, available to anything that
+     has to stay inside the picture. */
+  var VBOX = { x: -16, y: 8, w: 240, h: 402 };
   var MIN_HIT = 44;
   /* How wide a viewBox unit is on screen. The frame is 240 units across and
      renders at the width of the frame it is IN, which is the thing that was
@@ -7862,10 +7973,14 @@ textarea,
          is also how the light falls on the figure already. */
       return '.mg--' + gid + ' .mg__gnd { fill: ' + v + '; ' +
              'stroke: color-mix(in srgb, ' + v + ' 22%, #000); }\n' +
-             '.part--' + gid + '[data-i="0"] { fill: color-mix(in srgb, ' + v + ' 74%, #fff); }\n' +
+             /* Wider apart than they were. The bands blend into each
+                other now, and a blend halves whatever separation it is
+                given, so the values have to start further out to end up
+                telling three heads apart. */
+             '.part--' + gid + '[data-i="0"] { fill: color-mix(in srgb, ' + v + ' 62%, #fff); }\n' +
              '.part--' + gid + '[data-i="1"] { fill: ' + v + '; }\n' +
-             '.part--' + gid + '[data-i="2"] { fill: color-mix(in srgb, ' + v + ' 72%, #000); }\n' +
-             '.part--' + gid + '[data-i="3"] { fill: color-mix(in srgb, ' + v + ' 50%, #000); }\n' +
+             '.part--' + gid + '[data-i="2"] { fill: color-mix(in srgb, ' + v + ' 58%, #000); }\n' +
+             '.part--' + gid + '[data-i="3"] { fill: color-mix(in srgb, ' + v + ' 40%, #000); }\n' +
              '.lab--' + gid + ' { color: ' + v + '; }\n' +
              '.pick__dot--' + gid + ' { background: ' + v + '; }';
     }).join('\n');
@@ -7907,6 +8022,105 @@ textarea,
      that list to forget to update. A group with one region has nothing to
      pick between and returns nothing, which sends the screen straight to
      its exercises, as it always did. */
+  /* ---- EVERY MUSCLE DIVIDES, AND THE ART ALREADY KNEW HOW -----------
+
+     Only chest and back divided, because only those two had a declared
+     part list. The rest went straight to the exercise list, so tapping
+     the quadriceps gave a muscle that plainly has three heads drawn on
+     it and no way to choose one.
+
+     They were there the whole time. The figure draws six shapes for the
+     quads -- three a leg -- six for the triceps, eight for the
+     hamstrings, four for the glutes. Grouping those shapes IS the
+     division, and it is the accurate one: no band, no guessed boundary,
+     the anatomy the artist drew.
+
+     Each entry says how to read them. `lat` orders a side's shapes from
+     the outside of the body inwards, which is how the quadriceps and the
+     triceps are named. `vert` orders them top to bottom, which is how a
+     gastrocnemius sits above a soleus. The shapes are measured rather
+     than counted, so a redrawn figure regroups itself. */
+  var DERIVED = {
+    quads:    { axis: 'lat',  names: ['Outer', 'Rectus Femoris', 'Inner'] },
+    triceps:  { axis: 'lat',  names: ['Lateral Head', 'Long Head', 'Medial Head'] },
+    hams:     { axis: 'lat',  names: ['Outer', 'Inner'] },
+    calves:   { axis: 'vert', names: ['Gastrocnemius', 'Soleus'] },
+    glutes:   { axis: 'vert', names: ['Gluteus Medius', 'Gluteus Maximus'] },
+    abs:      { axis: 'vert', names: ['Upper', 'Lower'] },
+    forearms: { axis: 'lat',  names: ['Extensors', 'Flexors'] }
+  };
+
+  /* Measured in the document, because a path's extent is a question only
+     the renderer can answer: parsing the numbers out of a `d` string
+     counts control points, which sit outside the curve they bend. */
+  var derivedCache = {};
+  function derivePaths(api, gid, view) {
+    var key = gid + '|' + view;
+    if (derivedCache[key] !== undefined) return derivedCache[key];
+    var spec = DERIVED[gid];
+    var ds = (ART[view].groups[gid] || []);
+    if (!spec || ds.length < spec.names.length * 2) { derivedCache[key] = null; return null; }
+
+    var probe = api.el('g', { transform: fitAttr(view), opacity: '0' });
+    var nodes = ds.map(function (d) {
+      var p = api.el('path', { d: d });
+      probe.appendChild(p);
+      return p;
+    });
+    api.cam.appendChild(probe);
+    var rows;
+    try {
+      rows = nodes.map(function (p, i) {
+        var b = p.getBBox();
+        return { d: ds[i], cx: b.x + b.width / 2, cy: b.y + b.height / 2,
+                 w: b.width, h: b.height };
+      });
+    } catch (e) { rows = null; }
+    api.cam.removeChild(probe);
+    if (!rows) { derivedCache[key] = null; return null; }
+
+    var mid = FIGURE[view][0] + FIGURE[view][2] / 2;
+    var sides = [rows.filter(function (r) { return r.cx < mid; }),
+                 rows.filter(function (r) { return r.cx >= mid; })];
+    var out = {};
+    spec.names.forEach(function (nm) { out[nm] = []; });
+    var ok = false;
+    sides.forEach(function (side) {
+      if (side.length < spec.names.length) return;
+      ok = true;
+      side.sort(function (a, b) {
+        if (spec.axis === 'vert') return a.cy - b.cy;
+        /* Outermost first, measured from the body's own midline. */
+        return Math.abs(b.cx - mid) - Math.abs(a.cx - mid);
+      });
+      /* Nearly-equal chunks, remainder to the first parts, which are the
+         bigger bellies in every group here. */
+      var n = spec.names.length, per = Math.floor(side.length / n), extra = side.length % n, at = 0;
+      spec.names.forEach(function (nm, i) {
+        var take = per + (i < extra ? 1 : 0);
+        side.slice(at, at + take).forEach(function (r) { out[nm].push(r.d); });
+        at += take;
+      });
+    });
+    derivedCache[key] = ok ? { kind: 'muscles', names: spec.names, paths: out } : null;
+    return derivedCache[key];
+  }
+
+  /* A DELT HAS THREE HEADS AND A VIEW SHOWS TWO OF THEM. Passing the
+     catalogue's three through to the front of the body draws a rear delt
+     on a chest, which is not a labelling problem, it is a lie about where
+     a muscle is. Each view gets the heads it can actually show, ordered
+     from the outside of the body inwards, which is the order the bands
+     are cut in. */
+  var VIEW_PARTS = {
+    shoulders: { front: ['Side Delt', 'Front Delt'], back: ['Side Delt', 'Rear Delt'] },
+    biceps: { front: ['Long Head', 'Short Head'] }
+  };
+  function viewNames(gid, view, names) {
+    var byView = VIEW_PARTS[gid] && VIEW_PARTS[gid][view];
+    return byView || names;
+  }
+
   function partsOf(gid, view, names) {
     var real = ART[view].parts && ART[view].parts[gid];
     /* One part is not a choice. From the front, the only piece of the back
@@ -8289,7 +8503,17 @@ textarea,
     api.showParts = function (gid, view) {
       api.clearParts();
       var v = view || api.view;
-      var spec = partsOf(gid, v, (opts.parts || {})[gid]);
+      /* The art's declared parts first, because chest and back are
+         authored. Everything else is derived from the shapes the figure
+         already draws, which needs the document and therefore cannot
+         live in partsOf. */
+      /* THE SHAPES OUTRANK THE NAMES. The screen passes the catalogue's
+         sub-muscle list, and for some groups that list is not anatomy at
+         all: abs comes through as "Weighted, Bodyweight", which are how
+         the exercises are filed, not parts of a person. Where the figure
+         draws the parts, the figure decides. */
+      var spec = derivePaths(api, gid, v) ||
+                 partsOf(gid, v, viewNames(gid, v, (opts.parts || {})[gid]));
       if (!spec) return null;
       var box = MEASURED[v] && MEASURED[v][gid];
       if (!box) return null;
@@ -8297,6 +8521,16 @@ textarea,
       var layer = api.el('g', { class: 'parts', 'data-g': gid });
       var names = [];
       var labels = [];
+      /* Every part, kept so its label can be anchored to what actually
+         rendered rather than to a box somebody measured once. A derived
+         part has no entry in PART_BOX at all -- that table only ever
+         covered the two authored groups -- so quads, triceps and glutes
+         came out divided and unlabelled. */
+      var parts = [];
+      /* A limb's parts sit one per side. Labelling the union of both puts
+         the word on the midline, between the two arms, which is the one
+         place the muscle is not. */
+      var paired = (DERIVED[gid] && DERIVED[gid].axis === 'lat') || !!MIRROR[gid];
 
       if (spec.kind === 'muscles') {
         /* The art draws these apart already, so each is its own shape. */
@@ -8309,51 +8543,236 @@ textarea,
             inner.appendChild(api.el('path', { d: d, class: 'part__gnd' }));
           });
           g.appendChild(inner);
+          /* The same striation the bands get. These parts are separate
+             muscles rather than one sheet, so each takes its own fibre
+             direction: the lats run to the armpit, the erectors run
+             straight up the spine. */
+          var mdeg = fibreAngle(gid, v, nm, i, spec.names.length);
+          var mid = 'prt-' + api.uid + '-' + v + '-' + gid + '-' + i;
+          var mR = fibrePattern(api, mid + 'r', mdeg);
+          var mL = fibrePattern(api, mid + 'l', -mdeg);
+          var mover = api.el('g', { class: 'part__fib', transform: fitAttr(v) });
+          (spec.paths[nm] || []).forEach(function (d) {
+            mover.appendChild(api.el('path', {
+              d: d, stroke: 'none',
+              fill: 'url(#' + (sideOf(d, v) < 0 ? mL : mR) + ')'
+            }));
+          });
+          g.appendChild(mover);
           layer.appendChild(g);
-          /* THE SPLIT HAS TO SAY WHAT THE PIECES ARE. Three tones of one
-             hue tell you a muscle has parts. They do not tell you which
-             part is which, and "the light one" is not a name anybody can
-             act on. Each piece is labelled where it sits. */
-          var pb = PART_BOX[v] && PART_BOX[v][gid] && PART_BOX[v][gid][nm];
-          if (pb) {
-            var lb = boxIn(v, pb);
-            labels.push({ x: lb.x + lb.w / 2, y: lb.y + lb.h / 2, name: nm, i: i, gid: gid });
-          }
+          parts.push({ el: g, name: nm, i: i, gid: gid });
           names.push(nm);
         });
       } else {
-        /* BANDS. One sheet of muscle, cut into three across the body. The
-           cut is a clip rather than a border, because there is no border
-           on a person: the pectoral is continuous and the heads are where
-           the fibres run, not where the ink is. */
+        /* BANDS, AND WHY THEY ARE NOT SLICES.
+
+           A pectoral is one continuous sheet, and its three heads are
+           where the fibres run rather than where anybody drew a line.
+           Cutting it with a hard horizontal rect gave three stripes with
+           two razor edges through the middle of a muscle: readable, and
+           nothing like a body.
+
+           Three things fix it, all in the mask rather than in more ink.
+           The cut runs along the muscle's own axis, so the clavicular
+           head's boundary rises laterally the way the head does. The
+           boundary is a gradient rather than an edge, so one head fades
+           into the next the way the tissue does. And each band carries a
+           striation turned to its own fibre direction, which is what
+           makes a filled shape read as muscle. */
         var b = boxIn(v, box);
         var bands = spec.names.length;
+        var mirrored = !!MIRROR[gid];
+        var rad = (BAND_AXIS[gid] || 0) * Math.PI / 180;
+        var cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+        /* The axis the bands are measured along: the muscle's height
+           turned by the cut angle. Extended by the width times the sine,
+           or a steep cut runs out of muscle before it runs out of band. */
+        /* Long enough that a turned cut still crosses the whole belly,
+           short enough that the end bands are not mostly empty space:
+           the corners the extension buys are outside the muscle anyway. */
+        var reach = 0.88 * (Math.abs(b.h * Math.cos(rad)) + Math.abs(b.w * Math.sin(rad))) / 2;
+        var ax = { x1: cx - Math.sin(rad) * reach, y1: cy - Math.cos(rad) * reach,
+                   x2: cx + Math.sin(rad) * reach, y2: cy + Math.cos(rad) * reach };
+
         spec.names.forEach(function (nm, i) {
-          var clip = 'prt-' + api.uid + '-' + v + '-' + gid + '-' + i;
-          var cp = api.el('clipPath', { id: clip, clipPathUnits: 'userSpaceOnUse' });
-          cp.appendChild(api.el('rect', {
-            x: n2(b.x - 4), y: n2(b.y + (b.h / bands) * i),
-            width: n2(b.w + 8), height: n2(b.h / bands + 0.4)
-          }));
-          api.defs.appendChild(cp);
+          var uid = 'prt-' + api.uid + '-' + v + '-' + gid + '-' + i;
+          var t0 = i / bands, t1 = (i + 1) / bands;
+          /* How far the blend reaches. A third of a band each side turned
+             out to BE the wash the comment warned about: with three
+             heads the feathers met in the middle and the tones cancelled.
+             A fifth keeps a soft boundary and leaves each head its own
+             value. */
+          var f = 0.16 / bands;
+          var stops = [];
+          var at = function (o, a) { stops.push([Math.max(0, Math.min(1, o)), a]); };
+          if (i === 0) at(0, 1); else { at(t0 - f, 0); at(t0 + f, 1); }
+          if (i === bands - 1) at(1, 1); else { at(t1 - f, 1); at(t1 + f, 0); }
+
+          var mask = api.el('mask', { id: uid + '-m', maskUnits: 'userSpaceOnUse' });
+          var addRamp = function (suffix, x1, y1, x2, y2, rect) {
+            var mg = api.el('linearGradient', { id: uid + suffix, gradientUnits: 'userSpaceOnUse',
+                                                x1: n2(x1), y1: n2(y1), x2: n2(x2), y2: n2(y2) });
+            stops.forEach(function (st) {
+              mg.appendChild(api.el('stop', { offset: String(Math.round(st[0] * 1000) / 1000),
+                                              'stop-color': '#fff', 'stop-opacity': String(st[1]) }));
+            });
+            api.defs.appendChild(mg);
+            mask.appendChild(api.el('rect', {
+              x: n2(rect.x), y: n2(rect.y), width: n2(rect.w), height: n2(rect.h),
+              fill: 'url(#' + uid + suffix + ')'
+            }));
+          };
+          if (mirrored) {
+            /* Each side gets its own ramp, running from that side's outer
+               edge towards the body's middle, so t=0 is lateral on both
+               limbs and a name means the same thing on each. */
+            var mx = midX(v);
+            addRamp('-mgR', mx + (b.x + b.w - mx), cy, mx, cy,
+                    { x: mx, y: b.y - 16, w: (b.x + b.w) - mx + 16, h: b.h + 32 });
+            addRamp('-mgL', b.x - 16, cy, mx, cy,
+                    { x: b.x - 16, y: b.y - 16, w: mx - (b.x - 16), h: b.h + 32 });
+          } else {
+            addRamp('-mg', ax.x1, ax.y1, ax.x2, ax.y2,
+                    { x: b.x - 16, y: b.y - 16, w: b.w + 32, h: b.h + 32 });
+          }
+          api.defs.appendChild(mask);
+
           var g = api.el('g', { class: 'part part--' + gid, 'data-i': String(i),
                                 'data-part': nm, role: 'button',
                                 tabindex: '0', 'aria-label': nm + ' ' + (GROUPS[gid] ? GROUPS[gid].name : gid),
-                                'clip-path': 'url(#' + clip + ')' });
+                                mask: 'url(#' + uid + '-m)' });
           var inner = api.el('g', { transform: fitAttr(v) });
           (ART[v].groups[gid] || []).forEach(function (d) {
             inner.appendChild(api.el('path', { d: d, class: 'part__gnd' }));
           });
           g.appendChild(inner);
+          /* The striation, over the same shape in the same place. Its own
+             copy of the paths rather than a filter, because a filter
+             would soften the muscle's outline along with it. */
+          var deg = fibreAngle(gid, v, nm, i, bands);
+          var fibR = fibrePattern(api, uid + 'r', deg);
+          var fibL = fibrePattern(api, uid + 'l', -deg);
+          var over = api.el('g', { class: 'part__fib', transform: fitAttr(v) });
+          (ART[v].groups[gid] || []).forEach(function (d) {
+            over.appendChild(api.el('path', {
+              d: d, stroke: 'none',
+              fill: 'url(#' + (sideOf(d, v) < 0 ? fibL : fibR) + ')'
+            }));
+          });
+          g.appendChild(over);
+          /* PAINT SOFTLY, HIT SHARPLY. A mask feathers the boundary and
+             does nothing to pointer events, so all three bands covered
+             the whole pectoral and the last one drawn took every tap:
+             Upper was unreachable at any point on the muscle. The paint
+             keeps the gradient; the target is a transparent copy clipped
+             to the band's own stripe, which is the one thing that has to
+             have an edge. */
+          var cid = uid + '-c';
+          var cp = api.el('clipPath', { id: cid, clipPathUnits: 'userSpaceOnUse' });
+          /* THE TRANSFORM GOES ON THE SHAPE. A clipPath may hold shapes,
+             text and use; a <g> inside one is ignored, which clips
+             everything away rather than nothing -- the whole hit layer
+             disappeared and every band became untappable. */
+          var span = (b.h + 32) / bands;
+          cp.appendChild(api.el('rect', {
+            x: n2(b.x - 16 - b.w), y: n2(b.y - 16 + span * i),
+            width: n2(b.w * 3 + 32), height: n2(span + 0.4),
+            transform: 'rotate(' + n2(BAND_AXIS[gid] || 0) + ' ' + n2(cx) + ' ' + n2(cy) + ')'
+          }));
+          api.defs.appendChild(cp);
+          var hit = api.el('g', { class: 'part__hit', 'clip-path': 'url(#' + cid + ')' });
+          var hinner = api.el('g', { transform: fitAttr(v) });
+          (ART[v].groups[gid] || []).forEach(function (d) {
+            hinner.appendChild(api.el('path', { d: d, fill: 'transparent', stroke: 'none' }));
+          });
+          hit.appendChild(hinner);
+          g.appendChild(hit);
           layer.appendChild(g);
-          /* The middle of the band. On a paired muscle that lands on the
-             midline between the two bellies, which is the one place a
-             word can sit without covering either of them. */
-          labels.push({ x: b.x + b.w / 2, y: b.y + (b.h / bands) * (i + 0.5),
-                        name: nm, i: i, gid: gid });
+          parts.push({ el: g, name: nm, i: i, gid: gid });
+          var mid = (t0 + t1) / 2;
           names.push(nm);
         });
       }
+
+      cam.appendChild(layer);
+
+      /* WHERE THE PART ACTUALLY IS. Measured after it is in the document,
+         which is the only way to ask. A paired part is labelled on one
+         limb rather than across the gap between two. */
+      /* MEASURED IN THE ART'S OWN UNITS, NOT THE FRAME'S. A part's shapes
+         live inside the figure's fit transform, so a child path reports
+         its box in the coordinates the art was drawn in while the part
+         group reports the frame's. Mixing the two put every label in the
+         gap between the legs: the union of both quadriceps is centred on
+         a space with no muscle in it. One space, converted once at the
+         end, and a paired part measures the shapes on one side only. */
+      var artMid = FIGURE[v][0] + FIGURE[v][2] / 2;
+      parts.forEach(function (P) {
+        var shapes = P.el.querySelectorAll('.part__gnd');
+        var x0 = null, y0 = null, x1 = null, y1 = null;
+        var take = function (b) {
+          if (x0 === null || b.x < x0) x0 = b.x;
+          if (y0 === null || b.y < y0) y0 = b.y;
+          if (x1 === null || b.x + b.width > x1) x1 = b.x + b.width;
+          if (y1 === null || b.y + b.height > y1) y1 = b.y + b.height;
+        };
+        var any = false;
+        Array.prototype.forEach.call(shapes, function (sh) {
+          var b;
+          try { b = sh.getBBox(); } catch (e) { return; }
+          if (!b || !b.width) return;
+          /* THE SIDE THE CAMERA FRAMES. zoomTo treats a muscle wider than
+             half the figure as a pair and frames from the box's left edge
+             to just past the midline, so labels placed on the right limb
+             sat outside the picture entirely -- clamped to a frame the
+             camera was no longer showing. Same side as the zoom. */
+          if (paired && (b.x + b.width / 2) > artMid) return;
+          take(b); any = true;
+        });
+        if (!any) {
+          /* Nothing on the right: a part drawn on one side only, which
+             the left leg's shapes still answer for. */
+          Array.prototype.forEach.call(shapes, function (sh) {
+            var b;
+            try { b = sh.getBBox(); } catch (e) { return; }
+            if (!b || !b.width) return;
+            take(b); any = true;
+          });
+        }
+        if (!any) {
+          /* NOTHING MEASURED MEANS NOTHING RENDERED. A split built while
+             the figure is off-screen -- the library in search results,
+             a sheet not yet opened -- reports every box as zero, and a
+             label that gives up then never comes back, because the layer
+             is not rebuilt when the figure reappears. The group's own
+             measured extent answers instead: coarser, always there, and
+             replaced by the real measurement on the next build. */
+          var mb = MEASURED[v] && MEASURED[v][gid];
+          if (!mb) return;
+          var n = Math.max(1, parts.length);
+          x0 = mb[0]; x1 = mb[0] + mb[2];
+          y0 = mb[1] + (mb[3] / n) * P.i;
+          y1 = y0 + mb[3] / n;
+        }
+        var fr = boxIn(v, [x0, y0, x1 - x0, y1 - y0]);
+        /* A LIMB IS NARROW AND THE HEADS SIT SIDE BY SIDE, so three words
+           at three centroids land on top of each other: "Rectus Femoris"
+           is wider than the muscle it names. Each one drops to its own
+           height down the belly, which keeps the word over its own head
+           horizontally and clear of its neighbours vertically. Stacked
+           groups -- chest, glutes, the back -- are already apart and
+           stay at their centres. */
+        var ly = fr.y + fr.h / 2;
+        if (paired && parts.length > 1) {
+          ly = fr.y + fr.h * (0.30 + (0.40 * P.i) / (parts.length - 1));
+        }
+        /* Held inside the frame. A triceps sits at the edge of the
+           figure and "Lateral Head" is wider than the arm, so the word
+           ran off the picture. The margin is half of a long label at the
+           size these render. */
+        var lx = Math.max(VBOX.x + 42, Math.min(fr.x + fr.w / 2, VBOX.x + VBOX.w - 42));
+        labels.push({ x: lx, y: ly, name: P.name, i: P.i, gid: P.gid });
+      });
 
       /* Every label after every shape, so no part paints over a word.
          They take no pointer events, so a tap on a label is a tap on the
@@ -8365,7 +8784,6 @@ textarea,
         layer.appendChild(t);
       });
 
-      cam.appendChild(layer);
       partsLayer = layer;
       svg.setAttribute('data-parts', gid);
       if (partSel) api.selectPart(partSel);

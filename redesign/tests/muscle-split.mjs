@@ -101,10 +101,18 @@ const split = () => page.evaluate(() => {
 
 console.log('=== the muscles that have parts, split ===\n');
 
+/* EVERY MUSCLE DIVIDES NOW, so this list is every muscle rather than the
+   two that happened to carry an authored part list. The counts are the
+   anatomy each view can honestly show: a delt has three heads and a
+   front view shows two of them, which is why shoulders is 2 and not 3
+   on both sides. */
 const SPLITS = [
   ['front', 'chest', 3], ['front', 'abs', 2], ['front', 'biceps', 2],
-  ['front', 'shoulders', 3],
-  ['back', 'back', 3], ['back', 'triceps', 3], ['back', 'shoulders', 3]
+  ['front', 'shoulders', 2], ['front', 'quads', 3], ['front', 'calves', 2],
+  ['front', 'forearms', 2],
+  ['back', 'back', 3], ['back', 'triceps', 3], ['back', 'shoulders', 2],
+  ['back', 'hams', 2], ['back', 'glutes', 2], ['back', 'calves', 2],
+  ['back', 'forearms', 2]
 ];
 for (const [view, g, n] of SPLITS) {
   await back(); await setView(view);
@@ -119,8 +127,11 @@ for (const [view, g, n] of SPLITS) {
 
 console.log('\n=== and the ones with a single region go straight through ===\n');
 
-const STRAIGHT = [['front', 'quads'], ['front', 'calves'], ['front', 'back'],
-                  ['back', 'glutes'], ['back', 'hams'], ['front', 'forearms']];
+/* What is left is what genuinely has one region on that view. From the
+   front the only piece of the back the figure draws is a sliver of
+   trapezius either side of the neck: cutting it into lats and erectors
+   would draw two muscles across a shape that contains neither. */
+const STRAIGHT = [['front', 'back'], ['front', 'adduc'], ['back', 'adduc']];
 for (const [view, g] of STRAIGHT) {
   await back(); await setView(view);
   const found = await tapGroup(g);
