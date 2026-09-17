@@ -261,11 +261,22 @@
      a stroke of d. It is capped at 44, past which a margin says more about the empty space
      around a muscle than about the muscle. The exact-shape layer above keeps
      a margin from ever taking a tap that landed on another muscle. */
+  /* AN ARM IS NARROW AND PEOPLE AIM AT IT ANYWAY. 44 is the floor Apple
+     sets for a control that sits on its own; a biceps is a sliver at the
+     edge of a figure with a forearm below it and a deltoid above, and at
+     44 it measured about 39px square per arm -- a target somebody misses
+     with a thumb while holding a phone in the same hand. The two arms get
+     a larger floor and a larger cap, which costs only the empty space
+     beside the limb: a muscle's own outline still beats any margin, so
+     the shoulder and the forearm keep every tap that lands on them. */
+  var MIN_HIT_BY = { biceps: 72, triceps: 68, shoulders: 56 };
   function reachOf(view, gid, host) {
     var t = THIN[view] && THIN[view][gid];
     if (!t) return 0;
+    var floor = MIN_HIT_BY[gid] || MIN_HIT;
+    var cap = floor > MIN_HIT ? 68 : 44;
     var thin = t * unitPx(host) * FIT[view].s;
-    return Math.max(0, Math.min(MIN_HIT - thin, 44));
+    return Math.max(0, Math.min(floor - thin, cap));
   }
 
   /* THE MARGIN IS IN PIXELS AND THE ATTRIBUTE IS IN ART UNITS.
@@ -846,9 +857,33 @@
 
     api.zoomTo = function (gid, view) {
       var v = view || api.view;
+      /* NO MUSCLE IS NOT AN INSTRUCTION. Asked to frame nothing -- which
+         is what a screen sends the moment a pinch drops below the split
+         threshold, or when it repaints with no group chosen -- a camera
+         the reader is holding stays exactly where it is. This is checked
+         before held(), because held() treats any change of key as a new
+         instruction and would hand the camera back first. */
+      if (!gid && userCam) return cam3.s > 1.02;
+      /* Whether the camera was the reader's BEFORE this instruction was
+         read, because held() hands it back as a side effect. */
+      var wasMine = userCam;
       if (held(gid, v)) return cam3.s > 1.02;
       var box = gid && MEASURED[v] && MEASURED[v][gid];
       if (!box) {
+        /* A MUSCLE THE OTHER SIDE DOES NOT DRAW IS NOT A REASON TO LEAVE.
+           Chest is chosen, the figure is turned over, and there is no
+           chest on a back: going home from a zoom somebody set by hand
+           throws away the thing they were looking at. The figure is
+           mirrored, so the camera still means something -- it stays, and
+           the next muscle they choose moves it. */
+        if (wasMine) { userCam = true; return cam3.s > 1.02; }
+        /* PINCHING OUT IS NOT AN INSTRUCTION TO GO HOME. Below the split
+           threshold the screen is told the muscle is no longer framed, so
+           it clears its group and asks for the whole body -- and that
+           snapped the camera back to 1x in the middle of the gesture that
+           was setting it, which is the zoom "resetting and locking". A
+           camera the reader is holding stays where they put it; only a
+           muscle they choose moves it. */
         setCam(1, 0, 0);
         return false;
       }
@@ -1537,13 +1572,27 @@
 
     api.setView = function (v) {
       if (v !== 'front' && v !== 'back') return;
+      if (v === api.view) return;
       api.view = v;
       views.front.wrap.setAttribute('data-hidden', String(v !== 'front'));
       views.back.wrap.setAttribute('data-hidden', String(v !== 'back'));
       if (interactive) svg.setAttribute('aria-label', 'Muscle map, ' + v + ' view');
+      /* THE SAME BODY, TURNED ROUND. The figure is mirrored, not redrawn
+         at another size, so the camera means the same thing on both sides
+         and there is no reason to throw it away. Turning the figure over
+         while zoomed used to drop straight back to the whole body, which
+         is the one thing somebody looking closely at an arm does not
+         want. The camera is kept, and the split with it: the screen's own
+         re-sync will reframe it if the muscle it was on is not drawn on
+         this side. */
+      if (cam3.s > 1.02) { userCam = true; lastTarget = null; }
     };
 
     api.select = function (gid) {
+      /* A tap on a muscle is a new instruction, so the camera stops being
+         the reader's and follows it again. Without this, one pinch meant
+         every later tap left the figure where the fingers had put it. */
+      if (gid && gid !== api.selected) { userCam = false; lastTarget = null; }
       api.selected = gid || null;
       /* The flag goes on the figure, not on whatever contains it. A figure in
          a sheet has no map frame around it, and a rule that reached for one
@@ -1665,6 +1714,13 @@
       /* Anything a finger does to the camera is the reader's, and stays
          until they choose a different muscle. */
       function mine(s, tx, ty, soft) { userCam = true; return setCam(s, tx, ty, soft); }
+      /* THE TAIL OF A GESTURE IS NOT A GESTURE. The spring and the glide
+         move the camera, but they are finishing what the fingers already
+         did -- they must not claim it. Claiming it meant a plain tap on a
+         zoomed figure, which runs a settle and moves nothing, marked the
+         camera as hand-set: Back then could not take it home again,
+         because a hand-set camera outranks every instruction. */
+      function ease(s, tx, ty, soft) { return setCam(s, tx, ty, soft); }
 
       /* ---- THE CAMERA AFTER THE FINGERS LEAVE ------------------------
 
@@ -1710,12 +1766,12 @@
                      Math.abs(target.tx - nx) < 0.05 && Math.abs(vx) < 0.05 &&
                      Math.abs(target.ty - ny) < 0.05 && Math.abs(vy) < 0.05;
           if (near) {
-            mine(target.s, target.tx, target.ty);
+            ease(target.s, target.tx, target.ty);
             glide = null; live(false);
             if (done) done();
             return;
           }
-          mine(ns, nx, ny, true);
+          ease(ns, nx, ny, true);
           glide = requestAnimationFrame(step);
         });
       }
@@ -1743,7 +1799,7 @@
             vx *= Math.pow(0.82, f); vy *= Math.pow(0.82, f);
           }
           if (Math.sqrt(vx * vx + vy * vy) < 0.05) { settle(done); return; }
-          mine(cam3.s, cam3.tx + vx * f, cam3.ty + vy * f, true);
+          ease(cam3.s, cam3.tx + vx * f, cam3.ty + vy * f, true);
           glide = requestAnimationFrame(step);
         });
       }
@@ -1868,10 +1924,23 @@
              to synthesise, or panning across the figure also picks a
              muscle. */
           if (pan.moved) {
-            svg.addEventListener('click', function swallow(ev) {
+            /* AND ONLY THE CLICK THIS DRAG PRODUCED. The listener used to
+               wait for a click and take it, whenever it came: two drags
+               armed two of them, and the next two taps on a muscle were
+               eaten in silence. Somebody who panned around a zoomed
+               figure and then tapped an arm got nothing, twice. The
+               browser synthesises that click within a frame or two of the
+               finger leaving, so anything later is a real tap. */
+            var swallow = function (ev) {
               ev.stopPropagation(); ev.preventDefault();
+              done();
+            };
+            var done = function () {
               svg.removeEventListener('click', swallow, true);
-            }, true);
+              clearTimeout(kill);
+            };
+            var kill = setTimeout(done, 350);
+            svg.addEventListener('click', swallow, true);
           }
           /* Per frame rather than per millisecond, which is the unit the
              glide integrates in. */
@@ -1881,7 +1950,7 @@
         if (pinch || pan) return;
         /* Snap home rather than resting at 1.01, where the figure is
            still holding the finger for a pan it no longer needs. */
-        if (cam3.s < 1.06) { mine(1, 0, 0); live(false); syncSplit(); return; }
+        if (cam3.s < 1.06) { ease(1, 0, 0); live(false); syncSplit(); return; }
         /* The split follows the camera wherever it comes to rest, not
            where the fingers left it: a flick that carries past the
            threshold should divide the muscle, and one that springs back

@@ -358,6 +358,100 @@ const inAgain = await page.evaluate(() => {
 ok(inAgain.parts >= 2 && inAgain.labels >= 2,
    'and pinching in divides the muscle with no tap involved', JSON.stringify(inAgain));
 
+console.log('\n=== 7. the zoom is the reader\'s until they choose otherwise ===\n');
+
+/* Everything below is one continuous session with the figure, because
+   that is how the bugs turned up: each step was fine on its own and the
+   sequence was not. */
+const drag = async (dx, dy) => {
+  await page.evaluate(({ dx, dy }) => {
+    const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+    const svg = r.querySelector('.map__svg');
+    const b = svg.getBoundingClientRect();
+    const cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+    const one = (x, y) => [new Touch({ identifier: 1, target: svg, clientX: x, clientY: y,
+                                       pageX: x, pageY: y, screenX: x, screenY: y })];
+    const fire = (t, touches) => svg.dispatchEvent(new TouchEvent(t, {
+      touches, targetTouches: touches, changedTouches: touches, bubbles: true, cancelable: true }));
+    fire('touchstart', one(cx, cy));
+    for (let i = 1; i <= 8; i++) fire('touchmove', one(cx + dx * i / 8, cy + dy * i / 8));
+    fire('touchend', []);
+  }, { dx, dy });
+  await rest();
+};
+const where = () => page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  const t = r.querySelector('.map__svg .cam').getAttribute('transform') || '';
+  const m = /translate\((-?[\d.]+) (-?[\d.]+)\)/.exec(t);
+  return { tx: m ? Number(m[1]) : 0, ty: m ? Number(m[2]) : 0 };
+});
+
+/* Back to the whole body first, so the pinch below starts from rest. */
+await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  const back = r.querySelector('[data-testid="libmap-back"], [data-act="map-back"]');
+  if (back) back.click();
+});
+await page.waitForTimeout(400);
+await pinch(60, 300);
+const held2 = await scale();
+ok(held2 > 2, 'a pinch takes the figure in', 'scale ' + held2);
+
+const wasAt = await where();
+await drag(-60, -40);
+const nowAt = await where();
+ok(Math.abs(nowAt.tx - wasAt.tx) > 5 || Math.abs(nowAt.ty - wasAt.ty) > 5,
+   'and a finger drags it around at that zoom',
+   JSON.stringify(wasAt) + ' -> ' + JSON.stringify(nowAt));
+ok(Math.abs((await scale()) - held2) < 0.01, 'without changing how close it is',
+   String(await scale()));
+
+/* TURNING THE FIGURE OVER IS NOT LEAVING IT. The same body, mirrored:
+   the camera means the same thing on both sides, and dropping back to
+   the whole body is the one thing somebody looking closely does not
+   want. */
+await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  const b = r.querySelector('#tab-back');
+  if (b) b.click();
+});
+await page.waitForTimeout(700);
+ok(Math.abs((await scale()) - held2) < 0.01, 'front to back keeps the zoom you set',
+   String(await scale()));
+
+/* AND A TAP AFTER A DRAG IS STILL A TAP. The drag arms a listener that
+   swallows the click the browser synthesises from it; armed for good, it
+   ate the next real tap instead, so panning around a zoomed figure and
+   then tapping an arm did nothing at all. */
+/* AND A TAP AFTER A DRAG IS STILL A TAP. The drag arms a listener that
+   swallows the click the browser synthesises from it. Armed for good, it
+   ate the next real tap instead: pan around a zoomed figure, tap an arm,
+   nothing happens -- once per drag, silently. It now expires with the
+   gesture that armed it, so a tap that arrives later is a tap. */
+await drag(30, 20);
+await page.waitForTimeout(500);
+const picked = await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  const svg = r.querySelector('.map__svg');
+  const view = svg.querySelector('.view:not([data-hidden="true"])') || svg;
+  const want = ['triceps', 'back', 'glutes', 'hams', 'calves', 'chest', 'quads']
+    .map((g) => view.querySelector('.mg[data-g="' + g + '"]'))
+    .filter(Boolean)[0];
+  if (!want) return null;
+  want.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
+  return want.getAttribute('data-g');
+});
+await page.waitForTimeout(900);
+const chosen = await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  const svg = r.querySelector('.map__svg');
+  return { on: svg.getAttribute('data-selected'),
+           parts: svg.querySelectorAll('.parts [data-part]').length };
+});
+ok(!!picked && chosen.on === picked, 'a tap after a drag still chooses the muscle',
+   chosen.on + ' vs ' + picked);
+ok(chosen.parts >= 2, 'and the camera goes to it and divides it', String(chosen.parts));
+
 ok(errors.length === 0, 'no page errors', errors.slice(0, 2).join(' | '));
 
 await browser.close();
