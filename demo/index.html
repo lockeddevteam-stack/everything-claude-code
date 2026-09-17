@@ -7712,6 +7712,26 @@ textarea,
 
      Neither is decoration. A striation running the wrong way makes a
      muscle read as fabric. */
+  /* ---- WHERE ONE HEAD ENDS AND THE NEXT BEGINS ----------------------
+
+     A pectoral is not three equal slices. The clavicular head is a strap
+     off the collarbone crossing the sternal fan diagonally, and the
+     abdominal head is a small slip along the bottom edge: roughly a
+     third, a half and a fifth, with two borders that run at different
+     angles. Thirds at one angle drew none of that.
+
+     `at` is how far down the muscle a border sits, `deg` the angle it
+     runs at, clockwise from level. It is mirrored on the far side of the
+     body, because a border that rises toward one shoulder rises toward
+     both. */
+  var BAND_PLAN = {
+    /* Positive falls away from the midline: the clavicular head is
+       thickest at the shoulder and tapers toward the sternum, and the
+       abdominal slip does the opposite but far more gently. Negative had
+       both of them fat at the breastbone and pinched at the arm, which
+       is the muscle inside out. */
+    chest: [{ at: 0.42, deg: 26 }, { at: 0.80, deg: 8 }]
+  };
   var BAND_AXIS = { chest: -14, shoulders: 90, biceps: 90 };
   /* A CUT ACROSS A PAIR IS A CUT BETWEEN THE PAIR. The biceps and the
      delts divide from the outside of the arm inwards, and one gradient
@@ -7719,7 +7739,7 @@ textarea,
      one instead -- two heads, one per side, both wrong. These get a
      gradient per side, each running from that side's outer edge to the
      midline, so "outer" means outer on both arms. */
-  var MIRROR = { shoulders: true, biceps: true };
+  var MIRROR = { shoulders: true, biceps: true, chest: true };
   var FIBRE = {
     chest: { Upper: 22, Mid: 4, Lower: -16 },
     back: { Traps: 28, Lats: -38, 'Lower Back': 84 },
@@ -8522,7 +8542,6 @@ textarea,
           });
           g.appendChild(mover);
           layer.appendChild(g);
-          parts.push({ el: g, name: nm, i: i, gid: gid });
           names.push(nm);
         });
       } else {
@@ -8544,114 +8563,155 @@ textarea,
         var b = boxIn(v, box);
         var bands = spec.names.length;
         var mirrored = !!MIRROR[gid];
-        var rad = (BAND_AXIS[gid] || 0) * Math.PI / 180;
         var cx = b.x + b.w / 2, cy = b.y + b.h / 2;
-        /* The axis the bands are measured along: the muscle's height
-           turned by the cut angle. Extended by the width times the sine,
-           or a steep cut runs out of muscle before it runs out of band. */
-        /* Long enough that a turned cut still crosses the whole belly,
-           short enough that the end bands are not mostly empty space:
-           the corners the extension buys are outside the muscle anyway. */
-        var reach = 0.88 * (Math.abs(b.h * Math.cos(rad)) + Math.abs(b.w * Math.sin(rad))) / 2;
-        var ax = { x1: cx - Math.sin(rad) * reach, y1: cy - Math.cos(rad) * reach,
-                   x2: cx + Math.sin(rad) * reach, y2: cy + Math.cos(rad) * reach };
+        var mxv = midX(v);
+        /* Where the borders are and how they run. A plan gives each one
+           its own place and angle; without one the muscle divides evenly
+           along a single axis, which is right for anything stacked
+           straight up the body. */
+        var plan = BAND_PLAN[gid];
+        if (!plan) {
+          plan = [];
+          for (var q = 1; q < bands; q++) plan.push({ at: q / bands, deg: 90 - (BAND_AXIS[gid] || 0) });
+        }
 
-        spec.names.forEach(function (nm, i) {
-          var uid = 'prt-' + api.uid + '-' + v + '-' + gid + '-' + i;
-          var t0 = i / bands, t1 = (i + 1) / bands;
-          /* How far the blend reaches. A third of a band each side turned
-             out to BE the wash the comment warned about: with three
-             heads the feathers met in the middle and the tones cancelled.
-             A fifth keeps a soft boundary and leaves each head its own
-             value. */
-          var f = 0.16 / bands;
-          var stops = [];
-          var at = function (o, a) { stops.push([Math.max(0, Math.min(1, o)), a]); };
-          if (i === 0) at(0, 1); else { at(t0 - f, 0); at(t0 + f, 1); }
-          if (i === bands - 1) at(1, 1); else { at(t1 - f, 1); at(t1 + f, 0); }
-
-          var mask = api.el('mask', { id: uid + '-m', maskUnits: 'userSpaceOnUse' });
-          var addRamp = function (suffix, x1, y1, x2, y2, rect) {
-            var mg = api.el('linearGradient', { id: uid + suffix, gradientUnits: 'userSpaceOnUse',
-                                                x1: n2(x1), y1: n2(y1), x2: n2(x2), y2: n2(y2) });
-            stops.forEach(function (st) {
-              mg.appendChild(api.el('stop', { offset: String(Math.round(st[0] * 1000) / 1000),
-                                              'stop-color': '#fff', 'stop-opacity': String(st[1]) }));
-            });
-            api.defs.appendChild(mg);
-            mask.appendChild(api.el('rect', {
-              x: n2(rect.x), y: n2(rect.y), width: n2(rect.w), height: n2(rect.h),
-              fill: 'url(#' + uid + suffix + ')'
-            }));
-          };
-          if (mirrored) {
-            /* Each side gets its own ramp, running from that side's outer
-               edge towards the body's middle, so t=0 is lateral on both
-               limbs and a name means the same thing on each. */
-            var mx = midX(v);
-            addRamp('-mgR', mx + (b.x + b.w - mx), cy, mx, cy,
-                    { x: mx, y: b.y - 16, w: (b.x + b.w) - mx + 16, h: b.h + 32 });
-            addRamp('-mgL', b.x - 16, cy, mx, cy,
-                    { x: b.x - 16, y: b.y - 16, w: mx - (b.x - 16), h: b.h + 32 });
-          } else {
-            addRamp('-mg', ax.x1, ax.y1, ax.x2, ax.y2,
-                    { x: b.x - 16, y: b.y - 16, w: b.w + 32, h: b.h + 32 });
-          }
-          api.defs.appendChild(mask);
-
-          var g = api.el('g', { class: 'part part--' + gid, 'data-i': String(i),
-                                'data-part': nm, role: 'button',
-                                tabindex: '0', 'aria-label': nm + ' ' + (GROUPS[gid] ? GROUPS[gid].name : gid),
-                                mask: 'url(#' + uid + '-m)' });
-          var inner = api.el('g', { transform: fitAttr(v) });
-          (ART[v].groups[gid] || []).forEach(function (d) {
-            inner.appendChild(api.el('path', { d: d, class: 'part__gnd' }));
-          });
-          g.appendChild(inner);
-          /* The striation, over the same shape in the same place. Its own
-             copy of the paths rather than a filter, because a filter
-             would soften the muscle's outline along with it. */
-          var deg = fibreAngle(gid, v, nm, i, bands);
-          var fibR = fibrePattern(api, uid + 'r', deg);
-          var fibL = fibrePattern(api, uid + 'l', -deg);
-          var over = api.el('g', { class: 'part__fib', transform: fitAttr(v) });
-          (ART[v].groups[gid] || []).forEach(function (d) {
-            over.appendChild(api.el('path', {
-              d: d, stroke: 'none',
-              fill: 'url(#' + (sideOf(d, v) < 0 ? fibL : fibR) + ')'
-            }));
-          });
-          g.appendChild(over);
-          /* PAINT SOFTLY, HIT SHARPLY. A mask feathers the boundary and
-             does nothing to pointer events, so all three bands covered
-             the whole pectoral and the last one drawn took every tap:
-             Upper was unreachable at any point on the muscle. The paint
-             keeps the gradient; the target is a transparent copy clipped
-             to the band's own stripe, which is the one thing that has to
-             have an edge. */
-          var cid = uid + '-c';
-          var cp = api.el('clipPath', { id: cid, clipPathUnits: 'userSpaceOnUse' });
-          /* THE TRANSFORM GOES ON THE SHAPE. A clipPath may hold shapes,
-             text and use; a <g> inside one is ignored, which clips
-             everything away rather than nothing -- the whole hit layer
-             disappeared and every band became untappable. */
-          var span = (b.h + 32) / bands;
+        /* A BORDER IS A BORDER. The first version feathered each one
+           with a gradient mask, which read as a wash rather than as two
+           heads: an anatomy chart draws these edges crisply because the
+           fibres change direction there, and that IS the visible line on
+           a person. So the region is a clipped wedge, and the softness
+           comes from the striation crossing it rather than from blurring
+           the boundary away. */
+        /* The same border as a hard edge, for the tap target. */
+        function cutClip(uid, cut, keepAbove, flip, lo, hi) {
+          var deg = (flip ? -cut.deg : cut.deg);
+          var py = b.y + b.h * cut.at;
+          /* PIVOT ON THE MUSCLE, NOT ON THE BODY. Rotating a border about
+             the figure's midline means that by the time the line reaches
+             a pectoral it has swung half the muscle's height away from
+             where it was placed: the band came out covering most of one
+             side and almost none of the other. Each side turns about its
+             own centre, so `at` means the same thing on both. */
+          var pivot = (lo + hi) / 2;
+          var cp = api.el('clipPath', { id: uid + (keepAbove ? '-ca' : '-cb'),
+                                        clipPathUnits: 'userSpaceOnUse' });
           cp.appendChild(api.el('rect', {
-            x: n2(b.x - 16 - b.w), y: n2(b.y - 16 + span * i),
-            width: n2(b.w * 3 + 32), height: n2(span + 0.4),
-            transform: 'rotate(' + n2(BAND_AXIS[gid] || 0) + ' ' + n2(cx) + ' ' + n2(cy) + ')'
+            x: n2(lo - b.w), y: n2(keepAbove ? py - (b.h + 80) : py),
+            width: n2((hi - lo) + b.w * 2), height: n2(b.h + 80),
+            transform: 'rotate(' + n2(deg) + ' ' + n2(pivot) + ' ' + n2(py) + ')'
           }));
           api.defs.appendChild(cp);
-          var hit = api.el('g', { class: 'part__hit', 'clip-path': 'url(#' + cid + ')' });
-          var hinner = api.el('g', { transform: fitAttr(v) });
-          (ART[v].groups[gid] || []).forEach(function (d) {
-            hinner.appendChild(api.el('path', { d: d, fill: 'transparent', stroke: 'none' }));
+          return cp.getAttribute('id');
+        }
+
+        var sides = mirrored ? [{ k: 'r', flip: false, lo: mxv, hi: b.x + b.w + 20 },
+                                { k: 'l', flip: true, lo: b.x - 20, hi: mxv }]
+                             : [{ k: 'x', flip: false, lo: b.x - 20, hi: b.x + b.w + 20 }];
+
+        spec.names.forEach(function (nm, i) {
+          var uid0 = 'prt-' + api.uid + '-' + v + '-' + gid + '-' + i;
+          var g = api.el('g', { class: 'part part--' + gid, 'data-i': String(i),
+                                'data-part': nm, role: 'button',
+                                tabindex: '0', 'aria-label': nm + ' ' + (GROUPS[gid] ? GROUPS[gid].name : gid) });
+          var deg = fibreAngle(gid, v, nm, i, bands);
+
+          sides.forEach(function (S2) {
+            var uid = uid0 + '-' + S2.k;
+            /* Two borders make a band: below the one above it, above the
+               one below it. Nested rather than combined, because that is
+               how two masks intersect. */
+            var top = i > 0 ? plan[i - 1] : null;
+            var bot = i < bands - 1 ? plan[i] : null;
+
+            var paint = api.el('g');
+            var inner = api.el('g', { transform: fitAttr(v) });
+            (ART[v].groups[gid] || []).forEach(function (d) {
+              inner.appendChild(api.el('path', { d: d, class: 'part__gnd' }));
+            });
+            paint.appendChild(inner);
+            var fibR = fibrePattern(api, uid + 'r', S2.flip ? -deg : deg);
+            var over = api.el('g', { class: 'part__fib', transform: fitAttr(v) });
+            (ART[v].groups[gid] || []).forEach(function (d) {
+              over.appendChild(api.el('path', { d: d, fill: 'url(#' + fibR + ')', stroke: 'none' }));
+            });
+            paint.appendChild(over);
+
+            var node = paint;
+            if (bot) {
+              var wrapB = api.el('g', { 'clip-path': 'url(#' + cutClip(uid + '-pb', bot, true, S2.flip, S2.lo, S2.hi) + ')' });
+              wrapB.appendChild(node); node = wrapB;
+            }
+            if (top) {
+              var wrapT = api.el('g', { 'clip-path': 'url(#' + cutClip(uid + '-pt', top, false, S2.flip, S2.lo, S2.hi) + ')' });
+              wrapT.appendChild(node); node = wrapT;
+            }
+            /* And the side itself, so a mirrored plan never paints across
+               the midline onto the other pectoral. */
+            if (mirrored) {
+              var sideClip = api.el('clipPath', { id: uid + '-side', clipPathUnits: 'userSpaceOnUse' });
+              sideClip.appendChild(api.el('rect', { x: n2(S2.lo), y: n2(b.y - 40),
+                                                    width: n2(S2.hi - S2.lo), height: n2(b.h + 80) }));
+              api.defs.appendChild(sideClip);
+              var wrapS = api.el('g', { 'clip-path': 'url(#' + uid + '-side)' });
+              wrapS.appendChild(node); node = wrapS;
+            }
+            g.appendChild(node);
+
+            /* PAINT SOFTLY, HIT SHARPLY. A mask feathers a boundary and
+               does nothing to pointer events, so every band would cover
+               the whole muscle and the last one drawn would take every
+               tap. The target is a transparent copy with hard edges. */
+            var hit = api.el('g', { class: 'part__hit' });
+            var hinner = api.el('g', { transform: fitAttr(v) });
+            (ART[v].groups[gid] || []).forEach(function (d) {
+              hinner.appendChild(api.el('path', { d: d, fill: 'transparent', stroke: 'none' }));
+            });
+            hit.appendChild(hinner);
+            var hnode = hit;
+            if (bot) {
+              var hb = api.el('g', { 'clip-path': 'url(#' + cutClip(uid + '-b', bot, true, S2.flip, S2.lo, S2.hi) + ')' });
+              hb.appendChild(hnode); hnode = hb;
+            }
+            if (top) {
+              var ht = api.el('g', { 'clip-path': 'url(#' + cutClip(uid + '-t', top, false, S2.flip, S2.lo, S2.hi) + ')' });
+              ht.appendChild(hnode); hnode = ht;
+            }
+            if (mirrored) {
+              var hs = api.el('g', { 'clip-path': 'url(#' + uid + '-side)' });
+              hs.appendChild(hnode); hnode = hs;
+            }
+            g.appendChild(hnode);
           });
-          hit.appendChild(hinner);
-          g.appendChild(hit);
+
           layer.appendChild(g);
-          parts.push({ el: g, name: nm, i: i, gid: gid });
-          var mid = (t0 + t1) / 2;
+          /* WHERE THE WEDGE IS, NOT WHERE THE MUSCLE IS. Every band holds
+             a clipped copy of the whole muscle, so measuring its shapes
+             gives the same box three times and stacks the three words on
+             one spot. The borders already say where each band sits: the
+             label goes between the one above it and the one below. */
+          var fromT = i > 0 ? plan[i - 1].at : 0;
+          var toT = i < bands - 1 ? plan[i].at : 1;
+          var midT = (fromT + toT) / 2;
+          /* WHERE THE CAMERA LOOKS. zoomTo frames one side only when a
+             group is wider than half the figure -- two arms, two delts.
+             A chest is one region in the middle and stays whole, so its
+             labels belong on the midline where they have always sat.
+             Keying this off MIRROR instead pushed them onto one
+             pectoral of a muscle the camera shows both of. */
+          var camPairs = box[2] > FIGURE[v][2] * 0.5;
+          var labX = camPairs ? (b.x + mxv) / 2 : cx;
+          /* A WEDGE IS NOT CENTRED ON THE MUSCLE. The clavicular head
+             sits high and towards the shoulder, the abdominal head low
+             and towards the sternum, so a label at the band's vertical
+             middle lands on the head above or below it. It slides along
+             the border's own direction: outward as the band rises,
+             inward as it falls. */
+          if (camPairs) {
+            var halfW = (mxv - b.x) / 2;
+            labX = labX - (0.5 - midT) * halfW * 1.6;
+          }
+          parts.push({ el: g, name: nm, i: i, gid: gid,
+                       at: { x: labX, y: b.y + b.h * midT } });
           names.push(nm);
         });
       }
@@ -8670,6 +8730,12 @@ textarea,
          end, and a paired part measures the shapes on one side only. */
       var artMid = FIGURE[v][0] + FIGURE[v][2] / 2;
       parts.forEach(function (P) {
+        /* A band knows its own place; a derived part has to be measured. */
+        if (P.at) {
+          labels.push({ x: Math.max(VBOX.x + 42, Math.min(P.at.x, VBOX.x + VBOX.w - 42)),
+                        y: P.at.y, name: P.name, i: P.i, gid: P.gid });
+          return;
+        }
         var shapes = P.el.querySelectorAll('.part__gnd');
         var x0 = null, y0 = null, x1 = null, y1 = null;
         var take = function (b) {
