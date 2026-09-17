@@ -89,6 +89,7 @@ no-zoom|node no-zoom.mjs
 voice|node voice.mjs
 keyboard|node keyboard.mjs
 cloud-contract|node cloud-contract.mjs
+session-refresh|node session-refresh.mjs
 JOBS_EOF
 
 # shellcheck disable=SC2016

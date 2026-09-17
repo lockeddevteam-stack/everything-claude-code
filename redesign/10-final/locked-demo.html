@@ -16666,15 +16666,99 @@ window.LK_CLOUD = {
      here that is secret. A screen never reads it: it asks for headers. */
   var TOKEN_KEY = 'lk_session';
 
+  /* WHAT "SIGNED IN" MEANS.
+
+     A Supabase access token lasts an hour. This read an expired one as
+     nobody being signed in, so the app quietly logged you out about once
+     an hour and every screen that needs an account started behaving like
+     a fresh install -- while the refresh token that would have fixed it
+     sat in the same object, unused. The word refresh_token did not
+     appear in this file.
+
+     A session is now gone only when there is nothing to refresh with.
+     An expired access token is a session that needs a new token, which
+     is a different thing and one the caller never has to know about. */
   function session() {
-    var s = ST() ? ST().get(TOKEN_KEY, null) : null;
+    var s = raw();
     if (!s || !s.access_token) return null;
-    if (s.expires_at && Date.now() > s.expires_at * 1000) return null;
+    if (expired(s) && !s.refresh_token) return null;
     return s;
+  }
+
+  function raw() {
+    return ST() ? ST().get(TOKEN_KEY, null) : null;
+  }
+
+  /* Thirty seconds early, because a token that expires while the request
+     is in the air fails just as hard as one that expired a minute ago. */
+  function expired(s, skewMs) {
+    if (!s || !s.expires_at) return false;
+    return Date.now() + (skewMs || 30000) > s.expires_at * 1000;
+  }
+
+  /* The wall clock is not in the token. Supabase returns expires_in and
+     an expires_at that some flows omit, so it is computed here rather
+     than trusted to be present. */
+  function stamp(d) {
+    if (!d) return d;
+    if (!d.expires_at && d.expires_in) {
+      d.expires_at = Math.floor(Date.now() / 1000) + Number(d.expires_in);
+    }
+    return d;
+  }
+
+  /* ONE REFRESH AT A TIME. Every screen asks for headers at once on a
+     cold start, and six parallel refreshes with the same token means
+     five of them are spending a token that has already been rotated --
+     Supabase issues a new refresh token each time and retires the old
+     one, so the losers of that race sign you out. They all wait on the
+     same promise instead. */
+  var refreshing = null;
+
+  function refresh() {
+    if (refreshing) return refreshing;
+    var s = raw();
+    var c = cfg();
+    if (!s || !s.refresh_token || !c || !c.supabaseUrl) {
+      return Promise.resolve(null);
+    }
+    refreshing = fetch(c.supabaseUrl + '/auth/v1/token?grant_type=refresh_token', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', apikey: c.supabaseKey || '' },
+      body: JSON.stringify({ refresh_token: s.refresh_token })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (r.ok && j && j.access_token) {
+          setSession(stamp(j));
+          return j;
+        }
+        /* REFUSED, NOT UNREACHABLE. A refresh token Supabase rejects is
+           spent or revoked and will never work again, so the session is
+           cleared and the person signs in once. A refresh that failed on
+           the network is kept: signing somebody out because their train
+           went into a tunnel is the bug this whole function exists to
+           stop. */
+        if (r.status >= 400 && r.status < 500) setSession(null);
+        return null;
+      });
+    }, function () { return null; });
+    refreshing.then(function () { refreshing = null; },
+                    function () { refreshing = null; });
+    return refreshing;
+  }
+
+  /* Called before anything that needs a token. Cheap when the token is
+     good: one comparison and no request. */
+  function fresh() {
+    var s = raw();
+    if (!s || !s.access_token) return Promise.resolve(null);
+    if (!expired(s)) return Promise.resolve(s);
+    if (!s.refresh_token) return Promise.resolve(null);
+    return refresh().then(function () { return session(); });
   }
   function setSession(s) {
     if (!ST()) return;
-    if (s) ST().set(TOKEN_KEY, s); else ST().remove(TOKEN_KEY);
+    if (s) ST().set(TOKEN_KEY, stamp(s)); else ST().remove(TOKEN_KEY);
   }
 
   function headers(extra) {
@@ -16996,8 +17080,35 @@ window.LK_CLOUD = {
     return { reply: raw, actions: [] };
   }
 
+  /* EVERY AUTHED REQUEST, THROUGH ONE DOOR.
+
+     Two things have to happen around a call that carries a token, and
+     doing them at ten call sites means nine of them drift. The token is
+     made fresh before the request goes out, and a 401 that comes back
+     anyway gets one refresh and one retry -- because a token can expire
+     between the check and the server reading it, and because a clock
+     that is a minute out makes that the normal case rather than a rare
+     one.
+
+     One retry, not a loop: if the second 401 comes back the refresh is
+     not working and repeating it only delays telling somebody. */
+  function authed(run) {
+    return fresh().then(function () {
+      return run();
+    }).then(function (res) {
+      if (!res || res.status !== 401) return res;
+      if (!raw() || !raw().refresh_token) return res;
+      return refresh().then(function (got) {
+        return got ? run() : res;
+      });
+    });
+  }
+
   function post(url, body, opts) {
-    return fetch(url, { method: 'POST', headers: headersFor(url, (opts || {}).headers), body: JSON.stringify(body) })
+    return authed(function () {
+      return fetch(url, { method: 'POST', headers: headersFor(url, (opts || {}).headers),
+                          body: JSON.stringify(body) });
+    })
       .then(function (r) {
         return r.json().catch(function () { return {}; }).then(function (j) {
           if (!r.ok) {
@@ -17173,8 +17284,14 @@ window.LK_CLOUD = {
       if (!API.ready()) return Promise.resolve(NOT_READY);
       if (!session()) return Promise.resolve({ ok: false, error: 'signed_out', message: 'Sign in to sync.' });
       var S = ST();
-      return fetch(cfg().supabaseUrl + '/rest/v1/user_data?select=key,value,changed_at',
-                   { headers: headers() })
+      /* THROUGH THE REFRESH. The pull is the request that decides
+         whether an app on a phone that has been shut for a day still
+         knows who you are, so it is the last one that should be sent
+         with an hour-old token. */
+      return authed(function () {
+        return fetch(cfg().supabaseUrl + '/rest/v1/user_data?select=key,value,changed_at',
+                     { headers: headers() });
+      })
         .then(function (r) { return r.json(); }, fail)
         .then(function (rows) {
           if (!Array.isArray(rows)) return { ok: false, error: 'server', message: 'The server sent something unreadable.' };
