@@ -96,7 +96,7 @@ ok(rows.includes('rec-biceps') && rows.includes('rec-triceps'),
 ok(rows.includes('rec-forearms'), 'and forearms are their own, not folded into either');
 
 const bi = await read('biceps'), tri = await read('triceps'), ch = await read('chest');
-const core = await read('core'), legs = await read('legs');
+const core = await read('abs'), legs = await read('legs');
 
 ok(ch && ch.n === 5, 'five bench sets land on chest', ch && String(ch.n));
 ok(bi && bi.n === 3, 'three curl sets land on biceps, and only there', bi && String(bi.n));
@@ -104,8 +104,102 @@ ok(tri && tri.n === 2, 'two pushdown sets land on triceps', tri && String(tri.n)
 /* THE WHOLE POINT. Bench is 5 sets of chest. If any of it leaked into
    triceps, triceps would read 7. */
 ok(tri && tri.n !== 7, 'a bench press never counts as triceps volume', tri && String(tri.n));
-ok(core && core.n === 4, 'and ab sets are counted at all, which they were not', core && String(core.n));
+/* Filed under Abs now rather than Core: the figure draws abs, the
+   catalogue files abs, and the tile says abs. */
+ok(core && core.n === 4, 'and ab sets are counted at all, under Abs', core && String(core.n));
 ok(legs && legs.n === 0, 'a group with nothing logged reads zero rather than borrowing', legs && String(legs.n));
+
+console.log('\n=== the section is a wall of numbers, not a paragraph ===\n');
+
+const shape = await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-train').shadowRoot;
+  const sec = r.querySelector('[data-testid="section-recovery"]');
+  return {
+    title: sec ? sec.querySelector('h2').textContent.trim() : '',
+    summary: !!r.querySelector('[data-testid="rec-suggestion"]'),
+    tiles: r.querySelectorAll('.mtile').length,
+    tappable: [...r.querySelectorAll('.mtile')].every((t) => t.tagName === 'BUTTON'),
+    prose: sec ? sec.querySelectorAll('p').length : -1
+  };
+});
+ok(shape.title === 'Trained this week', 'the heading says what it is', shape.title);
+ok(!shape.summary, 'the summary sentence above it is gone');
+ok(shape.prose === 0, 'and the explanation below it is gone', String(shape.prose));
+ok(shape.tiles === 8, 'eight muscles, eight tiles', String(shape.tiles));
+ok(shape.tappable, 'and every one of them is a button');
+
+console.log('\n=== a tile opens the sets it counted ===\n');
+
+await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-train').shadowRoot;
+  const t = r.querySelector('[data-testid="rec-chest"]');
+  if (t) t.click();
+});
+await page.waitForTimeout(600);
+const sheet = await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-train').shadowRoot;
+  const s = r.querySelector('[data-testid="muscle-sheet"]');
+  if (!s) return null;
+  return { title: s.querySelector('h2').textContent.trim(),
+           summary: (s.querySelector('[data-testid="ms-summary"]') || {}).textContent || '',
+           sets: s.querySelectorAll('.mset').length };
+});
+ok(sheet && sheet.title === 'Chest', 'the sheet is the muscle that was tapped',
+   sheet && sheet.title);
+/* The tile said five. The sheet has to show five, off the same history and
+   the same filter, or one of the two is lying. */
+ok(sheet && sheet.sets === 5, 'and it lists every set the tile counted',
+   sheet && String(sheet.sets));
+ok(sheet && /5 working sets/.test(sheet.summary), 'with the count said once more in words',
+   sheet && sheet.summary);
+
+console.log('\n=== and the split you run is the one you picked ===\n');
+
+await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-train').shadowRoot;
+  const b = r.querySelector('[data-testid="ms-close"]');
+  if (b) b.click();
+});
+await page.waitForTimeout(400);
+const splits = await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-train').shadowRoot;
+  return [...r.querySelectorAll('[data-testid^="split-s"]')]
+    .map((b) => ({ id: b.getAttribute('data-testid'), main: /Main/.test(b.textContent) }));
+});
+ok(splits.length > 1 && splits[0].main, 'the first split is badged as the main one',
+   JSON.stringify(splits.map((x) => x.id + (x.main ? '*' : ''))));
+
+if (splits.length > 1) {
+  const second = splits[1].id;
+  await page.evaluate((id) => {
+    const r = document.getElementById('demo-screen-train').shadowRoot;
+    const b = r.querySelector('[data-testid="' + id + '"]');
+    if (b) b.click();
+  }, second);
+  await page.waitForTimeout(500);
+  ok(await page.evaluate(() => {
+    const r = document.getElementById('demo-screen-train').shadowRoot;
+    return !!r.querySelector('[data-testid="make-main"]');
+  }), 'a split that is not the main one offers to become it');
+
+  await page.evaluate(() => {
+    const r = document.getElementById('demo-screen-train').shadowRoot;
+    const b = r.querySelector('[data-testid="make-main"]');
+    if (b) b.click();
+  });
+  await page.waitForTimeout(700);
+  const after = await page.evaluate(() => {
+    const r = document.getElementById('demo-screen-train').shadowRoot;
+    const first = r.querySelector('[data-testid^="split-s"]');
+    return { first: first ? first.getAttribute('data-testid') : '',
+             stored: localStorage.getItem('lk_mainSplit') };
+  });
+  ok(after.first === second, 'and it moves to the top once chosen', after.first);
+  /* Stored as an id rather than by reordering lk_splits: the order they
+     were created in is data too, and a preference should not rewrite it. */
+  ok(!!after.stored && second.indexOf(after.stored) > -1,
+     'remembered as an id, so a reload still knows', after.stored);
+}
 
 ok(errors.length === 0, 'no page errors', errors.slice(0, 2).join(' | '));
 

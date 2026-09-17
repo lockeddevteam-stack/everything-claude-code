@@ -4679,15 +4679,84 @@ img.avatar { object-fit: cover; background: var(--fill); }
    supplement taken is finished, not cancelled. */
 .row--done .row__title { color: var(--text-secondary); }
 
-/* Per-muscle recovery. The word is the state, the number is the volume, and
-   the bar is each group against the hardest-worked one rather than against a
-   target: the screen has no opinion about how much is right for a reader. */
-.recrow { display: block; }
-/* The muscle name sits beside a word and a count. `grow` is flex: 1 with a
-   zero basis, so at the largest accessibility size the name was squeezed
-   under its own width and "Back" and "Core" were clipped. Sized to its
-   content instead, the row wraps rather than cutting the word. */
-.recrow__name { flex: 1 1 auto; min-width: 0; }
+/* WHAT YOU TRAINED THIS WEEK, as eight tiles rather than eight rows.
+
+   A row is something you read down. A tile is something you look at and
+   then hit, which is what these are for: each one opens the sets it
+   counted. Two columns at phone width, the count set large enough to take
+   in at arm's length, the bar each group against the hardest-worked one
+   rather than against a target -- the screen still has no opinion about
+   how much is right for anybody. */
+.mgrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-2);
+}
+.mtile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-height: 88px;
+  padding: var(--sp-3);
+  text-align: left;
+  border-radius: var(--r-lg, 16px);
+  border: 1px solid var(--hairline);
+  background: var(--card);
+  box-shadow: var(--shadow-card, none);
+  transition: transform var(--dur-fast, 140ms) var(--spring-snappy),
+              background var(--dur-fast, 140ms) ease;
+}
+.mtile:active { transform: scale(0.97); background: var(--fill); }
+.mtile:focus-visible { outline: 2px solid var(--focus, #FF8A3D); outline-offset: 2px; }
+/* Nothing logged is still a tile, because a gap in the week is information.
+   It recedes rather than disappearing. */
+.mtile--idle { opacity: .62; }
+.mtile__top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2); }
+.mtile__name {
+  font-size: var(--t-subheadline-size, 15px);
+  font-weight: var(--w-bold);
+  color: var(--text);
+  min-width: 0;
+}
+/* The number is the point of the tile. */
+.mtile__sets {
+  font-size: 28px;
+  line-height: 1;
+  font-weight: var(--w-bold);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.mtile--idle .mtile__sets { color: var(--text-tertiary); }
+.mtile__bar {
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--fill);
+  overflow: hidden;
+}
+.mtile__bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width var(--dur-slow, 300ms) var(--spring-smooth);
+}
+.mtile__when { font-size: var(--t-caption-1-size, 12px); }
+
+/* The sets behind a tile's number, one chip each. */
+.msets { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+.mset {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--fill);
+  font-size: var(--t-caption-1-size, 12px);
+  color: var(--text-secondary);
+}
+.mset > b { color: var(--text-tertiary); font-weight: var(--w-bold); }
+
 .rec--fresh { color: var(--accent); }
 .rec--ready { color: var(--text-secondary); }
 .rec--stale { color: var(--warning); font-weight: var(--w-semibold); }
@@ -26658,7 +26727,11 @@ DEMO.define("train", function (document, window, location, fetch) {
     var p = iso.split('-');
     return Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
   }
-  function daysAgo(iso) { return Math.round((ms(TODAY) - ms(iso)) / 86400000); }
+  /* Never negative. A session dated ahead of today -- a phone whose clock
+     was wrong, or a device in a timezone a day forward -- came out as a
+     negative number of days, which fell through the first branch and was
+     reported as "trained yesterday". Today is as recent as anything gets. */
+  function daysAgo(iso) { return Math.max(0, Math.round((ms(TODAY) - ms(iso)) / 86400000)); }
   function absDate(iso) {
     var p = iso.split('-');
     return MON[Number(p[1]) - 1] + ' ' + Number(p[2]);
@@ -26763,8 +26836,34 @@ DEMO.define("train", function (document, window, location, fetch) {
     return [];
   }
 
+  /* THE ONE YOU ARE ACTUALLY RUNNING. Stored as an id rather than by
+     reordering lk_splits, because the order they were written in is data
+     too and a preference should not rewrite it. Everything that used to
+     mean "the first one" -- the Current badge, the next day, the day the
+     log opens on -- reads this instead. */
+  function mainSplitId() {
+    try {
+      var v = window.LKStore ? window.LKStore.get('lk_mainSplit', null) : null;
+      return v == null ? null : String(v);
+    } catch (e) { return null; }
+  }
+  function setMainSplit(id) {
+    try { if (window.LKStore) window.LKStore.set('lk_mainSplit', String(id)); } catch (e) {}
+  }
+
   function loadSplits(fresh) {
     var raw = rd('lk_splits', [], fresh) || [];
+    var want = mainSplitId();
+    if (want) {
+      var at = -1;
+      for (var mi = 0; mi < raw.length; mi++) {
+        if (raw[mi] && String(raw[mi].id) === want) { at = mi; break; }
+      }
+      if (at > 0) {
+        raw = raw.slice();
+        raw.unshift(raw.splice(at, 1)[0]);
+      }
+    }
     SPLITS = raw.map(function (sp, i) {
       var days = (sp.days || []).map(function (d, j) {
         var count = dayExercises(d).length;
@@ -27459,7 +27558,7 @@ DEMO.define("train", function (document, window, location, fetch) {
         '<span class="ico-well">' + ICO.split + '</span>' +
         '<span class="row__main stack">' +
           '<span class="row__title">' + esc(sp.name) +
-            (sp.current ? ' <span class="badge badge--accent">Current</span>' : '') + '</span>' +
+            (sp.current ? ' <span class="badge badge--accent">Main</span>' : '') + '</span>' +
           '<span class="row__sub truncate">' + n(sp.days.length) + ' ' + LKPlural(sp.days.length, 'day') + ' &middot; ' + esc(names) + '</span>' +
         '</span>' +
         '<span class="row__chev">' + ICO.chev + '</span>' +
@@ -28267,7 +28366,7 @@ DEMO.define("train", function (document, window, location, fetch) {
     'Biceps': 'Biceps', 'Short Head': 'Biceps',
     'Triceps': 'Triceps', 'Lateral Head': 'Triceps', 'Medial Head': 'Triceps',
     'Forearms': 'Forearms',
-    'Abs': 'Core', 'Obliques': 'Core', 'Weighted': 'Core', 'Bodyweight': 'Core'
+    'Abs': 'Abs', 'Obliques': 'Abs', 'Weighted': 'Abs', 'Bodyweight': 'Abs'
   };
   /* The catalogue's own twelve groups, folded into the buckets a week is
      actually planned around. */
@@ -28276,10 +28375,13 @@ DEMO.define("train", function (document, window, location, fetch) {
     'Inner/Outer Thigh': 'Legs',
     'Back': 'Back', 'Chest': 'Chest', 'Shoulders': 'Shoulders',
     'Biceps': 'Biceps', 'Triceps': 'Triceps', 'Forearms': 'Forearms',
-    'Abs': 'Core'
+    /* Abs, not Core. "Core" is a category somebody invented to cover the
+       abdominal wall and whatever else they wanted to sell; the figure
+       draws abs and the catalogue files abs, so this says abs too. */
+    'Abs': 'Abs'
   };
   var GROUP_ORDER = ['Legs', 'Back', 'Chest', 'Shoulders',
-                     'Biceps', 'Triceps', 'Forearms', 'Core'];
+                     'Biceps', 'Triceps', 'Forearms', 'Abs'];
 
   /* id -> the catalogue's group, built once. */
   var CAT_BY_ID = null;
@@ -28344,71 +28446,126 @@ DEMO.define("train", function (document, window, location, fetch) {
     return [days + ' days ago', 'rec--stale'];
   }
 
+  /* WHAT YOU TRAINED, AS A WALL OF NUMBERS.
+
+     This was a paragraph of prose, eight rows, and a paragraph explaining
+     the eight rows. The prose said what the numbers already said, the
+     rows were a list you read rather than a thing you use, and the
+     explanation underneath was a footnote nobody asked for. All that is
+     wanted here is: which muscles got work this week, how much, and what
+     each of those sets actually was.
+
+     So: a grid of eight, the set count large enough to read at arm's
+     length, a bar for the week against the hardest-worked group, and
+     the last time it was trained. Every tile opens what it counted. */
   function recoveryBlock() {
     var st = muscleState();
     var any = GROUP_ORDER.some(function (g) { return st[g].total > 0; });
     if (!any) return '';
     var max = Math.max.apply(null, GROUP_ORDER.map(function (g) { return st[g].week; }).concat([1]));
-    /* What to train today, from what has recovered. v6 put this in hours;
-       the log is dated to the day, so hours would be precision this data does
-       not have. Days, and the sentence says which groups rather than naming a
-       number nothing measured. */
-    var ready = [], resting = [], never = [];
-    GROUP_ORDER.forEach(function (g) {
-      var d = st[g];
-      if (!d.total) { never.push(g); return; }
-      var days = daysAgo(d.last);
-      if (days >= 2) ready.push({ g: g, days: days }); else resting.push({ g: g, days: days });
-    });
-    /* Least recently trained first: the group that has waited longest is the
-       one a week has been neglecting. */
-    ready.sort(function (a, b) { return b.days - a.days; });
-    var line;
-    if (ready.length) {
-      var pick = ready.slice(0, 2).map(function (r) { return r.g.toLowerCase(); });
-      line = 'Recovered and ready: ' + (pick.length === 2 ? pick[0] + ' or ' + pick[1] : pick[0]) + '.';
-      if (resting.length) {
-        line += ' ' + resting.map(function (r) { return r.g.toLowerCase(); }).join(' and ') +
-          (resting.length === 1 ? ' was' : ' were') + ' trained ' +
-          (resting[0].days === 0 ? 'today' : 'yesterday') + '.';
-      }
-    } else if (resting.length) {
-      line = 'Everything you train was hit in the last two days. Rest, or something easy.';
-    } else {
-      line = 'Nothing logged yet, so there is nothing to recover from.';
-    }
-    if (never.length) {
-      line += ' ' + never.map(function (g) { return g.toLowerCase(); }).join(' and ') +
-        ' ' + (never.length === 1 ? 'has' : 'have') + ' never been logged.';
-    }
 
     return '<section class="section" data-testid="section-recovery">' +
-      '<div class="section__head"><h2 class="t-label">By muscle, this week</h2></div>' +
-      '<div class="card">' +
-      '<p class="t-body-em" data-testid="rec-suggestion">' + esc(line) + '</p>' +
-      '<div class="mt-3">' + GROUP_ORDER.map(function (g, i) {
+      '<div class="section__head"><h2 class="t-label">Trained this week</h2></div>' +
+      '<div class="mgrid mt-2" data-testid="mgrid">' + GROUP_ORDER.map(function (g) {
         var d = st[g];
         var days = d.last === null ? null : daysAgo(d.last);
         var word = recoveryWord(days);
         var pct = Math.round(d.week / max * 100);
-        return '<div class="recrow' + (i ? ' mt-3' : '') + '" data-testid="rec-' + g.toLowerCase() + '">' +
-          '<div class="hstack hstack--3">' +
-            '<span class="t-subheadline recrow__name">' + g + '</span>' +
-            '<span class="t-caption-1 ' + word[1] + '">' + esc(word[0]) + '</span>' +
-            '<span class="t-subheadline num">' + n(d.week) + '</span>' +
-          '</div>' +
-          '<div class="meter meter--quiet mt-2" role="img" aria-label="' + g + ', ' + d.week +
+        var slug = g.toLowerCase();
+        return '<button class="mtile' + (d.week ? '' : ' mtile--idle') + '" type="button" ' +
+            'data-action="open-muscle" data-g="' + g + '" data-testid="rec-' + slug + '" ' +
+            'aria-label="' + g + ', ' + d.week +
             (d.week === 1 ? ' working set' : ' working sets') + ' in the last seven days">' +
-            '<span class="meter__fill" style="width:' + pct + '%"></span></div>' +
-        '</div>';
+          '<span class="mtile__top">' +
+            '<span class="mtile__name">' + g + '</span>' +
+            '<span class="mtile__sets num">' + n(d.week) + '</span>' +
+          '</span>' +
+          '<span class="mtile__bar" aria-hidden="true">' +
+            '<i style="width:' + pct + '%"></i></span>' +
+          '<span class="mtile__when ' + word[1] + '">' + esc(word[0]) + '</span>' +
+        '</button>';
       }).join('') + '</div>' +
-      '<p class="t-caption-1 quiet mt-3">Working sets in the last seven days, counted from what ' +
-        'you ticked. Warm-ups are not volume. Each lift counts once, for the muscle it is for: ' +
-        'a bench press is chest, not chest and triceps. The bar is each group against the ' +
-        'hardest-worked one, not against a target: this screen does not have an opinion about ' +
-        'how much is right for you.</p>' +
-      '</div>' +
     '</section>';
+  }
+
+  /* EVERY SET THAT NUMBER COUNTED. A tile says eleven; this says which
+     eleven, in which session, at what weight. Read from the same history
+     and the same filter -- ticked, not warm-up -- so the sheet and the
+     tile can never disagree. */
+  function muscleSheet(g) {
+    if (!g) return '';
+    var weekAgo = new Date(ms(TODAY) - 6 * 86400000).toISOString().slice(0, 10);
+    var days = [];
+    (rd('lk_history', [], false) || []).forEach(function (w) {
+      if (w.kind === 'cardio') return;
+      var iso = String(w.date || w.dateISO || '').slice(0, 10);
+      if (!iso || iso < weekAgo) return;
+      var lifts = [];
+      (w.exercises || []).forEach(function (ex) {
+        if (bucketOf(ex) !== g) return;
+        var sets = (ex.sets || []).filter(function (x) { return x.done && !x.warm; });
+        if (!sets.length) return;
+        lifts.push({ name: ex.name, muscle: ex.muscle, sets: sets });
+      });
+      if (lifts.length) days.push({ iso: iso, name: w.name, lifts: lifts });
+    });
+    days.sort(function (a, b) { return a.iso < b.iso ? 1 : -1; });
+
+    var total = days.reduce(function (a, d) {
+      return a + d.lifts.reduce(function (b, l) { return b + l.sets.length; }, 0);
+    }, 0);
+
+    var body = days.length
+      ? days.map(function (d) {
+          return '<div class="card mt-3" data-testid="ms-day-' + d.iso + '">' +
+            '<div class="spread">' +
+              '<span class="t-label">' + esc(d.name || 'Session') + '</span>' +
+              '<span class="t-meta">' + esc(absDate(d.iso)) + '</span>' +
+            '</div>' +
+            d.lifts.map(function (l) {
+              return '<div class="mt-2">' +
+                '<div class="t-subheadline">' + esc(l.name) + '</div>' +
+                '<div class="t-detail quiet">' + esc(l.muscle || '') + '</div>' +
+                '<div class="msets mt-1">' + l.sets.map(function (x, i) {
+                  return '<span class="mset"><b class="num">' + (i + 1) + '</b>' +
+                    esc(setLine(x)) + '</span>';
+                }).join('') + '</div>' +
+              '</div>';
+            }).join('') +
+          '</div>';
+        }).join('')
+      : '<div class="empty mt-3"><p class="empty__title">Nothing this week</p>' +
+        '<p class="empty__body">No ' + esc(g.toLowerCase()) + ' sets ticked in the last seven days.</p></div>';
+
+    return '' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="ms-title" data-testid="muscle-sheet">' +
+        '<div class="sheet__grab"></div>' +
+        '<div class="sheet__head">' +
+          '<h2 class="t-section" id="ms-title">' + esc(g) + '</h2>' +
+          '<button class="iconbtn" type="button" data-action="close-sheet" data-testid="ms-close" ' +
+            'aria-label="Close ' + esc(g) + '">' + ICO.close + '</button>' +
+        '</div>' +
+        '<div class="sheet__body">' +
+          '<p class="t-detail" data-testid="ms-summary">' + n(total) +
+            (total === 1 ? ' working set' : ' working sets') + ' in the last seven days' +
+            (days.length ? ' across ' + n(days.length) +
+              (days.length === 1 ? ' session' : ' sessions') : '') + '.</p>' +
+          body +
+        '</div>' +
+      '</div>';
+  }
+
+  /* One set, the way the log writes it. */
+  function setLine(x) {
+    var kg = x.kg == null ? null : x.kg;
+    var reps = x.reps == null ? null : x.reps;
+    if (kg == null && reps == null) return 'done';
+    if (kg == null) return reps + ' reps';
+    var u = 'kg';
+    try { if (window.LKUnits && LKUnits.unit) u = LKUnits.unit(); } catch (e) {}
+    var shown = kg;
+    try { if (window.LKUnits && LKUnits.v) shown = LKUnits.v(kg); } catch (e2) {}
+    return (reps == null ? '' : reps + ' \u00d7 ') + shown + ' ' + u;
   }
 
   /* One sentence, ONE accent fill, and a second way in under it — the
@@ -28628,6 +28785,11 @@ DEMO.define("train", function (document, window, location, fetch) {
           '<div class="card card--flush mt-3">' + days + '</div>' +
         '</div>' +
         '<div class="sheet__foot">' +
+          (sp.current
+            ? '<p class="t-detail mb-2" data-testid="is-main">This is your main split.</p>'
+            : '<button class="btn btn--primary btn--block mb-2" type="button" ' +
+              'data-action="main-split" data-id="' + sp.id + '" data-testid="make-main">' +
+              '<span class="btn__label">Make this my main split</span></button>') +
           '<button class="btn btn--secondary btn--block" type="button" data-action="edit-split" data-id="' + sp.id + '" ' +
                   'data-testid="edit-split">' + ICO.pencil +
             '<span class="btn__label">Edit split</span></button>' +
@@ -28984,7 +29146,9 @@ DEMO.define("train", function (document, window, location, fetch) {
   function overlayHTML() {
     if (S.logging) return cardioSheet();
     if (!S.sheet) return '';
-    var inner = S.sheet.kind === 'split'
+    var inner = S.sheet.kind === 'muscle'
+      ? muscleSheet(S.sheet.g)
+      : S.sheet.kind === 'split'
       ? splitSheet(SPLITS.filter(function (s) { return s.id === S.sheet.id; })[0])
       : S.sheet.kind === 'favs' ? favSheet()
       : S.sheet.kind === 'newcardio' ? newCardioSheet()
@@ -29128,6 +29292,17 @@ DEMO.define("train", function (document, window, location, fetch) {
     var a = t.dataset.action;
 
     if (a === 'open-split') { openSheet({ kind: 'split', id: t.dataset.id }); return; }
+    if (a === 'open-muscle') { openSheet({ kind: 'muscle', g: t.getAttribute('data-g') }); return; }
+    /* WHICH SPLIT IS THE ONE YOU ARE RUNNING. Until now it was whichever
+       sat first in storage, which is the order they were created in. With
+       more than one, that is somebody else's answer. */
+    if (a === 'main-split') {
+      setMainSplit(t.dataset.id);
+      loadSplits(true);
+      render(true);
+      say('Main split set.');
+      return;
+    }
     if (a === 'open-activities') { openSheet({ kind: 'activity' }); return; }
     if (a === 'close-sheet') { closeSheet(); return; }
     if (a === 'open-history') { S.view = 'history'; render(); body.focus(); return; }
