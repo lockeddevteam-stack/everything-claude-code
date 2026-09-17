@@ -96,6 +96,7 @@ weigh-in-tenths|node weigh-in-tenths.mjs
 body-zoom|node body-zoom.mjs
 muscle-week|node muscle-week.mjs
 pick-body|node pick-body.mjs
+addex-body|node addex-body.mjs
 JOBS_EOF
 
 # shellcheck disable=SC2016

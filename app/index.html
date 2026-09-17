@@ -5012,7 +5012,14 @@ img.avatar { object-fit: cover; background: var(--fill); }
    whole body did: the list underneath is the thing being chosen from,
    and a picker that keeps two thirds of the sheet for a picture makes
    somebody scroll to reach what they came for. */
-.addexmap--zoom .addexmap__fig { height: 30vh; min-height: 180px; max-height: 280px; }
+.addexmap--zoom .addexmap__fig { height: 38vh; min-height: 220px; max-height: 340px; }
+
+/* THE FIGURE ITSELF, KEPT ACROSS REDRAWS. The sheet is rebuilt on every
+   paint, so a figure mounted into it was a new figure every time: it
+   appeared already framed on the muscle instead of travelling there, and
+   the camera had nothing to animate from. It is mounted once into this
+   host and the host is moved into whichever slot the paint left. */
+.addexmap__host { position: absolute; inset: 0; }
 
 /* --- The level while the microphone is open ------------------------------
    A bar that moves with what the microphone hears, so a muted device looks
@@ -47604,6 +47611,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
        figure faces. null means the figure itself is on screen: the way
        in is pointing at what you are training, not reading a list. */
     addexGid: null,
+    addexSub: null,          /* the part of that muscle, once one is tapped */
     addexView: 'front',
     overlay: null,           /* tools | plates | rest | sheet | detail | block | addex | discard */
     overlayEx: 0,
@@ -48740,13 +48748,24 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       '</div>';
   }
 
+  /* THE BODY STAYS, FRAMED ON WHAT WAS TAPPED. Choosing Chest used to
+     swap the figure for ninety-eight rows, which is the moment the body
+     stopped being useful. It stays now, zoomed to the muscle and divided
+     into its parts, the same as the library and the split builder: the
+     second tap picks a head and narrows the list to it. */
   function addExGroupHTML() {
     var name = (window.LKExercises && LKExercises.groupName)
       ? LKExercises.groupName(S.addexGid) : S.addexGid;
-    return '<div class="spread" data-testid="addex-crumb">' +
-        '<button class="btn btn--tertiary btn--sm" type="button" data-act="addex-back" ' +
-          'data-testid="addex-back">' + ICO.chevLeft + '<span class="btn__label">Body</span></button>' +
-        '<span class="t-label">' + esc(name) + '</span>' +
+    var here = S.addexSub ? esc(S.addexSub) + ' \u00b7 ' + esc(name) : esc(name);
+    return '<div class="addexmap addexmap--zoom" data-testid="addex-map-zoom">' +
+        '<div class="addexmap__fig" id="addex-fig"></div>' +
+      '</div>' +
+      '<div class="spread mt-2" data-testid="addex-crumb">' +
+        '<button class="btn btn--tertiary btn--sm" type="button" data-act="' +
+          (S.addexSub ? 'addex-whole' : 'addex-back') + '" ' +
+          'data-testid="addex-back">' + ICO.chevLeft + '<span class="btn__label">' +
+          (S.addexSub ? esc(name) : 'Body') + '</span></button>' +
+        '<span class="t-label">' + here + '</span>' +
       '</div>' + addExList();
   }
 
@@ -48764,28 +48783,80 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
      a way to browse, here it is a way to answer one question and get
      back to the set you were in the middle of. */
   var ADDEX_FIG = null;
+  var ADDEX_HOST = null;
   function syncAddexFigure() {
     var slot = document.getElementById('addex-fig');
-    if (!slot || !window.LKBodyMap || !window.LKExercises) { ADDEX_FIG = null; return; }
-    if (slot.firstChild) return;
-    try {
-      ADDEX_FIG = LKBodyMap.mount(slot, {
-        groups: LKExercises.groupCounts(offeredLibrary()),
-        order: LKExercises.groups.map(function (gr) { return gr[0]; }),
-        view: S.addexView,
-        onSelect: function (gid) {
-          S.addexGid = gid;
-          S.addexN = ADDEX_PAGE;
-          paint();
-        }
-      });
-      if (ADDEX_FIG.setView) ADDEX_FIG.setView(S.addexView);
+    if (!slot || !window.LKBodyMap || !window.LKExercises) return;
+    /* MOUNTED ONCE, MOVED EVERY PAINT. The sheet's HTML is rebuilt whole
+       on every paint, so a figure mounted straight into it was a brand
+       new figure each time: it arrived already framed on the muscle
+       rather than travelling there, because there was no previous camera
+       to travel from. The figure lives in a host of its own and the host
+       is moved into whichever slot the latest paint left, which keeps
+       the element -- and so the animation -- alive across the redraw. */
+    if (!ADDEX_HOST) {
+      ADDEX_HOST = document.createElement('div');
+      ADDEX_HOST.className = 'addexmap__host';
+      /* IN THE DOCUMENT BEFORE IT IS DRAWN INTO. The map writes its hue
+         rules into the root it finds itself in, and a detached host has
+         no shadow root to find: the stylesheet went to the top document,
+         never reached this screen, and every muscle rendered black. */
+      slot.appendChild(ADDEX_HOST);
+      try {
+        ADDEX_FIG = LKBodyMap.mount(ADDEX_HOST, {
+          groups: LKExercises.groupCounts(offeredLibrary()),
+          order: LKExercises.groups.map(function (gr) { return gr[0]; }),
+          view: S.addexView,
+          onSelect: function (gid) {
+            S.addexGid = gid;
+            S.addexSub = null;
+            S.addexN = ADDEX_PAGE;
+            paint();
+          },
+          /* The second tap is the one that answers the question: not
+             "chest" but "upper chest". */
+          onPart: function (gid, part) {
+            S.addexGid = gid;
+            S.addexSub = part;
+            S.addexN = ADDEX_PAGE;
+            paint();
+          },
+          /* And the same thing reached by pinching in rather than by
+             tapping, so the two gestures agree about what they mean. */
+          onSplit: function (gid) {
+            if (gid) S.addexGid = gid; else S.addexSub = null;
+            S.addexN = ADDEX_PAGE;
+            paint();
+          }
+        });
+      } catch (e) {
+        ADDEX_FIG = null;
+        if (ADDEX_HOST && ADDEX_HOST.parentNode) ADDEX_HOST.parentNode.removeChild(ADDEX_HOST);
+        ADDEX_HOST = null;
+        return;
+      }
       /* Replacing a lift lights the part it trains, so the figure opens
          already answering "where am I". */
-      if (ADDEX_FIG.select && S.swapAt !== null && S.exercises[S.swapAt]) {
-        ADDEX_FIG.select(LKExercises.gidOf(S.exercises[S.swapAt]));
-      }
-    } catch (e) { ADDEX_FIG = null; }
+      try {
+        if (ADDEX_FIG.select && S.swapAt !== null && S.exercises[S.swapAt]) {
+          ADDEX_FIG.select(LKExercises.gidOf(S.exercises[S.swapAt]));
+        }
+      } catch (e2) {}
+    }
+    if (ADDEX_HOST.parentNode !== slot) slot.appendChild(ADDEX_HOST);
+    /* The camera and the split follow the state on every paint, so a
+       redraw never leaves a muscle framed with its parts gone. */
+    var fig = ADDEX_FIG;
+    if (!fig) return;
+    try {
+      if (fig.setView) fig.setView(S.addexView);
+      if (fig.select) fig.select(S.addexGid || null);
+      if (fig.zoomTo) fig.zoomTo(S.addexGid || null, S.addexView);
+      if (S.addexGid && fig.showParts) {
+        fig.showParts(S.addexGid, S.addexView);
+        if (fig.selectPart) fig.selectPart(S.addexSub || null);
+      } else if (fig.clearParts) fig.clearParts();
+    } catch (e3) {}
   }
 
   /* The list the sheet is willing to show: the short one unless the
@@ -48836,6 +48907,21 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
        clears the group rather than being trapped inside it. */
     if (S.addexGid && !q && window.LKExercises && LKExercises.gidOf) {
       all = all.filter(function (x) { return LKExercises.gidOf(x) === S.addexGid; });
+    }
+
+    /* A PART CHOSEN ON THE BODY IS THE WHOLE LIST. The figure's parts are
+       named the way a person says them -- "Upper", "Lats" -- and the
+       catalogue's muscle is "Upper Chest" or "Lats". One is the start of
+       the other, in both directions, which covers every part this figure
+       can draw without a table to keep in step. A part the catalogue
+       files nothing under leaves the group's list alone. */
+    if (S.addexSub && !q) {
+      var want = String(S.addexSub).toLowerCase();
+      var hitSub = all.filter(function (x) {
+        var mu = String(x.muscle || '').toLowerCase();
+        return mu === want || mu.indexOf(want) === 0 || want.indexOf(mu) === 0;
+      });
+      if (hitSub.length) all = hitSub;
     }
 
     /* RELATED MUSCLES, not one muscle. Replacing an incline press offered
@@ -49688,15 +49774,23 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
         /* Opens on the body, every time. A group left over from the last
            lift added is not an answer to this one. */
         S.addexGid = null;
+        S.addexSub = null;
         S.addexQ = '';
         break;
       /* ---- the picker's body ---- */
       case 'addex-group':
         S.addexGid = t.getAttribute('data-gid') || null;
+        S.addexSub = null;
         S.addexN = ADDEX_PAGE;
         break;
       case 'addex-back':
         S.addexGid = null;
+        S.addexSub = null;
+        S.addexN = ADDEX_PAGE;
+        break;
+      /* Two taps in, two taps out: the part first, then the muscle. */
+      case 'addex-whole':
+        S.addexSub = null;
         S.addexN = ADDEX_PAGE;
         break;
       case 'addex-view':
