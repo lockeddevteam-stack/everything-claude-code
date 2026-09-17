@@ -269,14 +269,32 @@ ok((await text(page, 'mic-voice-msg')).indexOf('Try again') > -1,
    await text(page, 'mic-voice-msg'));
 await ctx.close();
 
-console.log('\n=== no server, no button ===\n');
+console.log('\n=== nothing that can hear, no button ===\n');
 
+/* THE RULE CHANGED, BECAUSE THE MICROPHONE DID. This asserted that no
+   server means no microphone, which was right while uploading the audio
+   was the only way to turn it into words. The browser's own recogniser
+   needs no server of ours, so a phone that can hear is offered the
+   button whether or not this app's server is reachable.
+
+   What still has to hold is the honest half: when neither route exists
+   -- no recogniser AND nowhere to send a recording -- the button is not
+   offered at all. The recogniser is removed here to make that the case,
+   because headless Chromium carries the constructor and no service
+   behind it. */
 plan = {};
-({ ctx, page, errs } = await open(false));
+({ ctx, page, errs } = await open(false, () => {
+  try {
+    delete window.SpeechRecognition;
+    delete window.webkitSpeechRecognition;
+  } catch (e) {}
+  Object.defineProperty(window, 'SpeechRecognition', { value: undefined, configurable: true });
+  Object.defineProperty(window, 'webkitSpeechRecognition', { value: undefined, configurable: true });
+}));
 await click(page, 'log-mic');
 await waitFor(page, 'sheet-mic');
 ok(!(await has(page, 'mic-rec')),
-   'the microphone is not offered with nothing to send a recording to');
+   'with neither a recogniser nor a server, the microphone is not offered');
 ok(await has(page, 'mic-nodictation'),
    'and the field says what to do instead');
 ok(await has(page, 'mic-text'), 'the field itself is untouched');

@@ -4698,10 +4698,9 @@
        the badge was rendering on two seeded rows and nothing in the app could
        produce one, which made it a decoration rather than a claim.
 
-       A real scanner is a camera permission and a decoder; what a static
-       build can be honest about is the resolve step, which is where the
-       Verified claim actually comes from: a code matched a database row, so
-       the numbers are the manufacturer's own. */
+       The camera reads the code and the resolve step turns it into a row.
+       Verified means what it says: a code matched a database row, so the
+       numbers are the manufacturer's own rather than anybody's estimate. */
     /* Recipes. A recipe is a food you built, so the sheet's job is to make
        logging one serving a single tap and to show the arithmetic it did.
        Per-serving figures are derived here and never stored: a stored
@@ -5648,10 +5647,23 @@
          resolves anything. The digits under the bars are the same barcode. */
       if (st === 'idle') {
         return shell(
-          '<div class="fuel-scanbox" data-testid="scan-idle" aria-hidden="true">' + ICO.barcode + '</div>' +
-          '<p class="t-detail mt-3">Reading a barcode off the camera needs a decoder this build ' +
-            'does not carry, so it is not pretending to have one. The digits printed under the ' +
-            'bars are the same barcode: type them in.</p>' +
+          /* THE CAMERA, NOT A PICTURE OF A CAMERA. This was a grey box
+             and a paragraph explaining that reading a barcode needed a
+             decoder the build did not carry. It carries one now, so the
+             box is a live viewfinder and the decoder reads every frame
+             until it finds a code. Typing the digits stays underneath,
+             because a torn label is still a thing that happens. */
+          (S.scanCamMsg
+            ? '<div class="fuel-scanbox" data-testid="scan-idle" aria-hidden="true">' +
+                ICO.barcode + '</div>' +
+              '<p class="t-detail mt-3" data-testid="scan-cam-msg">' + esc(S.scanCamMsg) + '</p>'
+            : '<div class="fuel-view fuel-view--scan" data-testid="scan-view">' +
+                '<video id="sc-video" class="fuel-view__feed" playsinline muted ' +
+                  'data-testid="scan-video"></video>' +
+                '<div class="fuel-view__reticle" aria-hidden="true"></div>' +
+              '</div>' +
+              '<p class="t-detail mt-3" role="status" aria-live="polite" data-testid="scan-hint">' +
+                'Point it at the barcode.</p>') +
           '<label class="t-label field__label mt-4" for="sc-code">Barcode</label>' +
           '<input class="input num" id="sc-code" type="text" inputmode="numeric" autocomplete="off" ' +
             'placeholder="5060123456789" value="' + esc(S.scanCode || '') + '" data-testid="scan-code">' +
@@ -6081,13 +6093,30 @@
                   '<button class="btn btn--tertiary grow" type="button" data-action="cam-redo" ' +
                     'data-testid="cam-redo"><span class="btn__label">Estimate again</span></button>' +
                 '</div>'
-              : '<div class="fuel-shot fuel-shot--empty" data-testid="cam-empty" aria-hidden="true">' +
-                  ICO.cam + '</div>' +
+              /* THE FEED, NOT AN ICON OF A CAMERA. This was a grey
+                 square with a file input behind it, so taking a photo
+                 meant leaving the app for the system camera and coming
+                 back. The stream is on the page now: you see what the
+                 lens sees and the shutter is a button under it.
+
+                 The library stays, because half the time the plate was
+                 photographed an hour ago. */
+              : (S.camCamMsg
+                  ? '<div class="fuel-shot fuel-shot--empty" data-testid="cam-empty" aria-hidden="true">' +
+                      ICO.cam + '</div>' +
+                    '<p class="t-detail mt-3" data-testid="cam-cam-msg">' + esc(S.camCamMsg) + '</p>'
+                  : '<div class="fuel-view" data-testid="cam-view">' +
+                      '<video id="cam-video" class="fuel-view__feed" playsinline muted ' +
+                        'data-testid="cam-video"></video>' +
+                    '</div>') +
                 '<div class="hstack hstack--3 mt-3">' +
-                  '<label class="btn btn--secondary grow" for="cam-take">' +
-                    '<span class="btn__label">Take a photo</span></label>' +
-                  '<input class="vis-hidden" id="cam-take" type="file" accept="image/*" ' +
-                    'capture="environment" data-testid="cam-take">' +
+                  (S.camCamMsg
+                    ? '<label class="btn btn--secondary grow" for="cam-take">' +
+                        '<span class="btn__label">Take a photo</span></label>' +
+                      '<input class="vis-hidden" id="cam-take" type="file" accept="image/*" ' +
+                        'capture="environment" data-testid="cam-take">'
+                    : '<button class="btn btn--primary grow" type="button" data-action="cam-shoot" ' +
+                        'data-testid="cam-shoot"><span class="btn__label">Take a photo</span></button>') +
                   '<label class="btn btn--secondary grow" for="cam-pick">' +
                     '<span class="btn__label">From the library</span></label>' +
                   '<input class="vis-hidden" id="cam-pick" type="file" accept="image/*" ' +
@@ -6101,8 +6130,7 @@
               : S.camState === 'example'
               ? '<p class="t-caption-1 quiet mt-3">These are the worked example, not a photo: ' +
                 'this is the state switcher showing the shape of a reading.</p>'
-              : '<p class="t-caption-1 quiet mt-3">The photo is downscaled on this phone and sent ' +
-                'to be read. Every figure that comes back is an estimate and is logged as one.</p>') +
+              : '') +
             '<h3 class="t-label mt-5">What it reads as</h3>' +
             (items.length
               ? '<div class="card card--flush mt-2" data-testid="cam-items">' +
@@ -6340,8 +6368,18 @@
     }
     if (a === 'cam') {
       S.sheet = 'cam'; S.camOil = null; S.camItems = null; S.camShot = null;
-      S.camState = 'idle'; S.camWhy = null;
-      render(); return;
+      S.camState = 'idle'; S.camWhy = null; S.camCamMsg = '';
+      render();
+      startPlateCam();
+      return;
+    }
+    if (a === 'cam-shoot') {
+      var shot = window.LKCam && LKCam.shot(document.getElementById('cam-video'), 1280, 0.82);
+      if (!shot) { S.camWhy = 'That frame could not be captured. Try again.'; render(); return; }
+      LKCam.stop();
+      S.camShot = shot;
+      readPlateData(shot);
+      return;
     }
     if (a === 'cam-drop') { camItems().splice(+act.getAttribute('data-i'), 1); render(); return; }
     if (a === 'cam-redo') {
@@ -6361,7 +6399,10 @@
     if (a === 'scan') {
       S.sheet = 'scan'; S.scanServings = 1; S.scanState = 'idle';
       S.scanCode = ''; S.scanError = null; S.scanHit = null;
-      render(); return;
+      S.scanCamMsg = '';
+      render();
+      startScanner();
+      return;
     }
     if (a === 'scan-try') { S.scanCode = act.getAttribute('data-c'); S.scanError = null; scanLook(); return; }
     if (a === 'scan-look') {
@@ -6719,6 +6760,18 @@
       if (S.micRec) { stopMicRec(); return; }
       S.micVoiceMsg = '';
       LKVoice.start({
+        /* THE WORDS, AS THEY ARE HEARD. The recogniser streams a
+           transcript while somebody is still talking, which is a better
+           thing to put on screen than a bouncing level: you can see it
+           has you right and correct yourself mid-sentence rather than
+           after. The field is the transcript, so stopping leaves
+           exactly what is already shown. */
+        onPartial: function (text) {
+          if (S.sheet !== 'mic') return;
+          S.micText = text;
+          S.micHeard = true;
+          render();
+        },
         onTick: function (secs, lvl) {
           S.micSecs = secs; S.micLevel = lvl;
           /* The timer repaints the sheet, and repainting the sheet while
@@ -6906,7 +6959,13 @@
       MICROS.forEach(function (mi) { if (typeof am[mi.key] === 'number') copy[mi.key] = am[mi.key]; });
       addMeal(copy);
       S.sheet = null;
-      toast(esc(am.name) + ' logged again, ' + n(am.kcal) + ' kcal.', function () {
+      /* say, not toast. There is no toast function and never was: this
+         line threw a ReferenceError every single time, AFTER addMeal had
+         already run. So the entry landed, the sheet stayed open on a
+         screen that had just died, and the reader was told something
+         broke while the thing they asked for had in fact happened. The
+         suite checked that the button existed and never pressed it. */
+      say(esc(am.name) + ' logged again, ' + n(am.kcal) + ' kcal.', function () {
         DAY.meals.pop(); recount(DAY); saveDay(); OFTEN = frequent();
       });
       render();
@@ -7137,6 +7196,9 @@
          behind a sheet nobody can see is the thing a permission prompt is
          there to prevent. */
       if (window.LKVoice && LKVoice.recording()) LKVoice.cancel();
+      /* And the camera. A live feed behind a closed sheet keeps the
+         indicator light on, which reads as an app watching you. */
+      stopScanner();
       S.micRec = false; S.micSending = false; S.micVoiceMsg = '';
       S.portion = null;
       S.sheet = null; S.camOil = null; render(); return;
@@ -7208,6 +7270,23 @@
     } catch (e) { cb(null); }
   }
 
+  /* The plate camera. Same module as the scanner, no decode loop: this
+     one waits for a shutter press. */
+  function startPlateCam() {
+    if (!window.LKCam || !LKCam.supported()) {
+      S.camCamMsg = 'This browser will not give the page a camera. Use a photo instead.';
+      render();
+      return;
+    }
+    LKCam.start({ facing: 'environment' }).then(function (r) {
+      if (S.sheet !== 'cam') { LKCam.stop(); return; }
+      if (!r.ok) { S.camCamMsg = r.message + ' Use a photo instead.'; render(); return; }
+      S.camCamMsg = '';
+      render();
+      LKCam.attach(document.getElementById('cam-video'));
+    });
+  }
+
   function readPlate(file) {
     var C = window.LKCloud;
     if (!C || !C.ready() || !C.vision) {
@@ -7225,6 +7304,23 @@
         render();
         return;
       }
+      readPlateData(dataUrl);
+    });
+  }
+
+  /* A PICTURE ALREADY IN HAND. The shutter on the live feed produces a
+     frame at the size it wants, so it has nothing to shrink: this is
+     everything readPlate did after the shrink, reachable on its own. */
+  function readPlateData(dataUrl) {
+    var C = window.LKCloud;
+    if (!C || !C.ready() || !C.vision) {
+      S.camState = 'nosrv';
+      S.camWhy = 'Reading a plate needs a model behind a server, and this build reaches none.';
+      render();
+      return;
+    }
+    S.camState = 'reading'; S.camWhy = null; S.camItems = null; render();
+    (function () {
       C.vision('meal', dataUrl).then(function (r) {
         if (S.sheet !== 'cam') return;
         if (!r || !r.ok) {
@@ -7256,7 +7352,7 @@
         S.camWhy = 'The read could not be reached. Nothing was logged.';
         render();
       });
-    });
+    })();
   }
 
   /* The oil sits on the plate, not on any one item, so it is added once to
@@ -8094,6 +8190,79 @@
   /* A lookup is not instant, and a screen that resolves before the tap has
      finished teaches nobody what the wait looks like. One short pass through
      `looking` before either answer. */
+  /* ---- THE SCANNER ------------------------------------------------
+     A frame every 120 ms, decoded in the page. Faster than that spends
+     battery on frames the camera has not finished changing; slower and
+     it feels like it is not looking.
+
+     The loop is stopped by whichever comes first: a code, the sheet
+     closing, or twenty seconds of finding nothing -- at which point it
+     says so rather than leaving somebody holding a phone at a packet
+     waiting for something that is not coming. */
+  var scanTimer = null;
+  var scanGaveUpAt = 0;
+
+  function startScanner() {
+    if (!window.LKCam || !LKCam.supported()) {
+      S.scanCamMsg = 'This browser will not give the page a camera. Type the digits instead.';
+      render();
+      return;
+    }
+    LKCam.start({ facing: 'environment' }).then(function (r) {
+      if (S.sheet !== 'scan') { LKCam.stop(); return; }
+      if (!r.ok) {
+        S.scanCamMsg = r.message + ' Type the digits instead.';
+        render();
+        return;
+      }
+      S.scanCamMsg = '';
+      render();
+      var el = document.getElementById('sc-video');
+      LKCam.attach(el).then(function () {
+        scanGaveUpAt = Date.now() + 20000;
+        scanTick();
+      });
+    });
+  }
+
+  function scanTick() {
+    if (S.sheet !== 'scan' || S.scanState !== 'idle') { stopScanner(); return; }
+    var el = document.getElementById('sc-video');
+    if (!el || !window.LKBarcode) { stopScanner(); return; }
+    /* Full width. A barcode's bars are about a pixel each at arm's
+       length, and a downscale on the way to the decoder is the
+       difference between reading a code and never reading one. */
+    var canvas = LKCam.frame(el, 0);
+    var next = function () {
+      if (S.sheet !== 'scan' || S.scanState !== 'idle') return;
+      if (Date.now() > scanGaveUpAt) {
+        stopScanner();
+        S.scanCamMsg = 'No barcode found. Hold it steadier, or type the digits underneath.';
+        render();
+        return;
+      }
+      scanTimer = setTimeout(scanTick, 120);
+    };
+    if (!canvas) { next(); return; }
+    LKBarcode.read(canvas).then(function (code) {
+      if (S.sheet !== 'scan' || S.scanState !== 'idle') return;
+      if (!code) { next(); return; }
+      /* Found. The camera goes off before the lookup, because the
+         answer is on its way and a live feed behind it is just a light
+         left on. */
+      stopScanner();
+      S.scanCode = code;
+      S.scanError = null;
+      if (navigator.vibrate) { try { navigator.vibrate(30); } catch (e) {} }
+      scanLook();
+    }, next);
+  }
+
+  function stopScanner() {
+    if (scanTimer) { clearTimeout(scanTimer); scanTimer = null; }
+    if (window.LKCam) LKCam.stop();
+  }
+
   function scanLook() {
     var digits = String(S.scanCode || '').replace(/\D/g, '');
     if (digits.length < 8 || digits.length > 14) {

@@ -97,17 +97,170 @@
     return startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0;
   }
 
+  /* ---- SPEECH TO TEXT, ON THE DEVICE ------------------------------
+     The microphone used to record audio, upload it, and ask a language
+     model to write down what was said. That works and it is the wrong
+     tool three times over: a round trip before you see a word, a model
+     billed per call to do a job a recogniser does for nothing, and a
+     general model given "transcribe this" will sometimes answer the
+     question it heard instead of writing it down.
+
+     SpeechRecognition is the browser's own recogniser. It streams words
+     back while you are still talking, which is also a better thing to
+     show than a level meter: you can see it hearing you correctly, and
+     correct yourself mid-sentence rather than after.
+
+     The recorder stays as the fallback, for browsers without it and for
+     a recogniser that fails before it returns anything. */
+  var SR = (typeof g.SpeechRecognition === 'function' && g.SpeechRecognition) ||
+           (typeof g.webkitSpeechRecognition === 'function' && g.webkitSpeechRecognition) || null;
+  var sr = null, srFinal = '', srInterim = '', srDone = null, srStarted = false;
+  var srTimer = null, srAutoStop = null, srSecs = 0;
+
+  function srSupported() { return !!SR && secure(); }
+
+  function srCleanup() {
+    if (srTimer) { clearInterval(srTimer); srTimer = null; }
+    if (srAutoStop) { clearTimeout(srAutoStop); srAutoStop = null; }
+    if (sr) {
+      try { sr.onresult = sr.onerror = sr.onend = null; } catch (e) {}
+      try { sr.stop(); } catch (e) {}
+      sr = null;
+    }
+  }
+
+  function srText() {
+    return (srFinal + ' ' + srInterim).replace(/\s+/g, ' ').trim();
+  }
+
+  function srStart(opts) {
+    return new Promise(function (resolve) {
+      var r;
+      try { r = new SR(); } catch (e) { resolve(null); return; }
+      sr = r;
+      srFinal = ''; srInterim = ''; srSecs = 0; srStarted = false; srDone = null;
+      r.continuous = true;
+      r.interimResults = true;
+      r.maxAlternatives = 1;
+      try { r.lang = g.navigator && g.navigator.language || 'en-GB'; } catch (e) {}
+
+      var settled = false;
+      var settle = function (v) { if (!settled) { settled = true; resolve(v); } };
+
+      r.onresult = function (e) {
+        srStarted = true;
+        srInterim = '';
+        for (var i = e.resultIndex; i < e.results.length; i++) {
+          var t = e.results[i][0] && e.results[i][0].transcript || '';
+          if (e.results[i].isFinal) srFinal += (srFinal ? ' ' : '') + t.trim();
+          else srInterim += t;
+        }
+        if (opts.onPartial) { try { opts.onPartial(srText()); } catch (err) {} }
+      };
+
+      r.onerror = function (e) {
+        var name = (e && e.error) || '';
+        /* Before it ever started: this route is not available on this
+           browser today, whatever the constructor claims. */
+        if (!settled) { srCleanup(); settle(null); return; }
+        /* Nothing heard is not a failure of the recogniser, it is a
+           quiet room. Anything else before the first word means this
+           route is not going to work and the recorder should have it. */
+        if (name === 'no-speech' || name === 'aborted') { srStarted = true; return; }
+        if (!srStarted) { srCleanup(); settle(null); return; }
+        if (srDone) { var d = srDone; srDone = null; d({ ok: true, text: srText(), via: 'speech' }); }
+      };
+
+      r.onend = function () {
+        if (srDone) {
+          var d = srDone; srDone = null;
+          var text = srText();
+          srCleanup();
+          d(text
+            ? { ok: true, text: text, via: 'speech' }
+            : { ok: false, error: 'empty',
+                message: 'Nothing was heard. Try again, or type it.' });
+        }
+      };
+
+      /* WAIT FOR IT TO ACTUALLY START. The first version resolved
+         "started" on the next tick, which raced the error: a browser
+         that has the constructor but no working recogniser -- a
+         headless one, a locked-down one, a phone with the dictation
+         service off -- reported a live microphone and then heard
+         nothing for ever, and the recorder fallback never ran because
+         the promise had already settled.
+
+         onstart is the browser saying the microphone is open. Nothing
+         is claimed before it, and an error before it hands the job to
+         the recorder. */
+      r.onstart = function () {
+        srTimer = setInterval(function () {
+          srSecs += 1;
+          if (opts.onTick) { try { opts.onTick(srSecs, 0); } catch (err) {} }
+        }, 1000);
+        srAutoStop = setTimeout(function () {
+          if (opts.onAuto) { try { opts.onAuto(); } catch (err) {} }
+        }, MAX_MS);
+        settle({ ok: true, via: 'speech' });
+      };
+
+      try { r.start(); } catch (e) { srCleanup(); settle(null); return; }
+
+      /* And a recogniser that neither starts nor errors is one that is
+         not going to. Two seconds is long past the point where a
+         working one has opened the microphone. */
+      setTimeout(function () {
+        if (!settled) { srCleanup(); settle(null); }
+      }, 2000);
+    });
+  }
+
+  function srStop() {
+    if (!sr) {
+      return Promise.resolve({ ok: false, error: 'idle', message: 'Nothing was listening.' });
+    }
+    return new Promise(function (resolve) {
+      srDone = resolve;
+      try { sr.stop(); } catch (e) {
+        srDone = null;
+        var text = srText();
+        srCleanup();
+        resolve(text ? { ok: true, text: text, via: 'speech' }
+                     : { ok: false, error: 'empty', message: 'Nothing was heard.' });
+      }
+    });
+  }
+
   function start(opts) {
     hooks = opts || {};
-    if (!supported()) {
-      return Promise.resolve({ ok: false, error: 'unsupported',
-        message: 'This browser cannot record audio. Type it instead.' });
-    }
     if (!secure()) {
       return Promise.resolve({ ok: false, error: 'insecure',
         message: 'A microphone needs a secure connection. Type it instead.' });
     }
-    if (rec) return Promise.resolve({ ok: false, error: 'busy', message: 'Already recording.' });
+    if (sr || rec) {
+      return Promise.resolve({ ok: false, error: 'busy', message: 'Already listening.' });
+    }
+
+    /* THE RECOGNISER FIRST. It writes words down while you talk, needs
+       no server of ours and costs no model call. Only when the browser
+       has none, or its recogniser will not start, does this fall back
+       to recording the audio and having it transcribed. */
+    if (srSupported()) {
+      return srStart(hooks).then(function (r) {
+        if (r) return r;
+        return startRecorder();
+      });
+    }
+    return startRecorder();
+  }
+
+  function startRecorder() {
+    var opts = hooks;
+    if (!supported()) {
+      return Promise.resolve({ ok: false, error: 'unsupported',
+        message: 'This browser cannot record audio. Type it instead.' });
+    }
 
     return g.navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
       stream = s;
@@ -155,6 +308,10 @@
   }
 
   function cancel() {
+    /* Both routes. A recogniser left running after the sheet closes
+       keeps the microphone indicator on, same as a recorder does. */
+    srDone = null;
+    srCleanup();
     if (rec && rec.state !== 'inactive') { try { rec.stop(); } catch (e) {} }
     cleanup();
     chunks = [];
@@ -265,6 +422,7 @@
   }
 
   function stop() {
+    if (sr) return srStop();
     if (!rec) {
       return Promise.resolve({ ok: false, error: 'idle', message: 'Nothing was recording.' });
     }
@@ -319,11 +477,21 @@
     /* Whether it is worth OFFERING. A browser that can record and a server
        that can transcribe are both needed; either missing and the screen
        shows the field alone rather than a button that cannot work. */
+    /* Whether it is worth OFFERING. It used to need a server, because
+       the only route was upload-and-transcribe. A browser with its own
+       recogniser needs nothing of ours, so the button is offered on a
+       phone with no connection to this app's server at all. */
     available: function () {
-      return supported() && secure() &&
+      if (!secure()) return false;
+      if (srSupported()) return true;
+      return supported() &&
              !!(g.LKCloud && g.LKCloud.voice && g.LKCloud.voiceReady && g.LKCloud.voiceReady());
     },
-    recording: function () { return !!rec; },
+    recording: function () { return !!(sr || rec); },
+    /* Which route is live, for a screen that wants to show words
+       appearing rather than a level meter that cannot move. */
+    listening: function () { return !!sr; },
+    speechToText: srSupported,
     seconds: seconds,
     level: level,
     maxSeconds: MAX_MS / 1000,

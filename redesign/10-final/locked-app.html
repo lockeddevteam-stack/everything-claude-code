@@ -4315,6 +4315,52 @@ button.shelf:active { background: var(--fill-press); }
 }
 .fuel-shot--empty .ico { width: 48px; height: 48px; }
 
+/* ---- THE LIVE VIEW ------------------------------------------------
+   The scanner and the plate reader both show what the lens sees rather
+   than an icon of a camera. Same frame as a taken shot, so the sheet
+   does not resize when a photo replaces the feed.
+
+   object-fit: cover, because a phone camera is 4:3 or 16:9 depending on
+   the phone and letterboxing a viewfinder looks broken rather than
+   careful. The scanner's reticle sits on top and is only a guide: the
+   decoder reads the whole frame, so a barcode slightly outside the box
+   is still found. */
+.fuel-view {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--r-lg);
+  corner-shape: var(--corner-smooth);
+  overflow: hidden;
+  background: #000;
+}
+.fuel-view__feed {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.fuel-view--scan { aspect-ratio: 3 / 2; }
+.fuel-view__reticle {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 50%;
+  height: 34%;
+  transform: translateY(-50%);
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  border-radius: var(--r-md);
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.38);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fuel-view__reticle { animation: lk-reticle 1.8s ease-in-out infinite; }
+}
+@keyframes lk-reticle {
+  0%, 100% { border-color: rgba(255, 255, 255, 0.85); }
+  50% { border-color: rgba(255, 255, 255, 0.45); }
+}
+
 /* A recipe's method. Numbered, because the order is the whole instruction,
    and spaced so a step can be found again after looking away at a pan. */
 .fuel-steps { padding-left: var(--sp-5); margin: 0; }
@@ -10800,6 +10846,430 @@ textarea,
 
 </script>
 <script>
+/* barcode.js — inlined verbatim from 08-build/barcode.js */
+/* LKBarcode — a real EAN-13, EAN-8 and UPC-A decoder.
+
+   The scan sheet used to say reading a barcode "needs a decoder this
+   build does not carry". A decoder is about two hundred lines and the
+   format has not changed since 1973, so it carries one now.
+
+   BarcodeDetector is used where the browser has it: it is the platform's
+   own decoder, it reads more symbologies, and it runs off the main
+   thread. Safari does not have it, and Safari is the browser this app is
+   installed from, so the decoder below is the one that will actually run
+   on the phone in your hand.
+
+   HOW A BARCODE IS READ. A scanline across the bars is a run of dark and
+   light lengths. EAN-13 is 95 modules: a three-module guard, six digits
+   of seven modules, a five-module centre guard, six more digits, and a
+   closing guard. Each digit is four runs summing to seven, and which of
+   three tables a digit matches encodes, between them, the thirteenth
+   digit that is not drawn as bars at all.
+
+   Nothing here trusts a single read. Every candidate is checked against
+   the format's own checksum before it is returned, so a misread is a
+   miss rather than the wrong food. */
+(function (g) {
+  'use strict';
+
+  /* Run lengths, in modules, for the ten digits on the left in odd
+     parity. The right-hand digits use the same widths; the even-parity
+     left digits are these reversed. Four runs, seven modules. */
+  var L = [
+    [3, 2, 1, 1], [2, 2, 2, 1], [2, 1, 2, 2], [1, 4, 1, 1], [1, 1, 3, 2],
+    [1, 2, 3, 1], [1, 1, 1, 4], [1, 3, 1, 2], [1, 2, 1, 3], [3, 1, 1, 2]
+  ];
+  var G = L.map(function (p) { return p.slice().reverse(); });
+
+  /* Which digits on the left were drawn in even parity spells out the
+     first digit, which has no bars of its own. */
+  var FIRST = [0x00, 0x0B, 0x0D, 0x0E, 0x13, 0x19, 0x1C, 0x15, 0x16, 0x1A];
+
+  function checkEAN13(d) {
+    var sum = 0;
+    for (var i = 0; i < 12; i++) sum += d[i] * (i % 2 === 0 ? 1 : 3);
+    return (10 - (sum % 10)) % 10 === d[12];
+  }
+
+  function checkEAN8(d) {
+    var sum = 0;
+    for (var i = 0; i < 7; i++) sum += d[i] * (i % 2 === 0 ? 3 : 1);
+    return (10 - (sum % 10)) % 10 === d[7];
+  }
+
+  /* A row of grey values becomes alternating dark and light lengths.
+     The threshold is the midpoint of that row rather than a fixed
+     number, because a barcode under a kitchen light and one under a
+     phone torch are not the same shade of black anywhere. */
+  function runsOf(row) {
+    var min = 255, max = 0, i;
+    for (i = 0; i < row.length; i++) {
+      if (row[i] < min) min = row[i];
+      if (row[i] > max) max = row[i];
+    }
+    /* Too flat to be bars. A wall, a tablecloth, the inside of a pocket. */
+    if (max - min < 40) return null;
+    var mid = (min + max) / 2;
+    var out = [];
+    var dark = row[0] < mid, len = 0;
+    for (i = 0; i < row.length; i++) {
+      var d = row[i] < mid;
+      if (d === dark) { len++; continue; }
+      out.push({ dark: dark, len: len });
+      dark = d; len = 1;
+    }
+    out.push({ dark: dark, len: len });
+    return out;
+  }
+
+  /* How badly four runs fit a pattern, in modules. Returns a big number
+     rather than throwing, so the caller can simply take the best fit and
+     reject it if nothing fits well. */
+  function fit(runs, at, pattern) {
+    var total = 0, i;
+    for (i = 0; i < 4; i++) total += runs[at + i].len;
+    if (total <= 0) return 1e9;
+    var unit = total / 7;
+    /* A digit thinner than a couple of pixels a module is noise being
+       read as data. */
+    if (unit < 0.6) return 1e9;
+    var err = 0;
+    for (i = 0; i < 4; i++) {
+      err += Math.abs(runs[at + i].len / unit - pattern[i]);
+    }
+    return err;
+  }
+
+  function bestDigit(runs, at, tables) {
+    var best = -1, bestErr = 0.9, bestTable = -1;
+    for (var t = 0; t < tables.length; t++) {
+      for (var d = 0; d < 10; d++) {
+        var e = fit(runs, at, tables[t][d]);
+        if (e < bestErr) { bestErr = e; best = d; bestTable = t; }
+      }
+    }
+    return best < 0 ? null : { digit: best, table: bestTable };
+  }
+
+  /* Three runs of one module each: dark, light, dark. */
+  function guardAt(runs, at, want) {
+    if (at + want > runs.length) return 0;
+    if (!runs[at].dark) return 0;
+    var total = 0, i;
+    for (i = 0; i < want; i++) total += runs[at + i].len;
+    var unit = total / want;
+    if (unit < 0.6) return 0;
+    for (i = 0; i < want; i++) {
+      if (Math.abs(runs[at + i].len / unit - 1) > 0.7) return 0;
+    }
+    return unit;
+  }
+
+  /* The centre guard is five runs of one module, light at both ends. */
+  function centreAt(runs, at) {
+    if (at + 5 > runs.length) return false;
+    if (runs[at].dark) return false;
+    var total = 0, i;
+    for (i = 0; i < 5; i++) total += runs[at + i].len;
+    var unit = total / 5;
+    if (unit < 0.6) return false;
+    for (i = 0; i < 5; i++) {
+      if (Math.abs(runs[at + i].len / unit - 1) > 0.8) return false;
+    }
+    return true;
+  }
+
+  function decodeFrom(runs, at) {
+    if (!guardAt(runs, at, 3)) return null;
+    var i = at + 3;
+    var left = [], parity = 0, got;
+    for (var k = 0; k < 6; k++) {
+      got = bestDigit(runs, i, [L, G]);
+      if (!got) return null;
+      left.push(got.digit);
+      if (got.table === 1) parity |= (1 << (5 - k));
+      i += 4;
+    }
+    if (!centreAt(runs, i)) return null;
+    i += 5;
+    var right = [];
+    for (k = 0; k < 6; k++) {
+      got = bestDigit(runs, i, [L]);
+      if (!got) return null;
+      right.push(got.digit);
+      i += 4;
+    }
+    if (!guardAt(runs, i, 3)) return null;
+    var first = FIRST.indexOf(parity);
+    if (first < 0) return null;
+    var digits = [first].concat(left, right);
+    if (!checkEAN13(digits)) return null;
+    return digits.join('');
+  }
+
+  function decode8(runs, at) {
+    if (!guardAt(runs, at, 3)) return null;
+    var i = at + 3, k, got;
+    var left = [];
+    for (k = 0; k < 4; k++) {
+      got = bestDigit(runs, i, [L]);
+      if (!got) return null;
+      left.push(got.digit);
+      i += 4;
+    }
+    if (!centreAt(runs, i)) return null;
+    i += 5;
+    var right = [];
+    for (k = 0; k < 4; k++) {
+      got = bestDigit(runs, i, [L]);
+      if (!got) return null;
+      right.push(got.digit);
+      i += 4;
+    }
+    if (!guardAt(runs, i, 3)) return null;
+    var digits = left.concat(right);
+    if (!checkEAN8(digits)) return null;
+    return digits.join('');
+  }
+
+  /* One scanline, read from both ends. A barcode held upside down is
+     the same barcode, and a phone does not tell you which way up it is. */
+  function decodeRow(row) {
+    var runs = runsOf(row);
+    if (!runs || runs.length < 20) return null;
+    var tries = [runs, runs.slice().reverse()];
+    for (var t = 0; t < tries.length; t++) {
+      var r = tries[t];
+      for (var at = 0; at + 30 < r.length; at++) {
+        if (!r[at].dark) continue;
+        /* Both lengths tried from the same start. EAN-8 used to be
+           reached only after the 13-digit attempt had read six digits
+           and failed to find a centre guard -- but an 8 has four digits
+           a side, so the sixth "digit" lands in the guard and the
+           attempt gives up before it can hand over. They are separate
+           formats and they are tried separately. */
+        var code = decodeFrom(r, at) || decode8(r, at);
+        if (code) return code;
+      }
+    }
+    return null;
+  }
+
+  /* SEVERAL LINES, NOT ONE. A barcode is read across whichever line
+     happens to cross all the bars cleanly: a finger, a crease in the
+     label or a highlight from the flash ruins one line and leaves the
+     next one perfect. Lines are tried from the middle outwards, because
+     the middle is where somebody points the phone. */
+  function fromImageData(img) {
+    var w = img.width, h = img.height, data = img.data;
+    var lines = Math.min(24, h);
+    var order = [];
+    for (var i = 0; i < lines; i++) {
+      var frac = (i + 0.5) / lines;
+      order.push({ y: Math.floor(frac * h), d: Math.abs(frac - 0.5) });
+    }
+    order.sort(function (a, b) { return a.d - b.d; });
+    var row = new Uint8Array(w);
+    for (i = 0; i < order.length; i++) {
+      var y = order[i].y, base = y * w * 4;
+      for (var x = 0; x < w; x++) {
+        var p = base + x * 4;
+        /* Luma. Green carries most of the perceived brightness and a
+           barcode is grey anyway, so this is a shortcut with no cost. */
+        row[x] = (data[p] * 299 + data[p + 1] * 587 + data[p + 2] * 114) / 1000;
+      }
+      var code = decodeRow(row);
+      if (code) return code;
+    }
+    return null;
+  }
+
+  var detector = null;
+  var detectorTried = false;
+
+  function nativeDetector() {
+    if (detectorTried) return detector;
+    detectorTried = true;
+    try {
+      if (typeof g.BarcodeDetector === 'function') {
+        detector = new g.BarcodeDetector({
+          formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128']
+        });
+      }
+    } catch (e) { detector = null; }
+    return detector;
+  }
+
+  /* A canvas in, a code or null out. The platform decoder is asked
+     first and this one answers when there is none, which on an iPhone
+     is always. */
+  function read(canvas) {
+    var det = nativeDetector();
+    if (det && det.detect) {
+      return det.detect(canvas).then(function (found) {
+        if (found && found.length && found[0].rawValue) return found[0].rawValue;
+        return readHere(canvas);
+      }, function () { return readHere(canvas); });
+    }
+    return Promise.resolve(readHere(canvas));
+  }
+
+  function readHere(canvas) {
+    try {
+      var ctx = canvas.getContext('2d', { willReadFrequently: true });
+      return fromImageData(ctx.getImageData(0, 0, canvas.width, canvas.height));
+    } catch (e) { return null; }
+  }
+
+  g.LKBarcode = {
+    read: read,
+    fromImageData: fromImageData,
+    decodeRow: decodeRow,
+    checkEAN13: checkEAN13,
+    checkEAN8: checkEAN8,
+    native: function () { return !!nativeDetector(); }
+  };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+/* camera.js — inlined verbatim from 08-build/camera.js */
+/* LKCam — the live camera, shared by the scanner and the plate reader.
+
+   Both used to be a grey square with a file input behind it. A file
+   input opens the system camera, takes you out of the app, and comes
+   back with a picture: fine for a photo, useless for a scanner, which
+   has to look at many frames a second to find a barcode at all.
+
+   getUserMedia gives the page the frames directly. The same stream then
+   serves both jobs: the scanner reads every frame, the plate reader
+   grabs one when you press the button.
+
+   Permission is the browser's to ask and the browser asks once. What
+   this module owns is stopping the stream the moment the sheet closes,
+   because a camera light left on behind a closed sheet is the thing
+   people uninstall an app over. */
+(function (g) {
+  'use strict';
+
+  var stream = null;
+  var video = null;
+
+  function supported() {
+    return !!(g.navigator && g.navigator.mediaDevices &&
+              g.navigator.mediaDevices.getUserMedia);
+  }
+
+  /* A denial and a device with no camera are different answers and want
+     different sentences, so the reason comes back rather than a false. */
+  function start(opts) {
+    opts = opts || {};
+    if (!supported()) {
+      return Promise.resolve({ ok: false, why: 'unsupported',
+        message: 'This browser will not give the page a camera.' });
+    }
+    stop();
+    return g.navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: opts.facing || 'environment',
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    }).then(function (s) {
+      stream = s;
+      return { ok: true, stream: s };
+    }, function (err) {
+      var name = (err && err.name) || '';
+      if (name === 'NotAllowedError' || name === 'SecurityError') {
+        return { ok: false, why: 'denied',
+          message: 'The camera is blocked for this app. Allow it in your browser settings.' };
+      }
+      if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+        return { ok: false, why: 'nocamera',
+          message: 'No camera on this device.' };
+      }
+      if (name === 'NotReadableError') {
+        return { ok: false, why: 'busy',
+          message: 'Another app is using the camera.' };
+      }
+      return { ok: false, why: 'failed',
+        message: 'The camera could not be opened.' };
+    });
+  }
+
+  /* playsinline and muted are not decoration: without them iOS takes the
+     video full screen and the sheet underneath is gone. */
+  function attach(el) {
+    video = el;
+    if (!el || !stream) return Promise.resolve(false);
+    try {
+      el.srcObject = stream;
+      el.setAttribute('playsinline', '');
+      el.setAttribute('muted', '');
+      el.muted = true;
+      var p = el.play();
+      return (p && p.then ? p : Promise.resolve()).then(function () { return true; },
+                                                        function () { return false; });
+    } catch (e) { return Promise.resolve(false); }
+  }
+
+  function running() {
+    return !!(stream && stream.getTracks().some(function (t) {
+      return t.readyState === 'live';
+    }));
+  }
+
+  function stop() {
+    if (stream) {
+      try {
+        stream.getTracks().forEach(function (t) { t.stop(); });
+      } catch (e) {}
+      stream = null;
+    }
+    if (video) {
+      try { video.srcObject = null; } catch (e) {}
+      video = null;
+    }
+  }
+
+  /* A FRAME, AT A SIZE THAT SUITS THE JOB.
+
+     The scanner wants width: a barcode's bars are thin and losing them
+     to a downscale is the difference between reading a code and not.
+     The plate reader wants a small file, because it is going over a
+     phone connection to a model that does not need the megapixels. */
+  function frame(el, maxW) {
+    el = el || video;
+    if (!el || !el.videoWidth) return null;
+    var w = el.videoWidth, h = el.videoHeight;
+    var max = maxW || w;
+    if (w > max) { h = Math.round(h * (max / w)); w = max; }
+    var c = g.document.createElement('canvas');
+    c.width = w; c.height = h;
+    c.getContext('2d', { willReadFrequently: true }).drawImage(el, 0, 0, w, h);
+    return c;
+  }
+
+  function shot(el, maxW, quality) {
+    var c = frame(el, maxW || 1280);
+    if (!c) return null;
+    try { return c.toDataURL('image/jpeg', quality || 0.82); } catch (e) { return null; }
+  }
+
+  g.LKCam = {
+    supported: supported,
+    start: start,
+    attach: attach,
+    running: running,
+    stop: stop,
+    frame: frame,
+    shot: shot
+  };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
 /* cloud-config.js — inlined verbatim from 08-build/cloud-config.js */
 /* ===================================================================
    Where the server is. The only file a deploy edits.
@@ -12251,17 +12721,170 @@ window.LK_CLOUD = {
     return startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0;
   }
 
+  /* ---- SPEECH TO TEXT, ON THE DEVICE ------------------------------
+     The microphone used to record audio, upload it, and ask a language
+     model to write down what was said. That works and it is the wrong
+     tool three times over: a round trip before you see a word, a model
+     billed per call to do a job a recogniser does for nothing, and a
+     general model given "transcribe this" will sometimes answer the
+     question it heard instead of writing it down.
+
+     SpeechRecognition is the browser's own recogniser. It streams words
+     back while you are still talking, which is also a better thing to
+     show than a level meter: you can see it hearing you correctly, and
+     correct yourself mid-sentence rather than after.
+
+     The recorder stays as the fallback, for browsers without it and for
+     a recogniser that fails before it returns anything. */
+  var SR = (typeof g.SpeechRecognition === 'function' && g.SpeechRecognition) ||
+           (typeof g.webkitSpeechRecognition === 'function' && g.webkitSpeechRecognition) || null;
+  var sr = null, srFinal = '', srInterim = '', srDone = null, srStarted = false;
+  var srTimer = null, srAutoStop = null, srSecs = 0;
+
+  function srSupported() { return !!SR && secure(); }
+
+  function srCleanup() {
+    if (srTimer) { clearInterval(srTimer); srTimer = null; }
+    if (srAutoStop) { clearTimeout(srAutoStop); srAutoStop = null; }
+    if (sr) {
+      try { sr.onresult = sr.onerror = sr.onend = null; } catch (e) {}
+      try { sr.stop(); } catch (e) {}
+      sr = null;
+    }
+  }
+
+  function srText() {
+    return (srFinal + ' ' + srInterim).replace(/\s+/g, ' ').trim();
+  }
+
+  function srStart(opts) {
+    return new Promise(function (resolve) {
+      var r;
+      try { r = new SR(); } catch (e) { resolve(null); return; }
+      sr = r;
+      srFinal = ''; srInterim = ''; srSecs = 0; srStarted = false; srDone = null;
+      r.continuous = true;
+      r.interimResults = true;
+      r.maxAlternatives = 1;
+      try { r.lang = g.navigator && g.navigator.language || 'en-GB'; } catch (e) {}
+
+      var settled = false;
+      var settle = function (v) { if (!settled) { settled = true; resolve(v); } };
+
+      r.onresult = function (e) {
+        srStarted = true;
+        srInterim = '';
+        for (var i = e.resultIndex; i < e.results.length; i++) {
+          var t = e.results[i][0] && e.results[i][0].transcript || '';
+          if (e.results[i].isFinal) srFinal += (srFinal ? ' ' : '') + t.trim();
+          else srInterim += t;
+        }
+        if (opts.onPartial) { try { opts.onPartial(srText()); } catch (err) {} }
+      };
+
+      r.onerror = function (e) {
+        var name = (e && e.error) || '';
+        /* Before it ever started: this route is not available on this
+           browser today, whatever the constructor claims. */
+        if (!settled) { srCleanup(); settle(null); return; }
+        /* Nothing heard is not a failure of the recogniser, it is a
+           quiet room. Anything else before the first word means this
+           route is not going to work and the recorder should have it. */
+        if (name === 'no-speech' || name === 'aborted') { srStarted = true; return; }
+        if (!srStarted) { srCleanup(); settle(null); return; }
+        if (srDone) { var d = srDone; srDone = null; d({ ok: true, text: srText(), via: 'speech' }); }
+      };
+
+      r.onend = function () {
+        if (srDone) {
+          var d = srDone; srDone = null;
+          var text = srText();
+          srCleanup();
+          d(text
+            ? { ok: true, text: text, via: 'speech' }
+            : { ok: false, error: 'empty',
+                message: 'Nothing was heard. Try again, or type it.' });
+        }
+      };
+
+      /* WAIT FOR IT TO ACTUALLY START. The first version resolved
+         "started" on the next tick, which raced the error: a browser
+         that has the constructor but no working recogniser -- a
+         headless one, a locked-down one, a phone with the dictation
+         service off -- reported a live microphone and then heard
+         nothing for ever, and the recorder fallback never ran because
+         the promise had already settled.
+
+         onstart is the browser saying the microphone is open. Nothing
+         is claimed before it, and an error before it hands the job to
+         the recorder. */
+      r.onstart = function () {
+        srTimer = setInterval(function () {
+          srSecs += 1;
+          if (opts.onTick) { try { opts.onTick(srSecs, 0); } catch (err) {} }
+        }, 1000);
+        srAutoStop = setTimeout(function () {
+          if (opts.onAuto) { try { opts.onAuto(); } catch (err) {} }
+        }, MAX_MS);
+        settle({ ok: true, via: 'speech' });
+      };
+
+      try { r.start(); } catch (e) { srCleanup(); settle(null); return; }
+
+      /* And a recogniser that neither starts nor errors is one that is
+         not going to. Two seconds is long past the point where a
+         working one has opened the microphone. */
+      setTimeout(function () {
+        if (!settled) { srCleanup(); settle(null); }
+      }, 2000);
+    });
+  }
+
+  function srStop() {
+    if (!sr) {
+      return Promise.resolve({ ok: false, error: 'idle', message: 'Nothing was listening.' });
+    }
+    return new Promise(function (resolve) {
+      srDone = resolve;
+      try { sr.stop(); } catch (e) {
+        srDone = null;
+        var text = srText();
+        srCleanup();
+        resolve(text ? { ok: true, text: text, via: 'speech' }
+                     : { ok: false, error: 'empty', message: 'Nothing was heard.' });
+      }
+    });
+  }
+
   function start(opts) {
     hooks = opts || {};
-    if (!supported()) {
-      return Promise.resolve({ ok: false, error: 'unsupported',
-        message: 'This browser cannot record audio. Type it instead.' });
-    }
     if (!secure()) {
       return Promise.resolve({ ok: false, error: 'insecure',
         message: 'A microphone needs a secure connection. Type it instead.' });
     }
-    if (rec) return Promise.resolve({ ok: false, error: 'busy', message: 'Already recording.' });
+    if (sr || rec) {
+      return Promise.resolve({ ok: false, error: 'busy', message: 'Already listening.' });
+    }
+
+    /* THE RECOGNISER FIRST. It writes words down while you talk, needs
+       no server of ours and costs no model call. Only when the browser
+       has none, or its recogniser will not start, does this fall back
+       to recording the audio and having it transcribed. */
+    if (srSupported()) {
+      return srStart(hooks).then(function (r) {
+        if (r) return r;
+        return startRecorder();
+      });
+    }
+    return startRecorder();
+  }
+
+  function startRecorder() {
+    var opts = hooks;
+    if (!supported()) {
+      return Promise.resolve({ ok: false, error: 'unsupported',
+        message: 'This browser cannot record audio. Type it instead.' });
+    }
 
     return g.navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
       stream = s;
@@ -12309,6 +12932,10 @@ window.LK_CLOUD = {
   }
 
   function cancel() {
+    /* Both routes. A recogniser left running after the sheet closes
+       keeps the microphone indicator on, same as a recorder does. */
+    srDone = null;
+    srCleanup();
     if (rec && rec.state !== 'inactive') { try { rec.stop(); } catch (e) {} }
     cleanup();
     chunks = [];
@@ -12419,6 +13046,7 @@ window.LK_CLOUD = {
   }
 
   function stop() {
+    if (sr) return srStop();
     if (!rec) {
       return Promise.resolve({ ok: false, error: 'idle', message: 'Nothing was recording.' });
     }
@@ -12473,11 +13101,21 @@ window.LK_CLOUD = {
     /* Whether it is worth OFFERING. A browser that can record and a server
        that can transcribe are both needed; either missing and the screen
        shows the field alone rather than a button that cannot work. */
+    /* Whether it is worth OFFERING. It used to need a server, because
+       the only route was upload-and-transcribe. A browser with its own
+       recogniser needs nothing of ours, so the button is offered on a
+       phone with no connection to this app's server at all. */
     available: function () {
-      return supported() && secure() &&
+      if (!secure()) return false;
+      if (srSupported()) return true;
+      return supported() &&
              !!(g.LKCloud && g.LKCloud.voice && g.LKCloud.voiceReady && g.LKCloud.voiceReady());
     },
-    recording: function () { return !!rec; },
+    recording: function () { return !!(sr || rec); },
+    /* Which route is live, for a screen that wants to show words
+       appearing rather than a level meter that cannot move. */
+    listening: function () { return !!sr; },
+    speechToText: srSupported,
     seconds: seconds,
     level: level,
     maxSeconds: MAX_MS / 1000,
@@ -25762,10 +26400,9 @@ DEMO.define("fuel", function (document, window, location, fetch) {
        the badge was rendering on two seeded rows and nothing in the app could
        produce one, which made it a decoration rather than a claim.
 
-       A real scanner is a camera permission and a decoder; what a static
-       build can be honest about is the resolve step, which is where the
-       Verified claim actually comes from: a code matched a database row, so
-       the numbers are the manufacturer's own. */
+       The camera reads the code and the resolve step turns it into a row.
+       Verified means what it says: a code matched a database row, so the
+       numbers are the manufacturer's own rather than anybody's estimate. */
     /* Recipes. A recipe is a food you built, so the sheet's job is to make
        logging one serving a single tap and to show the arithmetic it did.
        Per-serving figures are derived here and never stored: a stored
@@ -26712,10 +27349,23 @@ DEMO.define("fuel", function (document, window, location, fetch) {
          resolves anything. The digits under the bars are the same barcode. */
       if (st === 'idle') {
         return shell(
-          '<div class="fuel-scanbox" data-testid="scan-idle" aria-hidden="true">' + ICO.barcode + '</div>' +
-          '<p class="t-detail mt-3">Reading a barcode off the camera needs a decoder this build ' +
-            'does not carry, so it is not pretending to have one. The digits printed under the ' +
-            'bars are the same barcode: type them in.</p>' +
+          /* THE CAMERA, NOT A PICTURE OF A CAMERA. This was a grey box
+             and a paragraph explaining that reading a barcode needed a
+             decoder the build did not carry. It carries one now, so the
+             box is a live viewfinder and the decoder reads every frame
+             until it finds a code. Typing the digits stays underneath,
+             because a torn label is still a thing that happens. */
+          (S.scanCamMsg
+            ? '<div class="fuel-scanbox" data-testid="scan-idle" aria-hidden="true">' +
+                ICO.barcode + '</div>' +
+              '<p class="t-detail mt-3" data-testid="scan-cam-msg">' + esc(S.scanCamMsg) + '</p>'
+            : '<div class="fuel-view fuel-view--scan" data-testid="scan-view">' +
+                '<video id="sc-video" class="fuel-view__feed" playsinline muted ' +
+                  'data-testid="scan-video"></video>' +
+                '<div class="fuel-view__reticle" aria-hidden="true"></div>' +
+              '</div>' +
+              '<p class="t-detail mt-3" role="status" aria-live="polite" data-testid="scan-hint">' +
+                'Point it at the barcode.</p>') +
           '<label class="t-label field__label mt-4" for="sc-code">Barcode</label>' +
           '<input class="input num" id="sc-code" type="text" inputmode="numeric" autocomplete="off" ' +
             'placeholder="5060123456789" value="' + esc(S.scanCode || '') + '" data-testid="scan-code">' +
@@ -27145,13 +27795,30 @@ DEMO.define("fuel", function (document, window, location, fetch) {
                   '<button class="btn btn--tertiary grow" type="button" data-action="cam-redo" ' +
                     'data-testid="cam-redo"><span class="btn__label">Estimate again</span></button>' +
                 '</div>'
-              : '<div class="fuel-shot fuel-shot--empty" data-testid="cam-empty" aria-hidden="true">' +
-                  ICO.cam + '</div>' +
+              /* THE FEED, NOT AN ICON OF A CAMERA. This was a grey
+                 square with a file input behind it, so taking a photo
+                 meant leaving the app for the system camera and coming
+                 back. The stream is on the page now: you see what the
+                 lens sees and the shutter is a button under it.
+
+                 The library stays, because half the time the plate was
+                 photographed an hour ago. */
+              : (S.camCamMsg
+                  ? '<div class="fuel-shot fuel-shot--empty" data-testid="cam-empty" aria-hidden="true">' +
+                      ICO.cam + '</div>' +
+                    '<p class="t-detail mt-3" data-testid="cam-cam-msg">' + esc(S.camCamMsg) + '</p>'
+                  : '<div class="fuel-view" data-testid="cam-view">' +
+                      '<video id="cam-video" class="fuel-view__feed" playsinline muted ' +
+                        'data-testid="cam-video"></video>' +
+                    '</div>') +
                 '<div class="hstack hstack--3 mt-3">' +
-                  '<label class="btn btn--secondary grow" for="cam-take">' +
-                    '<span class="btn__label">Take a photo</span></label>' +
-                  '<input class="vis-hidden" id="cam-take" type="file" accept="image/*" ' +
-                    'capture="environment" data-testid="cam-take">' +
+                  (S.camCamMsg
+                    ? '<label class="btn btn--secondary grow" for="cam-take">' +
+                        '<span class="btn__label">Take a photo</span></label>' +
+                      '<input class="vis-hidden" id="cam-take" type="file" accept="image/*" ' +
+                        'capture="environment" data-testid="cam-take">'
+                    : '<button class="btn btn--primary grow" type="button" data-action="cam-shoot" ' +
+                        'data-testid="cam-shoot"><span class="btn__label">Take a photo</span></button>') +
                   '<label class="btn btn--secondary grow" for="cam-pick">' +
                     '<span class="btn__label">From the library</span></label>' +
                   '<input class="vis-hidden" id="cam-pick" type="file" accept="image/*" ' +
@@ -27165,8 +27832,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
               : S.camState === 'example'
               ? '<p class="t-caption-1 quiet mt-3">These are the worked example, not a photo: ' +
                 'this is the state switcher showing the shape of a reading.</p>'
-              : '<p class="t-caption-1 quiet mt-3">The photo is downscaled on this phone and sent ' +
-                'to be read. Every figure that comes back is an estimate and is logged as one.</p>') +
+              : '') +
             '<h3 class="t-label mt-5">What it reads as</h3>' +
             (items.length
               ? '<div class="card card--flush mt-2" data-testid="cam-items">' +
@@ -27404,8 +28070,18 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     }
     if (a === 'cam') {
       S.sheet = 'cam'; S.camOil = null; S.camItems = null; S.camShot = null;
-      S.camState = 'idle'; S.camWhy = null;
-      render(); return;
+      S.camState = 'idle'; S.camWhy = null; S.camCamMsg = '';
+      render();
+      startPlateCam();
+      return;
+    }
+    if (a === 'cam-shoot') {
+      var shot = window.LKCam && LKCam.shot(document.getElementById('cam-video'), 1280, 0.82);
+      if (!shot) { S.camWhy = 'That frame could not be captured. Try again.'; render(); return; }
+      LKCam.stop();
+      S.camShot = shot;
+      readPlateData(shot);
+      return;
     }
     if (a === 'cam-drop') { camItems().splice(+act.getAttribute('data-i'), 1); render(); return; }
     if (a === 'cam-redo') {
@@ -27425,7 +28101,10 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     if (a === 'scan') {
       S.sheet = 'scan'; S.scanServings = 1; S.scanState = 'idle';
       S.scanCode = ''; S.scanError = null; S.scanHit = null;
-      render(); return;
+      S.scanCamMsg = '';
+      render();
+      startScanner();
+      return;
     }
     if (a === 'scan-try') { S.scanCode = act.getAttribute('data-c'); S.scanError = null; scanLook(); return; }
     if (a === 'scan-look') {
@@ -27783,6 +28462,18 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       if (S.micRec) { stopMicRec(); return; }
       S.micVoiceMsg = '';
       LKVoice.start({
+        /* THE WORDS, AS THEY ARE HEARD. The recogniser streams a
+           transcript while somebody is still talking, which is a better
+           thing to put on screen than a bouncing level: you can see it
+           has you right and correct yourself mid-sentence rather than
+           after. The field is the transcript, so stopping leaves
+           exactly what is already shown. */
+        onPartial: function (text) {
+          if (S.sheet !== 'mic') return;
+          S.micText = text;
+          S.micHeard = true;
+          render();
+        },
         onTick: function (secs, lvl) {
           S.micSecs = secs; S.micLevel = lvl;
           /* The timer repaints the sheet, and repainting the sheet while
@@ -27970,7 +28661,13 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       MICROS.forEach(function (mi) { if (typeof am[mi.key] === 'number') copy[mi.key] = am[mi.key]; });
       addMeal(copy);
       S.sheet = null;
-      toast(esc(am.name) + ' logged again, ' + n(am.kcal) + ' kcal.', function () {
+      /* say, not toast. There is no toast function and never was: this
+         line threw a ReferenceError every single time, AFTER addMeal had
+         already run. So the entry landed, the sheet stayed open on a
+         screen that had just died, and the reader was told something
+         broke while the thing they asked for had in fact happened. The
+         suite checked that the button existed and never pressed it. */
+      say(esc(am.name) + ' logged again, ' + n(am.kcal) + ' kcal.', function () {
         DAY.meals.pop(); recount(DAY); saveDay(); OFTEN = frequent();
       });
       render();
@@ -28201,6 +28898,9 @@ DEMO.define("fuel", function (document, window, location, fetch) {
          behind a sheet nobody can see is the thing a permission prompt is
          there to prevent. */
       if (window.LKVoice && LKVoice.recording()) LKVoice.cancel();
+      /* And the camera. A live feed behind a closed sheet keeps the
+         indicator light on, which reads as an app watching you. */
+      stopScanner();
       S.micRec = false; S.micSending = false; S.micVoiceMsg = '';
       S.portion = null;
       S.sheet = null; S.camOil = null; render(); return;
@@ -28272,6 +28972,23 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     } catch (e) { cb(null); }
   }
 
+  /* The plate camera. Same module as the scanner, no decode loop: this
+     one waits for a shutter press. */
+  function startPlateCam() {
+    if (!window.LKCam || !LKCam.supported()) {
+      S.camCamMsg = 'This browser will not give the page a camera. Use a photo instead.';
+      render();
+      return;
+    }
+    LKCam.start({ facing: 'environment' }).then(function (r) {
+      if (S.sheet !== 'cam') { LKCam.stop(); return; }
+      if (!r.ok) { S.camCamMsg = r.message + ' Use a photo instead.'; render(); return; }
+      S.camCamMsg = '';
+      render();
+      LKCam.attach(document.getElementById('cam-video'));
+    });
+  }
+
   function readPlate(file) {
     var C = window.LKCloud;
     if (!C || !C.ready() || !C.vision) {
@@ -28289,6 +29006,23 @@ DEMO.define("fuel", function (document, window, location, fetch) {
         render();
         return;
       }
+      readPlateData(dataUrl);
+    });
+  }
+
+  /* A PICTURE ALREADY IN HAND. The shutter on the live feed produces a
+     frame at the size it wants, so it has nothing to shrink: this is
+     everything readPlate did after the shrink, reachable on its own. */
+  function readPlateData(dataUrl) {
+    var C = window.LKCloud;
+    if (!C || !C.ready() || !C.vision) {
+      S.camState = 'nosrv';
+      S.camWhy = 'Reading a plate needs a model behind a server, and this build reaches none.';
+      render();
+      return;
+    }
+    S.camState = 'reading'; S.camWhy = null; S.camItems = null; render();
+    (function () {
       C.vision('meal', dataUrl).then(function (r) {
         if (S.sheet !== 'cam') return;
         if (!r || !r.ok) {
@@ -28320,7 +29054,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
         S.camWhy = 'The read could not be reached. Nothing was logged.';
         render();
       });
-    });
+    })();
   }
 
   /* The oil sits on the plate, not on any one item, so it is added once to
@@ -29158,6 +29892,79 @@ DEMO.define("fuel", function (document, window, location, fetch) {
   /* A lookup is not instant, and a screen that resolves before the tap has
      finished teaches nobody what the wait looks like. One short pass through
      `looking` before either answer. */
+  /* ---- THE SCANNER ------------------------------------------------
+     A frame every 120 ms, decoded in the page. Faster than that spends
+     battery on frames the camera has not finished changing; slower and
+     it feels like it is not looking.
+
+     The loop is stopped by whichever comes first: a code, the sheet
+     closing, or twenty seconds of finding nothing -- at which point it
+     says so rather than leaving somebody holding a phone at a packet
+     waiting for something that is not coming. */
+  var scanTimer = null;
+  var scanGaveUpAt = 0;
+
+  function startScanner() {
+    if (!window.LKCam || !LKCam.supported()) {
+      S.scanCamMsg = 'This browser will not give the page a camera. Type the digits instead.';
+      render();
+      return;
+    }
+    LKCam.start({ facing: 'environment' }).then(function (r) {
+      if (S.sheet !== 'scan') { LKCam.stop(); return; }
+      if (!r.ok) {
+        S.scanCamMsg = r.message + ' Type the digits instead.';
+        render();
+        return;
+      }
+      S.scanCamMsg = '';
+      render();
+      var el = document.getElementById('sc-video');
+      LKCam.attach(el).then(function () {
+        scanGaveUpAt = Date.now() + 20000;
+        scanTick();
+      });
+    });
+  }
+
+  function scanTick() {
+    if (S.sheet !== 'scan' || S.scanState !== 'idle') { stopScanner(); return; }
+    var el = document.getElementById('sc-video');
+    if (!el || !window.LKBarcode) { stopScanner(); return; }
+    /* Full width. A barcode's bars are about a pixel each at arm's
+       length, and a downscale on the way to the decoder is the
+       difference between reading a code and never reading one. */
+    var canvas = LKCam.frame(el, 0);
+    var next = function () {
+      if (S.sheet !== 'scan' || S.scanState !== 'idle') return;
+      if (Date.now() > scanGaveUpAt) {
+        stopScanner();
+        S.scanCamMsg = 'No barcode found. Hold it steadier, or type the digits underneath.';
+        render();
+        return;
+      }
+      scanTimer = setTimeout(scanTick, 120);
+    };
+    if (!canvas) { next(); return; }
+    LKBarcode.read(canvas).then(function (code) {
+      if (S.sheet !== 'scan' || S.scanState !== 'idle') return;
+      if (!code) { next(); return; }
+      /* Found. The camera goes off before the lookup, because the
+         answer is on its way and a live feed behind it is just a light
+         left on. */
+      stopScanner();
+      S.scanCode = code;
+      S.scanError = null;
+      if (navigator.vibrate) { try { navigator.vibrate(30); } catch (e) {} }
+      scanLook();
+    }, next);
+  }
+
+  function stopScanner() {
+    if (scanTimer) { clearTimeout(scanTimer); scanTimer = null; }
+    if (window.LKCam) LKCam.stop();
+  }
+
   function scanLook() {
     var digits = String(S.scanCode || '').replace(/\D/g, '');
     if (digits.length < 8 || digits.length > 14) {

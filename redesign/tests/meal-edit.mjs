@@ -95,8 +95,12 @@ const type = async (id, v) => page.evaluate(([i, x]) => {
   const el = window.DEMO.screens.fuel.root.querySelector('[data-testid="' + i + '"]');
   el.value = x; el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
 }, [id, v]);
-const rows = () => page.evaluate(() =>
-  window.DEMO.screens.fuel.root.querySelectorAll('[data-testid^="meal-"][data-testid$="0"], [data-testid^="meal-"]').length);
+/* Diary rows only. A prefix match on "meal-" also catches meal-edit,
+   meal-again and the rest of an open sheet, so counting it measured the
+   sheet closing rather than a meal being logged. */
+const diaryRows = () => page.evaluate(() =>
+  [...window.DEMO.screens.fuel.root.querySelectorAll('[data-testid]')]
+    .filter((e) => /^meal-\d+$/.test(e.getAttribute('data-testid'))).length);
 
 /* SAID, NOT SEARCHED. This reached the log through the search box: type
    a word, read a list, find the right row, open the portion sheet, set
@@ -125,6 +129,24 @@ console.log('=== a logged entry can be opened and edited ===\n');
 await click('meal-0'); await waitFor('sheet-meal');
 ok(await has('meal-open-edit'), 'the entry offers an editor');
 ok(await has('meal-again'), 'and a way to log the same thing again');
+
+/* PRESSED, NOT COUNTED. This asserted the button was there and stopped.
+   The handler called toast(), a function that does not exist on this
+   screen, so every press logged the entry and then threw: the food
+   landed and the reader was told something broke. A button nobody
+   presses is a button nobody has tested. */
+const beforeAgain = await diaryRows();
+errs.length = 0;
+await click('meal-again');
+await page.waitForTimeout(700);
+ok(errs.length === 0, 'and pressing it does not throw', errs[0] || '');
+const afterAgain = await diaryRows();
+ok(afterAgain > beforeAgain, 'the same thing really is logged again',
+   beforeAgain + ' -> ' + afterAgain);
+ok(await has('toast'), 'and it says so, which is what the crash was in',
+   String(await has('toast')));
+
+await click('meal-0'); await waitFor('sheet-meal');
 await click('meal-open-edit'); await waitFor('sheet-meal-edit');
 await page.waitForTimeout(400);
 ok(await has('me-dial'), 'with a dial, because this entry kept the row it was weighed from');

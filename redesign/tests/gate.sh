@@ -73,6 +73,8 @@ pounds-history|node pounds-history.mjs
 gestures2|node gestures2.mjs
 spoken-portions|node spoken-portions.mjs
 say-it-log|node say-it-log.mjs
+barcode-decode|node barcode-decode.mjs
+scan-camera|node scan-camera.mjs
 no-dev-controls|node no-dev-controls.mjs
 body-reach|node body-reach.mjs
 muscle-split|node muscle-split.mjs
