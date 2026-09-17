@@ -758,19 +758,53 @@
        tap fights the transform the tap left behind. */
     var cam3 = { s: 1, tx: 0, ty: 0 };
     var MAX_S = 4;
+    /* How far past the stops a gesture may push before the spring takes
+       over. A quarter of the range either way is enough to feel, and
+       little enough that nobody arrives somewhere they cannot get back
+       from. */
+    var SOFT_S = 1.25;
 
-    function clampCam(s, tx, ty) {
-      s = Math.max(1, Math.min(s, MAX_S));
-      /* Never show past the figure's own edges. */
-      var minTx = VB.x + VB.w - s * (VB.x + VB.w), maxTx = VB.x - s * VB.x;
-      var minTy = VB.y + VB.h - s * (VB.y + VB.h), maxTy = VB.y - s * VB.y;
-      return { s: s,
-               tx: Math.max(Math.min(tx, maxTx), minTx),
-               ty: Math.max(Math.min(ty, maxTy), minTy) };
+    /* WHERE THE CAMERA IS ALLOWED TO BE, at a given magnification. */
+    function camLimits(s) {
+      return { minTx: VB.x + VB.w - s * (VB.x + VB.w), maxTx: VB.x - s * VB.x,
+               minTy: VB.y + VB.h - s * (VB.y + VB.h), maxTy: VB.y - s * VB.y };
     }
 
-    function setCam(s, tx, ty) {
-      var c = clampCam(s, tx, ty);
+    /* PAST THE EDGE, WITH RESISTANCE. A hard stop at the limit reads as a
+       broken control: the finger keeps moving and the picture does not.
+       The overshoot is let through, damped harder the further it goes,
+       and released it springs back. The shape is the one every touch
+       platform uses -- a hyperbola, so resistance rises without ever
+       quite refusing -- with the frame's own size as the scale. */
+    function rubber(over, dim) {
+      var d = Math.abs(over);
+      var give = d * 0.55 / (1 + d / (dim * 0.42));
+      return over < 0 ? -give : give;
+    }
+
+    function clampCam(s, tx, ty, soft) {
+      var lo = soft ? 1 / SOFT_S : 1, hi = soft ? MAX_S * SOFT_S : MAX_S;
+      s = Math.max(lo, Math.min(s, hi));
+      if (soft) {
+        if (s > MAX_S) s = MAX_S + rubber(s - MAX_S, 1);
+        else if (s < 1) s = 1 + rubber(s - 1, 1);
+      }
+      /* Never show past the figure's own edges. */
+      var L = camLimits(s);
+      if (soft) {
+        if (tx > L.maxTx) tx = L.maxTx + rubber(tx - L.maxTx, VB.w);
+        else if (tx < L.minTx) tx = L.minTx + rubber(tx - L.minTx, VB.w);
+        if (ty > L.maxTy) ty = L.maxTy + rubber(ty - L.maxTy, VB.h);
+        else if (ty < L.minTy) ty = L.minTy + rubber(ty - L.minTy, VB.h);
+        return { s: s, tx: tx, ty: ty };
+      }
+      return { s: s,
+               tx: Math.max(Math.min(tx, L.maxTx), L.minTx),
+               ty: Math.max(Math.min(ty, L.maxTy), L.minTy) };
+    }
+
+    function setCam(s, tx, ty, soft) {
+      var c = clampCam(s, tx, ty, soft);
       cam3 = c;
       cam.setAttribute('transform',
         'translate(' + n2(c.tx) + ' ' + n2(c.ty) + ') scale(' + (Math.round(c.s * 1e4) / 1e4) + ')');
@@ -841,9 +875,38 @@
         box = [box[0], box[1], Math.max(1, (mid + fig[2] * 0.04) - box[0]), box[3]];
       }
       var b = boxIn(v, box);
-      var pad = 26;
+      /* CLOSE ENOUGH TO HIT. The frame used to stop at 2.6x whatever it
+         was looking at, which is a fair crop of a chest and nowhere near
+         enough for a biceps: the muscle stayed a sliver, the parts inside
+         it were a few pixels each, and people missed them. The camera now
+         goes as close as the muscle needs, to 4x, with the padding
+         proportional rather than fixed so a small muscle is not framed
+         with the same 26 units of air as a back. */
+      var pad = Math.max(10, Math.min(26, Math.min(b.w, b.h) * 0.30));
       var s = Math.min((VB.w - pad * 2) / b.w, (VB.h - pad * 2) / b.h);
-      s = Math.max(1, Math.min(s, 2.6));
+      /* A LIMB IS MOSTLY LENGTH. Framing a forearm's whole bounding box
+         fits a long diagonal into a tall frame and leaves the muscle a
+         ribbon down the middle with the torso either side of it: the
+         camera reads 2.4x and the thing being looked at is still tiny.
+         Where the parts sit side by side -- a forearm's two bellies, an
+         arm's two heads, a delt's -- the ends of the muscle can run off
+         the frame and nothing is lost, so the camera is allowed to crop
+         the long axis and come in by as much again.
+
+         Where the parts are stacked ALONG the muscle -- upper and lower
+         abs, the calf's two heads, the back's three -- cropping the
+         length would cut off a part the reader is about to choose, so
+         those keep the whole muscle in frame. */
+      var stacked = (DERIVED[gid] && DERIVED[gid].axis === 'vert') ||
+                    (BAND_PLAN[gid] && BAND_PLAN[gid][0] && Math.abs(BAND_PLAN[gid][0].deg) < 45) ||
+                    (!DERIVED[gid] && !BAND_PLAN[gid]);
+      if (!stacked) {
+        var crop = b.h > b.w
+          ? Math.min((VB.w - pad * 2) / b.w, VB.h / (b.h * 0.62))
+          : Math.min(VB.w / (b.w * 0.62), (VB.h - pad * 2) / b.h);
+        s = Math.max(s, crop);
+      }
+      s = Math.max(1, Math.min(s, MAX_S));
       var cx = b.x + b.w / 2, cy = b.y + b.h / 2;
       setCam(s, (VB.x + VB.w / 2) - s * cx, (VB.y + VB.h / 2) - s * cy);
       return true;
@@ -1493,6 +1556,31 @@
       });
     };
 
+    /* Rings of probes around a point, nearest first, answering with the
+       first group whose own shape is under one of them. Eight around a
+       circle is enough to find an edge in any direction and cheap enough
+       to run on a tap; the radii stop at 14px, which is a fingertip's
+       worth of slop and not a second muscle away. */
+    function nearestExact(cx, cy) {
+      var root = svg.getRootNode ? svg.getRootNode() : document;
+      if (!root || !root.elementFromPoint) root = document;
+      var radii = [0, 7, 14];
+      for (var ri = 0; ri < radii.length; ri++) {
+        var rad = radii[ri];
+        var n = rad ? 8 : 1;
+        for (var i = 0; i < n; i++) {
+          var a = (Math.PI * 2 * i) / n;
+          var el = root.elementFromPoint(Math.round(cx + Math.cos(a) * rad),
+                                         Math.round(cy + Math.sin(a) * rad));
+          if (!el || !el.closest) continue;
+          if (el.closest('.parts')) return null;
+          var ex = el.closest('.hit--exact');
+          if (ex) return ex.getAttribute('data-g');
+        }
+      }
+      return null;
+    }
+
     function choose(target, e) {
       /* A TAP INSIDE THE SPLIT BELONGS TO THE PART. The parts layer sits
          over the muscle it came from, so a tap on a band reaches this
@@ -1509,6 +1597,19 @@
       if (!t) return false;
       if (e) e.preventDefault();
       var gid = t.getAttribute('data-g');
+      /* THE MUSCLE UNDER THE FINGER BEATS THE ONE NEAR IT. Every thin
+         muscle carries a margin so it can be hit at all, and those
+         margins lie over their neighbours: a tap a few pixels off the
+         forearm landed in the triceps' margin and chose the triceps,
+         while the forearm's own outline was nearer. When the tap lands
+         on a margin rather than on a shape, the shapes within a
+         fingertip of it are asked as well, and the nearest one wins. */
+      if (t.classList && !t.classList.contains('hit--exact') && e &&
+          (e.clientX != null || (e.touches && e.touches[0]))) {
+        var near = nearestExact(e.clientX != null ? e.clientX : e.touches[0].clientX,
+                                e.clientY != null ? e.clientY : e.touches[0].clientY);
+        if (near) gid = near;
+      }
       api.select(gid);
       if (opts.onSelect) opts.onSelect(gid);
       return true;
@@ -1518,7 +1619,7 @@
       /* One listener on the figure. '[data-g]' rather than '.mg', because the
          reach paths carry the group id but sit outside the groups, so a thin
          muscle can be grown without being painted over by the next group. */
-      svg.addEventListener('click', function (e) { choose(e.target, null); });
+      svg.addEventListener('click', function (e) { choose(e.target, e); });
 
       /* Touch-down feedback. A muscle has to answer the finger before the
          click resolves, the same 80ms every other control in the build
@@ -1563,7 +1664,89 @@
       var pinch = null, pan = null, lastTap = 0;
       /* Anything a finger does to the camera is the reader's, and stays
          until they choose a different muscle. */
-      function mine(s, tx, ty) { userCam = true; return setCam(s, tx, ty); }
+      function mine(s, tx, ty, soft) { userCam = true; return setCam(s, tx, ty, soft); }
+
+      /* ---- THE CAMERA AFTER THE FINGERS LEAVE ------------------------
+
+         Everything below runs on rAF rather than on a CSS transition,
+         because a transition can only go from where it is to where it
+         was told, at a fixed rate, and neither of those is what a
+         released gesture wants. A flick carries on and slows down. An
+         overshoot is pulled back by a spring whose strength depends on
+         how far out it is. Both of those are a state integrated frame by
+         frame, so they are written that way.
+
+         One loop at a time: a new gesture cancels whatever the last one
+         was still doing, which is what makes grabbing a moving picture
+         feel like grabbing rather than like queueing. */
+      var glide = null;
+      function stopGlide() {
+        if (glide) { cancelAnimationFrame(glide); glide = null; }
+      }
+
+      /* A critically damped spring: no wobble, no second pass, arrives
+         and stops. Wobble is right for a button and wrong for a camera --
+         a picture that bounces at the end of a pan reads as loose. */
+      function settle(done) {
+        stopGlide();
+        var target = clampCam(cam3.s, cam3.tx, cam3.ty);
+        var vs = 0, vx = 0, vy = 0;
+        var K = 0.055, D = 0.78;      /* stiffness, damping per frame */
+        var last = 0;
+        live(true);
+        glide = requestAnimationFrame(function step(now) {
+          if (!last) last = now;
+          /* Frames are 16ms on a good day and 33 on a bad one, so the
+             step is scaled rather than assumed. Capped, or a tab coming
+             back from the background integrates one enormous jump. */
+          var f = Math.min(3, (now - last) / 16.667) || 1;
+          last = now;
+          target = clampCam(cam3.s, cam3.tx, cam3.ty);
+          vs = (vs + (target.s - cam3.s) * K * f) * Math.pow(D, f);
+          vx = (vx + (target.tx - cam3.tx) * K * f) * Math.pow(D, f);
+          vy = (vy + (target.ty - cam3.ty) * K * f) * Math.pow(D, f);
+          var ns = cam3.s + vs * f, nx = cam3.tx + vx * f, ny = cam3.ty + vy * f;
+          var near = Math.abs(target.s - ns) < 0.002 && Math.abs(vs) < 0.002 &&
+                     Math.abs(target.tx - nx) < 0.05 && Math.abs(vx) < 0.05 &&
+                     Math.abs(target.ty - ny) < 0.05 && Math.abs(vy) < 0.05;
+          if (near) {
+            mine(target.s, target.tx, target.ty);
+            glide = null; live(false);
+            if (done) done();
+            return;
+          }
+          mine(ns, nx, ny, true);
+          glide = requestAnimationFrame(step);
+        });
+      }
+
+      /* A FLICK KEEPS GOING. Released mid-pan the picture carries the
+         speed it had and loses it to friction, which is the difference
+         between dragging a photograph and dragging a scrollbar. It is
+         let past the edge on the way, where the same resistance applies,
+         and the spring above takes it from wherever it stops. */
+      function fling(vx, vy, done) {
+        stopGlide();
+        var speed = Math.sqrt(vx * vx + vy * vy);
+        if (speed < 0.12) { settle(done); return; }
+        var last = 0;
+        live(true);
+        glide = requestAnimationFrame(function step(now) {
+          if (!last) last = now;
+          var f = Math.min(3, (now - last) / 16.667) || 1;
+          last = now;
+          vx *= Math.pow(0.935, f); vy *= Math.pow(0.935, f);
+          var out = clampCam(cam3.s, cam3.tx, cam3.ty);
+          /* Outside the stops the glide dies quickly: a flick that has
+             already left the picture has made its point. */
+          if (Math.abs(out.tx - cam3.tx) > 0.01 || Math.abs(out.ty - cam3.ty) > 0.01) {
+            vx *= Math.pow(0.82, f); vy *= Math.pow(0.82, f);
+          }
+          if (Math.sqrt(vx * vx + vy * vy) < 0.05) { settle(done); return; }
+          mine(cam3.s, cam3.tx + vx * f, cam3.ty + vy * f, true);
+          glide = requestAnimationFrame(step);
+        });
+      }
 
       function svgPoint(clientX, clientY) {
         var r = svg.getBoundingClientRect();
@@ -1587,6 +1770,9 @@
       }
 
       svg.addEventListener('touchstart', function (e) {
+        /* A finger on a moving picture stops it where it is. */
+        stopGlide();
+        splitFrom = cam3.s;
         if (e.touches.length === 2) {
           pan = null;
           var a = e.touches[0], b = e.touches[1];
@@ -1598,7 +1784,11 @@
         }
         if (e.touches.length === 1 && cam3.s > 1.02) {
           var t = e.touches[0];
-          pan = { x: t.clientX, y: t.clientY, tx: cam3.tx, ty: cam3.ty, moved: false };
+          pan = { x: t.clientX, y: t.clientY, tx: cam3.tx, ty: cam3.ty, moved: false,
+                  /* The last two samples are the whole of the flick: any
+                     longer an average and a finger that stopped before
+                     lifting still throws the picture. */
+                  vx: 0, vy: 0, at: (e.timeStamp || Date.now()) };
         }
       }, { passive: false });
 
@@ -1606,11 +1796,13 @@
         if (pinch && e.touches.length === 2) {
           var a = e.touches[0], b = e.touches[1];
           var k = dist(a, b) / pinch.d;
-          var s = Math.max(1, Math.min(pinch.s * k, MAX_S));
+          /* Past the stops under the fingers as well, so a pinch that
+             asks for more than there is pushes back instead of ending. */
+          var s = pinch.s * k;
           /* Hold the midpoint of the two fingers still: the model point
              under it before the pinch must land under it after. */
           var m = pinch.mid;
-          mine(s, m.x - (m.x - pinch.tx) * (s / pinch.s), m.y - (m.y - pinch.ty) * (s / pinch.s));
+          mine(s, m.x - (m.x - pinch.tx) * (s / pinch.s), m.y - (m.y - pinch.ty) * (s / pinch.s), true);
           e.preventDefault();
           return;
         }
@@ -1624,7 +1816,15 @@
           if (!pan.moved) { pan.moved = true; live(true); }
           var r = svg.getBoundingClientRect();
           var k2 = Math.min(r.width / VB.w, r.height / VB.h) || 1;
-          mine(cam3.s, pan.tx + dx / k2, pan.ty + dy / k2);
+          var ntx = pan.tx + dx / k2, nty = pan.ty + dy / k2;
+          var tnow = e.timeStamp || Date.now();
+          var dt = tnow - pan.at;
+          if (dt > 0) {
+            pan.vx = (ntx - cam3.tx) / dt;
+            pan.vy = (nty - cam3.ty) / dt;
+            pan.at = tnow;
+          }
+          mine(cam3.s, ntx, nty, true);
           e.preventDefault();
         }
       }, { passive: false });
@@ -1638,21 +1838,31 @@
          Two thresholds rather than one, because a single one at the
          boundary flickers the whole split on and off while a finger
          hovers around it. */
+      /* The magnification a gesture started at. The split follows the
+         camera CROSSING a threshold rather than sitting past one: a tap
+         that chooses a head clears the split on purpose, and a re-sync
+         that only looks at where the camera is would see a zoomed figure
+         with no parts, put them back, and drop the reader out of the
+         list they had just opened. */
+      var splitFrom = null;
+
       function syncSplit() {
         var gid = api.selected;
         if (!gid) return;
-        if (cam3.s >= 1.6 && !partsLayer) {
+        var from = splitFrom == null ? cam3.s : splitFrom;
+        if (cam3.s >= 1.6 && from < 1.6 && !partsLayer) {
           var names = api.showParts(gid, api.view);
           if (names && names.length > 1 && opts.onSplit) opts.onSplit(gid, names);
           else if (!names || names.length < 2) api.clearParts();
-        } else if (cam3.s < 1.3 && partsLayer) {
+        } else if (cam3.s < 1.3 && from >= 1.3 && partsLayer) {
           api.clearParts();
           if (opts.onSplit) opts.onSplit(null, null);
         }
       }
 
       function endGesture(e) {
-        if (pinch && (!e.touches || e.touches.length < 2)) { pinch = null; live(false); }
+        var flung = null;
+        if (pinch && (!e.touches || e.touches.length < 2)) { pinch = null; }
         if (pan && (!e.touches || e.touches.length === 0)) {
           /* A drag is not a tap. Swallow the click the browser is about
              to synthesise, or panning across the figure also picks a
@@ -1663,12 +1873,24 @@
               svg.removeEventListener('click', swallow, true);
             }, true);
           }
-          pan = null; live(false);
+          /* Per frame rather than per millisecond, which is the unit the
+             glide integrates in. */
+          if (pan.moved) flung = { x: pan.vx * 16.667, y: pan.vy * 16.667 };
+          pan = null;
         }
+        if (pinch || pan) return;
         /* Snap home rather than resting at 1.01, where the figure is
            still holding the finger for a pan it no longer needs. */
-        if (!pinch && !pan && cam3.s < 1.03 && cam3.s !== 1) mine(1, 0, 0);
-        if (!pinch && !pan) syncSplit();
+        if (cam3.s < 1.06) { mine(1, 0, 0); live(false); syncSplit(); return; }
+        /* The split follows the camera wherever it comes to rest, not
+           where the fingers left it: a flick that carries past the
+           threshold should divide the muscle, and one that springs back
+           inside it should not. */
+        if (flung) fling(flung.x, flung.y, syncSplit);
+        else settle(syncSplit);
+        /* And straight away as well, so a pinch that is clearly in or
+           clearly out does not wait for the spring to finish. */
+        syncSplit();
       }
       svg.addEventListener('touchend', endGesture);
       svg.addEventListener('touchcancel', endGesture);
@@ -1677,10 +1899,12 @@
          other: in if we are out, out if we are in. */
       svg.addEventListener('pointerup', function (e) {
         if (e.pointerType === 'mouse' && e.button !== 0) return;
+        stopGlide();
         var now = Date.now();
         var near = lastTap && (now - lastTap) < 300;
         lastTap = near ? 0 : now;
         if (!near) return;
+        splitFrom = cam3.s;
         if (cam3.s > 1.02) { mine(1, 0, 0); syncSplit(); return; }
         var p = svgPoint(e.clientX, e.clientY);
         var s = 2.2;
@@ -1694,6 +1918,7 @@
         if (!e.ctrlKey) return;
         e.preventDefault();
         var p = svgPoint(e.clientX, e.clientY);
+        if (splitFrom == null) splitFrom = cam3.s;
         var s = Math.max(1, Math.min(cam3.s * (1 - e.deltaY / 200), MAX_S));
         mine(s, p.x - (p.x - cam3.tx) * (s / cam3.s), p.y - (p.y - cam3.ty) * (s / cam3.s));
       }, { passive: false });
@@ -1704,5 +1929,12 @@
     return api;
   }
 
-  global.LKBodyMap = { mount: mount, partsOf: partsOf };
+  /* Whether a view draws a group at all. Turning the figure over with a
+     muscle chosen has to know whether that muscle exists on the other
+     side: a chest does not, a triceps does. */
+  function drawnOn(gid, view) {
+    return !!(MEASURED[view] && MEASURED[view][gid]);
+  }
+
+  global.LKBodyMap = { mount: mount, partsOf: partsOf, drawnOn: drawnOn };
 })(typeof window !== 'undefined' ? window : this);

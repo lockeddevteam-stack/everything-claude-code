@@ -1074,6 +1074,19 @@
     var here = m.sub ? esc(m.sub) + ' \u00b7 ' + esc(name) : esc(name);
     return '<div class="addexmap addexmap--zoom" data-testid="pick-map-zoom">' +
         '<div class="addexmap__fig" id="pick-fig"></div>' +
+        /* The same two buttons as the whole-body view, in the same place.
+           They used to leave with it, so turning the figure over meant
+           backing out of the muscle first. */
+        '<div class="addexmap__side">' +
+          '<div class="seg" role="tablist" aria-label="Body view">' +
+            ['front', 'back'].map(function (v) {
+              return '<button class="seg__item" type="button" role="tab" data-action="pick-view" ' +
+                'data-view="' + v + '" data-testid="pick-view-' + v + '" ' +
+                'aria-selected="' + ((m.view || 'front') === v ? 'true' : 'false') + '">' +
+                (v === 'front' ? 'Front' : 'Back') + '</button>';
+            }).join('') +
+          '</div>' +
+        '</div>' +
       '</div>' +
       '<div class="spread mt-2" data-testid="pick-crumb">' +
         '<button class="btn btn--tertiary btn--sm" data-action="' +
@@ -1097,27 +1110,26 @@
        catalogue's muscle is "Upper Chest" or "Lats". One is the start of
        the other, in both directions, which covers every part this figure
        can draw without a table to keep in step. */
-    if (!q && m.sub) {
-      var want = String(m.sub).toLowerCase();
-      var hit = list.filter(function (x) {
-        var mu = String(x.muscle || '').toLowerCase();
-        return mu === want || mu.indexOf(want) === 0 || want.indexOf(mu) === 0;
-      });
-      /* A part the catalogue files nothing under is not a dead sheet. */
-      if (hit.length) list = hit;
-    }
+    if (!q && m.sub && window.LKExercises && LKExercises.forPart) {
+      var byPart = LKExercises.forPart(m.gid, m.sub, list);
+      list = byPart.list;
+      m.partNote = byPart.exact ? '' : byPart.note;
+    } else { m.partNote = ''; }
     return list;
   }
 
   function pickList(m) {
     var list = pickRows(m);
+    var note = m.partNote
+      ? '<p class="t-detail quiet mt-2" data-testid="pick-part-note">' + esc(m.partNote) + '</p>'
+      : '';
     if (!list.length) {
       return '<div class="empty"><span class="empty__ico">' + ico('search', 'ico--lg') + '</span>' +
         '<h2 class="empty__title">No match</h2>' +
         '<p class="empty__body">Nothing in the library matches that. ' +
         'Clear the search to go back to the body.</p></div>';
     }
-    return '<div class="card card--flush">' + list.slice(0, 60).map(function (x, i) {
+    return note + '<div class="card card--flush">' + list.slice(0, 60).map(function (x, i) {
       return '<button class="row" data-testid="pick-' + i + '" data-action="pick-add" data-name="' + esc(x.name) + '" data-muscle="' + esc(x.muscle) + '" data-exid="' + (x.id || '') + '" data-id="' + m.id + '">' +
         '<div class="row__main"><div class="row__title">' + esc(x.name) + '</div><div class="row__sub">' + esc(x.muscle) + '</div></div>' +
         '<span class="row__chev">' + ico('plus') + '</span></button>';
@@ -1771,7 +1783,16 @@
     /* Back out of a part to the whole muscle, without leaving the muscle. */
     'pick-whole': function () { if (S.modal) { S.modal.sub = null; render(); } },
     'pick-view': function (el) {
-      if (S.modal) { S.modal.view = el.getAttribute('data-view') === 'back' ? 'back' : 'front'; render(); }
+      if (!S.modal) return;
+      var want = el.getAttribute('data-view') === 'back' ? 'back' : 'front';
+      if (want === S.modal.view) return;
+      S.modal.view = want;
+      /* A head named on the front is not a head on the back, and a
+         muscle the other side does not draw cannot stay chosen. */
+      S.modal.sub = null;
+      if (S.modal.gid && window.LKBodyMap && LKBodyMap.drawnOn &&
+          !LKBodyMap.drawnOn(S.modal.gid, want)) S.modal.gid = null;
+      render();
     },
     'add-block': function (el) {
       S.modal = { type: 'block', id: el.getAttribute('data-id'), title: '', mins: '', notes: '', error: null };

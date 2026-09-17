@@ -51,8 +51,32 @@ const has = await page.evaluate(() => {
 ok(has, 'the library draws the figure');
 
 /* A pinch, as two fingers really arrive: touchstart with two touches,
-   touchmove with them further apart. */
+   touchmove with them further apart.
+
+   THE CAMERA IS READ AFTER IT STOPS. A released gesture no longer lands
+   where the fingers left it: past a stop it is allowed to give, and the
+   spring takes it back over the next few frames. Everything below asks
+   about the camera at rest, because that is the picture somebody is
+   left looking at. The give itself is tested on its own, further down. */
 async function pinch(from, to) {
+  const out = await rawPinch(from, to);
+  await rest();
+  return out;
+}
+
+async function rest() {
+  const t0 = Date.now();
+  let last = null;
+  while (Date.now() - t0 < 2000) {
+    const now = await scale();
+    if (last !== null && Math.abs(now - last) < 0.0005) return now;
+    last = now;
+    await page.waitForTimeout(90);
+  }
+  return last;
+}
+
+async function rawPinch(from, to) {
   return page.evaluate(({ from, to }) => {
     const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
     const svg = r.querySelector('.map__svg');
@@ -108,6 +132,33 @@ ok(await scale() === 1, 'it will not go smaller than the whole body');
 await pinch(20, 900);
 const big = await scale();
 ok(big <= 4.0001, 'and not past 4x, where the art is a blur', 'scale ' + big);
+
+/* ---- 3b. it gives at the stop and springs back -------------------
+   A hard stop reads as a broken control: the fingers keep going and the
+   picture does not. It is let past, damped harder the further it goes,
+   and the spring returns it the moment the fingers leave. Both halves
+   matter -- give with no return is a camera somebody is stuck outside
+   of. */
+const mid = await page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  const svg = r.querySelector('.map__svg');
+  const b = svg.getBoundingClientRect();
+  const cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+  const mk = (id, x, y) => new Touch({ identifier: id, target: svg, clientX: x, clientY: y,
+                                       pageX: x, pageY: y, screenX: x, screenY: y });
+  const pair = (gap) => [mk(1, cx - gap / 2, cy), mk(2, cx + gap / 2, cy)];
+  const fire = (type, touches) => svg.dispatchEvent(new TouchEvent(type, {
+    touches, targetTouches: touches, changedTouches: touches, bubbles: true, cancelable: true }));
+  fire('touchstart', pair(20));
+  fire('touchmove', pair(1400));
+  const t = r.querySelector('.map__svg .cam').getAttribute('transform') || '';
+  const during = Number((/scale\(([\d.]+)\)/.exec(t) || [])[1] || 1);
+  fire('touchend', []);
+  return during;
+});
+ok(mid > 4.0001, 'the camera gives when it is pushed past its stop', 'scale ' + mid);
+const backHome = await rest();
+ok(backHome <= 4.0001, 'and springs back to it once the fingers leave', 'scale ' + backHome);
 const frame = await page.evaluate(() => {
   const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
   const t = r.querySelector('.map__svg .cam').getAttribute('transform') || '';
@@ -221,10 +272,17 @@ ok(split.labels.join(',') === 'Upper,Mid,Lower', 'and each one carries its name'
 
 /* A label inside the camera is scaled by the camera unless something
    divides it back out. At 2.6x a 10px word would render 26px and cover
-   the muscle it names. */
-const px = parseFloat(split.labelSize);
-ok(px > 3 && px < 5.5, 'the label is held at one size on screen, whatever the zoom',
-   split.labelSize + ' at ' + split.camS + 'x');
+   the muscle it names.
+
+   Asserted as the product rather than as the declared size, because the
+   declared size is whatever the camera happens to be at: the frame now
+   goes to 4x on a limb, and a fixed window around 3.65px was really a
+   window around one magnification. What has to hold is that the word
+   lands the same size on the glass however close the camera is, and a
+   label too wide for its own muscle may step down from there. */
+const px = parseFloat(split.labelSize) * (parseFloat(split.camS) || 1);
+ok(px > 5 && px < 11, 'the label is held at one size on screen, whatever the zoom',
+   px.toFixed(2) + 'px on screen at ' + split.camS + 'x');
 
 /* ---- 7. picking a part opens that part's exercises ----------------
    Not "the list changed": the list must be THAT PART and nothing else.

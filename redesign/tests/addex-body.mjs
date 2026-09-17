@@ -94,7 +94,8 @@ ok(await click('#addex-fig svg [data-g="chest"]'), 'chest can be tapped');
 await page.waitForTimeout(900);
 const s1 = await state();
 ok(s1.hasFig, 'the body is still on the screen');
-ok(s1.zoomed && /scale\(2/.test(s1.scale), 'the camera moved in', s1.scale);
+const s1s = Number((/scale\(([\d.]+)\)/.exec(s1.scale) || [])[1] || 1);
+ok(s1.zoomed && s1s > 2, 'the camera moved in', s1.scale);
 ok(s1.parts.length === 3, 'into its three heads', s1.parts.join(' / '));
 ok(s1.labels.length === 3, 'each one named', s1.labels.join(' / '));
 
@@ -146,6 +147,50 @@ if (pt) {
      'and the second back is the whole body again',
      s4.parts.length + ' parts, zoomed ' + s4.zoomed);
 }
+
+console.log('\n=== front and back outlive the zoom ===\n');
+
+/* The two buttons used to leave with the whole-body view, so the only
+   way to reach a triceps from a framed chest was to back all the way
+   out. */
+await click('[data-testid="addex-back"]');
+await page.waitForTimeout(500);
+await click('[data-testid="addex-view-front"]');
+await page.waitForTimeout(400);
+ok(await click('#addex-fig svg .view:not([data-hidden="true"]) [data-g="forearms"]'),
+   'a forearm can be chosen');
+await page.waitForTimeout(900);
+const fz = await state();
+ok(await root((r) => !!r.querySelector('[data-testid="addex-map-zoom"] [data-testid="addex-view-back"]')),
+   'the front and back buttons are still there with a muscle framed');
+ok(fz.zoomed, 'and the forearm is framed', fz.scale);
+
+await click('[data-testid="addex-map-zoom"] [data-testid="addex-view-back"]');
+await page.waitForTimeout(900);
+const fb = await state();
+ok(fb.zoomed && /Forearms/i.test(fb.crumb),
+   'turning the figure over keeps the muscle it has on both sides', fb.crumb);
+ok(fb.parts.length === 2, 'and it is still divided', fb.parts.join(' / '));
+
+console.log('\n=== a head the catalogue does not name still narrows ===\n');
+
+/* Six of the twelve groups are one bucket in the catalogue and two or
+   three heads on the figure. A seated calf raise is the soleus and a
+   standing one is the gastrocnemius, which is a real distinction and is
+   made from the movement rather than from a label nobody wrote. */
+const soleus = await page.evaluate(() => {
+  const g = window.LKExercises.all().filter((x) => window.LKExercises.gidOf(x) === 'calves');
+  const r = window.LKExercises.forPart('calves', 'Soleus', g);
+  const w = window.LKExercises.forPart('quads', 'Outer', 
+    window.LKExercises.all().filter((x) => window.LKExercises.gidOf(x) === 'quads'));
+  return { n: r.list.length, exact: r.exact, names: r.list.map((x) => x.name),
+           quadN: w.list.length, quadExact: w.exact, quadNote: w.note };
+});
+ok(soleus.exact && soleus.n > 0 && soleus.names.every((n) => /seated/i.test(n)),
+   'the soleus is the seated calf raises', soleus.names.join(' | '));
+ok(!soleus.quadExact && soleus.quadN > 0 && /one/i.test(soleus.quadNote),
+   'and a muscle that trains as one piece says so rather than pretending',
+   soleus.quadNote);
 
 ok(errors.length === 0, 'no page errors', errors.join(' | '));
 

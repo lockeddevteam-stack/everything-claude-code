@@ -1687,6 +1687,21 @@
     var here = S.addexSub ? esc(S.addexSub) + ' \u00b7 ' + esc(name) : esc(name);
     return '<div class="addexmap addexmap--zoom" data-testid="addex-map-zoom">' +
         '<div class="addexmap__fig" id="addex-fig"></div>' +
+        /* FRONT AND BACK OUTLIVE THE ZOOM. The two buttons left with the
+           whole-body view, so the only way to reach a triceps once a
+           chest was framed was to back all the way out and start again.
+           They are the same control in the same place, and switching
+           sides takes the camera with it. */
+        '<div class="addexmap__side">' +
+          '<div class="seg" role="tablist" aria-label="Body view">' +
+            ['front', 'back'].map(function (v) {
+              return '<button class="seg__item" type="button" role="tab" data-act="addex-view" ' +
+                'data-view="' + v + '" data-testid="addex-view-' + v + '" ' +
+                'aria-selected="' + (S.addexView === v ? 'true' : 'false') + '">' +
+                (v === 'front' ? 'Front' : 'Back') + '</button>';
+            }).join('') +
+          '</div>' +
+        '</div>' +
       '</div>' +
       '<div class="spread mt-2" data-testid="addex-crumb">' +
         '<button class="btn btn--tertiary btn--sm" type="button" data-act="' +
@@ -1843,13 +1858,11 @@
        the other, in both directions, which covers every part this figure
        can draw without a table to keep in step. A part the catalogue
        files nothing under leaves the group's list alone. */
-    if (S.addexSub && !q) {
-      var want = String(S.addexSub).toLowerCase();
-      var hitSub = all.filter(function (x) {
-        var mu = String(x.muscle || '').toLowerCase();
-        return mu === want || mu.indexOf(want) === 0 || want.indexOf(mu) === 0;
-      });
-      if (hitSub.length) all = hitSub;
+    var partNote = '';
+    if (S.addexSub && !q && window.LKExercises && LKExercises.forPart) {
+      var byPart = LKExercises.forPart(S.addexGid, S.addexSub, all);
+      all = byPart.list;
+      if (!byPart.exact) partNote = byPart.note;
     }
 
     /* RELATED MUSCLES, not one muscle. Replacing an incline press offered
@@ -1899,6 +1912,9 @@
     /* 866 rows in one sheet is a scroll nobody finishes, and it is the
        search field's job anyway. A page at a time, with the count and a way
        to see more, so the number offered is never hidden. */
+    var noteHTML = partNote
+      ? '<p class="t-detail muted mb-2" data-testid="addex-part-note">' + esc(partNote) + '</p>'
+      : '';
     var rows = all.slice(0, S.addexN || ADDEX_PAGE);
     var sameNote = sameOnly
       ? '<p class="t-detail muted" data-testid="addex-same">' + n(all.length) +
@@ -1914,7 +1930,7 @@
         '<p class="empty__body">Search by the lift or by the muscle it works. ' +
           'The full library has more than this session offers.</p></div>';
     }
-    return sameNote + '<div class="card card--flush' + (sameNote ? ' mt-2' : '') + '">' + rows.map(function (x) {
+    return noteHTML + sameNote + '<div class="card card--flush' + ((sameNote || noteHTML) ? ' mt-2' : '') + '">' + rows.map(function (x) {
       var i = LIBRARY.indexOf(x);
       return '<button class="row" type="button" data-act="addex-pick" data-i="' + i + '" data-testid="addex-pick-' + x.id + '">' +
         '<span class="row__main"><span class="row__title">' + esc(x.name) + '</span><span class="row__sub">' + esc(x.muscle) + '</span></span>' +
@@ -2721,9 +2737,22 @@
         S.addexSub = null;
         S.addexN = ADDEX_PAGE;
         break;
-      case 'addex-view':
-        S.addexView = t.getAttribute('data-view') === 'back' ? 'back' : 'front';
+      case 'addex-view': {
+        var wantView = t.getAttribute('data-view') === 'back' ? 'back' : 'front';
+        if (wantView !== S.addexView) {
+          S.addexView = wantView;
+          /* A part named on the front is not a part on the back: turning
+             the figure keeps the muscle where the other side draws one
+             and lets go of the head, which it does not. */
+          S.addexSub = null;
+          if (S.addexGid && window.LKBodyMap && LKBodyMap.drawnOn &&
+              !LKBodyMap.drawnOn(S.addexGid, wantView)) {
+            S.addexGid = null;
+          }
+          S.addexN = ADDEX_PAGE;
+        }
         break;
+      }
       case 'addex-more': S.addexN = (S.addexN || ADDEX_PAGE) + ADDEX_PAGE; break;
       case 'addex-pick': {
         var pick = LIBRARY[Number(t.getAttribute('data-i'))];

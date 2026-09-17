@@ -99,6 +99,85 @@
     return short.concat(mine.filter(function (x) { return short.indexOf(x) < 0; }));
   };
 
+  /* ---- WHICH LIFTS BELONG TO A HEAD -----------------------------------
+
+     The figure divides twelve muscles into their parts and the catalogue
+     files lifts under a muscle. For half the groups the two already agree
+     -- Upper Chest, Lats, Front Delt, Long Head -- and picking a part on
+     the body narrows the list by name alone.
+
+     For the other half the catalogue has one bucket where the anatomy has
+     two or three, so choosing a head did nothing: the same list came back
+     and nothing said why. Where the distinction is a real one a lifter
+     can act on, it is made here by what the movement is:
+
+       A seated calf raise is the soleus and a standing one is the
+       gastrocnemius, because the knee bend takes the two-joint muscle out.
+       A palms-up wrist curl is the flexors and a palms-down or reverse one
+       is the extensors.
+       Abduction work is the gluteus medius and everything else at the hip
+       is the maximus. A leg raise is the lower abdominal wall and a crunch
+       is the upper.
+
+     Where it is NOT real, nothing is invented. The vastus lateralis has no
+     lift of its own and neither does the medial hamstring: those parts are
+     anatomy on the figure, they still frame and focus, and the list says
+     plainly that the muscle trains as one. */
+  var PART_RULES = {
+    calves: [['Soleus', /seated/i], ['Gastrocnemius', null]],
+    forearms: [['Extensors', /palms?.?down|reverse|pronation|extens/i], ['Flexors', null]],
+    glutes: [['Gluteus Medius', /abduct|clam|lateral|band walk|monster|fire hydrant|side.?lying/i],
+             ['Gluteus Maximus', null]],
+    abs: [['Lower', /leg raise|knee raise|knee.?up|reverse crunch|hanging|flutter|scissor|dead ?bug|mountain|v-?up|hip raise|toes to bar|pike/i],
+          ['Upper', null]]
+  };
+  /* Parts the body draws that no lift isolates. Named so the screens can
+     say so rather than showing an unchanged list and leaving the reader to
+     wonder what their tap did. */
+  var ONE_PIECE = {
+    quads: 'The quadriceps work as one -- no lift trains a single head.',
+    hams: 'The hamstrings work as one -- no lift trains a single head.',
+    adduc: 'The adductors work as one.'
+  };
+
+  /* The lifts for a part of a muscle, and whether the division is real.
+     { list, exact, note } -- exact false means the list is the whole
+     group and the note says why. */
+  API.forPart = function (gid, part, rows) {
+    var list = (rows || (API.all ? API.all() : [])).slice();
+    if (!gid || !part) return { list: list, exact: true, note: '' };
+    var want = String(part).toLowerCase();
+
+    /* The catalogue's own name for it, when it has one. */
+    var byName = list.filter(function (x) {
+      var mu = String(x.muscle || '').toLowerCase();
+      return mu === want || mu.indexOf(want) === 0 || want.indexOf(mu) === 0;
+    });
+    if (byName.length) return { list: byName, exact: true, note: '' };
+
+    var rules = PART_RULES[gid];
+    if (rules) {
+      var mine = null, others = [];
+      rules.forEach(function (r) {
+        if (String(r[0]).toLowerCase() === want) mine = r;
+        else if (r[1]) others.push(r[1]);
+      });
+      if (mine) {
+        var hit = list.filter(function (x) {
+          var nm = String(x.name || '');
+          if (mine[1]) return mine[1].test(nm);
+          /* The catch-all part: everything no other rule claimed. */
+          for (var i = 0; i < others.length; i++) if (others[i].test(nm)) return false;
+          return true;
+        });
+        if (hit.length) return { list: hit, exact: true, note: '' };
+      }
+    }
+
+    return { list: list, exact: false,
+             note: ONE_PIECE[gid] || ('Nothing is filed under ' + part + ' on its own.') };
+  };
+
   /* Lifts this person has actually logged, most recent first. The picker
      puts them at the top: the thing you did last Tuesday is far more
      likely to be the thing you want than the one that sorts first
