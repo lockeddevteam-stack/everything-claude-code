@@ -5008,6 +5008,11 @@ img.avatar { object-fit: cover; background: var(--fill); }
   max-width: 320px;
 }
 .addexmap__side { display: flex; justify-content: center; margin-top: var(--sp-2); }
+/* Framed on one muscle, the figure needs less of the screen than the
+   whole body did: the list underneath is the thing being chosen from,
+   and a picker that keeps two thirds of the sheet for a picture makes
+   somebody scroll to reach what they came for. */
+.addexmap--zoom .addexmap__fig { height: 30vh; min-height: 180px; max-height: 280px; }
 
 /* --- The level while the microphone is open ------------------------------
    A bar that moves with what the microphone hears, so a muted device looks
@@ -5226,6 +5231,13 @@ textarea,
    gives, because a part that does not move under the thumb reads as a
    picture rather than as a button. */
 .part[data-press] .part__gnd { opacity: .7; }
+
+/* One part chosen: it keeps its colour, the rest step back. Enough to
+   read as "this one", not so far that the split stops being visible --
+   the other parts are still the way back. */
+.map__svg[data-part-on] .part:not([data-on]) .part__gnd { opacity: .34; }
+.map__svg[data-part-on] .part__label:not([data-on]) { opacity: .5; }
+.part__label[data-on] { stroke-width: calc(4px / var(--cam-s, 1)); }
 
 /* THE NAME OF EACH PIECE, HELD AT ONE SIZE. The text lives inside the
    camera group so it travels with the muscle, which means the camera
@@ -8205,10 +8217,35 @@ textarea,
        The layer lives inside the camera group, so it arrives with the
        zoom rather than after it. */
     var partsLayer = null;
+    var partSel = null;
     api.clearParts = function () {
       if (partsLayer && partsLayer.parentNode) partsLayer.parentNode.removeChild(partsLayer);
       partsLayer = null;
       svg.removeAttribute('data-parts');
+      svg.removeAttribute('data-part-on');
+    };
+
+    /* WHICH PART IS CHOSEN, ON THE BODY. The list below could be filtered
+       to Upper Chest while all three bands sat there equally lit, so the
+       figure and the list disagreed about what was being looked at. The
+       chosen one keeps its colour and the others step back; the split is
+       still legible, and what is selected is not a guess.
+
+       Remembered across a redraw, because the layer is rebuilt from
+       scratch every time the screen repaints and would otherwise forget. */
+    api.selectPart = function (name) {
+      partSel = name || null;
+      if (!partsLayer) return;
+      if (partSel) svg.setAttribute('data-part-on', partSel);
+      else svg.removeAttribute('data-part-on');
+      Array.prototype.forEach.call(partsLayer.querySelectorAll('[data-part]'), function (g) {
+        if (partSel && g.getAttribute('data-part') === partSel) g.setAttribute('data-on', '');
+        else g.removeAttribute('data-on');
+      });
+      Array.prototype.forEach.call(partsLayer.querySelectorAll('.part__label'), function (t) {
+        if (partSel && t.getAttribute('data-for') === partSel) t.setAttribute('data-on', '');
+        else t.removeAttribute('data-on');
+      });
     };
 
     api.showParts = function (gid, view) {
@@ -8293,6 +8330,7 @@ textarea,
       cam.appendChild(layer);
       partsLayer = layer;
       svg.setAttribute('data-parts', gid);
+      if (partSel) api.selectPart(partSel);
 
       var pPressed = null;
       function pUnpress() {
@@ -20216,8 +20254,18 @@ window.LK_CLOUD = {
         { screen: 'home', testid: 'tab-train', hint: 'Tap Train',
           say: 'Everything you train lives on one screen.' },
 
-        { screen: 'train', testid: 'open-library', hint: 'Tap',
-          say: 'The whole catalogue is behind one row.',
+        /* The library used to sit on Train under "Reference" and this
+           step tapped it. It is a picker now, not a destination, so the
+           tutorial reaches it the way anybody adding a lift does. */
+        { screen: 'train', testid: 'quick-workout', hint: 'Tap',
+          say: 'Nothing scheduled, and you want to lift anyway.',
+          note: 'The catalogue opens when there is somewhere to put a lift.' },
+
+        { screen: 'train', testid: 'quick-plan', hint: 'Tap',
+          say: 'Plan it first, and you get to pick the lifts.' },
+
+        { screen: 'train', testid: 'qd-skip', hint: 'Tap',
+          say: 'Skip the name. The picker is the whole catalogue.',
           note: 'You do not scroll through hundreds of anything.' },
 
         { screen: 'exercise-library', testid: 'bodymap', read: true, pad: 10,
@@ -23270,7 +23318,7 @@ window.LK_CLOUD = {
 </template>
 
 <script>
-window.__DEMO_CFG__ = {"tabs":[{"id":"home","label":"Home","screen":"home"},{"id":"train","label":"Train","screen":"train"},{"id":"fuel","label":"Fuel","screen":"fuel"},{"id":"coach","label":"Coach","screen":"coach"},{"id":"profile","label":"Profile","screen":"profile"}],"pushed":{"split-builder":{"parent":"train","backSelector":"[data-action=\"manual-back\"]"},"exercise-library":{"parent":"train"},"onboarding":{"parent":"profile","standalone":true},"settings":{"parent":"profile","backSelector":"[data-testid=\"back\"]"},"workout-log":{"parent":"train"},"shopping":{"parent":"fuel","backSelector":"[data-testid=\"back\"]"},"review":{"parent":"train","backSelector":"[data-testid=\"action-back\"]"},"workout-detail":{"parent":"train","backSelector":"[data-testid=\"back\"]"},"cycle":{"parent":"home","backSelector":"[data-testid=\"back\"]"},"progress":{"parent":"home"},"recap":{"parent":"home","backSelector":"[data-testid=\"back\"]"},"stack":{"parent":"fuel","backSelector":"[data-testid=\"back\"]"},"tutorial":{"parent":"home","standalone":true}},"nav":[{"from":"home","selector":"[data-testid=\"primary-action\"]","to":"workout-log","mode":"push"},{"from":"home","selector":"[data-testid=\"action-choose-session\"]","to":"train","mode":"tab"},{"from":"home","selector":"[data-testid=\"row-last-session\"]","to":"workout-detail","mode":"push"},{"from":"home","selector":"[data-testid=\"row-recent\"]","to":"workout-detail","mode":"push"},{"from":"home","selector":"[data-testid=\"recent-see-all\"]","to":"train","mode":"tab"},{"from":"home","selector":"[data-testid=\"row-climbing-lift\"]","to":"progress","mode":"push"},{"from":"home","selector":"[data-testid=\"row-recap\"]","to":"recap","mode":"push"},{"from":"recap","selector":"[data-action=\"open-session\"]","to":"workout-detail","mode":"push"},{"from":"fuel","selector":"[data-testid=\"chip-stack\"]","to":"stack","mode":"push"},{"from":"settings","selector":"[data-testid=\"row-tutorial\"]","to":"tutorial","mode":"push"},{"from":"settings","selector":"[data-testid=\"row-tutorial-tour\"]","to":"tutorial","mode":"push"},{"from":"tutorial","selector":"[data-testid=\"tut-skip\"]","to":"home","mode":"tab"},{"from":"tutorial","selector":"[data-testid=\"tut-finish\"]","to":"home","mode":"tab"},{"from":"train","selector":"[data-action=\"open-library\"]","to":"exercise-library","mode":"push"},{"from":"train","selector":"[data-action=\"new-split\"]","to":"split-builder","mode":"push"},{"from":"train","selector":"[data-action=\"edit-split\"]","to":"split-builder","mode":"push"},{"from":"coach","selector":"[data-act=\"open-split\"]","to":"split-builder","mode":"push"},{"from":"coach","selector":"[data-testid=\"plan-start\"]","to":"train","mode":"tab"},{"from":"coach","selector":"[data-testid=\"toast-open-train\"]","to":"train","mode":"tab"},{"from":"home","selector":"[data-testid=\"open-account\"]","to":"settings","mode":"push"},{"from":"train","selector":"[data-action=\"start-today\"]","to":"workout-log","mode":"push"},{"from":"train","selector":"[data-testid=\"quick-skip\"]","to":"workout-log","mode":"push"},{"from":"train","selector":"[data-testid=\"qd-continue\"]","to":"exercise-library","mode":"push"},{"from":"train","selector":"[data-testid=\"qd-skip\"]","to":"exercise-library","mode":"push"},{"from":"exercise-library","selector":"[data-testid=\"order-start\"]","to":"workout-log","mode":"push"},{"from":"workout-log","selector":"[data-testid=\"btn-finish\"]","to":"review","mode":"push","endsSession":true},{"from":"fuel","selector":"[data-testid=\"chip-more\"]","to":"shopping","mode":"push"},{"from":"progress","selector":"[data-testid=\"empty-action\"]","to":"train","mode":"tab"},{"from":"profile","selector":"[data-testid=\"open-settings\"]","to":"settings","mode":"push"},{"from":"onboarding","selector":"[data-testid=\"overview-start\"]","to":"workout-log","mode":"push"},{"from":"onboarding","selector":"[data-testid=\"overview-freestyle\"]","to":"workout-log","mode":"push"},{"from":"onboarding","selector":"[data-testid=\"overview-week\"]","to":"train","mode":"tab"},{"from":"cycle","selector":"[data-testid=\"open-train\"]","to":"train","mode":"tab"},{"from":"onboarding","selector":"[data-testid=\"welcome-back\"]","to":"home","mode":"tab"},{"from":"settings","selector":"[data-testid=\"create-account\"]","to":"onboarding","mode":"push"},{"from":"settings","selector":"[data-testid=\"sign-in\"]","to":"onboarding","mode":"push"},{"from":"profile","selector":"[data-testid=\"signup\"]","to":"onboarding","mode":"push"},{"from":"profile","selector":"[data-testid=\"start-first\"]","to":"onboarding","mode":"push"},{"from":"home","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"fuel","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"train","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"coach","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"profile","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"progress","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"exercise-library","selector":"[data-testid=\"library-exit\"]","to":"train","mode":"tab"},{"from":"progress","selector":"[data-action=\"progress-back\"]","to":"home","mode":"tab"},{"from":"exercise-library","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"shopping","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"cycle","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"settings","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"split-builder","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"workout-detail","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"review","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"review","selector":"[data-testid=\"action-done\"]","to":"home","mode":"tab"},{"from":"review","selector":"[data-testid=\"action-back\"]","to":"train","mode":"tab"},{"from":"review","selector":"[data-testid=\"action-back-to-workout\"]","to":"train","mode":"tab"},{"from":"review","selector":"[data-testid=\"action-discard-confirm\"]","to":"train","mode":"tab","endsSession":true},{"from":"workout-log","selector":"[data-testid=\"discard-confirm\"]","to":"train","mode":"tab","endsSession":true},{"from":"recap","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"stack","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"coach","selector":"[data-act=\"target\"]","to":"progress","mode":"push"},{"from":"train","selector":"[data-action=\"start-day\"]","to":"workout-log","mode":"push"},{"from":"train","selector":"[data-action=\"open-session\"]","to":"workout-detail","mode":"push"},{"from":"workout-detail","selector":"[data-testid=\"detail-repeat\"]","to":"workout-log","mode":"push"},{"from":"home","selector":"[data-testid=\"row-cycle\"]","to":"cycle","mode":"push"},{"from":"cycle","selector":"[data-testid=\"cycle-open-settings\"]","to":"settings","mode":"push"}],"appTitle":"LOCKED demo","devStateSelector":"[data-testid=\"dev-menu\"] button, [data-testid=\"dev-panel\"] button, [data-testid=\"dev-list\"] button, .dev__item, .devpanel button, .dev-list button","devToggleSelector":"[data-testid=\"dev-toggle\"], [data-testid=\"dev-open\"]","assets":{},"screens":[{"id":"home","label":"Home","tab":"home"},{"id":"train","label":"Train","tab":"train"},{"id":"fuel","label":"Fuel","tab":"fuel"},{"id":"coach","label":"Coach","tab":"coach"},{"id":"profile","label":"Profile","tab":"profile"},{"id":"split-builder","label":"Split builder","tab":null},{"id":"exercise-library","label":"Exercise library","tab":null},{"id":"onboarding","label":"Onboarding","tab":null},{"id":"settings","label":"Settings","tab":null},{"id":"workout-log","label":"Workout Log","tab":null},{"id":"shopping","label":"Shop and Budget","tab":null},{"id":"review","label":"Review","tab":null},{"id":"workout-detail","label":"Workout detail","tab":null},{"id":"cycle","label":"Cycle","tab":null},{"id":"progress","label":"Progress","tab":null},{"id":"recap","label":"Recap","tab":null},{"id":"stack","label":"Stack","tab":null},{"id":"tutorial","label":"First run","tab":null}]};
+window.__DEMO_CFG__ = {"tabs":[{"id":"home","label":"Home","screen":"home"},{"id":"train","label":"Train","screen":"train"},{"id":"fuel","label":"Fuel","screen":"fuel"},{"id":"coach","label":"Coach","screen":"coach"},{"id":"profile","label":"Profile","screen":"profile"}],"pushed":{"split-builder":{"parent":"train","backSelector":"[data-action=\"manual-back\"]"},"exercise-library":{"parent":"train"},"onboarding":{"parent":"profile","standalone":true},"settings":{"parent":"profile","backSelector":"[data-testid=\"back\"]"},"workout-log":{"parent":"train"},"shopping":{"parent":"fuel","backSelector":"[data-testid=\"back\"]"},"review":{"parent":"train","backSelector":"[data-testid=\"action-back\"]"},"workout-detail":{"parent":"train","backSelector":"[data-testid=\"back\"]"},"cycle":{"parent":"home","backSelector":"[data-testid=\"back\"]"},"progress":{"parent":"home"},"recap":{"parent":"home","backSelector":"[data-testid=\"back\"]"},"stack":{"parent":"fuel","backSelector":"[data-testid=\"back\"]"},"tutorial":{"parent":"home","standalone":true}},"nav":[{"from":"home","selector":"[data-testid=\"primary-action\"]","to":"workout-log","mode":"push"},{"from":"home","selector":"[data-testid=\"action-choose-session\"]","to":"train","mode":"tab"},{"from":"home","selector":"[data-testid=\"row-last-session\"]","to":"workout-detail","mode":"push"},{"from":"home","selector":"[data-testid=\"row-recent\"]","to":"workout-detail","mode":"push"},{"from":"home","selector":"[data-testid=\"recent-see-all\"]","to":"train","mode":"tab"},{"from":"home","selector":"[data-testid=\"row-climbing-lift\"]","to":"progress","mode":"push"},{"from":"home","selector":"[data-testid=\"row-recap\"]","to":"recap","mode":"push"},{"from":"recap","selector":"[data-action=\"open-session\"]","to":"workout-detail","mode":"push"},{"from":"fuel","selector":"[data-testid=\"chip-stack\"]","to":"stack","mode":"push"},{"from":"settings","selector":"[data-testid=\"row-tutorial\"]","to":"tutorial","mode":"push"},{"from":"settings","selector":"[data-testid=\"row-tutorial-tour\"]","to":"tutorial","mode":"push"},{"from":"tutorial","selector":"[data-testid=\"tut-skip\"]","to":"home","mode":"tab"},{"from":"tutorial","selector":"[data-testid=\"tut-finish\"]","to":"home","mode":"tab"},{"from":"train","selector":"[data-action=\"new-split\"]","to":"split-builder","mode":"push"},{"from":"train","selector":"[data-action=\"edit-split\"]","to":"split-builder","mode":"push"},{"from":"coach","selector":"[data-act=\"open-split\"]","to":"split-builder","mode":"push"},{"from":"coach","selector":"[data-testid=\"plan-start\"]","to":"train","mode":"tab"},{"from":"coach","selector":"[data-testid=\"toast-open-train\"]","to":"train","mode":"tab"},{"from":"home","selector":"[data-testid=\"open-account\"]","to":"settings","mode":"push"},{"from":"train","selector":"[data-action=\"start-today\"]","to":"workout-log","mode":"push"},{"from":"train","selector":"[data-testid=\"quick-skip\"]","to":"workout-log","mode":"push"},{"from":"train","selector":"[data-testid=\"qd-continue\"]","to":"exercise-library","mode":"push"},{"from":"train","selector":"[data-testid=\"qd-skip\"]","to":"exercise-library","mode":"push"},{"from":"exercise-library","selector":"[data-testid=\"order-start\"]","to":"workout-log","mode":"push"},{"from":"workout-log","selector":"[data-testid=\"btn-finish\"]","to":"review","mode":"push","endsSession":true},{"from":"fuel","selector":"[data-testid=\"chip-more\"]","to":"shopping","mode":"push"},{"from":"progress","selector":"[data-testid=\"empty-action\"]","to":"train","mode":"tab"},{"from":"profile","selector":"[data-testid=\"open-settings\"]","to":"settings","mode":"push"},{"from":"onboarding","selector":"[data-testid=\"overview-start\"]","to":"workout-log","mode":"push"},{"from":"onboarding","selector":"[data-testid=\"overview-freestyle\"]","to":"workout-log","mode":"push"},{"from":"onboarding","selector":"[data-testid=\"overview-week\"]","to":"train","mode":"tab"},{"from":"cycle","selector":"[data-testid=\"open-train\"]","to":"train","mode":"tab"},{"from":"onboarding","selector":"[data-testid=\"welcome-back\"]","to":"home","mode":"tab"},{"from":"settings","selector":"[data-testid=\"create-account\"]","to":"onboarding","mode":"push"},{"from":"settings","selector":"[data-testid=\"sign-in\"]","to":"onboarding","mode":"push"},{"from":"profile","selector":"[data-testid=\"signup\"]","to":"onboarding","mode":"push"},{"from":"profile","selector":"[data-testid=\"start-first\"]","to":"onboarding","mode":"push"},{"from":"home","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"fuel","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"train","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"coach","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"profile","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"progress","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"exercise-library","selector":"[data-testid=\"library-exit\"]","to":"train","mode":"tab"},{"from":"progress","selector":"[data-action=\"progress-back\"]","to":"home","mode":"tab"},{"from":"exercise-library","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"shopping","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"cycle","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"settings","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"split-builder","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"workout-detail","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"review","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"review","selector":"[data-testid=\"action-done\"]","to":"home","mode":"tab"},{"from":"review","selector":"[data-testid=\"action-back\"]","to":"train","mode":"tab"},{"from":"review","selector":"[data-testid=\"action-back-to-workout\"]","to":"train","mode":"tab"},{"from":"review","selector":"[data-testid=\"action-discard-confirm\"]","to":"train","mode":"tab","endsSession":true},{"from":"workout-log","selector":"[data-testid=\"discard-confirm\"]","to":"train","mode":"tab","endsSession":true},{"from":"recap","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"stack","selector":"[data-testid=\"shelf-resume\"]","to":"workout-log","mode":"push"},{"from":"coach","selector":"[data-act=\"target\"]","to":"progress","mode":"push"},{"from":"train","selector":"[data-action=\"start-day\"]","to":"workout-log","mode":"push"},{"from":"train","selector":"[data-action=\"open-session\"]","to":"workout-detail","mode":"push"},{"from":"workout-detail","selector":"[data-testid=\"detail-repeat\"]","to":"workout-log","mode":"push"},{"from":"home","selector":"[data-testid=\"row-cycle\"]","to":"cycle","mode":"push"},{"from":"cycle","selector":"[data-testid=\"cycle-open-settings\"]","to":"settings","mode":"push"}],"appTitle":"LOCKED demo","devStateSelector":"[data-testid=\"dev-menu\"] button, [data-testid=\"dev-panel\"] button, [data-testid=\"dev-list\"] button, .dev__item, .devpanel button, .dev-list button","devToggleSelector":"[data-testid=\"dev-toggle\"], [data-testid=\"dev-open\"]","assets":{},"screens":[{"id":"home","label":"Home","tab":"home"},{"id":"train","label":"Train","tab":"train"},{"id":"fuel","label":"Fuel","tab":"fuel"},{"id":"coach","label":"Coach","tab":"coach"},{"id":"profile","label":"Profile","tab":"profile"},{"id":"split-builder","label":"Split builder","tab":null},{"id":"exercise-library","label":"Exercise library","tab":null},{"id":"onboarding","label":"Onboarding","tab":null},{"id":"settings","label":"Settings","tab":null},{"id":"workout-log","label":"Workout Log","tab":null},{"id":"shopping","label":"Shop and Budget","tab":null},{"id":"review","label":"Review","tab":null},{"id":"workout-detail","label":"Workout detail","tab":null},{"id":"cycle","label":"Cycle","tab":null},{"id":"progress","label":"Progress","tab":null},{"id":"recap","label":"Recap","tab":null},{"id":"stack","label":"Stack","tab":null},{"id":"tutorial","label":"First run","tab":null}]};
 </script>
 <script>
 (function () {
@@ -26977,19 +27025,14 @@ DEMO.define("train", function (document, window, location, fetch) {
         '<div class="card card--flush">' + recent.map(historyRow).join('') + '</div>' +
       '</section>' +
 
-      '<section class="section" data-testid="section-library">' +
-        '<div class="section__head"><h2 class="t-label">Reference</h2></div>' +
-        '<div class="card card--flush">' +
-          '<button class="row" type="button" data-action="open-library" data-testid="open-library">' +
-            '<span class="ico-well">' + ICO.book + '</span>' +
-            '<span class="row__main stack">' +
-              '<span class="row__title">Exercise library</span>' +
-              '<span class="row__sub">' + n(LIBRARY.logged) + ' of ' + n(LIBRARY.total) + ' logged</span>' +
-            '</span>' +
-            '<span class="row__chev">' + ICO.chev + '</span>' +
-          '</button>' +
-        '</div>' +
-      '</section>';
+      /* THE LIBRARY IS A PICKER, NOT A DESTINATION. It sat here under
+         "Reference", which invites browsing 867 exercises with no session
+         to put any of them in: a catalogue you leave by going back. It
+         opens where it is useful instead, at the moment there is
+         somewhere for a lift to go -- Quick workout, the split builder,
+         the session itself. The open-library handler stays, so an older
+         entry point or a deep link still lands. */
+      '';
   };
 
   /* =============================================================
@@ -43043,13 +43086,25 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
       '</div>';
   }
 
+  /* THE BODY IS THE REASON THE PICKER IS A PICKER, and it used to leave
+     at the moment it became useful: choosing Chest swapped the figure for
+     ninety-eight rows. It stays now, framed on the muscle just chosen and
+     divided into its parts where the anatomy divides honestly, which is
+     the same thing the library does. Choosing a part narrows the list to
+     that part; the crumb says where you are and how to get back. */
   function pickGroupHTML(m) {
     var name = (window.LKExercises && LKExercises.groupName)
       ? LKExercises.groupName(m.gid) : m.gid;
-    return '<div class="spread" data-testid="pick-crumb">' +
-        '<button class="btn btn--tertiary btn--sm" data-action="pick-back" data-testid="pick-back">' +
-          ico('back') + '<span class="btn__label">Body</span></button>' +
-        '<span class="t-label">' + esc(name) + '</span>' +
+    var here = m.sub ? esc(m.sub) + ' \u00b7 ' + esc(name) : esc(name);
+    return '<div class="addexmap addexmap--zoom" data-testid="pick-map-zoom">' +
+        '<div class="addexmap__fig" id="pick-fig"></div>' +
+      '</div>' +
+      '<div class="spread mt-2" data-testid="pick-crumb">' +
+        '<button class="btn btn--tertiary btn--sm" data-action="' +
+          (m.sub ? 'pick-whole' : 'pick-back') + '" data-testid="pick-back">' +
+          ico('back') + '<span class="btn__label">' +
+          (m.sub ? esc(name) : 'Body') + '</span></button>' +
+        '<span class="t-label">' + here + '</span>' +
       '</div>' + pickList(m);
   }
 
@@ -43060,6 +43115,20 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     });
     if (!q && m.gid && window.LKExercises && LKExercises.gidOf) {
       list = list.filter(function (x) { return LKExercises.gidOf(x) === m.gid; });
+    }
+    /* A PART CHOSEN ON THE BODY IS THE WHOLE LIST. The figure's parts are
+       named the way a person says them -- "Upper", "Lats" -- and the
+       catalogue's muscle is "Upper Chest" or "Lats". One is the start of
+       the other, in both directions, which covers every part this figure
+       can draw without a table to keep in step. */
+    if (!q && m.sub) {
+      var want = String(m.sub).toLowerCase();
+      var hit = list.filter(function (x) {
+        var mu = String(x.muscle || '').toLowerCase();
+        return mu === want || mu.indexOf(want) === 0 || want.indexOf(mu) === 0;
+      });
+      /* A part the catalogue files nothing under is not a dead sheet. */
+      if (hit.length) list = hit;
     }
     return list;
   }
@@ -43088,22 +43157,54 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
      slot that string left. This screen redraws itself whole, so the
      figure is rebuilt with it rather than kept -- a kept one would be
      pointing at a node that no longer exists. */
+  var PICK_FIG = null;
   function syncPickFigure() {
     var slot = document.getElementById('pick-fig');
-    if (!slot || !window.LKBodyMap || !window.LKExercises) return;
-    if (slot.firstChild) return;
+    if (!slot || !window.LKBodyMap || !window.LKExercises) { PICK_FIG = null; return; }
     var m = S.modal;
+    if (!slot.firstChild) {
+      try {
+        PICK_FIG = LKBodyMap.mount(slot, {
+          groups: LKExercises.groupCounts(LIBRARY),
+          order: LKExercises.groups.map(function (gr) { return gr[0]; }),
+          view: (m && m.view) || 'front',
+          onSelect: function (gid) {
+            if (!S.modal) return;
+            S.modal.gid = gid;
+            S.modal.sub = null;
+            render();
+          },
+          /* A part is the second tap, and it is the one that answers the
+             question: not "chest" but "upper chest". */
+          onPart: function (gid, part) {
+            if (!S.modal) return;
+            S.modal.gid = gid;
+            S.modal.sub = part;
+            render();
+          },
+          /* And the same thing reached by pinching in rather than by
+             tapping, so the two gestures agree about what they mean. */
+          onSplit: function (gid) {
+            if (!S.modal) return;
+            if (gid) S.modal.gid = gid; else S.modal.sub = null;
+            render();
+          }
+        });
+      } catch (e) { PICK_FIG = null; return; }
+    }
+    /* The camera and the split follow the state on every paint, so a
+       redraw never leaves a muscle framed with its parts gone. */
+    var fig = PICK_FIG;
+    if (!fig) return;
     try {
-      var fig = LKBodyMap.mount(slot, {
-        groups: LKExercises.groupCounts(LIBRARY),
-        order: LKExercises.groups.map(function (gr) { return gr[0]; }),
-        view: (m && m.view) || 'front',
-        onSelect: function (gid) {
-          if (S.modal) { S.modal.gid = gid; render(); }
-        }
-      });
       if (fig.setView) fig.setView((m && m.view) || 'front');
-    } catch (e) { /* the named rows below it still work */ }
+      if (fig.select) fig.select((m && m.gid) || null);
+      if (fig.zoomTo) fig.zoomTo((m && m.gid) || null, (m && m.view) || 'front');
+      if (m && m.gid && fig.showParts) {
+        fig.showParts(m.gid, m.view || 'front');
+        if (fig.selectPart) fig.selectPart(m.sub || null);
+      } else if (fig.clearParts) fig.clearParts();
+    } catch (e) {}
   }
 
   function pickSheet(m) {
@@ -43680,13 +43781,19 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     /* Opens on the body, with no part chosen: a group left over from the
        last exercise added is not an answer to this one. */
     'add-exercise': function (el) {
-      S.modal = { type: 'pick', id: el.getAttribute('data-id'), q: '', gid: null, view: 'front' };
+      S.modal = { type: 'pick', id: el.getAttribute('data-id'), q: '', gid: null, sub: null, view: 'front' };
       render();
     },
     'pick-group': function (el) {
-      if (S.modal) { S.modal.gid = el.getAttribute('data-gid') || null; render(); }
+      if (S.modal) {
+        S.modal.gid = el.getAttribute('data-gid') || null;
+        S.modal.sub = null;
+        render();
+      }
     },
-    'pick-back': function () { if (S.modal) { S.modal.gid = null; render(); } },
+    'pick-back': function () { if (S.modal) { S.modal.gid = null; S.modal.sub = null; render(); } },
+    /* Back out of a part to the whole muscle, without leaving the muscle. */
+    'pick-whole': function () { if (S.modal) { S.modal.sub = null; render(); } },
     'pick-view': function (el) {
       if (S.modal) { S.modal.view = el.getAttribute('data-view') === 'back' ? 'back' : 'front'; render(); }
     },
@@ -46000,8 +46107,12 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
        framed with its parts gone, or parts drawn over a body that has
        zoomed back out. */
     try {
-      if (S.split && FIG.showParts) FIG.showParts(S.split, S.bodyView);
-      else if (FIG.clearParts) FIG.clearParts();
+      if (S.split && FIG.showParts) {
+        FIG.showParts(S.split, S.bodyView);
+        /* The chosen part is marked on the body, so the figure and the
+           list below it never disagree about what is being looked at. */
+        if (FIG.selectPart) FIG.selectPart(S.sub || null);
+      } else if (FIG.clearParts) FIG.clearParts();
     } catch (e) {}
     var count = document.getElementById('libmap-count');
     if (count) count.textContent = pool().length + ' ' + LKPlural(pool().length, 'exercise');

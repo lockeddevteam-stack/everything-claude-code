@@ -1062,13 +1062,25 @@
       '</div>';
   }
 
+  /* THE BODY IS THE REASON THE PICKER IS A PICKER, and it used to leave
+     at the moment it became useful: choosing Chest swapped the figure for
+     ninety-eight rows. It stays now, framed on the muscle just chosen and
+     divided into its parts where the anatomy divides honestly, which is
+     the same thing the library does. Choosing a part narrows the list to
+     that part; the crumb says where you are and how to get back. */
   function pickGroupHTML(m) {
     var name = (window.LKExercises && LKExercises.groupName)
       ? LKExercises.groupName(m.gid) : m.gid;
-    return '<div class="spread" data-testid="pick-crumb">' +
-        '<button class="btn btn--tertiary btn--sm" data-action="pick-back" data-testid="pick-back">' +
-          ico('back') + '<span class="btn__label">Body</span></button>' +
-        '<span class="t-label">' + esc(name) + '</span>' +
+    var here = m.sub ? esc(m.sub) + ' \u00b7 ' + esc(name) : esc(name);
+    return '<div class="addexmap addexmap--zoom" data-testid="pick-map-zoom">' +
+        '<div class="addexmap__fig" id="pick-fig"></div>' +
+      '</div>' +
+      '<div class="spread mt-2" data-testid="pick-crumb">' +
+        '<button class="btn btn--tertiary btn--sm" data-action="' +
+          (m.sub ? 'pick-whole' : 'pick-back') + '" data-testid="pick-back">' +
+          ico('back') + '<span class="btn__label">' +
+          (m.sub ? esc(name) : 'Body') + '</span></button>' +
+        '<span class="t-label">' + here + '</span>' +
       '</div>' + pickList(m);
   }
 
@@ -1079,6 +1091,20 @@
     });
     if (!q && m.gid && window.LKExercises && LKExercises.gidOf) {
       list = list.filter(function (x) { return LKExercises.gidOf(x) === m.gid; });
+    }
+    /* A PART CHOSEN ON THE BODY IS THE WHOLE LIST. The figure's parts are
+       named the way a person says them -- "Upper", "Lats" -- and the
+       catalogue's muscle is "Upper Chest" or "Lats". One is the start of
+       the other, in both directions, which covers every part this figure
+       can draw without a table to keep in step. */
+    if (!q && m.sub) {
+      var want = String(m.sub).toLowerCase();
+      var hit = list.filter(function (x) {
+        var mu = String(x.muscle || '').toLowerCase();
+        return mu === want || mu.indexOf(want) === 0 || want.indexOf(mu) === 0;
+      });
+      /* A part the catalogue files nothing under is not a dead sheet. */
+      if (hit.length) list = hit;
     }
     return list;
   }
@@ -1107,22 +1133,54 @@
      slot that string left. This screen redraws itself whole, so the
      figure is rebuilt with it rather than kept -- a kept one would be
      pointing at a node that no longer exists. */
+  var PICK_FIG = null;
   function syncPickFigure() {
     var slot = document.getElementById('pick-fig');
-    if (!slot || !window.LKBodyMap || !window.LKExercises) return;
-    if (slot.firstChild) return;
+    if (!slot || !window.LKBodyMap || !window.LKExercises) { PICK_FIG = null; return; }
     var m = S.modal;
+    if (!slot.firstChild) {
+      try {
+        PICK_FIG = LKBodyMap.mount(slot, {
+          groups: LKExercises.groupCounts(LIBRARY),
+          order: LKExercises.groups.map(function (gr) { return gr[0]; }),
+          view: (m && m.view) || 'front',
+          onSelect: function (gid) {
+            if (!S.modal) return;
+            S.modal.gid = gid;
+            S.modal.sub = null;
+            render();
+          },
+          /* A part is the second tap, and it is the one that answers the
+             question: not "chest" but "upper chest". */
+          onPart: function (gid, part) {
+            if (!S.modal) return;
+            S.modal.gid = gid;
+            S.modal.sub = part;
+            render();
+          },
+          /* And the same thing reached by pinching in rather than by
+             tapping, so the two gestures agree about what they mean. */
+          onSplit: function (gid) {
+            if (!S.modal) return;
+            if (gid) S.modal.gid = gid; else S.modal.sub = null;
+            render();
+          }
+        });
+      } catch (e) { PICK_FIG = null; return; }
+    }
+    /* The camera and the split follow the state on every paint, so a
+       redraw never leaves a muscle framed with its parts gone. */
+    var fig = PICK_FIG;
+    if (!fig) return;
     try {
-      var fig = LKBodyMap.mount(slot, {
-        groups: LKExercises.groupCounts(LIBRARY),
-        order: LKExercises.groups.map(function (gr) { return gr[0]; }),
-        view: (m && m.view) || 'front',
-        onSelect: function (gid) {
-          if (S.modal) { S.modal.gid = gid; render(); }
-        }
-      });
       if (fig.setView) fig.setView((m && m.view) || 'front');
-    } catch (e) { /* the named rows below it still work */ }
+      if (fig.select) fig.select((m && m.gid) || null);
+      if (fig.zoomTo) fig.zoomTo((m && m.gid) || null, (m && m.view) || 'front');
+      if (m && m.gid && fig.showParts) {
+        fig.showParts(m.gid, m.view || 'front');
+        if (fig.selectPart) fig.selectPart(m.sub || null);
+      } else if (fig.clearParts) fig.clearParts();
+    } catch (e) {}
   }
 
   function pickSheet(m) {
@@ -1699,13 +1757,19 @@
     /* Opens on the body, with no part chosen: a group left over from the
        last exercise added is not an answer to this one. */
     'add-exercise': function (el) {
-      S.modal = { type: 'pick', id: el.getAttribute('data-id'), q: '', gid: null, view: 'front' };
+      S.modal = { type: 'pick', id: el.getAttribute('data-id'), q: '', gid: null, sub: null, view: 'front' };
       render();
     },
     'pick-group': function (el) {
-      if (S.modal) { S.modal.gid = el.getAttribute('data-gid') || null; render(); }
+      if (S.modal) {
+        S.modal.gid = el.getAttribute('data-gid') || null;
+        S.modal.sub = null;
+        render();
+      }
     },
-    'pick-back': function () { if (S.modal) { S.modal.gid = null; render(); } },
+    'pick-back': function () { if (S.modal) { S.modal.gid = null; S.modal.sub = null; render(); } },
+    /* Back out of a part to the whole muscle, without leaving the muscle. */
+    'pick-whole': function () { if (S.modal) { S.modal.sub = null; render(); } },
     'pick-view': function (el) {
       if (S.modal) { S.modal.view = el.getAttribute('data-view') === 'back' ? 'back' : 'front'; render(); }
     },

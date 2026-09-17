@@ -86,7 +86,11 @@ Object.keys(TRACKS).forEach((id) => {
    the tutorial went on tapping for rows that no longer appear until a
    muscle is chosen; the suite caught it, which is the whole point of
    counting. */
-ok(lines === 66, 'all 66 authored lines are present', String(lines));
+/* Sixty-eight since the library stopped being a row on Train. It is a
+   picker now, so the walkthrough reaches it the way anybody adding a
+   lift does: Quick workout, plan it, skip the name. One row became
+   three steps. The pin moves deliberately or it is not a pin. */
+ok(lines === 68, 'all 68 authored lines are present', String(lines));
 
 /* ---- 2. every track, walked on the real screens -------------------- */
 const browser = await chromium.launch();

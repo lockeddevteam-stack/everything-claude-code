@@ -159,7 +159,15 @@ const MANIFEST = {
     { from: 'settings', selector: '[data-testid="row-tutorial-tour"]', to: 'tutorial', mode: 'push' },
     { from: 'tutorial', selector: '[data-testid="tut-skip"]', to: 'home', mode: 'tab' },
     { from: 'tutorial', selector: '[data-testid="tut-finish"]', to: 'home', mode: 'tab' },
-    { from: 'train', selector: '[data-action="open-library"]', to: 'exercise-library', mode: 'push' },
+    /* The library used to be a Reference row on Train and crossed from
+       [data-action="open-library"]. It is a picker now, so that row is
+       gone and the crossing lives at the end of Quick workout's detail
+       sheet, declared by testid further down this table.
+
+       Declaring the data-action twin as well broke the flow: the crossing
+       fired before the screen's own handler had written the hand-over
+       key, so the library opened with nothing to pick FOR -- no bar, no
+       pickers on the rows, nothing counted. One entry per control. */
     { from: 'train', selector: '[data-action="new-split"]', to: 'split-builder', mode: 'push' },
     { from: 'train', selector: '[data-action="edit-split"]', to: 'split-builder', mode: 'push' },
     { from: 'coach', selector: '[data-act="open-split"]', to: 'split-builder', mode: 'push' },

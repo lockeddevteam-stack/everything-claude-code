@@ -168,8 +168,18 @@
         { screen: 'home', testid: 'tab-train', hint: 'Tap Train',
           say: 'Everything you train lives on one screen.' },
 
-        { screen: 'train', testid: 'open-library', hint: 'Tap',
-          say: 'The whole catalogue is behind one row.',
+        /* The library used to sit on Train under "Reference" and this
+           step tapped it. It is a picker now, not a destination, so the
+           tutorial reaches it the way anybody adding a lift does. */
+        { screen: 'train', testid: 'quick-workout', hint: 'Tap',
+          say: 'Nothing scheduled, and you want to lift anyway.',
+          note: 'The catalogue opens when there is somewhere to put a lift.' },
+
+        { screen: 'train', testid: 'quick-plan', hint: 'Tap',
+          say: 'Plan it first, and you get to pick the lifts.' },
+
+        { screen: 'train', testid: 'qd-skip', hint: 'Tap',
+          say: 'Skip the name. The picker is the whole catalogue.',
           note: 'You do not scroll through hundreds of anything.' },
 
         { screen: 'exercise-library', testid: 'bodymap', read: true, pad: 10,

@@ -596,10 +596,35 @@
        The layer lives inside the camera group, so it arrives with the
        zoom rather than after it. */
     var partsLayer = null;
+    var partSel = null;
     api.clearParts = function () {
       if (partsLayer && partsLayer.parentNode) partsLayer.parentNode.removeChild(partsLayer);
       partsLayer = null;
       svg.removeAttribute('data-parts');
+      svg.removeAttribute('data-part-on');
+    };
+
+    /* WHICH PART IS CHOSEN, ON THE BODY. The list below could be filtered
+       to Upper Chest while all three bands sat there equally lit, so the
+       figure and the list disagreed about what was being looked at. The
+       chosen one keeps its colour and the others step back; the split is
+       still legible, and what is selected is not a guess.
+
+       Remembered across a redraw, because the layer is rebuilt from
+       scratch every time the screen repaints and would otherwise forget. */
+    api.selectPart = function (name) {
+      partSel = name || null;
+      if (!partsLayer) return;
+      if (partSel) svg.setAttribute('data-part-on', partSel);
+      else svg.removeAttribute('data-part-on');
+      Array.prototype.forEach.call(partsLayer.querySelectorAll('[data-part]'), function (g) {
+        if (partSel && g.getAttribute('data-part') === partSel) g.setAttribute('data-on', '');
+        else g.removeAttribute('data-on');
+      });
+      Array.prototype.forEach.call(partsLayer.querySelectorAll('.part__label'), function (t) {
+        if (partSel && t.getAttribute('data-for') === partSel) t.setAttribute('data-on', '');
+        else t.removeAttribute('data-on');
+      });
     };
 
     api.showParts = function (gid, view) {
@@ -684,6 +709,7 @@
       cam.appendChild(layer);
       partsLayer = layer;
       svg.setAttribute('data-parts', gid);
+      if (partSel) api.selectPart(partSel);
 
       var pPressed = null;
       function pUnpress() {
