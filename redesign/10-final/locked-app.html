@@ -6169,6 +6169,50 @@ textarea,
   patch.keyOf = keyOf;
 
   global.LKPatch = patch;
+
+  /* ---- KEEPING THE CARET WHERE THE TYPIST LEFT IT --------------------
+
+     A field that drives what is under it repaints the screen as it is
+     typed, and a repaint replaces the field. Every one of these screens
+     put the caret back afterwards by sending it to the end of the value,
+     which is right for the first character and wrong for every edit
+     after that: go back and correct the middle of "eggs and toast" and
+     each keystroke is teleported to the end, so the sentence comes out
+     scrambled and the person has to start again.
+
+     Held and restored by index instead. Clamped to the value's length,
+     because a repaint may reformat what is in the field, and quiet on
+     the input types that refuse a selection at all. */
+  global.LKCaret = {
+    hold: function (el) {
+      if (!el) return null;
+      var s = null, e = null;
+      try { s = el.selectionStart; e = el.selectionEnd; } catch (err) {}
+      /* THE ROOT THE FIELD IS ACTUALLY IN. Every screen in the assembled
+         build lives in a shadow root of its own, and document.getElementById
+         does not look inside one: held against the document, the field came
+         back null and the caret was left wherever the repaint put it, which
+         is the end. A shadow root answers getElementById itself. */
+      var root = el.getRootNode ? el.getRootNode() : null;
+      if (!root || typeof root.getElementById !== 'function') root = el.ownerDocument || document;
+      return { id: el.id, s: s, e: e, doc: root };
+    },
+    restore: function (h) {
+      if (!h || !h.id) return null;
+      var doc = h.doc || document;
+      var el = doc.getElementById ? doc.getElementById(h.id) : null;
+      if (!el) return null;
+      try { el.focus({ preventScroll: true }); } catch (err) { try { el.focus(); } catch (e2) {} }
+      if (h.s == null) return el;
+      try {
+        var max = el.value == null ? 0 : String(el.value).length;
+        var a = Math.min(h.s, max);
+        var b = Math.min(h.e == null ? h.s : h.e, max);
+        el.setSelectionRange(a, b);
+      } catch (err2) {}
+      return el;
+    }
+  };
   if (!global.LK) global.LK = {};
   global.LK.patch = patch;
 })(typeof window !== 'undefined' ? window : this);
@@ -13510,22 +13554,39 @@ window.LK_CLOUD = {
     '- Send actions only when they were asked for. A question gets a reply and an empty list.',
     '- actions is always present, even when empty.',
     '',
-    'VOICE: Talk like a good strength coach texting a client. Calm, competent, direct,',
-    'warm but never gushing. Short sentences, 8 to 15 words. Active voice. Grade 6 to 8',
-    'reading level. Age-agnostic. No hype, no bro-speak.',
+    'VOICE: You are their coach, not a search engine with a personality setting. Talk the way',
+    'a coach talks to somebody they train: to them, by name sometimes, about their training,',
+    'with an opinion. Warm, plain, sure of yourself. Vary the rhythm the way speech does, a',
+    'short line, then a longer one that explains why. Active voice, grade 6 to 8 reading level.',
+    'No hype, no bro-speak, no customer-service politeness.',
     '',
-    'STRUCTURE: Answer first, context second. Put the direct answer or key action in your',
-    'first sentence, and make it something they can act on today, not a verdict on their idea.',
-    'Say what to do before you say what not to do. Add a brief reason if useful. Keep most',
-    'replies to 2 to 4 sentences.',
-    'Expand only for how-to steps or safety. For emotional messages, 2 to 4 sentences, no',
-    'lists, no data. Ask at most one clarifying question per turn. If you can reasonably',
-    'assume what the user means, answer with a stated assumption.',
+    'NEVER SOUND LIKE A CHATBOT. That means: do not restate their question before answering it.',
+    'Do not open with "Great question", "Absolutely", "I understand", "Sure thing", "Happy to',
+    'help" or any variation. Do not announce what you are about to do. Do not hedge with "it',
+    'depends" and stop there, pick the answer you would actually give and say what would change',
+    'it. Do not sign off with "let me know if you need anything else". Do not turn every reply',
+    'into a headed list. You are mid-conversation with somebody you know, so write like it.',
+    '',
+    'STRUCTURE: Lead with the answer, in your own words, as a sentence you would say out loud.',
+    'Then the why, short. Three to six sentences is the normal shape of a reply, longer when',
+    'they asked for how-to or something is about to hurt them, shorter when the answer is one',
+    'line. React to what they actually said before you get to the advice: if they had a bad',
+    'session, say so first; if they hit something, name it.',
+    'Use what you know. Their name, the lift they did on Tuesday, the weight they moved last',
+    'week, the goal they set. A coach remembers. That is most of what makes this a conversation',
+    'rather than a lookup.',
+    'End on the next move, not on a question you do not need the answer to. Ask a real question',
+    'only when the answer changes what you would tell them, and then one, at the end, in plain',
+    'words.',
+    'For emotional messages, no lists and no data, just talk to them.',
+    'If you can reasonably assume what they mean, answer with the assumption stated.',
     '',
     'FORMATTING: The app prints your reply as plain text, exactly as you write it. There is no',
     'markdown: asterisks, underscores, backticks and hash headings are printed as themselves, so',
     'never write **bold** or *italics*. To give a number weight, put it first in the sentence.',
-    'Bullets only for real lists, max 5 items, each on its own line starting with "- ". No tables.',
+    'Prose by default. Bullets only when the content genuinely is a list of parallel items, at',
+    'most 5, each on its own line starting with "- ". A reply that could be a paragraph should',
+    'be a paragraph. No tables, no headings, no numbered plans unless they asked for steps.',
     'Point to the Train tab for full programs. At most one emoji, only in positive or neutral',
     'replies. Never use an emoji in pain, medical, disordered-eating, or venting replies.',
     'Paragraphs 1 to 2 sentences. No em dashes.',
@@ -32165,7 +32226,12 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     if (touched) writeSuppLog(map);
   }
 
-  function focusSupp(id) {
+  /* The supplement search, which repaints its hits as it is typed. The
+     caret is held by the caller when there is one to hold: called after a
+     button rather than after a keystroke, the end of the value is where
+     somebody carrying on typing wants to be. */
+  function focusSupp(id, held) {
+    if (held) { LKCaret.restore(held); return; }
     var e = document.getElementById(id);
     if (e) { e.focus(); try { e.setSelectionRange(e.value.length, e.value.length); } catch (err) {} }
   }
@@ -32775,11 +32841,11 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     /* The ingredient search repaints its hits as it is typed, and the caret
        goes back where the typist left it. */
     if (e.target.id === 'br-q') {
+      var bqh = LKCaret.hold(e.target);
       readDraft();
       S.draftQ = e.target.value;
       render();
-      var bq = document.getElementById('br-q');
-      if (bq) { bq.focus(); try { bq.setSelectionRange(bq.value.length, bq.value.length); } catch (err) {} }
+      LKCaret.restore(bqh);
       return;
     }
     /* A gram figure and a yield both change the row that carries them as well
@@ -32788,11 +32854,10 @@ DEMO.define("fuel", function (document, window, location, fetch) {
        only the totals left the row saying 800 g raw under totals worked out
        at 1,067. */
     if (e.target.id.indexOf('br-g-') === 0 || e.target.id.indexOf('br-y-') === 0) {
-      var bid = e.target.id;
+      var bh = LKCaret.hold(e.target);
       readDraft();
       render();
-      var bel = document.getElementById(bid);
-      if (bel) { bel.focus(); try { bel.setSelectionRange(bel.value.length, bel.value.length); } catch (err) {} }
+      LKCaret.restore(bh);
       return;
     }
     /* The servings field drives the preview under it, so it repaints as it
@@ -32802,10 +32867,10 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     if (e.target.id === 'rc-serv') {
       var rv = parseFloat(e.target.value);
       if (isNaN(rv) || rv < 0.5) return;
+      var rvh = LKCaret.hold(e.target);
       S.recipeServ = Math.min(12, rv);
       render();
-      var rf2 = document.getElementById('rc-serv');
-      if (rf2) { rf2.focus(); try { rf2.setSelectionRange(rf2.value.length, rf2.value.length); } catch (err) {} }
+      LKCaret.restore(rvh);
       return;
     }
     if (e.target.id === 'cam-take' || e.target.id === 'cam-pick') {
@@ -32820,18 +32885,18 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       return;
     }
     if (e.target.id === 'sp-q') {
+      var sph = LKCaret.hold(e.target);
       readSuppForm();
       render();
-      focusSupp('sp-q');
+      focusSupp('sp-q', sph);
       return;
     }
     if (e.target.id && e.target.id.indexOf('sp-') === 0) { readSuppForm(); return; }
     if (e.target.id === 'mn-name' || e.target.id === 'mn-kcal') {
-      var wid = e.target.id;
+      var wh = LKCaret.hold(e.target);
       readManual();
       render();
-      var el2 = document.getElementById(wid);
-      if (el2) { el2.focus(); try { el2.setSelectionRange(el2.value.length, el2.value.length); } catch (err) {} }
+      LKCaret.restore(wh);
       return;
     }
     if (e.target.id.indexOf('mn-') === 0) { readManual(); return; }
@@ -32839,10 +32904,9 @@ DEMO.define("fuel", function (document, window, location, fetch) {
        caret has to survive the repaint that shows it. */
     if (e.target.id && e.target.id.indexOf('me-') === 0) {
       var meK = e.target.getAttribute('data-k');
-      var meId = e.target.id, meSel = e.target.selectionStart;
+      var meh = LKCaret.hold(e.target);
       onMealEditField(meK);
-      var meEl = document.getElementById(meId);
-      if (meEl) { meEl.focus(); try { meEl.setSelectionRange(meSel, meSel); } catch (err) {} }
+      LKCaret.restore(meh);
       return;
     }
     if (e.target.id === 'pt-amount' || e.target.id === 'pt-serv') {
@@ -32850,10 +32914,9 @@ DEMO.define("fuel", function (document, window, location, fetch) {
       if (S.portion) S.portion.error = null;
       /* Repainted so the figures and the button follow the typing, with
          the caret put back where it was. */
-      var ptId = e.target.id, ptSel = e.target.selectionStart;
+      var pth = LKCaret.hold(e.target);
       render();
-      var ptEl = document.getElementById(ptId);
-      if (ptEl) { ptEl.focus(); try { ptEl.setSelectionRange(ptSel, ptSel); } catch (err) {} }
+      LKCaret.restore(pth);
       return;
     }
     if (e.target.id === 'mic-text') {
@@ -32864,27 +32927,31 @@ DEMO.define("fuel", function (document, window, location, fetch) {
          denial of service aimed at ourselves. */
       if (S.micLookupTimer) clearTimeout(S.micLookupTimer);
       S.micLookupTimer = setTimeout(function () { readSentence(); }, 600);
+      /* THE SENTENCE IS EDITED IN THE MIDDLE, not only appended to. This
+         field used to send the caret to the end after every keystroke, so
+         going back to fix "eggs and toast" typed the correction at the far
+         end of the line and scrambled it. */
+      var mfh = LKCaret.hold(e.target);
       render();
-      var mf = document.getElementById('mic-text');
-      if (mf) { mf.focus(); try { mf.setSelectionRange(mf.value.length, mf.value.length); } catch (err) {} }
+      LKCaret.restore(mfh);
       return;
     }
     if (e.target.id === 'fd-g') {
       var gv2 = parseInt(e.target.value, 10);
       if (isNaN(gv2) || gv2 < 1) return;      /* mid-edit, not yet a number */
+      var gh = LKCaret.hold(e.target);
       S.foodG = Math.min(3000, gv2);
       render();
-      var gf = document.getElementById('fd-g');
-      if (gf) { gf.focus(); try { gf.setSelectionRange(gf.value.length, gf.value.length); } catch (err) {} }
+      LKCaret.restore(gh);
       return;
     }
     if (e.target.id === 'br-servings' || e.target.id === 'br-name') {
       var wasId = e.target.id;
+      var svh = LKCaret.hold(e.target);
       readDraft();
       if (wasId === 'br-name') return;   /* nothing under it changes as you type */
       render();
-      var sv = document.getElementById('br-servings');
-      if (sv) { sv.focus(); try { sv.setSelectionRange(sv.value.length, sv.value.length); } catch (err) {} }
+      LKCaret.restore(svh);
       return;
     }
     if (e.target.id !== 'scan-servings') return;
@@ -48627,6 +48694,48 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     p.buffer = trim(p.field === 'weight' ? round(v, 0.5) : Math.round(v));
     p.replaced = true;
   }
+  /* THE PAD ANSWERS THE FINGER, NOT THE RENDERER.
+
+     Every key used to go through the screen's whole paint: the session was
+     recorded, the rows were persisted, and the header, the list, the tabs,
+     the overlay and the toast were all patched. On a long session that is
+     milliseconds of work for one digit, and it showed twice. Tapping fast,
+     a key pressed while the list was being rebuilt landed on a node that
+     had just been replaced, and that digit was simply lost. And the first
+     digit of a fresh value changes the pad's own shape -- the hint goes,
+     the value stops being a suggestion -- so the sheet was rebuilt under
+     the finger and played its entry animation again, which is the jump
+     back up from the bottom.
+
+     A digit changes one number. This writes that number, the two classes
+     that go with it, and nothing else: no record, no persistence, no list.
+     Committing still paints, because that is when the set really changes. */
+  function padSync() {
+    var p = S.pad;
+    if (!p) return false;
+    var val = overlay.querySelector('[data-testid="pad-value"]');
+    if (!val) return false;
+    var pending = p.fromPrev && !p.replaced;
+    var shown = p.buffer === '' ? '0' : p.buffer;
+    if (val.textContent !== shown) val.textContent = shown;
+    val.classList.toggle('padsheet__value--pending', pending);
+    var hint = overlay.querySelector('[data-testid="pad-hint"]');
+    if (hint) hint.classList.toggle('padsheet__hint--gone', !pending);
+    return true;
+  }
+
+  /* The three keys that only move the buffer. Anything else about the pad
+     -- opening it, cancelling, committing -- is a real state change and
+     goes the ordinary way. */
+  function padEdit(act, el) {
+    if (!S.pad) return false;
+    if (act === 'pad-key') padDigit(el.getAttribute('data-key'));
+    else if (act === 'pad-del') { S.pad.replaced = true; S.pad.buffer = S.pad.buffer.slice(0, -1); }
+    else if (act === 'pad-step') padStep(parseFloat(el.getAttribute('data-step')));
+    else return false;
+    return padSync();
+  }
+
   function padCommit() {
     var p = S.pad, st = S.exercises[p.ex].sets[p.set];
     var v = p.buffer === '' ? null : parseFloat(p.buffer);
@@ -49688,6 +49797,26 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     toastTimer = setTimeout(function () { S.toast = null; paint(); }, 4000);
   }
 
+  /* AT TOUCH-DOWN, NOT AT CLICK. A click arrives after the finger lifts,
+     and on a phone that is a tenth of a second after the key was hit and
+     after any scroll the browser was still deciding about. The pad is the
+     one control in this screen somebody hits four times in two seconds,
+     so it answers the moment it is touched. The click that follows is
+     dropped, or every digit would be entered twice. */
+  var padFastAt = 0;
+  var PAD_ACTS = { 'pad-key': 1, 'pad-del': 1, 'pad-step': 1 };
+  document.addEventListener('pointerdown', function (ev) {
+    if (!S.pad) return;
+    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+    var t = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
+    if (!t || !PAD_ACTS[t.getAttribute('data-act')]) return;
+    if (!padEdit(t.getAttribute('data-act'), t)) return;
+    padFastAt = Date.now();
+    touchIdle();
+    S.tapCount++;
+    buzz(6);
+  });
+
   document.addEventListener('click', function (ev) {
     /* Any tap on the screen is somebody still here. The clock restarts on
        every action rather than on a set being logged, because reading the
@@ -49711,14 +49840,15 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
         S.pad = openPadFor(e, i, t.getAttribute('data-field'));
         S.toast = null;
         break;
-      case 'pad-key': padDigit(t.getAttribute('data-key')); break;
-      case 'pad-del': {
-        var p = S.pad;
-        p.replaced = true;
-        p.buffer = p.buffer.slice(0, -1);
+      case 'pad-key':
+      case 'pad-del':
+      case 'pad-step':
+        /* The finger already did this on the way down. */
+        if (Date.now() - padFastAt < 900) return;
+        /* A keyboard has no pointerdown, so Enter and Space land here and
+           take the same cheap path. */
+        if (padEdit(act, t)) return;
         break;
-      }
-      case 'pad-step': padStep(parseFloat(t.getAttribute('data-step'))); break;
       case 'pad-done': {
         var f = S.pad.field, ex = S.pad.ex, ix = S.pad.set;
         lastOpener = 'cell-' + ex + '-' + ix + '-' + f;
@@ -61075,10 +61205,12 @@ DEMO.define("progress", function (document, window, location, fetch) {
       return;
     }
     if (e.target.id !== 'rec-q') return;
+    /* Held by index: a search corrected in the middle should stay corrected
+       in the middle rather than have every keystroke sent to the end. */
+    var rh = LKCaret.hold(e.target);
     S.recordQ = e.target.value;
     render();
-    var back = document.getElementById('rec-q');
-    if (back) { back.focus(); try { back.setSelectionRange(back.value.length, back.value.length); } catch (err) {} }
+    LKCaret.restore(rh);
   });
 
   document.addEventListener('keydown', function (e) {

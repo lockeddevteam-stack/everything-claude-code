@@ -8089,7 +8089,12 @@
     if (touched) writeSuppLog(map);
   }
 
-  function focusSupp(id) {
+  /* The supplement search, which repaints its hits as it is typed. The
+     caret is held by the caller when there is one to hold: called after a
+     button rather than after a keystroke, the end of the value is where
+     somebody carrying on typing wants to be. */
+  function focusSupp(id, held) {
+    if (held) { LKCaret.restore(held); return; }
     var e = document.getElementById(id);
     if (e) { e.focus(); try { e.setSelectionRange(e.value.length, e.value.length); } catch (err) {} }
   }
@@ -8699,11 +8704,11 @@
     /* The ingredient search repaints its hits as it is typed, and the caret
        goes back where the typist left it. */
     if (e.target.id === 'br-q') {
+      var bqh = LKCaret.hold(e.target);
       readDraft();
       S.draftQ = e.target.value;
       render();
-      var bq = document.getElementById('br-q');
-      if (bq) { bq.focus(); try { bq.setSelectionRange(bq.value.length, bq.value.length); } catch (err) {} }
+      LKCaret.restore(bqh);
       return;
     }
     /* A gram figure and a yield both change the row that carries them as well
@@ -8712,11 +8717,10 @@
        only the totals left the row saying 800 g raw under totals worked out
        at 1,067. */
     if (e.target.id.indexOf('br-g-') === 0 || e.target.id.indexOf('br-y-') === 0) {
-      var bid = e.target.id;
+      var bh = LKCaret.hold(e.target);
       readDraft();
       render();
-      var bel = document.getElementById(bid);
-      if (bel) { bel.focus(); try { bel.setSelectionRange(bel.value.length, bel.value.length); } catch (err) {} }
+      LKCaret.restore(bh);
       return;
     }
     /* The servings field drives the preview under it, so it repaints as it
@@ -8726,10 +8730,10 @@
     if (e.target.id === 'rc-serv') {
       var rv = parseFloat(e.target.value);
       if (isNaN(rv) || rv < 0.5) return;
+      var rvh = LKCaret.hold(e.target);
       S.recipeServ = Math.min(12, rv);
       render();
-      var rf2 = document.getElementById('rc-serv');
-      if (rf2) { rf2.focus(); try { rf2.setSelectionRange(rf2.value.length, rf2.value.length); } catch (err) {} }
+      LKCaret.restore(rvh);
       return;
     }
     if (e.target.id === 'cam-take' || e.target.id === 'cam-pick') {
@@ -8744,18 +8748,18 @@
       return;
     }
     if (e.target.id === 'sp-q') {
+      var sph = LKCaret.hold(e.target);
       readSuppForm();
       render();
-      focusSupp('sp-q');
+      focusSupp('sp-q', sph);
       return;
     }
     if (e.target.id && e.target.id.indexOf('sp-') === 0) { readSuppForm(); return; }
     if (e.target.id === 'mn-name' || e.target.id === 'mn-kcal') {
-      var wid = e.target.id;
+      var wh = LKCaret.hold(e.target);
       readManual();
       render();
-      var el2 = document.getElementById(wid);
-      if (el2) { el2.focus(); try { el2.setSelectionRange(el2.value.length, el2.value.length); } catch (err) {} }
+      LKCaret.restore(wh);
       return;
     }
     if (e.target.id.indexOf('mn-') === 0) { readManual(); return; }
@@ -8763,10 +8767,9 @@
        caret has to survive the repaint that shows it. */
     if (e.target.id && e.target.id.indexOf('me-') === 0) {
       var meK = e.target.getAttribute('data-k');
-      var meId = e.target.id, meSel = e.target.selectionStart;
+      var meh = LKCaret.hold(e.target);
       onMealEditField(meK);
-      var meEl = document.getElementById(meId);
-      if (meEl) { meEl.focus(); try { meEl.setSelectionRange(meSel, meSel); } catch (err) {} }
+      LKCaret.restore(meh);
       return;
     }
     if (e.target.id === 'pt-amount' || e.target.id === 'pt-serv') {
@@ -8774,10 +8777,9 @@
       if (S.portion) S.portion.error = null;
       /* Repainted so the figures and the button follow the typing, with
          the caret put back where it was. */
-      var ptId = e.target.id, ptSel = e.target.selectionStart;
+      var pth = LKCaret.hold(e.target);
       render();
-      var ptEl = document.getElementById(ptId);
-      if (ptEl) { ptEl.focus(); try { ptEl.setSelectionRange(ptSel, ptSel); } catch (err) {} }
+      LKCaret.restore(pth);
       return;
     }
     if (e.target.id === 'mic-text') {
@@ -8788,27 +8790,31 @@
          denial of service aimed at ourselves. */
       if (S.micLookupTimer) clearTimeout(S.micLookupTimer);
       S.micLookupTimer = setTimeout(function () { readSentence(); }, 600);
+      /* THE SENTENCE IS EDITED IN THE MIDDLE, not only appended to. This
+         field used to send the caret to the end after every keystroke, so
+         going back to fix "eggs and toast" typed the correction at the far
+         end of the line and scrambled it. */
+      var mfh = LKCaret.hold(e.target);
       render();
-      var mf = document.getElementById('mic-text');
-      if (mf) { mf.focus(); try { mf.setSelectionRange(mf.value.length, mf.value.length); } catch (err) {} }
+      LKCaret.restore(mfh);
       return;
     }
     if (e.target.id === 'fd-g') {
       var gv2 = parseInt(e.target.value, 10);
       if (isNaN(gv2) || gv2 < 1) return;      /* mid-edit, not yet a number */
+      var gh = LKCaret.hold(e.target);
       S.foodG = Math.min(3000, gv2);
       render();
-      var gf = document.getElementById('fd-g');
-      if (gf) { gf.focus(); try { gf.setSelectionRange(gf.value.length, gf.value.length); } catch (err) {} }
+      LKCaret.restore(gh);
       return;
     }
     if (e.target.id === 'br-servings' || e.target.id === 'br-name') {
       var wasId = e.target.id;
+      var svh = LKCaret.hold(e.target);
       readDraft();
       if (wasId === 'br-name') return;   /* nothing under it changes as you type */
       render();
-      var sv = document.getElementById('br-servings');
-      if (sv) { sv.focus(); try { sv.setSelectionRange(sv.value.length, sv.value.length); } catch (err) {} }
+      LKCaret.restore(svh);
       return;
     }
     if (e.target.id !== 'scan-servings') return;

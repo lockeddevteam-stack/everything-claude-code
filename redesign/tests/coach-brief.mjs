@@ -182,8 +182,19 @@ ok(/PED/.test(full), 'and the refusal to dose anybody');
 ok(/988/.test(full) && /116 123/.test(full) && /1800 33 4673/.test(full) && /1-800-534-6463/.test(full),
    'the crisis lines are given verbatim, including the local one');
 
-/* Voice rules that show up in every single reply. */
-ok(/Answer first/.test(full), 'answer first');
+/* Voice rules that show up in every single reply.
+
+   "Answer first" used to be the rule and it is still the shape, but the
+   brief now says it as a coach rather than as a spec, because the replies
+   were coming back correct and lifeless: question restated, answer, offer
+   of further assistance. What is pinned here is the instruction that the
+   answer leads and the instruction not to sound like a chatbot, since
+   both are load-bearing and easy to lose in an edit. */
+ok(/Lead with the answer/.test(full), 'the answer leads');
+ok(/NEVER SOUND LIKE A CHATBOT/.test(full), 'and it is told plainly not to sound like one');
+ok(/Great question/.test(full) && /let me know if you need anything else/i.test(full),
+   'with the openings and sign-offs named, so they can be refused');
+ok(/A coach remembers/.test(full), 'and told to use what it knows about them');
 ok(/Never flatter/.test(full), 'never flatter');
 ok(/I do not have that logged/.test(full), 'and a sentence to say instead of guessing');
 

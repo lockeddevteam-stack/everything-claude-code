@@ -546,6 +546,50 @@
   patch.keyOf = keyOf;
 
   global.LKPatch = patch;
+
+  /* ---- KEEPING THE CARET WHERE THE TYPIST LEFT IT --------------------
+
+     A field that drives what is under it repaints the screen as it is
+     typed, and a repaint replaces the field. Every one of these screens
+     put the caret back afterwards by sending it to the end of the value,
+     which is right for the first character and wrong for every edit
+     after that: go back and correct the middle of "eggs and toast" and
+     each keystroke is teleported to the end, so the sentence comes out
+     scrambled and the person has to start again.
+
+     Held and restored by index instead. Clamped to the value's length,
+     because a repaint may reformat what is in the field, and quiet on
+     the input types that refuse a selection at all. */
+  global.LKCaret = {
+    hold: function (el) {
+      if (!el) return null;
+      var s = null, e = null;
+      try { s = el.selectionStart; e = el.selectionEnd; } catch (err) {}
+      /* THE ROOT THE FIELD IS ACTUALLY IN. Every screen in the assembled
+         build lives in a shadow root of its own, and document.getElementById
+         does not look inside one: held against the document, the field came
+         back null and the caret was left wherever the repaint put it, which
+         is the end. A shadow root answers getElementById itself. */
+      var root = el.getRootNode ? el.getRootNode() : null;
+      if (!root || typeof root.getElementById !== 'function') root = el.ownerDocument || document;
+      return { id: el.id, s: s, e: e, doc: root };
+    },
+    restore: function (h) {
+      if (!h || !h.id) return null;
+      var doc = h.doc || document;
+      var el = doc.getElementById ? doc.getElementById(h.id) : null;
+      if (!el) return null;
+      try { el.focus({ preventScroll: true }); } catch (err) { try { el.focus(); } catch (e2) {} }
+      if (h.s == null) return el;
+      try {
+        var max = el.value == null ? 0 : String(el.value).length;
+        var a = Math.min(h.s, max);
+        var b = Math.min(h.e == null ? h.s : h.e, max);
+        el.setSelectionRange(a, b);
+      } catch (err2) {}
+      return el;
+    }
+  };
   if (!global.LK) global.LK = {};
   global.LK.patch = patch;
 })(typeof window !== 'undefined' ? window : this);

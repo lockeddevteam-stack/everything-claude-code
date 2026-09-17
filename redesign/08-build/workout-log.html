@@ -1210,6 +1210,48 @@
     p.buffer = trim(p.field === 'weight' ? round(v, 0.5) : Math.round(v));
     p.replaced = true;
   }
+  /* THE PAD ANSWERS THE FINGER, NOT THE RENDERER.
+
+     Every key used to go through the screen's whole paint: the session was
+     recorded, the rows were persisted, and the header, the list, the tabs,
+     the overlay and the toast were all patched. On a long session that is
+     milliseconds of work for one digit, and it showed twice. Tapping fast,
+     a key pressed while the list was being rebuilt landed on a node that
+     had just been replaced, and that digit was simply lost. And the first
+     digit of a fresh value changes the pad's own shape -- the hint goes,
+     the value stops being a suggestion -- so the sheet was rebuilt under
+     the finger and played its entry animation again, which is the jump
+     back up from the bottom.
+
+     A digit changes one number. This writes that number, the two classes
+     that go with it, and nothing else: no record, no persistence, no list.
+     Committing still paints, because that is when the set really changes. */
+  function padSync() {
+    var p = S.pad;
+    if (!p) return false;
+    var val = overlay.querySelector('[data-testid="pad-value"]');
+    if (!val) return false;
+    var pending = p.fromPrev && !p.replaced;
+    var shown = p.buffer === '' ? '0' : p.buffer;
+    if (val.textContent !== shown) val.textContent = shown;
+    val.classList.toggle('padsheet__value--pending', pending);
+    var hint = overlay.querySelector('[data-testid="pad-hint"]');
+    if (hint) hint.classList.toggle('padsheet__hint--gone', !pending);
+    return true;
+  }
+
+  /* The three keys that only move the buffer. Anything else about the pad
+     -- opening it, cancelling, committing -- is a real state change and
+     goes the ordinary way. */
+  function padEdit(act, el) {
+    if (!S.pad) return false;
+    if (act === 'pad-key') padDigit(el.getAttribute('data-key'));
+    else if (act === 'pad-del') { S.pad.replaced = true; S.pad.buffer = S.pad.buffer.slice(0, -1); }
+    else if (act === 'pad-step') padStep(parseFloat(el.getAttribute('data-step')));
+    else return false;
+    return padSync();
+  }
+
   function padCommit() {
     var p = S.pad, st = S.exercises[p.ex].sets[p.set];
     var v = p.buffer === '' ? null : parseFloat(p.buffer);
@@ -2271,6 +2313,26 @@
     toastTimer = setTimeout(function () { S.toast = null; paint(); }, 4000);
   }
 
+  /* AT TOUCH-DOWN, NOT AT CLICK. A click arrives after the finger lifts,
+     and on a phone that is a tenth of a second after the key was hit and
+     after any scroll the browser was still deciding about. The pad is the
+     one control in this screen somebody hits four times in two seconds,
+     so it answers the moment it is touched. The click that follows is
+     dropped, or every digit would be entered twice. */
+  var padFastAt = 0;
+  var PAD_ACTS = { 'pad-key': 1, 'pad-del': 1, 'pad-step': 1 };
+  document.addEventListener('pointerdown', function (ev) {
+    if (!S.pad) return;
+    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+    var t = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
+    if (!t || !PAD_ACTS[t.getAttribute('data-act')]) return;
+    if (!padEdit(t.getAttribute('data-act'), t)) return;
+    padFastAt = Date.now();
+    touchIdle();
+    S.tapCount++;
+    buzz(6);
+  });
+
   document.addEventListener('click', function (ev) {
     /* Any tap on the screen is somebody still here. The clock restarts on
        every action rather than on a set being logged, because reading the
@@ -2294,14 +2356,15 @@
         S.pad = openPadFor(e, i, t.getAttribute('data-field'));
         S.toast = null;
         break;
-      case 'pad-key': padDigit(t.getAttribute('data-key')); break;
-      case 'pad-del': {
-        var p = S.pad;
-        p.replaced = true;
-        p.buffer = p.buffer.slice(0, -1);
+      case 'pad-key':
+      case 'pad-del':
+      case 'pad-step':
+        /* The finger already did this on the way down. */
+        if (Date.now() - padFastAt < 900) return;
+        /* A keyboard has no pointerdown, so Enter and Space land here and
+           take the same cheap path. */
+        if (padEdit(act, t)) return;
         break;
-      }
-      case 'pad-step': padStep(parseFloat(t.getAttribute('data-step'))); break;
       case 'pad-done': {
         var f = S.pad.field, ex = S.pad.ex, ix = S.pad.set;
         lastOpener = 'cell-' + ex + '-' + ix + '-' + f;
