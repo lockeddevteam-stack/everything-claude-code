@@ -135,11 +135,63 @@ ok(/What they take/.test(full) && /"takenToday"/.test(full), 'the supplements we
 ok(/body fat/i.test(full), 'the body fat readings went');
 ok(/Their cycle tracking/.test(full), 'cycle tracking went');
 
-/* The brief itself. */
-ok(/RIR 0 to 3/.test(full), 'it is told how hard a hypertrophy set is taken');
-ok(/1\.6 to 2\.2 g per kg/.test(full), 'and where protein sits');
-ok(/Open with the answer/.test(full), 'and to answer before anything else');
-ok(/it depends/.test(full), 'and that hedging is not an answer');
+/* ---- the brain --------------------------------------------------
+   Not a spot check on wording. Every section the brain is built from has
+   to be in the prompt, because a section that quietly stops being sent
+   is a coach that quietly stops knowing that thing. */
+const SECTIONS = [
+  ['VOICE:', 'the voice'],
+  ['STRUCTURE:', 'the structure'],
+  ['FORMATTING:', 'the formatting rules'],
+  ['DATA GROUNDING:', 'the grounding rule'],
+  ['TONE:', 'the tone'],
+  ['WORDS TO NEVER USE:', 'the banned words'],
+  ['JARGON BY LEVEL:', 'when to define jargon'],
+  ['CORE SCIENCE:', 'the core science'],
+  ['TARGETS LOGIC:', 'how targets are set'],
+  ['FORMULAS:', 'the formulas'],
+  ['WEEKLY CHECK-IN MATH:', 'the check-in maths'],
+  ['READINESS:', 'the readiness score'],
+  ['LOAD AND PROGRESSION:', 'load and progression'],
+  ['WEEKLY VOLUME BY STATUS:', 'volume by training status'],
+  ['PLATEAUS:', 'the plateau trees'],
+  ['CONFLICT RULES:', 'the conflict rules'],
+  ['SAFETY FLOORS:', 'the safety floors'],
+  ['ESCALATION SCRIPT:', 'the escalation script'],
+  ['CRISIS RESOURCES', 'the crisis resources'],
+  ['MYTHS', 'the myths'],
+  ['HOSTILITY:', 'how to take abuse']
+];
+SECTIONS.forEach((s) => ok(full.includes(s[0]), s[1] + ' reached the model'));
+
+/* The numbers the floors turn on, each one a decision the coach makes. */
+ok(/30 kcal\/kg fat-free mass/.test(full), 'the energy-availability floor is a number, not a vibe');
+ok(/1,200 kcal/.test(full) && /800 kcal/.test(full), 'the screen threshold and the refusal threshold are both there');
+ok(/1\.6 to 2\.2 g\/kg/.test(full) && /2\.0 to 3\.0 g\/kg/.test(full), 'protein for gaining and for cutting');
+ok(/10 to 20 hard sets/.test(full), 'weekly volume');
+ok(/0 to 3 RIR for size/.test(full), 'how close to failure for size');
+ok(/0\.5 to 1\.0% bodyweight\/week/.test(full), 'the loss rate');
+ok(/7,700 kcal\/kg/.test(full), 'the energy density it does the maths with');
+ok(/alpha 0\.1/.test(full), 'the weight trend is smoothed, not read off one morning');
+ok(/under 13/.test(full), 'the under-13 rule');
+ok(/PED/.test(full), 'and the refusal to dose anybody');
+
+/* Crisis numbers are quoted, never composed. A wrong one is worse than none. */
+ok(/988/.test(full) && /116 123/.test(full) && /1800 33 4673/.test(full) && /1-800-534-6463/.test(full),
+   'the crisis lines are given verbatim, including the local one');
+
+/* Voice rules that show up in every single reply. */
+ok(/Answer first/.test(full), 'answer first');
+ok(/Never flatter/.test(full), 'never flatter');
+ok(/I do not have that logged/.test(full), 'and a sentence to say instead of guessing');
+
+/* The envelope has to survive every rewrite of the brain, or the app
+   loses actions entirely. */
+ok(full.indexOf('Return ONLY a JSON') < full.indexOf('VOICE:'),
+   'the envelope comes before the brain, where the endpoint looks for it');
+
+/* Age is a safety input, so it goes with the name. */
+ok(/"age":\d+/.test(full), 'the coach knows how old they are');
 
 /* ---- 2. the persona reaches the model ---------------------------- */
 const tone = await page.evaluate(() => {
