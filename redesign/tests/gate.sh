@@ -91,6 +91,7 @@ keyboard|node keyboard.mjs
 cloud-contract|node cloud-contract.mjs
 session-refresh|node session-refresh.mjs
 account-identity|node account-identity.mjs
+coach-brief|node coach-brief.mjs
 JOBS_EOF
 
 # shellcheck disable=SC2016

@@ -1546,6 +1546,11 @@
               '<span class="row__chev">' + ico('chev') + '</span></button>' +
             (S.chat.receipt
               ? '<div class="receipt" data-testid="chat-receipt-list">' +
+                  /* Always on, so always named. The coach is told the name
+                     on the account and which unit the app shows, because an
+                     answer that opens by asking either one is a wasted turn.
+                     A receipt that leaves it out is a receipt that is wrong. */
+                  '<p class="t-detail" data-testid="chat-receipt-identity">\u2713 Your name and units</p>' +
                   PERMS.map(function (r) {
                     var on = !!S.setup.perms[r[0]];
                     return '<p class="t-detail' + (on ? '' : ' quiet') + '">' +
@@ -2892,14 +2897,272 @@
       'anything else.';
   }
 
-  /* WHAT LEAVES THE PHONE, AND NOTHING ELSE. Every source here is behind
-     its own switch in Setup, and the receipt above the thread names the
-     ones that are on. A context key with its switch off is not sent
-     empty, it is not sent at all -- an answer that quoted a logged
-     number after the screen promised the log was not shared is the exact
-     failure this receipt exists to prevent. */
+  /* ---- the brief ---------------------------------------------------
+     WHAT LEAVES THE PHONE, AND NOTHING ELSE. Every source below is
+     behind its own switch in Setup, and the receipt above the thread
+     names the ones that are on. A source whose switch is off is not
+     sent in a smaller form, it is not sent at all.
+
+     What used to leave was the exercise catalogue and nothing else:
+     `permOn('profile')` asked about a tenth switch that has never
+     existed, so even the name never went, and the coach was answering
+     every question about a person it knew nothing about. That is the
+     whole of why its answers read like a search result. */
+
+  function rdList(key) {
+    var v = store() ? store().get(key, null) : null;
+    return Array.isArray(v) ? v : [];
+  }
+  function rdMap(key) {
+    var v = store() ? store().get(key, null) : null;
+    return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+  }
+  function isoOf(d) {
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) +
+           '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function isoAgo(days) { return isoOf(new Date(TODAY.getTime() - days * 86400000)); }
+  function r1(x) {
+    var v = Number(x);
+    return (x === null || x === undefined || isNaN(v)) ? null : Math.round(v * 10) / 10;
+  }
+  /* Numbers go out in the unit the app shows, labelled. A coach that
+     answers in kilos to a reader whose whole app reads pounds is wrong
+     even when the arithmetic is right. */
+  function uw(kg) { return window.LKUnits ? r1(LKUnits.v(kg)) : r1(kg); }
+  function uLabel() { return window.LKUnits ? LKUnits.label() : 'kg'; }
+
+  /* The heaviest working set, warm-ups excluded. Ties go to the one with
+     more reps, which is the better set. */
+  function topSet(sets) {
+    var best = null;
+    (sets || []).forEach(function (s) {
+      if (!s || s.warm) return;
+      if (s.done === false) return;
+      var kg = Number(s.kg), reps = Number(s.reps);
+      if (isNaN(kg) || isNaN(reps) || !reps) return;
+      if (!best || kg > best.kg || (kg === best.kg && reps > best.reps)) {
+        best = { kg: kg, reps: reps, rir: s.rir === undefined ? null : s.rir };
+      }
+    });
+    return best;
+  }
+
+  function trainingContext() {
+    var since = isoAgo(56);
+    var hist = rdList('lk_history').filter(function (h) {
+      return h && String(h.date || '').slice(0, 10) >= since;
+    }).sort(function (a, b) { return String(a.date) < String(b.date) ? 1 : -1; });
+    var pr = rdPRS();
+    var best = Object.keys(pr.map).map(function (id) {
+      var rows = (pr.map[id] || []).slice().sort(function (a, b) { return b.w - a.w; });
+      if (!rows.length) return null;
+      return { id: Number(id), name: pr.names[id] || ('lift ' + id),
+               kg: uw(rows[0].w), reps: rows[0].r };
+    }).filter(Boolean).sort(function (a, b) { return b.kg - a.kg; }).slice(0, 20);
+    if (!hist.length && !best.length) return null;
+    var out = { unit: uLabel(), window: 'last 8 weeks', sessions: [], bestSets: best };
+    /* Newest first and capped. Eight weeks of full set logs is most of a
+       context window, and the sessions that answer a question about what
+       to do next are the recent ones. */
+    hist.slice(0, 16).forEach(function (h) {
+      var row = { date: String(h.date).slice(0, 10), kind: h.kind || 'lift',
+                  name: h.name || (h.kind === 'cardio' ? 'Cardio' : 'Session'),
+                  min: r1(h.min) };
+      if (h.kind === 'cardio') {
+        row.km = r1(h.km);
+      } else {
+        row.sets = h.sets || null;
+        row.volume = uw(h.kg);
+        row.lifts = (h.exercises || []).slice(0, 10).map(function (e) {
+          var t = topSet(e.sets);
+          return { id: e.id, name: e.name, sets: (e.sets || []).length,
+                   top: t ? { kg: uw(t.kg), reps: t.reps, rir: t.rir } : null };
+        });
+      }
+      out.sessions.push(row);
+    });
+    /* Sessions a week over the window, so "am I training enough" has a
+       number behind it instead of an impression. */
+    var lifts = hist.filter(function (h) { return h.kind !== 'cardio'; }).length;
+    out.perWeek = r1((hist.length / 8));
+    out.liftSessions = lifts;
+    out.cardioSessions = hist.length - lifts;
+    return out;
+  }
+
+  function weightContext() {
+    var log = rdList('lk_weightLog').map(function (w) {
+      return Array.isArray(w) ? { date: w[0], kg: Number(w[1]) }
+                              : { date: String(w.date || '').slice(0, 10), kg: Number(w.kg) };
+    }).filter(function (w) { return w.date && !isNaN(w.kg); })
+      .sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+    var prof = store() ? store().get('lk_profile', null) : null;
+    if (!log.length && !(prof && prof.weightKg)) return null;
+    var out = { unit: uLabel() };
+    if (log.length) {
+      var last = log[log.length - 1];
+      out.latest = { date: last.date, weight: uw(last.kg) };
+      out.readings = log.length;
+      /* The trend, not a pair of endpoints: an average of the first and
+         last fortnight, so one dehydrated morning does not read as a
+         stall or a whoosh. */
+      var mean = function (rows) {
+        if (!rows.length) return null;
+        var t = 0; rows.forEach(function (r) { t += r.kg; });
+        return t / rows.length;
+      };
+      var cut = isoAgo(14), cut2 = isoAgo(28);
+      var recent = log.filter(function (w) { return w.date >= cut; });
+      var prior = log.filter(function (w) { return w.date >= cut2 && w.date < cut; });
+      var a = mean(prior), b = mean(recent);
+      if (a !== null && b !== null) {
+        out.fortnightChange = uw(b - a);
+        out.trend = Math.abs(b - a) < 0.3 ? 'flat' : (b > a ? 'gaining' : 'losing');
+      }
+    }
+    if (prof) {
+      if (prof.weightKg && !out.latest) out.latest = { date: null, weight: uw(prof.weightKg) };
+      if (prof.heightCm) out.heightCm = prof.heightCm;
+      if (prof.age) out.age = prof.age;
+      if (prof.sex) out.sex = prof.sex;
+    }
+    return out;
+  }
+
+  function checkinContext() {
+    var rows = (S.checkin && S.checkin.log) || [];
+    if (!rows.length) return null;
+    var recent = rows.slice(0, 8).map(function (e) {
+      return { date: e.iso, energy: e.energy, sleep: e.sleep, soreness: e.soreness,
+               stress: e.stress, mood: e.mood, hoursSlept: e.hoursSlept || null,
+               tags: (e.tags || []).slice(0, 4), note: String(e.note || '').slice(0, 160) };
+    });
+    var avg = {};
+    CHECKIN_FIELDS.forEach(function (f) {
+      var vals = recent.map(function (e) { return e[f]; })
+        .filter(function (v) { return typeof v === 'number' && !isNaN(v); });
+      if (vals.length) {
+        var t = 0; vals.forEach(function (v) { t += v; });
+        avg[f] = r1(t / vals.length);
+      }
+    });
+    return { scale: '1 to 5, higher is better except soreness and stress',
+             recent: recent, average: avg };
+  }
+
+  function goalContext() {
+    var rows = rdList('lk_goals').filter(function (g) {
+      return g && g.status !== 'done' && g.status !== 'archived';
+    });
+    if (!rows.length) return null;
+    return rows.slice(0, 10).map(function (g) {
+      return { title: g.name || g.title || '', type: g.type || null,
+               target: g.target, start: g.start, unit: g.unit || null,
+               by: g.targetDate || g.by || null, exerciseId: g.exId || null,
+               note: String(g.notes || '').slice(0, 160) };
+    });
+  }
+
+  function planContext() {
+    var p = S.plan && S.plan.data;
+    if (!p) return null;
+    var week = weekOf(p);
+    var phase = phaseAt(p, week);
+    return {
+      name: p.name, description: String(p.description || '').slice(0, 300),
+      weeks: p.weeks, week: week, nextDay: p.nextDay || null,
+      phase: phase ? { name: phase.name, focus: phase.focus,
+                       note: String(phase.note || '').slice(0, 300),
+                       targets: phase.targets || [] } : null,
+      phases: (p.phases || []).map(function (ph) {
+        return { name: ph.name, weekStart: ph.weekStart, weekEnd: ph.weekEnd, focus: ph.focus };
+      })
+    };
+  }
+
+  function nutritionContext() {
+    var t = store() ? store().get('lk_fuelTargets', null) : null;
+    var log = rdMap('lk_fuelLog');
+    var fp = store() ? store().get('lk_fuelProfile', null) : null;
+    var days = Object.keys(log).sort().slice(-7);
+    if (!t && !days.length) return null;
+    var out = { unit: 'g and kcal' };
+    if (t) out.targets = { kcal: t.kcal, protein: t.pro, carbs: t.carb, fat: t.fat,
+                           waterMl: t.waterMl || null };
+    if (days.length) {
+      out.recentDays = days.map(function (d) {
+        var day = log[d] || {};
+        var tot = { kcal: 0, protein: 0, carbs: 0, fat: 0 };
+        (day.meals || []).forEach(function (m) {
+          tot.kcal += Number(m.kcal) || 0; tot.protein += Number(m.pro) || 0;
+          tot.carbs += Number(m.carb) || 0; tot.fat += Number(m.fat) || 0;
+        });
+        return { date: d, kcal: Math.round(tot.kcal), protein: Math.round(tot.protein),
+                 carbs: Math.round(tot.carbs), fat: Math.round(tot.fat),
+                 meals: (day.meals || []).length };
+      });
+      /* The average is what an answer about a week should be built on.
+         One day is a day. */
+      var n2 = out.recentDays.length, acc = { kcal: 0, protein: 0, carbs: 0, fat: 0 };
+      out.recentDays.forEach(function (d) {
+        acc.kcal += d.kcal; acc.protein += d.protein; acc.carbs += d.carbs; acc.fat += d.fat;
+      });
+      out.average = { kcal: Math.round(acc.kcal / n2), protein: Math.round(acc.protein / n2),
+                      carbs: Math.round(acc.carbs / n2), fat: Math.round(acc.fat / n2) };
+    }
+    if (fp) {
+      if (fp.diets && fp.diets.length) out.diets = fp.diets.slice(0, 6);
+      if (fp.diet) out.diet = String(fp.diet).slice(0, 80);
+      /* An allergy travels with anything that might suggest food. */
+      if (fp.allergy) out.allergy = String(fp.allergy).slice(0, 120);
+      if (fp.activity) out.activity = fp.activity;
+    }
+    return out;
+  }
+
+  function supplementContext() {
+    var rows = rdList('lk_supplements');
+    if (!rows.length) return null;
+    var log = rdMap('lk_suppLog');
+    var today = isoOf(TODAY);
+    var taken = log[today] || [];
+    return rows.slice(0, 20).map(function (s) {
+      return { name: s.name, dose: s.dose || null, freq: s.freq || null,
+               timeOf: s.timeOf || null, takenToday: taken.indexOf(s.name) >= 0 };
+    });
+  }
+
+  function bodyfatContext() {
+    var rows = rdList('lk_bfLog').map(function (b) {
+      return { date: String(b.date || '').slice(0, 10),
+               pct: r1(b.pct !== undefined ? b.pct : b.bf) };
+    }).filter(function (b) { return b.date && b.pct !== null; })
+      .sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+    if (!rows.length) return null;
+    var out = { readings: rows.slice(-6), latest: rows[rows.length - 1] };
+    if (rows.length > 1) out.change = r1(rows[rows.length - 1].pct - rows[0].pct);
+    return out;
+  }
+
+  function cycleContext() {
+    /* Two gates, not one: the Setup switch, and whether this reader runs
+       cycle tracking at all. */
+    var on = false;
+    try { on = localStorage.getItem('lk_cycle') === 'true'; } catch (e) {}
+    if (!on) return null;
+    var rows = rdList('lk_cycles').filter(function (c) { return c && c.status === 'active'; });
+    if (!rows.length) return null;
+    return rows.slice(0, 3).map(function (c) {
+      return { name: c.name, start: c.start || null, weeks: c.weeks || null,
+               compounds: (c.comps || []).slice(0, 8).map(function (x) {
+                 return { name: x.name, dose: x.dose || null, route: x.route || null };
+               }) };
+    });
+  }
+
   function serverContext() {
-    var ctx = {};
+    var ctx = { today: isoOf(TODAY) };
     if (window.LKCoachActions && LKCoachActions.haveCatalogue && LKCoachActions.haveCatalogue()) {
       /* The catalogue goes with the question so the model names lifts by
          an id that exists. The gate checks every one of them again on the
@@ -2907,15 +3170,34 @@
          not make a wrong one safe. */
       ctx.catalogue = catalogueForServer();
     }
-    if (permOn('profile')) {
-      var pr = store() ? store().get("lk_profile", null) : null;
-      if (pr) ctx.profile = { name: pr.name, unit: pr.unit };
+    /* Who they are and what the app shows. Not a logged source and not one
+       of the nine switches: it is the account's own name and unit, and
+       without it every answer opens by asking. */
+    var pr = store() ? store().get('lk_profile', null) : null;
+    if (pr) {
+      ctx.profile = { name: pr.name || null, unit: uLabel(),
+                      coachName: pr.coachName || null, aim: pr.goal || null };
     }
+    var add = function (key, perm, build) {
+      if (!permOn(perm)) return;
+      var v = null;
+      try { v = build(); } catch (e) { v = null; }
+      if (v && (!Array.isArray(v) || v.length)) ctx[key] = v;
+    };
+    add('training',    'training',    trainingContext);
+    add('weight',      'weight',      weightContext);
+    add('checkins',    'checkins',    checkinContext);
+    add('goals',       'goals',       goalContext);
+    add('plan',        'plan',        planContext);
+    add('nutrition',   'nutrition',   nutritionContext);
+    add('supplements', 'supplements', supplementContext);
+    add('bodyfat',     'bodyfat',     bodyfatContext);
+    add('cycle',       'cycle',       cycleContext);
     /* THE PERSONA HAS TO REACH THE MODEL OR IT IS A RADIO GROUP. Seven
        styles were pickable, described and stored, and none of them
-       changed a word of any answer, because nothing carried them past
-       this screen. Each style's fourth field is the sentence written for
-       exactly this. */
+       changed a word of any answer, because the prompt never read the
+       key this line writes. Each style's fourth field is the sentence
+       written for exactly this. */
     var st = styleRow(S.setup.style);
     if (st && st[3]) ctx.style = st[3];
     if (S.setup.instructions && S.setup.instructions.trim()) ctx.instructions = S.setup.instructions;
