@@ -157,25 +157,22 @@ ok(!(await state()).sendDisabled,
 await page.waitForTimeout(2600);
 
 /* ---- 2. a request that never answers -------------------------------- */
-/* The deadline itself lives in cloud.js's post(), which is not this file
-   and not this suite's to assert. What is this file's job is the half
-   after it: a request that gives up resolves as
-   { ok:false, error:'timeout', message } and the screen has to say so,
-   clear the thinking line and give the composer back. So LKCloud.ask is
-   replaced with exactly that answer, and the screen is measured. */
+/* The deadline lives in cloud.js's post(), and this used to fake it:
+   LKCloud.ask was replaced with a promise that resolved the timeout
+   shape, which tested the screen and nothing else. post() has a real
+   deadline now, so the real one is driven instead -- the server is told
+   to sit on the question far longer than the deadline, the deadline is
+   set short through LK_CLOUD.timeoutMs so the suite does not wait ninety
+   seconds for it, and what is measured is the whole path: the abort, the
+   { ok:false, error:'timeout', message } post() resolves, and the screen
+   saying so with the composer given back. */
 await boot();
-await page.evaluate(() => {
-  window.LKCloud.ask = function () {
-    return new Promise(function (res) {
-      setTimeout(function () {
-        res({ ok: false, error: 'timeout',
-              message: 'The coach took too long to answer. Nothing was sent anywhere else.' });
-      }, 300);
-    });
-  };
-});
+await page.evaluate((b) => {
+  window.LK_CLOUD = { supabaseUrl: b, supabaseKey: 'k', apiUrl: b, timeoutMs: 700 };
+}, BASE);
+delayMs = 20000;
 await type('will this ever come back'); await clickSend();
-await page.waitForTimeout(1200);
+await page.waitForTimeout(2200);
 s = await state();
 ok(/took too long/.test(s.html), 'a request that gave up says so, in the sentence post() wrote');
 ok(!s.thinking, 'the thinking line is cleared');
@@ -183,6 +180,20 @@ await type('let me try that again');
 ok(!(await state()).sendDisabled, 'the composer is usable again');
 await type('');
 ok(/msg-retry/.test(s.html), 'and Try again is there to retry from');
+/* The deadline must not fire against a request that already came back:
+   a timer left running aborts the next one. A short deadline, a fast
+   answer, and then longer than the deadline sitting still. */
+await page.evaluate((b) => {
+  window.LK_CLOUD = { supabaseUrl: b, supabaseKey: 'k', apiUrl: b, timeoutMs: 600 };
+}, BASE);
+delayMs = 30;
+await ask('answer me quickly', JSON.stringify({ reply: 'Here now.', actions: [] }), 1400);
+s = await state();
+const lastMsg = s.msgs[s.msgs.length - 1] || '';
+ok(/Here now\./.test(lastMsg) && !/took too long/.test(lastMsg),
+   'an answer that landed inside the deadline is not cancelled by it afterwards',
+   lastMsg.slice(-90));
+delayMs = 0;
 
 /* ---- 3. Stop, then Continue, against a live server ------------------ */
 await boot();

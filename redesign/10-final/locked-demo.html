@@ -19263,15 +19263,28 @@ window.LK_CLOUD = {
     'You are Coach, the AI strength and nutrition coach inside the LOCKED fitness app.',
     'You are an AI, not a human and not a doctor. If a user thinks you are human, remind them you are an AI coach.',
     '',
+    /* DO NOT REWORD THE NEXT LINE. The deployed Worker decides whether
+       to put the model into structured JSON mode by looking for the
+       literal substring "Return ONLY a JSON" inside `system`. It does no
+       other detection. Change the wording -- even to something clearer,
+       even to "Return only a JSON" -- and the substring stops matching,
+       the request goes up in prose mode at temperature 0.75, and every
+       action in this list quietly stops arriving. That is a bug nobody
+       can see from the client, because the reply still reads fine. */
     'Return ONLY a JSON object of this shape and nothing else:',
     '{"reply":"what you say to them","actions":[]}',
     '',
+    /* ONE SPELLING PER FIELD. The gate in coach-actions.js accepts the
+       older internal spelling as well (goal.name, quantity, session,
+       meal, pro/carb/fat) because the sentinel parser still builds
+       those, but the model is taught exactly one vocabulary: the one
+       below. Anything documented here is what check() reads first. */
     'Each action is one of:',
     '{"kind":"split","split":{"name":"","days":[{"name":"","exercises":[{"id":0,"name":"","sets":0,"reps":0}]}]}}',
     '{"kind":"goal","goal":{"title":"","target":0,"unit":"","by":"YYYY-MM-DD"}}',
     '{"kind":"recipe","recipe":{"name":"","servings":1,"items":[{"name":"","grams":0}],"steps":[""]}}',
     '{"kind":"shopping","items":[{"name":"","qty":1,"unit":""}]}',
-    '{"kind":"food","food":{"name":"","kcal":0,"protein":0,"carbs":0,"fat":0,"servings":1}}',
+    '{"kind":"food","food":{"name":"","kcal":0,"protein":0,"carbs":0,"fat":0,"servings":1,"slot":"breakfast|lunch|dinner|snack"}}',
     '{"kind":"cardio","cardio":{"name":"","minutes":0,"km":0}}',
     '{"kind":"instructions","text":""}',
     '{"kind":"fact","text":""}',
@@ -19281,6 +19294,8 @@ window.LK_CLOUD = {
     '- Never state a total you have not been given. The app computes every total itself.',
     '- Send actions only when they were asked for. A question gets a reply and an empty list.',
     '- actions is always present, even when empty.',
+    '- Use the field names above exactly. qty is a count, grams is a weight, by is a date.',
+    '- A goal needs a title; give it a lift only by sending exName or exId, never in the title.',
     '',
     'VOICE: You are their coach, not a search engine with a personality setting. Talk the way',
     'a coach talks to somebody they train: to them, by name sometimes, about their training,',
@@ -19510,36 +19525,119 @@ window.LK_CLOUD = {
 
      So: parse, then repair and parse, then pull the reply out by hand.
      A blob never reaches the screen. */
+  /* WHAT SURVIVED OF A LIST THAT NEVER CLOSED.
+
+     The server caps the answer, and the cap lands in the middle of the
+     actions array far more often than anywhere else, because the actions
+     are the long part. JSON.parse then fails on the whole envelope and
+     every card goes with it -- including the four days of the split that
+     arrived whole.
+
+     So walk the array by hand from "actions": [ and count braces,
+     ignoring anything inside a string and honouring backslash escapes.
+     Every object that closed is parsed and kept; a trailing object that
+     never closed is thrown away, because half a split is not something
+     to offer somebody. Nothing here decides whether an action is sound:
+     that is still the gate's job, and it checks these exactly as it
+     checks the ones that parsed normally. */
+  function salvageActions(body) {
+    var at = body.search(/"actions"\s*:\s*\[/);
+    if (at < 0) return [];
+    var i = body.indexOf('[', at) + 1;
+    var out = [], depth = 0, start = -1, inStr = false, esc = false;
+    for (; i < body.length; i++) {
+      var ch = body.charAt(i);
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === '\\') esc = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') { inStr = true; continue; }
+      if (ch === '{') { if (!depth) start = i; depth++; continue; }
+      if (ch === '}') {
+        depth--;
+        if (depth === 0 && start >= 0) {
+          try { out.push(JSON.parse(body.slice(start, i + 1))); } catch (e) { /* not a whole one */ }
+          start = -1;
+        }
+        if (depth < 0) break;
+        continue;
+      }
+      /* The array closed and the envelope still would not parse -- the
+         break is somewhere after this point, so stop here rather than
+         reading the rest of the object as more actions. */
+      if (ch === ']' && depth === 0) break;
+    }
+    return out.slice(0, 8);
+  }
+
+  /* THE PROSE AROUND A BURIED ENVELOPE, PUT BACK.
+
+     A reply that says the same thing twice is worse than one that lost a
+     sentence, so a fragment is dropped when the reply already contains
+     it, or when it IS the reply. Fenced-code leftovers and a lone
+     closing fence are not sentences and go too. */
+  function withProse(before, said, after) {
+    var body = String(said || '').trim();
+    function keep(bit) {
+      var t = String(bit || '').replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+      if (!t) return '';
+      if (!body) return t;
+      if (t === body) return '';
+      if (body.indexOf(t) >= 0) return '';
+      if (t.indexOf(body) >= 0) return '';
+      return t;
+    }
+    var pre = keep(before), post = keep(after);
+    return [pre, body, post].filter(Boolean).join(' ').trim() || body;
+  }
+
   function envelope(text) {
     var raw = String(text || '').trim();
     var body = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
-    var tries = [body];
+    /* Each candidate carries whatever prose sat around it, because the
+       brace slice used to throw that away. "Good week overall.
+       {envelope} Keep it up next week." showed the reader one word,
+       "Buried.", and the two sentences the coach actually wrote were
+       deleted on the way to the screen. They are words somebody meant to
+       say, so they are kept, in the order they were written, around the
+       reply rather than instead of it. */
+    var tries = [{ t: body, before: '', after: '' }];
     var first = body.indexOf('{'), last = body.lastIndexOf('}');
-    if (first > 0 && last > first) tries.push(body.slice(first, last + 1));
+    if (first >= 0 && last > first && (first > 0 || last < body.length - 1)) {
+      tries.push({ t: body.slice(first, last + 1),
+                   before: body.slice(0, first).trim(),
+                   after: body.slice(last + 1).trim() });
+    }
     /* A raw newline or tab inside a string is the commonest break, and
        it is the one repair that cannot change what the model meant. */
-    tries.slice().forEach(function (t) {
-      tries.push(t.replace(/\r/g, '').replace(/\n/g, '\\n').replace(/\t/g, '\\t'));
+    tries.slice().forEach(function (c) {
+      tries.push({ t: c.t.replace(/\r/g, '').replace(/\n/g, '\\n').replace(/\t/g, '\\t'),
+                   before: c.before, after: c.after });
     });
     for (var i = 0; i < tries.length; i++) {
       try {
-        var o = JSON.parse(tries[i]);
+        var o = JSON.parse(tries[i].t);
         if (o && typeof o === 'object' && !Array.isArray(o)) {
+          var said = typeof o.reply === 'string' ? o.reply : raw;
           return {
-            reply: unmark(typeof o.reply === 'string' ? o.reply : raw),
+            reply: unmark(withProse(tries[i].before, said, tries[i].after)),
             actions: Array.isArray(o.actions) ? o.actions : []
           };
         }
       } catch (e) { /* not this one */ }
     }
-    /* Unparseable, but the reply is still in there. Take it and drop the
-       actions: an action list that could not be parsed is one the gate
-       could not check either, so it is not offered. */
+    /* Unparseable. The reply is still in there, and so, usually, are
+       most of the actions: the answer ran out of tokens partway through
+       the list, so everything before the break is complete and only the
+       last object is a stump. Dropping the lot was costing a reader the
+       whole split because its seventh day did not fit. */
     var m = /"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(body);
     if (m) {
       var said = m[1];
       try { said = JSON.parse('"' + m[1] + '"'); } catch (e2) {}
-      return { reply: unmark(said), actions: [] };
+      return { reply: unmark(said), actions: salvageActions(body) };
     }
     /* Still a blob, still not readable. Printing braces at somebody is
        worse than saying the truth in one line. */
@@ -19574,13 +19672,60 @@ window.LK_CLOUD = {
     });
   }
 
+  /* HOW LONG A REQUEST IS GIVEN BEFORE IT IS GIVEN UP ON.
+
+     There was no deadline anywhere: not in the client, not in the
+     Worker. A request the Worker accepted and never answered left the
+     coach on "thinking" with the composer dead until the app was
+     reloaded, and that was measured sitting there at thirty-three
+     seconds with no way out.
+
+     Ninety seconds, because the number has to clear the worst HONEST
+     answer rather than the typical one. The Worker's retry ladder can
+     make up to six upstream calls for one question, a long structured
+     answer at 4000 tokens is not quick, and a phone on a bad connection
+     adds to both ends. The mirror's own "slow" mode, which is the full
+     ladder, lands near forty-five seconds; half as long again leaves
+     room for a worse day without ever being mistaken for a working
+     request. Shorter and the app starts cancelling answers that were
+     coming; much longer and it stops being a deadline at all, because
+     nobody waits two minutes.
+
+     One deadline for every POST this file makes, not just the coach: a
+     sync or a sign-in that never answers hangs a screen the same way. */
+  var DEADLINE_MS = 90000;
+
   function post(url, body, opts) {
+    var ms = (opts && opts.timeoutMs) || (cfg() && cfg().timeoutMs) || DEADLINE_MS;
+    /* One controller per post, and the timer is cleared the moment an
+       answer lands. A timer left running against a request that already
+       came back aborts the NEXT use of the same signal, which is how a
+       timeout fix turns into a worse bug than the one it fixed. */
+    var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    var timedOut = false, timer = null;
+    if (ctl) {
+      timer = setTimeout(function () { timedOut = true; try { ctl.abort(); } catch (e) {} }, ms);
+    }
+    function done(v) { if (timer) { clearTimeout(timer); timer = null; } return v; }
+
     return authed(function () {
-      return fetch(url, { method: 'POST', headers: headersFor(url, (opts || {}).headers),
-                          body: JSON.stringify(body) });
+      var init = { method: 'POST', headers: headersFor(url, (opts || {}).headers),
+                   body: JSON.stringify(body) };
+      if (ctl) init.signal = ctl.signal;
+      return fetch(url, init);
     })
       .then(function (r) {
+        done();
         return r.json().catch(function () { return {}; }).then(function (j) {
+          /* A GATE IS AN ANSWER, NOT A REFUSAL. The anonymous free-tier
+             limit comes back as 429 with gated:true and a sentence
+             written for the reader -- "Daily AI limit reached. Create an
+             account for more." -- and this branched on the status first,
+             so what they read instead was "The server refused that
+             (429)." Two different things, and the one they were shown
+             was the one they could do nothing about. Whatever the
+             status, if the body says gated, that body is the answer. */
+          if (j && j.gated) return { ok: true, data: j };
           if (!r.ok) {
             /* `error` IS THE FIELD THE SERVER USES. This read message,
                error_description and msg -- none of which the Worker
@@ -19605,8 +19750,15 @@ window.LK_CLOUD = {
                is the difference between "invalid_grant" and "The server's
                Google key is not allowed to call Gemini". */
             var code = typeof j.error === 'string' ? j.error : '';
+            /* The Worker's 500 path puts the sentence a person can read
+               in content[0].text and an internal string in `error`, so
+               the readable one is worth taking when nothing better
+               came. It goes last: on a Supabase failure content is not
+               there at all, and on the Worker `message` still wins. */
+            var spoken = j.content && j.content[0] && typeof j.content[0].text === 'string'
+                       ? j.content[0].text : '';
             var said = j.message || j.error_description || j.msg ||
-                       (code.indexOf(' ') > 0 ? code : '');
+                       (code.indexOf(' ') > 0 ? code : '') || spoken;
             /* `why` is the machine-readable tag the Worker attaches
                beside the sentence; kept for the caller, not shown. */
             return { ok: false, error: 'server', status: r.status,
@@ -19616,7 +19768,18 @@ window.LK_CLOUD = {
           }
           return { ok: true, data: j };
         });
-      }, fail);
+      }, function (e) {
+        done();
+        /* An abort is this app giving up, not the network failing, and
+           the screen has a different thing to say about each. The shape
+           below is a contract: coach.html and coach-flight.mjs both read
+           error === 'timeout' and print `message` as it stands. */
+        if (timedOut || (e && (e.name === 'AbortError' || /abort/i.test(String(e.message || e))))) {
+          return { ok: false, error: 'timeout',
+                   message: 'The coach took too long to answer. Nothing was sent anywhere else. Try again.' };
+        }
+        return fail(e);
+      });
   }
 
   var API = {
@@ -20103,7 +20266,12 @@ window.LK_CLOUD = {
           }
           return out;
         }),
-        max_tokens: 3500
+        /* THE SERVER CLAMPS AT 4000 AND THIS ASKED FOR 3500, so the app
+           was throwing away a sixth of the room it is allowed for free.
+           A seven-day split plus a reply is long, and the commonest way
+           an action is lost is the answer running out of tokens
+           mid-envelope. Ask for everything the Worker will give. */
+        max_tokens: 4000
       };
       return post(coachEndpoint(), body).then(function (r) {
         if (!r.ok) return r;
@@ -21279,6 +21447,47 @@ window.LK_CLOUD = {
   }
   function inRange(v, lo, hi) { return v !== null && v >= lo && v <= hi; }
 
+  /* ---- ONE VOCABULARY, SPELT TWO WAYS -----------------------------
+     The system prompt in cloud.js tells the model to send goal.title,
+     food.protein, items[].qty, items[].grams, a "cardio" object and a
+     "food" object. This file was reading goal.name, pro, quantity, qty,
+     "session" and "meal". Four of the eight documented shapes were
+     therefore refused by the app's own gate the moment a model did
+     exactly what it was told, and the reader saw "Not saved -- a goal
+     with no name" about a goal that had one.
+
+     The fix does not rename anything downstream. The names below on the
+     right are the app's own storage shapes, which the screens, the
+     sentinel parser in coach.html and lk_goals/lk_fuelLog all read, so
+     they stay. What changes is that the gate now ACCEPTS either
+     spelling and normalises to one. BRAIN documents only the first of
+     each pair, so there is a single vocabulary to teach the model and
+     no live shape that suddenly stops working.
+
+       title | name            -> name
+       by | targetDate         -> targetDate
+       qty | quantity          -> quantity (shopping) / qty (food)
+       grams                   -> qty, converted through the table
+       servings                -> qty
+       protein | pro           -> pro
+       carbs | carb            -> carb
+       calories | kcal         -> kcal
+       food | meal             -> the food object
+       cardio | session        -> the cardio object
+       steps | notes           -> notes
+
+     first() takes the first key that is actually there, so a zero or an
+     empty string sent on purpose is not skipped over in favour of the
+     other spelling. */
+  function first(o) {
+    if (!o || typeof o !== 'object') return undefined;
+    for (var i = 1; i < arguments.length; i++) {
+      var k = arguments[i];
+      if (o[k] !== undefined && o[k] !== null && o[k] !== '') return o[k];
+    }
+    return undefined;
+  }
+
   /* ---- the catalogue ----------------------------------------------
      Whatever the app already loaded. exercise-library and split-builder
      fetch the full 867; where that has not happened the fixture's own
@@ -21331,17 +21540,42 @@ window.LK_CLOUD = {
     var F = g.LKFixtures;
     return (F && F.nutrition && F.nutrition.foods) || {};
   }
+  /* HOW MUCH OF IT. The table is keyed in servings and carries the gram
+     weight of one serving in `g`, but the prompt documents `grams` on a
+     recipe ingredient and `servings` on a logged food. Taking grams as a
+     multiplier is how 200 g of a 450 g bowl came out as one serving and
+     then as a whole bowl's calories, so grams is converted through the
+     table and only used as-is when there is nothing to convert with. */
+  function amount(f, t) {
+    var q = num(first(f, 'qty', 'quantity', 'servings'));
+    if (inRange(q, 0.1, LIMIT.servings)) return q;
+    var grams = num(first(f, 'grams'));
+    if (t && inRange(grams, 1, 20000) && num(t.g) > 0) {
+      var scaled = Math.round((grams / num(t.g)) * 100) / 100;
+      if (inRange(scaled, 0.1, LIMIT.servings)) return scaled;
+    }
+    /* Off the table, grams has nothing to scale against: the macros the
+       model carried describe the portion it named, so that portion is
+       one of whatever it is. */
+    return 1;
+  }
+
   function resolveFood(f, problems, where) {
     if (!f || typeof f !== 'object') { problems.push(where + ': not a food'); return null; }
     var table = foods();
     var key = f.key && table[f.key] ? f.key : null;
     if (!key && f.name) {
-      var want = String(f.name).toLowerCase();
+      var want = String(f.name).toLowerCase().trim();
       Object.keys(table).forEach(function (k) {
-        if (!key && String(table[k].name || '').toLowerCase() === want) key = k;
+        if (key) return;
+        if (String(table[k].name || '').toLowerCase() === want) key = k;
+        /* The table's own alias list, which is the app's data and not a
+           guess: "chicken bowl" is the same row as "Chicken rice bowl"
+           and refusing it taught the model nothing it could act on. */
+        else if ((table[k].alias || []).some(function (a) { return String(a).toLowerCase() === want; })) key = k;
       });
     }
-    var qty = inRange(num(f.qty), 0.1, LIMIT.servings) ? num(f.qty) : 1;
+    var qty = amount(f, key ? table[key] : null);
     if (key) {
       var t = table[key];
       return { key: key, name: t.name, qty: qty, icon: t.icon,
@@ -21350,7 +21584,10 @@ window.LK_CLOUD = {
     /* Not in the table. It can still be logged when the model carries every
        macro for it -- that is a figure somebody can check -- but never on a
        calorie count alone, which is a number with no working behind it. */
-    var kcal = num(f.kcal), pro = num(f.pro), carb = num(f.carb), fat = num(f.fat);
+    var kcal = num(first(f, 'kcal', 'calories', 'cal'));
+    var pro = num(first(f, 'pro', 'protein'));
+    var carb = num(first(f, 'carb', 'carbs', 'carbohydrates'));
+    var fat = num(first(f, 'fat'));
     if (!inRange(kcal, 0, LIMIT.kcal) || !inRange(pro, 0, LIMIT.macro) ||
         !inRange(carb, 0, LIMIT.macro) || !inRange(fat, 0, LIMIT.macro)) {
       problems.push(where + ': "' + str(f.name, 40) + '" is not in the food table and ' +
@@ -21389,7 +21626,7 @@ window.LK_CLOUD = {
       if (kept.length) out.push({ name: name, blocks: [], exercises: kept });
     });
     if (!out.length) { problems.push('no day survived checking'); return null; }
-    return { kind: 'split', title: str(a.title, LIMIT.title) || 'New split',
+    return { kind: 'split', title: str(a.title || src.name, LIMIT.title) || 'New split',
              name: str(src.name, 30) || 'Coach split', days: out,
              /* Counted here, never taken from the model. */
              exercises: out.reduce(function (n, d) { return n + d.exercises.length; }, 0) };
@@ -21398,20 +21635,43 @@ window.LK_CLOUD = {
   CHECK.goal = function (a, problems) {
     var src = a.goal || {};
     var TYPES = { weight: 1, bodyfat: 1, lift: 1, custom: 1 };
+    /* NO TYPE IS A REAL ANSWER. The prompt never documented `type`, so
+       most goals arrive without one, and "custom" is what a goal with a
+       title and a date is. It was already the default; what is new is
+       that nothing below now refuses a goal for the absence. */
     var type = TYPES[src.type] ? src.type : 'custom';
+    var name = str(first(src, 'title', 'name'), LIMIT.name);
+    var by = String(first(src, 'by', 'targetDate') || '');
     var target = num(src.target);
-    var out = { kind: 'goal', title: str(a.title, LIMIT.title) || 'New goal',
-                type: type, name: str(src.name, LIMIT.name),
+    var unit = str(src.unit, 12);
+    var out = { kind: 'goal', title: str(a.title || name, LIMIT.title) || 'New goal',
+                type: type, name: name,
                 target: target, start: num(src.start), exId: null,
-                unit: type === 'bodyfat' ? '%' : type === 'custom' ? '' : 'kg',
-                targetDate: /^\d{4}-\d{2}-\d{2}$/.test(src.targetDate || '') ? src.targetDate : '',
-                notes: str(src.notes, LIMIT.note) };
+                /* The model is asked for a unit and usually sends one. It
+                   is kept when it came, because "reps" and "km" are goals
+                   people set and the derived answer would have said kg. */
+                unit: unit || (type === 'bodyfat' ? '%' : type === 'custom' ? '' : 'kg'),
+                targetDate: /^\d{4}-\d{2}-\d{2}$/.test(by) ? by : '',
+                notes: str(first(src, 'notes', 'note'), LIMIT.note) };
     if (type === 'lift') {
       if (!haveCatalogue()) { problems.push('the exercise catalogue has not loaded'); return null; }
-      var r = resolveEx({ id: src.exId, name: src.exName || src.name }, problems, 'the goal’s lift');
-      if (!r) return null;
-      out.exId = r.id;
-      if (!out.name) out.name = r.name;
+      /* THE TITLE IS NOT A LIFT. This used to fall back to the goal's own
+         name, so "Bench 100kg" -- a perfectly good goal title -- was
+         looked up in the exercise catalogue, missed, and the whole goal
+         was refused with "the goal's lift: "Bench 100kg" is not in the
+         exercise catalogue". Only exId and exName name a lift. The title
+         is still tried, but only as a link: when it happens to be an
+         exact catalogue name the goal gets an exId, and when it is not
+         the goal saves anyway with no lift attached. */
+      var named = first(src, 'exId', 'exName') !== undefined;
+      var r = resolveEx({ id: src.exId, name: src.exName },
+                        named ? problems : [], 'the goal’s lift');
+      if (!r && !named) r = byName(name);
+      if (!r && named) return null;
+      if (r) {
+        out.exId = r.id;
+        if (!out.name) out.name = r.name;
+      }
     }
     if (type !== 'custom' && !inRange(target, 0.1, LIMIT.kg)) {
       problems.push('a ' + type + ' goal needs a target between 0.1 and ' + LIMIT.kg);
@@ -21423,7 +21683,8 @@ window.LK_CLOUD = {
 
   CHECK.recipe = function (a, problems) {
     var src = a.recipe || {};
-    var items = Array.isArray(src.items) ? src.items : [];
+    var items = Array.isArray(src.items) ? src.items
+              : Array.isArray(src.ingredients) ? src.ingredients : [];
     if (!items.length) { problems.push('a recipe with no ingredients'); return null; }
     if (items.length > LIMIT.items) { problems.push('more than ' + LIMIT.items + ' ingredients'); return null; }
     var servings = inRange(num(src.servings), 1, LIMIT.servings) ? Math.round(num(src.servings)) : 1;
@@ -21435,26 +21696,37 @@ window.LK_CLOUD = {
       tot.kcal += r.kcal; tot.pro += r.pro; tot.carb += r.carb; tot.fat += r.fat;
     });
     if (!kept.length) { problems.push('no ingredient survived checking'); return null; }
-    var name = str(src.name, LIMIT.name);
+    var name = str(first(src, 'name', 'title'), LIMIT.name);
     if (!name) { problems.push('a recipe with no name'); return null; }
+    var stepsOf = first(src, 'steps', 'notes', 'method');
     /* Totals from the parts. Whatever the model said they were is discarded. */
     return { kind: 'recipe', title: str(a.title, LIMIT.title) || name,
              name: name, servings: servings, items: kept,
-             notes: (Array.isArray(src.notes) ? src.notes : []).slice(0, 12)
+             /* METHOD. The prompt asks for `steps`, this stored it as
+                `notes`, and the two never met: every recipe the coach
+                wrote saved with no method at all. A single string is
+                taken as one step, because that is what a model sends
+                when there is only one. */
+             notes: (Array.isArray(stepsOf) ? stepsOf : stepsOf ? [stepsOf] : []).slice(0, 12)
                .map(function (x) { return str(x, LIMIT.note); }).filter(Boolean),
              kcal: Math.round(tot.kcal), pro: Math.round(tot.pro),
              carb: Math.round(tot.carb), fat: Math.round(tot.fat) };
   };
 
   CHECK.shopping = function (a, problems) {
-    var items = Array.isArray(a.items) ? a.items : [];
+    var items = Array.isArray(a.items) ? a.items
+              : Array.isArray(a.shopping && a.shopping.items) ? a.shopping.items : [];
     if (!items.length) { problems.push('a shopping list with nothing on it'); return null; }
     if (items.length > LIMIT.items) { problems.push('more than ' + LIMIT.items + ' items'); return null; }
     var kept = [];
     items.forEach(function (it) {
       var name = str(typeof it === 'string' ? it : (it && it.name), LIMIT.name);
       if (!name) return;
-      var qty = it && num(it.quantity);
+      /* `qty` IS WHAT THE PROMPT ASKS FOR. This read `quantity` only, so
+         every qty the model sent fell through to the default and "3 kg
+         Rice" was written down as "1 kg Rice" -- wrong, and silent,
+         which is the worst of the five. */
+      var qty = it && num(first(it, 'qty', 'quantity', 'amount'));
       kept.push({ itemName: name,
                   quantity: inRange(qty, 0.1, 999) ? qty : 1,
                   unit: str(it && it.unit, 12),
@@ -21465,7 +21737,9 @@ window.LK_CLOUD = {
   };
 
   CHECK.food = function (a, problems) {
-    var src = a.meal || {};
+    /* `food` is what the prompt documents; `meal` is what the sentinel
+       parser in coach.html builds, and it is still live. Both land here. */
+    var src = a.food || a.meal || {};
     var SLOTS = { breakfast: 1, lunch: 1, dinner: 1, snack: 1 };
     var r = resolveFood(src, problems, 'the meal');
     if (!r) return null;
@@ -21477,27 +21751,31 @@ window.LK_CLOUD = {
   };
 
   CHECK.cardio = function (a, problems) {
-    var src = a.session || {};
-    var name = str(src.name, LIMIT.name);
-    var min = num(src.minutes);
+    /* Same pair as food: `cardio` from the prompt, `session` from the
+       CARDIO sentinel block. Reading only the second refused every
+       cardio action a model sent by the book. */
+    var src = a.cardio || a.session || {};
+    var name = str(first(src, 'name', 'title', 'type'), LIMIT.name);
+    var min = num(first(src, 'minutes', 'mins', 'min', 'duration'));
     if (!name) { problems.push('a cardio session with no name'); return null; }
     if (!inRange(min, 1, LIMIT.minutes)) { problems.push('minutes between 1 and ' + LIMIT.minutes); return null; }
     var out = { kind: 'cardio', title: str(a.title, LIMIT.title) || name,
                 name: name, minutes: Math.round(min) };
-    var km = num(src.km);
+    var km = num(first(src, 'km', 'distance', 'distanceKm'));
     if (inRange(km, 0.1, LIMIT.km)) out.km = Math.round(km * 100) / 100;
     return out;
   };
 
   CHECK.instructions = function (a, problems) {
-    var text = str(a.text, LIMIT.text);
+    var text = str(first(a, 'text', 'instructions') ||
+                   (a.instructions && a.instructions.text), LIMIT.text);
     if (!text) { problems.push('empty instructions'); return null; }
     return { kind: 'instructions', title: str(a.title, LIMIT.title) || 'Update your coaching instructions',
              text: text };
   };
 
   CHECK.fact = function (a, problems) {
-    var text = str(a.text, LIMIT.note);
+    var text = str(first(a, 'text', 'fact') || (a.fact && a.fact.text), LIMIT.note);
     if (!text) { problems.push('an empty fact'); return null; }
     return { kind: 'fact', title: str(a.title, LIMIT.title) || 'Remember this', text: text };
   };

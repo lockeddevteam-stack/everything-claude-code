@@ -426,15 +426,28 @@
     'You are Coach, the AI strength and nutrition coach inside the LOCKED fitness app.',
     'You are an AI, not a human and not a doctor. If a user thinks you are human, remind them you are an AI coach.',
     '',
+    /* DO NOT REWORD THE NEXT LINE. The deployed Worker decides whether
+       to put the model into structured JSON mode by looking for the
+       literal substring "Return ONLY a JSON" inside `system`. It does no
+       other detection. Change the wording -- even to something clearer,
+       even to "Return only a JSON" -- and the substring stops matching,
+       the request goes up in prose mode at temperature 0.75, and every
+       action in this list quietly stops arriving. That is a bug nobody
+       can see from the client, because the reply still reads fine. */
     'Return ONLY a JSON object of this shape and nothing else:',
     '{"reply":"what you say to them","actions":[]}',
     '',
+    /* ONE SPELLING PER FIELD. The gate in coach-actions.js accepts the
+       older internal spelling as well (goal.name, quantity, session,
+       meal, pro/carb/fat) because the sentinel parser still builds
+       those, but the model is taught exactly one vocabulary: the one
+       below. Anything documented here is what check() reads first. */
     'Each action is one of:',
     '{"kind":"split","split":{"name":"","days":[{"name":"","exercises":[{"id":0,"name":"","sets":0,"reps":0}]}]}}',
     '{"kind":"goal","goal":{"title":"","target":0,"unit":"","by":"YYYY-MM-DD"}}',
     '{"kind":"recipe","recipe":{"name":"","servings":1,"items":[{"name":"","grams":0}],"steps":[""]}}',
     '{"kind":"shopping","items":[{"name":"","qty":1,"unit":""}]}',
-    '{"kind":"food","food":{"name":"","kcal":0,"protein":0,"carbs":0,"fat":0,"servings":1}}',
+    '{"kind":"food","food":{"name":"","kcal":0,"protein":0,"carbs":0,"fat":0,"servings":1,"slot":"breakfast|lunch|dinner|snack"}}',
     '{"kind":"cardio","cardio":{"name":"","minutes":0,"km":0}}',
     '{"kind":"instructions","text":""}',
     '{"kind":"fact","text":""}',
@@ -444,6 +457,8 @@
     '- Never state a total you have not been given. The app computes every total itself.',
     '- Send actions only when they were asked for. A question gets a reply and an empty list.',
     '- actions is always present, even when empty.',
+    '- Use the field names above exactly. qty is a count, grams is a weight, by is a date.',
+    '- A goal needs a title; give it a lift only by sending exName or exId, never in the title.',
     '',
     'VOICE: You are their coach, not a search engine with a personality setting. Talk the way',
     'a coach talks to somebody they train: to them, by name sometimes, about their training,',
@@ -673,36 +688,119 @@
 
      So: parse, then repair and parse, then pull the reply out by hand.
      A blob never reaches the screen. */
+  /* WHAT SURVIVED OF A LIST THAT NEVER CLOSED.
+
+     The server caps the answer, and the cap lands in the middle of the
+     actions array far more often than anywhere else, because the actions
+     are the long part. JSON.parse then fails on the whole envelope and
+     every card goes with it -- including the four days of the split that
+     arrived whole.
+
+     So walk the array by hand from "actions": [ and count braces,
+     ignoring anything inside a string and honouring backslash escapes.
+     Every object that closed is parsed and kept; a trailing object that
+     never closed is thrown away, because half a split is not something
+     to offer somebody. Nothing here decides whether an action is sound:
+     that is still the gate's job, and it checks these exactly as it
+     checks the ones that parsed normally. */
+  function salvageActions(body) {
+    var at = body.search(/"actions"\s*:\s*\[/);
+    if (at < 0) return [];
+    var i = body.indexOf('[', at) + 1;
+    var out = [], depth = 0, start = -1, inStr = false, esc = false;
+    for (; i < body.length; i++) {
+      var ch = body.charAt(i);
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === '\\') esc = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') { inStr = true; continue; }
+      if (ch === '{') { if (!depth) start = i; depth++; continue; }
+      if (ch === '}') {
+        depth--;
+        if (depth === 0 && start >= 0) {
+          try { out.push(JSON.parse(body.slice(start, i + 1))); } catch (e) { /* not a whole one */ }
+          start = -1;
+        }
+        if (depth < 0) break;
+        continue;
+      }
+      /* The array closed and the envelope still would not parse -- the
+         break is somewhere after this point, so stop here rather than
+         reading the rest of the object as more actions. */
+      if (ch === ']' && depth === 0) break;
+    }
+    return out.slice(0, 8);
+  }
+
+  /* THE PROSE AROUND A BURIED ENVELOPE, PUT BACK.
+
+     A reply that says the same thing twice is worse than one that lost a
+     sentence, so a fragment is dropped when the reply already contains
+     it, or when it IS the reply. Fenced-code leftovers and a lone
+     closing fence are not sentences and go too. */
+  function withProse(before, said, after) {
+    var body = String(said || '').trim();
+    function keep(bit) {
+      var t = String(bit || '').replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+      if (!t) return '';
+      if (!body) return t;
+      if (t === body) return '';
+      if (body.indexOf(t) >= 0) return '';
+      if (t.indexOf(body) >= 0) return '';
+      return t;
+    }
+    var pre = keep(before), post = keep(after);
+    return [pre, body, post].filter(Boolean).join(' ').trim() || body;
+  }
+
   function envelope(text) {
     var raw = String(text || '').trim();
     var body = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
-    var tries = [body];
+    /* Each candidate carries whatever prose sat around it, because the
+       brace slice used to throw that away. "Good week overall.
+       {envelope} Keep it up next week." showed the reader one word,
+       "Buried.", and the two sentences the coach actually wrote were
+       deleted on the way to the screen. They are words somebody meant to
+       say, so they are kept, in the order they were written, around the
+       reply rather than instead of it. */
+    var tries = [{ t: body, before: '', after: '' }];
     var first = body.indexOf('{'), last = body.lastIndexOf('}');
-    if (first > 0 && last > first) tries.push(body.slice(first, last + 1));
+    if (first >= 0 && last > first && (first > 0 || last < body.length - 1)) {
+      tries.push({ t: body.slice(first, last + 1),
+                   before: body.slice(0, first).trim(),
+                   after: body.slice(last + 1).trim() });
+    }
     /* A raw newline or tab inside a string is the commonest break, and
        it is the one repair that cannot change what the model meant. */
-    tries.slice().forEach(function (t) {
-      tries.push(t.replace(/\r/g, '').replace(/\n/g, '\\n').replace(/\t/g, '\\t'));
+    tries.slice().forEach(function (c) {
+      tries.push({ t: c.t.replace(/\r/g, '').replace(/\n/g, '\\n').replace(/\t/g, '\\t'),
+                   before: c.before, after: c.after });
     });
     for (var i = 0; i < tries.length; i++) {
       try {
-        var o = JSON.parse(tries[i]);
+        var o = JSON.parse(tries[i].t);
         if (o && typeof o === 'object' && !Array.isArray(o)) {
+          var said = typeof o.reply === 'string' ? o.reply : raw;
           return {
-            reply: unmark(typeof o.reply === 'string' ? o.reply : raw),
+            reply: unmark(withProse(tries[i].before, said, tries[i].after)),
             actions: Array.isArray(o.actions) ? o.actions : []
           };
         }
       } catch (e) { /* not this one */ }
     }
-    /* Unparseable, but the reply is still in there. Take it and drop the
-       actions: an action list that could not be parsed is one the gate
-       could not check either, so it is not offered. */
+    /* Unparseable. The reply is still in there, and so, usually, are
+       most of the actions: the answer ran out of tokens partway through
+       the list, so everything before the break is complete and only the
+       last object is a stump. Dropping the lot was costing a reader the
+       whole split because its seventh day did not fit. */
     var m = /"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(body);
     if (m) {
       var said = m[1];
       try { said = JSON.parse('"' + m[1] + '"'); } catch (e2) {}
-      return { reply: unmark(said), actions: [] };
+      return { reply: unmark(said), actions: salvageActions(body) };
     }
     /* Still a blob, still not readable. Printing braces at somebody is
        worse than saying the truth in one line. */
@@ -737,13 +835,60 @@
     });
   }
 
+  /* HOW LONG A REQUEST IS GIVEN BEFORE IT IS GIVEN UP ON.
+
+     There was no deadline anywhere: not in the client, not in the
+     Worker. A request the Worker accepted and never answered left the
+     coach on "thinking" with the composer dead until the app was
+     reloaded, and that was measured sitting there at thirty-three
+     seconds with no way out.
+
+     Ninety seconds, because the number has to clear the worst HONEST
+     answer rather than the typical one. The Worker's retry ladder can
+     make up to six upstream calls for one question, a long structured
+     answer at 4000 tokens is not quick, and a phone on a bad connection
+     adds to both ends. The mirror's own "slow" mode, which is the full
+     ladder, lands near forty-five seconds; half as long again leaves
+     room for a worse day without ever being mistaken for a working
+     request. Shorter and the app starts cancelling answers that were
+     coming; much longer and it stops being a deadline at all, because
+     nobody waits two minutes.
+
+     One deadline for every POST this file makes, not just the coach: a
+     sync or a sign-in that never answers hangs a screen the same way. */
+  var DEADLINE_MS = 90000;
+
   function post(url, body, opts) {
+    var ms = (opts && opts.timeoutMs) || (cfg() && cfg().timeoutMs) || DEADLINE_MS;
+    /* One controller per post, and the timer is cleared the moment an
+       answer lands. A timer left running against a request that already
+       came back aborts the NEXT use of the same signal, which is how a
+       timeout fix turns into a worse bug than the one it fixed. */
+    var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    var timedOut = false, timer = null;
+    if (ctl) {
+      timer = setTimeout(function () { timedOut = true; try { ctl.abort(); } catch (e) {} }, ms);
+    }
+    function done(v) { if (timer) { clearTimeout(timer); timer = null; } return v; }
+
     return authed(function () {
-      return fetch(url, { method: 'POST', headers: headersFor(url, (opts || {}).headers),
-                          body: JSON.stringify(body) });
+      var init = { method: 'POST', headers: headersFor(url, (opts || {}).headers),
+                   body: JSON.stringify(body) };
+      if (ctl) init.signal = ctl.signal;
+      return fetch(url, init);
     })
       .then(function (r) {
+        done();
         return r.json().catch(function () { return {}; }).then(function (j) {
+          /* A GATE IS AN ANSWER, NOT A REFUSAL. The anonymous free-tier
+             limit comes back as 429 with gated:true and a sentence
+             written for the reader -- "Daily AI limit reached. Create an
+             account for more." -- and this branched on the status first,
+             so what they read instead was "The server refused that
+             (429)." Two different things, and the one they were shown
+             was the one they could do nothing about. Whatever the
+             status, if the body says gated, that body is the answer. */
+          if (j && j.gated) return { ok: true, data: j };
           if (!r.ok) {
             /* `error` IS THE FIELD THE SERVER USES. This read message,
                error_description and msg -- none of which the Worker
@@ -768,8 +913,15 @@
                is the difference between "invalid_grant" and "The server's
                Google key is not allowed to call Gemini". */
             var code = typeof j.error === 'string' ? j.error : '';
+            /* The Worker's 500 path puts the sentence a person can read
+               in content[0].text and an internal string in `error`, so
+               the readable one is worth taking when nothing better
+               came. It goes last: on a Supabase failure content is not
+               there at all, and on the Worker `message` still wins. */
+            var spoken = j.content && j.content[0] && typeof j.content[0].text === 'string'
+                       ? j.content[0].text : '';
             var said = j.message || j.error_description || j.msg ||
-                       (code.indexOf(' ') > 0 ? code : '');
+                       (code.indexOf(' ') > 0 ? code : '') || spoken;
             /* `why` is the machine-readable tag the Worker attaches
                beside the sentence; kept for the caller, not shown. */
             return { ok: false, error: 'server', status: r.status,
@@ -779,7 +931,18 @@
           }
           return { ok: true, data: j };
         });
-      }, fail);
+      }, function (e) {
+        done();
+        /* An abort is this app giving up, not the network failing, and
+           the screen has a different thing to say about each. The shape
+           below is a contract: coach.html and coach-flight.mjs both read
+           error === 'timeout' and print `message` as it stands. */
+        if (timedOut || (e && (e.name === 'AbortError' || /abort/i.test(String(e.message || e))))) {
+          return { ok: false, error: 'timeout',
+                   message: 'The coach took too long to answer. Nothing was sent anywhere else. Try again.' };
+        }
+        return fail(e);
+      });
   }
 
   var API = {
@@ -1266,7 +1429,12 @@
           }
           return out;
         }),
-        max_tokens: 3500
+        /* THE SERVER CLAMPS AT 4000 AND THIS ASKED FOR 3500, so the app
+           was throwing away a sixth of the room it is allowed for free.
+           A seven-day split plus a reply is long, and the commonest way
+           an action is lost is the answer running out of tokens
+           mid-envelope. Ask for everything the Worker will give. */
+        max_tokens: 4000
       };
       return post(coachEndpoint(), body).then(function (r) {
         if (!r.ok) return r;

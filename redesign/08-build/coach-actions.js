@@ -54,6 +54,47 @@
   }
   function inRange(v, lo, hi) { return v !== null && v >= lo && v <= hi; }
 
+  /* ---- ONE VOCABULARY, SPELT TWO WAYS -----------------------------
+     The system prompt in cloud.js tells the model to send goal.title,
+     food.protein, items[].qty, items[].grams, a "cardio" object and a
+     "food" object. This file was reading goal.name, pro, quantity, qty,
+     "session" and "meal". Four of the eight documented shapes were
+     therefore refused by the app's own gate the moment a model did
+     exactly what it was told, and the reader saw "Not saved -- a goal
+     with no name" about a goal that had one.
+
+     The fix does not rename anything downstream. The names below on the
+     right are the app's own storage shapes, which the screens, the
+     sentinel parser in coach.html and lk_goals/lk_fuelLog all read, so
+     they stay. What changes is that the gate now ACCEPTS either
+     spelling and normalises to one. BRAIN documents only the first of
+     each pair, so there is a single vocabulary to teach the model and
+     no live shape that suddenly stops working.
+
+       title | name            -> name
+       by | targetDate         -> targetDate
+       qty | quantity          -> quantity (shopping) / qty (food)
+       grams                   -> qty, converted through the table
+       servings                -> qty
+       protein | pro           -> pro
+       carbs | carb            -> carb
+       calories | kcal         -> kcal
+       food | meal             -> the food object
+       cardio | session        -> the cardio object
+       steps | notes           -> notes
+
+     first() takes the first key that is actually there, so a zero or an
+     empty string sent on purpose is not skipped over in favour of the
+     other spelling. */
+  function first(o) {
+    if (!o || typeof o !== 'object') return undefined;
+    for (var i = 1; i < arguments.length; i++) {
+      var k = arguments[i];
+      if (o[k] !== undefined && o[k] !== null && o[k] !== '') return o[k];
+    }
+    return undefined;
+  }
+
   /* ---- the catalogue ----------------------------------------------
      Whatever the app already loaded. exercise-library and split-builder
      fetch the full 867; where that has not happened the fixture's own
@@ -106,17 +147,42 @@
     var F = g.LKFixtures;
     return (F && F.nutrition && F.nutrition.foods) || {};
   }
+  /* HOW MUCH OF IT. The table is keyed in servings and carries the gram
+     weight of one serving in `g`, but the prompt documents `grams` on a
+     recipe ingredient and `servings` on a logged food. Taking grams as a
+     multiplier is how 200 g of a 450 g bowl came out as one serving and
+     then as a whole bowl's calories, so grams is converted through the
+     table and only used as-is when there is nothing to convert with. */
+  function amount(f, t) {
+    var q = num(first(f, 'qty', 'quantity', 'servings'));
+    if (inRange(q, 0.1, LIMIT.servings)) return q;
+    var grams = num(first(f, 'grams'));
+    if (t && inRange(grams, 1, 20000) && num(t.g) > 0) {
+      var scaled = Math.round((grams / num(t.g)) * 100) / 100;
+      if (inRange(scaled, 0.1, LIMIT.servings)) return scaled;
+    }
+    /* Off the table, grams has nothing to scale against: the macros the
+       model carried describe the portion it named, so that portion is
+       one of whatever it is. */
+    return 1;
+  }
+
   function resolveFood(f, problems, where) {
     if (!f || typeof f !== 'object') { problems.push(where + ': not a food'); return null; }
     var table = foods();
     var key = f.key && table[f.key] ? f.key : null;
     if (!key && f.name) {
-      var want = String(f.name).toLowerCase();
+      var want = String(f.name).toLowerCase().trim();
       Object.keys(table).forEach(function (k) {
-        if (!key && String(table[k].name || '').toLowerCase() === want) key = k;
+        if (key) return;
+        if (String(table[k].name || '').toLowerCase() === want) key = k;
+        /* The table's own alias list, which is the app's data and not a
+           guess: "chicken bowl" is the same row as "Chicken rice bowl"
+           and refusing it taught the model nothing it could act on. */
+        else if ((table[k].alias || []).some(function (a) { return String(a).toLowerCase() === want; })) key = k;
       });
     }
-    var qty = inRange(num(f.qty), 0.1, LIMIT.servings) ? num(f.qty) : 1;
+    var qty = amount(f, key ? table[key] : null);
     if (key) {
       var t = table[key];
       return { key: key, name: t.name, qty: qty, icon: t.icon,
@@ -125,7 +191,10 @@
     /* Not in the table. It can still be logged when the model carries every
        macro for it -- that is a figure somebody can check -- but never on a
        calorie count alone, which is a number with no working behind it. */
-    var kcal = num(f.kcal), pro = num(f.pro), carb = num(f.carb), fat = num(f.fat);
+    var kcal = num(first(f, 'kcal', 'calories', 'cal'));
+    var pro = num(first(f, 'pro', 'protein'));
+    var carb = num(first(f, 'carb', 'carbs', 'carbohydrates'));
+    var fat = num(first(f, 'fat'));
     if (!inRange(kcal, 0, LIMIT.kcal) || !inRange(pro, 0, LIMIT.macro) ||
         !inRange(carb, 0, LIMIT.macro) || !inRange(fat, 0, LIMIT.macro)) {
       problems.push(where + ': "' + str(f.name, 40) + '" is not in the food table and ' +
@@ -164,7 +233,7 @@
       if (kept.length) out.push({ name: name, blocks: [], exercises: kept });
     });
     if (!out.length) { problems.push('no day survived checking'); return null; }
-    return { kind: 'split', title: str(a.title, LIMIT.title) || 'New split',
+    return { kind: 'split', title: str(a.title || src.name, LIMIT.title) || 'New split',
              name: str(src.name, 30) || 'Coach split', days: out,
              /* Counted here, never taken from the model. */
              exercises: out.reduce(function (n, d) { return n + d.exercises.length; }, 0) };
@@ -173,20 +242,43 @@
   CHECK.goal = function (a, problems) {
     var src = a.goal || {};
     var TYPES = { weight: 1, bodyfat: 1, lift: 1, custom: 1 };
+    /* NO TYPE IS A REAL ANSWER. The prompt never documented `type`, so
+       most goals arrive without one, and "custom" is what a goal with a
+       title and a date is. It was already the default; what is new is
+       that nothing below now refuses a goal for the absence. */
     var type = TYPES[src.type] ? src.type : 'custom';
+    var name = str(first(src, 'title', 'name'), LIMIT.name);
+    var by = String(first(src, 'by', 'targetDate') || '');
     var target = num(src.target);
-    var out = { kind: 'goal', title: str(a.title, LIMIT.title) || 'New goal',
-                type: type, name: str(src.name, LIMIT.name),
+    var unit = str(src.unit, 12);
+    var out = { kind: 'goal', title: str(a.title || name, LIMIT.title) || 'New goal',
+                type: type, name: name,
                 target: target, start: num(src.start), exId: null,
-                unit: type === 'bodyfat' ? '%' : type === 'custom' ? '' : 'kg',
-                targetDate: /^\d{4}-\d{2}-\d{2}$/.test(src.targetDate || '') ? src.targetDate : '',
-                notes: str(src.notes, LIMIT.note) };
+                /* The model is asked for a unit and usually sends one. It
+                   is kept when it came, because "reps" and "km" are goals
+                   people set and the derived answer would have said kg. */
+                unit: unit || (type === 'bodyfat' ? '%' : type === 'custom' ? '' : 'kg'),
+                targetDate: /^\d{4}-\d{2}-\d{2}$/.test(by) ? by : '',
+                notes: str(first(src, 'notes', 'note'), LIMIT.note) };
     if (type === 'lift') {
       if (!haveCatalogue()) { problems.push('the exercise catalogue has not loaded'); return null; }
-      var r = resolveEx({ id: src.exId, name: src.exName || src.name }, problems, 'the goal’s lift');
-      if (!r) return null;
-      out.exId = r.id;
-      if (!out.name) out.name = r.name;
+      /* THE TITLE IS NOT A LIFT. This used to fall back to the goal's own
+         name, so "Bench 100kg" -- a perfectly good goal title -- was
+         looked up in the exercise catalogue, missed, and the whole goal
+         was refused with "the goal's lift: "Bench 100kg" is not in the
+         exercise catalogue". Only exId and exName name a lift. The title
+         is still tried, but only as a link: when it happens to be an
+         exact catalogue name the goal gets an exId, and when it is not
+         the goal saves anyway with no lift attached. */
+      var named = first(src, 'exId', 'exName') !== undefined;
+      var r = resolveEx({ id: src.exId, name: src.exName },
+                        named ? problems : [], 'the goal’s lift');
+      if (!r && !named) r = byName(name);
+      if (!r && named) return null;
+      if (r) {
+        out.exId = r.id;
+        if (!out.name) out.name = r.name;
+      }
     }
     if (type !== 'custom' && !inRange(target, 0.1, LIMIT.kg)) {
       problems.push('a ' + type + ' goal needs a target between 0.1 and ' + LIMIT.kg);
@@ -198,7 +290,8 @@
 
   CHECK.recipe = function (a, problems) {
     var src = a.recipe || {};
-    var items = Array.isArray(src.items) ? src.items : [];
+    var items = Array.isArray(src.items) ? src.items
+              : Array.isArray(src.ingredients) ? src.ingredients : [];
     if (!items.length) { problems.push('a recipe with no ingredients'); return null; }
     if (items.length > LIMIT.items) { problems.push('more than ' + LIMIT.items + ' ingredients'); return null; }
     var servings = inRange(num(src.servings), 1, LIMIT.servings) ? Math.round(num(src.servings)) : 1;
@@ -210,26 +303,37 @@
       tot.kcal += r.kcal; tot.pro += r.pro; tot.carb += r.carb; tot.fat += r.fat;
     });
     if (!kept.length) { problems.push('no ingredient survived checking'); return null; }
-    var name = str(src.name, LIMIT.name);
+    var name = str(first(src, 'name', 'title'), LIMIT.name);
     if (!name) { problems.push('a recipe with no name'); return null; }
+    var stepsOf = first(src, 'steps', 'notes', 'method');
     /* Totals from the parts. Whatever the model said they were is discarded. */
     return { kind: 'recipe', title: str(a.title, LIMIT.title) || name,
              name: name, servings: servings, items: kept,
-             notes: (Array.isArray(src.notes) ? src.notes : []).slice(0, 12)
+             /* METHOD. The prompt asks for `steps`, this stored it as
+                `notes`, and the two never met: every recipe the coach
+                wrote saved with no method at all. A single string is
+                taken as one step, because that is what a model sends
+                when there is only one. */
+             notes: (Array.isArray(stepsOf) ? stepsOf : stepsOf ? [stepsOf] : []).slice(0, 12)
                .map(function (x) { return str(x, LIMIT.note); }).filter(Boolean),
              kcal: Math.round(tot.kcal), pro: Math.round(tot.pro),
              carb: Math.round(tot.carb), fat: Math.round(tot.fat) };
   };
 
   CHECK.shopping = function (a, problems) {
-    var items = Array.isArray(a.items) ? a.items : [];
+    var items = Array.isArray(a.items) ? a.items
+              : Array.isArray(a.shopping && a.shopping.items) ? a.shopping.items : [];
     if (!items.length) { problems.push('a shopping list with nothing on it'); return null; }
     if (items.length > LIMIT.items) { problems.push('more than ' + LIMIT.items + ' items'); return null; }
     var kept = [];
     items.forEach(function (it) {
       var name = str(typeof it === 'string' ? it : (it && it.name), LIMIT.name);
       if (!name) return;
-      var qty = it && num(it.quantity);
+      /* `qty` IS WHAT THE PROMPT ASKS FOR. This read `quantity` only, so
+         every qty the model sent fell through to the default and "3 kg
+         Rice" was written down as "1 kg Rice" -- wrong, and silent,
+         which is the worst of the five. */
+      var qty = it && num(first(it, 'qty', 'quantity', 'amount'));
       kept.push({ itemName: name,
                   quantity: inRange(qty, 0.1, 999) ? qty : 1,
                   unit: str(it && it.unit, 12),
@@ -240,7 +344,9 @@
   };
 
   CHECK.food = function (a, problems) {
-    var src = a.meal || {};
+    /* `food` is what the prompt documents; `meal` is what the sentinel
+       parser in coach.html builds, and it is still live. Both land here. */
+    var src = a.food || a.meal || {};
     var SLOTS = { breakfast: 1, lunch: 1, dinner: 1, snack: 1 };
     var r = resolveFood(src, problems, 'the meal');
     if (!r) return null;
@@ -252,27 +358,31 @@
   };
 
   CHECK.cardio = function (a, problems) {
-    var src = a.session || {};
-    var name = str(src.name, LIMIT.name);
-    var min = num(src.minutes);
+    /* Same pair as food: `cardio` from the prompt, `session` from the
+       CARDIO sentinel block. Reading only the second refused every
+       cardio action a model sent by the book. */
+    var src = a.cardio || a.session || {};
+    var name = str(first(src, 'name', 'title', 'type'), LIMIT.name);
+    var min = num(first(src, 'minutes', 'mins', 'min', 'duration'));
     if (!name) { problems.push('a cardio session with no name'); return null; }
     if (!inRange(min, 1, LIMIT.minutes)) { problems.push('minutes between 1 and ' + LIMIT.minutes); return null; }
     var out = { kind: 'cardio', title: str(a.title, LIMIT.title) || name,
                 name: name, minutes: Math.round(min) };
-    var km = num(src.km);
+    var km = num(first(src, 'km', 'distance', 'distanceKm'));
     if (inRange(km, 0.1, LIMIT.km)) out.km = Math.round(km * 100) / 100;
     return out;
   };
 
   CHECK.instructions = function (a, problems) {
-    var text = str(a.text, LIMIT.text);
+    var text = str(first(a, 'text', 'instructions') ||
+                   (a.instructions && a.instructions.text), LIMIT.text);
     if (!text) { problems.push('empty instructions'); return null; }
     return { kind: 'instructions', title: str(a.title, LIMIT.title) || 'Update your coaching instructions',
              text: text };
   };
 
   CHECK.fact = function (a, problems) {
-    var text = str(a.text, LIMIT.note);
+    var text = str(first(a, 'text', 'fact') || (a.fact && a.fact.text), LIMIT.note);
     if (!text) { problems.push('an empty fact'); return null; }
     return { kind: 'fact', title: str(a.title, LIMIT.title) || 'Remember this', text: text };
   };

@@ -93,6 +93,7 @@ session-refresh|node session-refresh.mjs
 account-identity|node account-identity.mjs
 coach-brief|node coach-brief.mjs
 coach-flight|node coach-flight.mjs
+coach-vocab|node coach-vocab.mjs
 weigh-in-tenths|node weigh-in-tenths.mjs
 body-zoom|node body-zoom.mjs
 muscle-week|node muscle-week.mjs
