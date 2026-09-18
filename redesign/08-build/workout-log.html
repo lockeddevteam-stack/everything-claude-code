@@ -2355,6 +2355,24 @@
   }
 
   function paint() {
+    /* A PAINT MUST NOT LAND ON A LIFTED ROW.
+
+       LKPatch syncs attributes, and `style` is an attribute: the markup
+       it is handed carries no style, so the inline translate, scale and
+       z-index the drag wrote on the card get removed. The card snaps
+       back into its slot, the neighbours snap back too, and the drag
+       carries on writing transforms against geometry that no longer
+       describes anything on screen. The clock in this file calls paint()
+       once a second, so this was not a rare case -- it happened in the
+       middle of most drags.
+
+       v6 could not tell us about this: it had no reconciler, and the row
+       it dragged was position:fixed and out of the tree entirely. So the
+       repaint waits. Nothing on this screen is urgent enough to be worth
+       tearing a gesture for: the timers write their own text outside
+       paint, and the landing paints unconditionally, so whatever was
+       skipped here is on screen a moment later. */
+    if (DRAG) return;
     record();
     syncRest();
     persistRows();
@@ -3291,51 +3309,27 @@
     paint();
   });
 
-  document.addEventListener('pointerdown', function (ev) {
-    var grip = ev.target.closest ? ev.target.closest('[data-act="grip"]') : null;
-    if (!grip) return;
-    var index = Number(grip.getAttribute('data-ex'));
-    var startY = ev.clientY;
-    var moved = false;
-    function rectsNow() {
-      return [].slice.call(body.querySelectorAll('.exc')).map(function (nd) {
-        return nd.getBoundingClientRect();
-      });
-    }
-    var rects = rectsNow();
-    try { grip.setPointerCapture(ev.pointerId); } catch (e2) {}
+  /* THERE WAS A SECOND DRAG ON THIS SAME HANDLE, and it is gone.
 
-    function onMove(e2) {
-      if (!moved && Math.abs(e2.clientY - startY) < 6) return;
-      if (!moved) { moved = true; S.dragEx = index; S.liftedEx = -1; paint(); }
-      var target = index;
-      for (var k = 0; k < rects.length; k++) {
-        var c = rects[k].top + rects[k].height / 2;
-        if (k < index && e2.clientY < c) { target = k; break; }
-        if (k > index && e2.clientY > c) { target = k; }
-      }
-      if (target !== index && moveEx(index, target)) {
-        index = target;
-        S.dragEx = index;
-        paint();
-        rects = rectsNow();
-      }
-    }
-    function onUp() {
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
-      document.removeEventListener('pointercancel', onUp);
-      if (!moved) return;
-      dragEndedAt = Date.now();
-      S.dragEx = -1;
-      paint();
-      say(S.exercises[index].name + ' moved to position ' + (index + 1) +
-          ' of ' + S.exercises.length + '.');
-    }
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
-    document.addEventListener('pointercancel', onUp);
-  });
+     An older implementation lived here: it started on 6px of movement
+     with no hold, reordered the model on every midpoint crossing, and
+     called paint() each time. It was never removed when the hold-to-lift
+     drag below was written, so both were listening on the same grip at
+     the same time, and the older one won almost every gesture -- 6px is
+     less than the 10px that hands the hold back to the scroller, so any
+     drag that did not begin with the finger held perfectly still for
+     350ms got the old one: no lift, no gap, no spring, the list jumping
+     under the thumb a row at a time.
+
+     Worse, on the drags that did complete the hold, BOTH ran. The old
+     one's paint() stripped the inline translate, scale and z-index the
+     lifted card was carrying, because LKPatch syncs the style attribute
+     like any other and the markup does not declare one. That is what a
+     drag tearing mid-gesture looks like.
+
+     Everything it did is still here: the reorder gesture below, the
+     arrow buttons on the grip, and the keyboard move bar, all through
+     moveEx. */
 
   /* lk_prs comes in two shapes and both are real. The seed is a flat array of
      {exId, kg, reps, date}; once Progress has written, it is a map of exercise
@@ -3819,27 +3813,84 @@
     if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
     if (holdWatch) { document.removeEventListener('pointermove', holdWatch); holdWatch = null; }
   }
+
+  /* LETTING GO IS NOT THE SAME AS ARRIVING.
+
+     This used to drop every inline style in one frame, which put the
+     card in its new slot instantly. It reads as the app losing the card
+     and finding it somewhere else. v6 threw it to the slot on a spring
+     seeded with the speed the finger was going and only changed the
+     order once the card had stopped, and that is the difference the
+     owner is describing when he says the physics are gone.
+
+     The order here is: work out where the slot is, fly there, then move
+     the data and repaint. Repainting first would pull the card being
+     animated out from under the animation. */
   function endDrag(commit) {
     if (!DRAG) return;
     var d = DRAG; DRAG = null;
-    /* Through LKReorder, so the workout log cannot drift out of step with
-       the other three lists that do the same gesture. It clears `scale`
-       and `translate` too, which a hand-rolled reset here kept forgetting. */
-    d.cards.forEach(function (c) {
-      if (window.LKReorder) LKReorder.clear(c);
-      else { c.style.transition = ''; c.style.transform = ''; c.style.translate = '';
-             c.style.scale = ''; c.style.zIndex = ''; c.style.opacity = ''; }
-    });
-    S.dragEx = -1;
-    if (commit && d.to !== null && d.to !== d.from) {
-      var moved = S.exercises.splice(d.from, 1)[0];
-      var to = d.to > d.from ? d.to - 1 : d.to;
-      S.exercises.splice(to, 0, moved);
-      buzzSafe(12);
-      paint();
-      say(moved.name + ' moved to position ' + (to + 1) + '.');
-    } else {
-      paint();
+    if (d.stopEdge) d.stopEdge();
+    /* NOW, not when the spring finishes. The click that ends a drag lands
+       on the grip within the same tick as the pointerup, and the grip's
+       click handler opens the move bar; stamping this half a second later
+       from inside the landing is stamping it after the damage. */
+    dragEndedAt = Date.now();
+    var adj = d.to > d.from ? d.to - 1 : d.to;
+    var landed = commit && d.to !== null ? (adj - d.from) * d.h : 0;
+    var card = d.cards[d.from];
+
+    function settle() {
+      /* Through LKReorder, so the workout log cannot drift out of step with
+         the other three lists that do the same gesture. It clears `scale`
+         and `translate` too, which a hand-rolled reset here kept forgetting. */
+      d.cards.forEach(function (c) {
+        if (window.LKReorder) LKReorder.clear(c);
+        else { c.style.transition = ''; c.style.transform = ''; c.style.translate = '';
+               c.style.scale = ''; c.style.zIndex = ''; c.style.opacity = ''; }
+      });
+      S.dragEx = -1;
+      if (commit && d.to !== null && d.to !== d.from) {
+        var moved = S.exercises.splice(d.from, 1)[0];
+        S.exercises.splice(adj, 0, moved);
+        /* Lighter than the lift. Picking something up is an event; putting
+           it down is a confirmation, and v6 ticked 8 against the lift's
+           20. A drop that buzzes as hard as the lift feels like an error. */
+        buzzSafe(8);
+        paint();
+        say(moved.name + ' moved to position ' + (adj + 1) + '.');
+      } else {
+        paint();
+      }
+    }
+
+    if (!card || !window.LKReorder || !LKReorder.drop ||
+        Math.abs(d.dy - landed) < 0.5) { settle(); return; }
+    LKReorder.drop(card, d.dy, landed, d.v, settle);
+  }
+
+  /* Where the card sits and what it is now over, recomputed from the
+     finger and from the scroll position together. The boxes were read
+     once at the lift, in viewport coordinates, so once the list can
+     creep under the drag every one of them is out by however far it has
+     crept -- and the drop lands rows away from where it looks. */
+  function placeDrag(clientY) {
+    if (!DRAG) return;
+    var ds = DRAG.scroller ? DRAG.scroller.scrollTop - DRAG.s0 : 0;
+    var dy = clientY - DRAG.y0 + ds;
+    DRAG.dy = dy;
+    DRAG.cy = clientY;
+    var card = DRAG.cards[DRAG.from];
+    if (window.LKReorder) LKReorder.carry(card, dy);
+    var y = DRAG.boxes[DRAG.from].mid + dy;
+    var to = DRAG.boxes.length;
+    for (var i = 0; i < DRAG.boxes.length; i++) {
+      if (y < DRAG.boxes[i].mid) { to = i; break; }
+    }
+    if (to === DRAG.from + 1) to = DRAG.from;
+    if (to !== DRAG.to) {
+      if (DRAG.to !== null) buzzSafe(10);
+      DRAG.to = to;
+      if (window.LKReorder) LKReorder.layout(DRAG.cards, DRAG.from, to, DRAG.h);
     }
   }
 
@@ -3878,9 +3929,29 @@
         var b = c.getBoundingClientRect();
         return { mid: b.top + b.height / 2, h: b.height };
       });
-      DRAG = { from: e, to: e, y0: y0, cards: cards, boxes: boxes, h: boxes[e].h };
+      /* ONE SLOT, NOT ONE CARD. What a neighbour has to travel to take
+         over the gap is the card's height PLUS the space between cards.
+         Shifting by the height alone left every gap about eleven pixels
+         short, so the cards overlapped where the lifted one had been and
+         the gap you were aiming at was never quite open. */
+      var pitch = window.LKReorder && LKReorder.pitch
+        ? LKReorder.pitch(boxes, e) : boxes[e].h;
+      DRAG = { from: e, to: e, y0: y0, cards: cards, boxes: boxes, h: pitch,
+               dy: 0, v: 0, t: 0, cy: y0,
+               scroller: body, s0: body ? body.scrollTop : 0 };
       card.style.zIndex = '20';
-      buzzSafe(30);
+      /* v6 fired 30 and then 20 back to back from two different places,
+         and a second vibrate() call cancels the first -- so what the
+         shipped app's hand actually felt on a lift was the 20. */
+      buzzSafe(20);
+      /* A list longer than the screen could only be reordered inside one
+         screenful: there was nothing to carry a card past the bottom
+         edge. v6 crept the list and so does this. */
+      if (window.LKReorder && LKReorder.edgeScroll) {
+        DRAG.stopEdge = LKReorder.edgeScroll(body,
+          function () { return DRAG ? DRAG.cy : 0; },
+          function () { if (DRAG) placeDrag(DRAG.cy); });
+      }
     }, HOLD_MS);
   });
 
@@ -3958,20 +4029,19 @@
   document.addEventListener('pointermove', function (ev) {
     if (!DRAG) return;
     ev.preventDefault();
-    var dy = ev.clientY - DRAG.y0;
-    var card = DRAG.cards[DRAG.from];
-    if (window.LKReorder) LKReorder.carry(card, dy);
-    var y = DRAG.boxes[DRAG.from].mid + dy;
-    var to = DRAG.boxes.length;
-    for (var i = 0; i < DRAG.boxes.length; i++) {
-      if (y < DRAG.boxes[i].mid) { to = i; break; }
+    /* The speed the drop spring is seeded with, smoothed v6's way: three
+       parts of this sample to one of the running value. A raw
+       frame-to-frame delta off a finger that has just paused is noise,
+       and noise here throws the card across the list. */
+    var now = ev.timeStamp || Date.now();
+    var ds = DRAG.scroller ? DRAG.scroller.scrollTop - DRAG.s0 : 0;
+    var dy = ev.clientY - DRAG.y0 + ds;
+    if (DRAG.t) {
+      var dtm = Math.max(now - DRAG.t, 1);
+      DRAG.v = 0.75 * ((dy - DRAG.dy) / dtm * 1000) + 0.25 * DRAG.v;
     }
-    if (to === DRAG.from + 1) to = DRAG.from;
-    if (to !== DRAG.to) {
-      if (DRAG.to !== null) buzzSafe(10);
-      DRAG.to = to;
-      if (window.LKReorder) LKReorder.layout(DRAG.cards, DRAG.from, to, DRAG.h);
-    }
+    DRAG.t = now;
+    placeDrag(ev.clientY);
   });
 
   document.addEventListener('pointerup', function () {

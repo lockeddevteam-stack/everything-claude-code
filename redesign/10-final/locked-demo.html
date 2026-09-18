@@ -309,6 +309,12 @@
   /* ---- Durations and easings for things that are not motion. ---- */
   --dur-fast: 150ms;   /* state change on a control */
   --dur-slow: 300ms;   /* something entering or leaving */
+  /* THE REORDER CURVE, and it is its own token on purpose. Every other
+     motion in this app that moves something into place gets to overshoot
+     a little. A row opening a gap under a finger must not: whatever it
+     is doing when you let go is where you think the drop is going. This
+     is v6's, measured off a real drag -- 300ms, out, flat at the end. */
+  --reorder-ease: cubic-bezier(0.2, 0.7, 0.3, 1);
   --dur-cam: 420ms;    /* the body map's camera travelling to a muscle */
   --ease: cubic-bezier(0.2, 0, 0.2, 1);          /* standard */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);      /* decelerate, for exits */
@@ -5298,8 +5304,11 @@ img.avatar { object-fit: cover; background: var(--fill); }
 .exc--tab {
   /* --dur-quick and --spring-soft were never defined, so every one of
      these fell through to .18s ease. Real tokens, and on `translate`,
-     which is the property the drag now writes. */
-  transition: translate var(--dur-slow) var(--spring-bouncy);
+     which is the property the drag now writes.
+
+     The curve is v6's, and it is deliberately not the bouncy spring the
+     rest of the app uses for things arriving: see .is-lifting below. */
+  transition: translate 300ms var(--reorder-ease);
 }
 .exc--tab .exc__name {
   font-size: var(--type-15);
@@ -5396,12 +5405,28 @@ img.avatar { object-fit: cover; background: var(--fill); }
   animation: none !important;
   transition: none !important;
   z-index: 20;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28), 0 2px 6px rgba(0, 0, 0, 0.18);
+  /* v6's lift shadow, which is a good deal heavier than this was: it
+     threw it 16px down at 28px of blur and half black. A light shadow
+     reads as a row that has been highlighted; this one reads as a row
+     that has come off the page, and that is the whole job.
+
+     v6 drew it with filter: drop-shadow. This is a box-shadow instead,
+     to the same numbers: a filter makes the element a containing block,
+     which changes what position:fixed inside it means, and there are
+     inputs and popovers inside these cards. */
+  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.24);
 }
-/* Everything that is NOT under the finger moves on a spring that
-   overshoots, which is what makes the row look pushed rather than
-   repositioned. LKReorder writes the distance and the per-row delay. */
-.is-lifting { transition: translate var(--dur-slow) var(--spring-bouncy); }
+/* Everything that is NOT under the finger opens the gap on v6's curve:
+   300ms, ease out, NO OVERSHOOT.
+
+   It used to be --spring-bouncy, which overshoots by four and a half
+   percent. That is the right curve for something arriving on screen and
+   the wrong one here, because the gap you are aiming at keeps moving
+   after it has arrived -- you let go over a slot that is 3px from where
+   it will finally sit, and on a 60px row that is the difference between
+   a drop that looks placed and a drop that looks approximate. v6 had no
+   bounce in this and the lists it moved felt exact. */
+.is-lifting { transition: translate 300ms var(--reorder-ease); }
 @media (prefers-reduced-motion: reduce) {
   .is-lifting { animation: none; }
 }
@@ -17818,13 +17843,27 @@ var LB_PER_KG = 2.2046226218;
      makes a list like this unusable on a phone.
    - 10px of movement during that hold hands the gesture back to the
      scroller. A flick down a long list must never pick anything up.
-   - The held row lifts: scale 1.03, and it holds still.
+   - The held row lifts to scale 1.03 and holds still.
    - Everything else wiggles, because a thing that is wiggling is a thing
      you can move and every phone owner already knows that.
-   - The gap opens under the row on a spring as the drop target changes,
-     so you can see where it will land before you let go.
-   - A haptic tick on the lift, one on each swap, one on the drop. One per
-     swap, never one per frame.
+   - A row being pushed aside travels ONE SLOT, which is its own height
+     plus the gap between it and the next one, over 300ms on
+     cubic-bezier(0.2,0.7,0.3,1), and it does not overshoot.
+   - Near either edge of the scroller the list creeps: 100px of trigger
+     zone, 150ms of dwell before it engages, and a speed that ramps from
+     2px a frame at the edge of the zone to 14.5px a frame at the very
+     edge of the screen.
+   - The drop is a spring, not a cut: response 0.35, damping 1, seeded
+     with the speed the finger was travelling at, and the lift scale
+     bleeds off with the remaining distance so the row shrinks back into
+     the list as it lands.
+   - A haptic tick on the lift, one on each swap, a lighter one on the
+     drop. One per swap, never one per frame.
+
+   THESE NUMBERS WERE MEASURED, NOT REMEMBERED. They come off v6 driven
+   in a browser with a real drag and the transforms sampled frame by
+   frame, because a constant read out of v6's source is only what v6
+   intended and half of them were overridden somewhere else.
 
    WHAT THE HOST OWNS. This module does geometry and gesture; it never
    touches anybody's data. `move` is asked to change the model and say
@@ -17837,6 +17876,33 @@ var LB_PER_KG = 2.2046226218;
 
   var HOLD_MS = 350;
   var ESCAPE = 10;
+
+  /* v6's SPRING.snap, which is what its drop ran on. Response is the time
+     the thing would take to cross its target if it were not damped;
+     damping 1 means it never overshoots, so a row lands and stays landed
+     rather than wobbling into place. Measured off v6: a 63px drop takes
+     about 570ms to come to rest, and about 300ms of that is the part you
+     can see. */
+  var DROP_RESPONSE = 0.35;
+  var DROP_DAMPING = 1;
+  /* Below these it is at rest and the rAF loop would only be burning
+     frames to move a fraction of a pixel. v6's numbers. */
+  var DROP_STILL_V = 2;
+  var DROP_STILL_D = 0.5;
+  /* How much bigger the lifted row is, and the distance over which that
+     extra size bleeds off as it lands. */
+  var LIFT_SCALE = 0.03;
+  var LIFT_FADE_PX = 60;
+
+  /* The edge creep. 100px of zone measured in from each end of the
+     scroller; 150ms of sitting in it before anything moves, so brushing
+     past the edge on the way somewhere else does not drag the list with
+     you; then 2px a frame at the inside boundary rising to 14.5px at the
+     very edge. All four are v6's and all four were measured. */
+  var EDGE_ZONE = 100;
+  var EDGE_DWELL = 150;
+  var EDGE_BASE = 2;
+  var EDGE_DIV = 8;
 
   /* ---------------------------------------------------------------
      THE PHYSICS, in one place, because three surfaces drag the same
@@ -17852,41 +17918,57 @@ var LB_PER_KG = 2.2046226218;
      `translate` and `scale`, and they compose.
      --------------------------------------------------------------- */
 
-  /* Rows further from the drop point start later, so the list opens like
-     a row of objects being pushed rather than a block sliding. Capped,
-     or the far end of a long list is still settling after the drop. */
-  function delayFor(distance) {
-    return Math.min(Math.abs(distance), 5) * 16;
-  }
-
-  /* The row under the finger. No transition: it tracks the hand. */
-  function carry(el, dy) {
+  /* The row under the finger. No transition: it tracks the hand.
+     1.03, not 1.04. v6 lifted by three percent and the extra percent
+     reads as the row swelling rather than rising. */
+  function carry(el, dy, scale) {
     if (!el) return;
     el.style.transition = 'none';
     el.style.translate = '0 ' + dy + 'px';
-    el.style.scale = '1.04';
+    el.style.scale = String(scale == null ? 1 + LIFT_SCALE : scale);
   }
 
-  /* A row being pushed out of the way. */
-  function shift(el, px, distance) {
+  /* A row being pushed out of the way.
+
+     NO PER-ROW DELAY. This used to stagger the rows by 16ms each so the
+     list opened like a row of objects rather than a block. It looks good
+     in isolation and it is wrong in the hand: with the delay the row you
+     are about to drop onto is still moving when you let go, so the gap
+     you aimed at is not where the gap ends up. v6 moved every row at
+     once on one curve and that is what the drop lands against. */
+  function shift(el, px) {
     if (!el) return;
     el.style.transition = '';                 /* the class owns the curve */
-    el.style.transitionDelay = delayFor(distance) + 'ms';
+    el.style.transitionDelay = '';
     el.style.translate = px ? '0 ' + px + 'px' : '';
   }
 
   /* Back to nothing, on every property this module ever writes. Leaving
      `scale` behind is how a dropped row stayed 4% too big for the rest
-     of the session. */
+     of the session.
+
+     `transition: none` goes on FIRST and in the same style pass as the
+     reset. The class that opened the gap carries a 300ms curve on
+     `translate`, so without this every neighbour spends 300ms sliding
+     back to zero AFTER the host has already repainted the list in its
+     new order -- you see the list shuffle a second time, the wrong way.
+     v6 never had it because it killed the transition and the transform
+     in the same two lines. The curve is handed back a frame later so the
+     next drag still has it. */
   function clear(el) {
     if (!el) return;
-    el.style.transition = '';
+    el.style.transition = 'none';
     el.style.transitionDelay = '';
     el.style.translate = '';
     el.style.scale = '';
     el.style.transform = '';
     el.style.zIndex = '';
     el.style.opacity = '';
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(function () {
+        if (el.style && el.style.transition === 'none') el.style.transition = '';
+      });
+    }
   }
 
   /* Where each row sits given a drop target, so the two hosts cannot
@@ -17902,8 +17984,130 @@ var LB_PER_KG = 2.2046226218;
   function layout(rows, from, to, h) {
     rows.forEach(function (r, i) {
       if (i === from) return;
-      shift(r, shiftFor(i, from, to, h), i - to);
+      shift(r, shiftFor(i, from, to, h));
     });
+  }
+
+  /* ONE SLOT IS NOT ONE ROW. The distance a neighbour travels to take
+     over the gap is the pitch of the list -- row height plus the space
+     between rows -- and this shifted by the height alone, so every gap
+     opened about eleven pixels short and the rows ended up overlapping
+     where the lifted one used to be. v6 measured the real gap between
+     the first two rows, clamped it to something sane, and added it.
+
+     Falls back to the dragged row's own height when there is only one
+     row to look at, which is the case where nothing can move anyway. */
+  function pitch(boxes, from) {
+    var fallback = boxes[from] ? boxes[from].h : 0;
+    if (!boxes || boxes.length < 2) return fallback;
+    var a = boxes[0], b = boxes[1];
+    var gap = b.top - (a.top + a.h);
+    if (!(gap > 0) || gap >= 40) gap = 12;    /* v6's clamp and default */
+    return a.h + gap;
+  }
+
+  /* THE DROP IS A SPRING, NOT A CUT.
+
+     This is the whole complaint about the rebuild. v6 let go of the row
+     and it flew to its slot and settled; this dropped every inline
+     style in one frame and the row teleported. A teleport reads as the
+     app losing the object rather than putting it down.
+
+     Seeded with the speed the finger was going, so a row thrown down the
+     list carries on for a moment and a row placed carefully does not.
+     `to` and `from` are translate values on the row, not page
+     coordinates: the row never leaves the flow, so the slot it is headed
+     for is just a different translate. */
+  function drop(el, from, to, v0, done) {
+    if (!el) { if (done) done(); return function () {}; }
+    var omega = 2 * Math.PI / DROP_RESPONSE;
+    var k = omega * omega, c = 2 * DROP_DAMPING * omega;
+    var y = from, v = v0 || 0, last = null, raf = null, dead = false;
+    el.style.transition = 'none';
+    function step(ts) {
+      if (dead) return;
+      if (last == null) last = ts;
+      /* Capped, or a tab that was in the background for a second
+         integrates one enormous step and the row shoots off screen. */
+      var dt = Math.min((ts - last) / 1000, 0.064);
+      last = ts;
+      v += (-k * (y - to) - c * v) * dt;
+      y += v * dt;
+      if (Math.abs(v) < DROP_STILL_V && Math.abs(y - to) < DROP_STILL_D) {
+        dead = true;
+        if (done) done();
+        return;
+      }
+      el.style.translate = '0 ' + y + 'px';
+      el.style.scale = String(1 + LIFT_SCALE *
+        Math.min(1, Math.abs(y - to) / LIFT_FADE_PX));
+      raf = requestAnimationFrame(step);
+    }
+    raf = requestAnimationFrame(step);
+    return function cancel() {
+      dead = true;
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }
+
+  /* The nearest thing above this row that actually scrolls. Asked for
+     rather than configured, because three screens host this and each one
+     buries its list at a different depth. */
+  function scrollerFor(el) {
+    var n = el;
+    while (n && n.nodeType === 1) {
+      if (n.scrollHeight - n.clientHeight > 4) {
+        var oy = getComputedStyle(n).overflowY;
+        if (oy === 'auto' || oy === 'scroll') return n;
+      }
+      n = n.parentElement || (n.getRootNode && n.getRootNode().host) || null;
+    }
+    return null;
+  }
+
+  /* THE LIST CREEPS WHEN YOU REACH THE EDGE WITH IT.
+
+     Without this a list longer than the screen can only be reordered
+     within one screenful, which on the workout log means you cannot move
+     the last exercise to the front at all. `at` reports where the finger
+     is now; `tick` is called after each nudge so the host can recompute
+     its drop target against the list that just moved. Returns a stop. */
+  function edgeScroll(scroller, at, tick) {
+    if (!scroller) return function () {};
+    var raf = null, engaged = 0, dead = false;
+    /* HOW FAR IT IS ALLOWED TO GO, decided once, before anything moves.
+
+       v6 lifted its row out of the flow with position:fixed, so the list
+       it was scrolling never changed size. Here the row stays in the
+       flow and rides on a transform, and a transform counts towards the
+       scrollable area -- so dragging a card 300px down makes the
+       scroller 300px taller, which moves the bottom the creep is
+       chasing, which lets it creep further, which makes it taller again.
+       It runs away and never stops. The honest end of the list is where
+       it was when the row was picked up. */
+    var limit = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    function loop(ts) {
+      if (dead) return;
+      var box = scroller.getBoundingClientRect();
+      var y = at();
+      var dy = 0;
+      if (y > box.top && y < box.top + EDGE_ZONE) {
+        dy = -((EDGE_ZONE - (y - box.top)) / EDGE_DIV + EDGE_BASE);
+      } else if (y > box.bottom - EDGE_ZONE && y < box.bottom) {
+        dy = (y - (box.bottom - EDGE_ZONE)) / EDGE_DIV + EDGE_BASE;
+      }
+      if (dy !== 0) {
+        if (!engaged) engaged = ts;
+        if (ts - engaged > EDGE_DWELL) {
+          var was = scroller.scrollTop;
+          scroller.scrollTop = Math.max(0, Math.min(limit, was + Math.round(dy)));
+          if (scroller.scrollTop !== was && tick) tick();
+        }
+      } else engaged = 0;
+      raf = requestAnimationFrame(loop);
+    }
+    raf = requestAnimationFrame(loop);
+    return function stop() { dead = true; if (raf) cancelAnimationFrame(raf); };
   }
 
   function buzz(p) { try { if (g.navigator && navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
@@ -17941,15 +18145,32 @@ var LB_PER_KG = 2.2046226218;
 
     function clearStyles(rows) { rows.forEach(clear); }
 
+    /* LET GO, WATCH IT LAND, THEN CHANGE THE MODEL.
+
+       The order matters. Committing first and animating afterwards means
+       the host re-renders under a row that is still flying, and the row
+       it was animating is not on the page any more. v6 ran the spring on
+       the element that was already there and only touched the data once
+       it had stopped, which is also why its drop never flickered. */
     function end(commit) {
       if (!DRAG) return;
       var d = DRAG; DRAG = null;
-      clearStyles(d.rows);
-      if (commit && d.to !== null && d.to !== d.from && opts.move) {
-        var to = d.to > d.from ? d.to - 1 : d.to;
-        if (to !== d.from) { buzz(12); opts.move(d.from, to, d.item); }
+      if (d.stopEdge) d.stopEdge();
+      var el = d.rows[d.from];
+      var adj = d.to > d.from ? d.to - 1 : d.to;
+      var landed = commit && d.to !== null ? (adj - d.from) * d.h : 0;
+
+      function settle() {
+        clearStyles(d.rows);
+        if (commit && d.to !== null && d.to !== d.from && opts.move) {
+          if (adj !== d.from) { buzz(8); opts.move(d.from, adj, d.item); }
+        }
+        if (opts.lift) opts.lift(-1, null);
       }
-      if (opts.lift) opts.lift(-1, null);
+
+      /* Nothing to fly to, or the row is already there: put it down. */
+      if (!el || Math.abs(d.dy - landed) < DROP_STILL_D) { settle(); return; }
+      drop(el, d.dy, landed, d.v, settle);
     }
 
     function onDown(ev) {
@@ -17980,17 +18201,38 @@ var LB_PER_KG = 2.2046226218;
         var rows = rowsFor(live);
         if (!rows.length) { if (opts.lift) opts.lift(-1, null); return; }
         var boxes = measure(rows);
+        var scroller = opts.scroller ? opts.scroller(live) : scrollerFor(live);
         DRAG = { from: from, to: from, y0: y0, rows: rows, boxes: boxes,
-                 h: boxes[from] ? boxes[from].h : 0, item: live };
+                 h: pitch(boxes, from), item: live, dy: 0, v: 0, t: 0,
+                 scroller: scroller, s0: scroller ? scroller.scrollTop : 0,
+                 y: y0 };
         if (rows[from]) rows[from].style.zIndex = '20';
-        buzz(30);
+        DRAG.stopEdge = edgeScroll(scroller,
+          function () { return DRAG ? DRAG.y : 0; },
+          function () { if (DRAG) place(DRAG.y, 0); });
+        /* ONE BUZZ, 20ms. v6 fired 30 and then 20 back to back from two
+           different places, and a second vibrate() cancels the first --
+           so what the shipped app's hand actually felt was the 20. */
+        buzz(20);
       }, holdMs);
     }
 
-    function onMove(ev) {
+    /* Where the row goes and what it is now over. Called from the move
+       and from every nudge of the edge scroll, because a list that slid
+       under a finger that did not move is still a different list.
+
+       THE SCROLL OFFSET IS PART OF THE GEOMETRY. The boxes were read once,
+       in viewport coordinates, at the moment of the lift. As soon as the
+       list can scroll under the drag those numbers are only true relative
+       to where the scroller was then, so every comparison carries the
+       difference. Without it the row creeps to the bottom of a long list
+       and drops itself four places above where it is sitting. */
+    function place(clientY, dt) {
       if (!DRAG) return;
-      ev.preventDefault();
-      var dy = ev.clientY - DRAG.y0;
+      var ds = DRAG.scroller ? DRAG.scroller.scrollTop - DRAG.s0 : 0;
+      var dy = clientY - DRAG.y0 + ds;
+      DRAG.dy = dy;
+      DRAG.y = clientY;
       carry(DRAG.rows[DRAG.from], dy);
       var y = (DRAG.boxes[DRAG.from] ? DRAG.boxes[DRAG.from].mid : 0) + dy;
       var to = DRAG.boxes.length;
@@ -18002,6 +18244,24 @@ var LB_PER_KG = 2.2046226218;
       buzz(10);
       DRAG.to = to;
       layout(DRAG.rows, DRAG.from, to, DRAG.h);
+    }
+
+    function onMove(ev) {
+      if (!DRAG) return;
+      ev.preventDefault();
+      /* The speed the drop spring is seeded with. Smoothed the way v6
+         smoothed it -- three parts of this sample to one of the running
+         value -- because a raw frame-to-frame delta on a finger that has
+         paused is noise, and noise here throws the row. */
+      var now = ev.timeStamp || Date.now();
+      var dy = ev.clientY - DRAG.y0 +
+        (DRAG.scroller ? DRAG.scroller.scrollTop - DRAG.s0 : 0);
+      if (DRAG.t) {
+        var dtm = Math.max(now - DRAG.t, 1);
+        DRAG.v = 0.75 * ((dy - DRAG.dy) / dtm * 1000) + 0.25 * DRAG.v;
+      }
+      DRAG.t = now;
+      place(ev.clientY);
     }
 
     function onUp() { clearHold(); end(true); }
@@ -18023,7 +18283,11 @@ var LB_PER_KG = 2.2046226218;
 
   g.LKReorder = { attach: attach, HOLD_MS: HOLD_MS, ESCAPE: ESCAPE,
                   carry: carry, shift: shift, clear: clear,
-                  layout: layout, shiftFor: shiftFor, delayFor: delayFor };
+                  layout: layout, shiftFor: shiftFor, pitch: pitch,
+                  drop: drop, edgeScroll: edgeScroll,
+                  scrollerFor: scrollerFor,
+                  DROP_RESPONSE: DROP_RESPONSE, DROP_DAMPING: DROP_DAMPING,
+                  LIFT_SCALE: LIFT_SCALE, EDGE_ZONE: EDGE_ZONE };
 })(typeof window !== 'undefined' ? window : this);
 
 </script>
@@ -56611,6 +56875,24 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
   }
 
   function paint() {
+    /* A PAINT MUST NOT LAND ON A LIFTED ROW.
+
+       LKPatch syncs attributes, and `style` is an attribute: the markup
+       it is handed carries no style, so the inline translate, scale and
+       z-index the drag wrote on the card get removed. The card snaps
+       back into its slot, the neighbours snap back too, and the drag
+       carries on writing transforms against geometry that no longer
+       describes anything on screen. The clock in this file calls paint()
+       once a second, so this was not a rare case -- it happened in the
+       middle of most drags.
+
+       v6 could not tell us about this: it had no reconciler, and the row
+       it dragged was position:fixed and out of the tree entirely. So the
+       repaint waits. Nothing on this screen is urgent enough to be worth
+       tearing a gesture for: the timers write their own text outside
+       paint, and the landing paints unconditionally, so whatever was
+       skipped here is on screen a moment later. */
+    if (DRAG) return;
     record();
     syncRest();
     persistRows();
@@ -57547,51 +57829,27 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     paint();
   });
 
-  document.addEventListener('pointerdown', function (ev) {
-    var grip = ev.target.closest ? ev.target.closest('[data-act="grip"]') : null;
-    if (!grip) return;
-    var index = Number(grip.getAttribute('data-ex'));
-    var startY = ev.clientY;
-    var moved = false;
-    function rectsNow() {
-      return [].slice.call(body.querySelectorAll('.exc')).map(function (nd) {
-        return nd.getBoundingClientRect();
-      });
-    }
-    var rects = rectsNow();
-    try { grip.setPointerCapture(ev.pointerId); } catch (e2) {}
+  /* THERE WAS A SECOND DRAG ON THIS SAME HANDLE, and it is gone.
 
-    function onMove(e2) {
-      if (!moved && Math.abs(e2.clientY - startY) < 6) return;
-      if (!moved) { moved = true; S.dragEx = index; S.liftedEx = -1; paint(); }
-      var target = index;
-      for (var k = 0; k < rects.length; k++) {
-        var c = rects[k].top + rects[k].height / 2;
-        if (k < index && e2.clientY < c) { target = k; break; }
-        if (k > index && e2.clientY > c) { target = k; }
-      }
-      if (target !== index && moveEx(index, target)) {
-        index = target;
-        S.dragEx = index;
-        paint();
-        rects = rectsNow();
-      }
-    }
-    function onUp() {
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
-      document.removeEventListener('pointercancel', onUp);
-      if (!moved) return;
-      dragEndedAt = Date.now();
-      S.dragEx = -1;
-      paint();
-      say(S.exercises[index].name + ' moved to position ' + (index + 1) +
-          ' of ' + S.exercises.length + '.');
-    }
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
-    document.addEventListener('pointercancel', onUp);
-  });
+     An older implementation lived here: it started on 6px of movement
+     with no hold, reordered the model on every midpoint crossing, and
+     called paint() each time. It was never removed when the hold-to-lift
+     drag below was written, so both were listening on the same grip at
+     the same time, and the older one won almost every gesture -- 6px is
+     less than the 10px that hands the hold back to the scroller, so any
+     drag that did not begin with the finger held perfectly still for
+     350ms got the old one: no lift, no gap, no spring, the list jumping
+     under the thumb a row at a time.
+
+     Worse, on the drags that did complete the hold, BOTH ran. The old
+     one's paint() stripped the inline translate, scale and z-index the
+     lifted card was carrying, because LKPatch syncs the style attribute
+     like any other and the markup does not declare one. That is what a
+     drag tearing mid-gesture looks like.
+
+     Everything it did is still here: the reorder gesture below, the
+     arrow buttons on the grip, and the keyboard move bar, all through
+     moveEx. */
 
   /* lk_prs comes in two shapes and both are real. The seed is a flat array of
      {exId, kg, reps, date}; once Progress has written, it is a map of exercise
@@ -58075,27 +58333,84 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
     if (holdWatch) { document.removeEventListener('pointermove', holdWatch); holdWatch = null; }
   }
+
+  /* LETTING GO IS NOT THE SAME AS ARRIVING.
+
+     This used to drop every inline style in one frame, which put the
+     card in its new slot instantly. It reads as the app losing the card
+     and finding it somewhere else. v6 threw it to the slot on a spring
+     seeded with the speed the finger was going and only changed the
+     order once the card had stopped, and that is the difference the
+     owner is describing when he says the physics are gone.
+
+     The order here is: work out where the slot is, fly there, then move
+     the data and repaint. Repainting first would pull the card being
+     animated out from under the animation. */
   function endDrag(commit) {
     if (!DRAG) return;
     var d = DRAG; DRAG = null;
-    /* Through LKReorder, so the workout log cannot drift out of step with
-       the other three lists that do the same gesture. It clears `scale`
-       and `translate` too, which a hand-rolled reset here kept forgetting. */
-    d.cards.forEach(function (c) {
-      if (window.LKReorder) LKReorder.clear(c);
-      else { c.style.transition = ''; c.style.transform = ''; c.style.translate = '';
-             c.style.scale = ''; c.style.zIndex = ''; c.style.opacity = ''; }
-    });
-    S.dragEx = -1;
-    if (commit && d.to !== null && d.to !== d.from) {
-      var moved = S.exercises.splice(d.from, 1)[0];
-      var to = d.to > d.from ? d.to - 1 : d.to;
-      S.exercises.splice(to, 0, moved);
-      buzzSafe(12);
-      paint();
-      say(moved.name + ' moved to position ' + (to + 1) + '.');
-    } else {
-      paint();
+    if (d.stopEdge) d.stopEdge();
+    /* NOW, not when the spring finishes. The click that ends a drag lands
+       on the grip within the same tick as the pointerup, and the grip's
+       click handler opens the move bar; stamping this half a second later
+       from inside the landing is stamping it after the damage. */
+    dragEndedAt = Date.now();
+    var adj = d.to > d.from ? d.to - 1 : d.to;
+    var landed = commit && d.to !== null ? (adj - d.from) * d.h : 0;
+    var card = d.cards[d.from];
+
+    function settle() {
+      /* Through LKReorder, so the workout log cannot drift out of step with
+         the other three lists that do the same gesture. It clears `scale`
+         and `translate` too, which a hand-rolled reset here kept forgetting. */
+      d.cards.forEach(function (c) {
+        if (window.LKReorder) LKReorder.clear(c);
+        else { c.style.transition = ''; c.style.transform = ''; c.style.translate = '';
+               c.style.scale = ''; c.style.zIndex = ''; c.style.opacity = ''; }
+      });
+      S.dragEx = -1;
+      if (commit && d.to !== null && d.to !== d.from) {
+        var moved = S.exercises.splice(d.from, 1)[0];
+        S.exercises.splice(adj, 0, moved);
+        /* Lighter than the lift. Picking something up is an event; putting
+           it down is a confirmation, and v6 ticked 8 against the lift's
+           20. A drop that buzzes as hard as the lift feels like an error. */
+        buzzSafe(8);
+        paint();
+        say(moved.name + ' moved to position ' + (adj + 1) + '.');
+      } else {
+        paint();
+      }
+    }
+
+    if (!card || !window.LKReorder || !LKReorder.drop ||
+        Math.abs(d.dy - landed) < 0.5) { settle(); return; }
+    LKReorder.drop(card, d.dy, landed, d.v, settle);
+  }
+
+  /* Where the card sits and what it is now over, recomputed from the
+     finger and from the scroll position together. The boxes were read
+     once at the lift, in viewport coordinates, so once the list can
+     creep under the drag every one of them is out by however far it has
+     crept -- and the drop lands rows away from where it looks. */
+  function placeDrag(clientY) {
+    if (!DRAG) return;
+    var ds = DRAG.scroller ? DRAG.scroller.scrollTop - DRAG.s0 : 0;
+    var dy = clientY - DRAG.y0 + ds;
+    DRAG.dy = dy;
+    DRAG.cy = clientY;
+    var card = DRAG.cards[DRAG.from];
+    if (window.LKReorder) LKReorder.carry(card, dy);
+    var y = DRAG.boxes[DRAG.from].mid + dy;
+    var to = DRAG.boxes.length;
+    for (var i = 0; i < DRAG.boxes.length; i++) {
+      if (y < DRAG.boxes[i].mid) { to = i; break; }
+    }
+    if (to === DRAG.from + 1) to = DRAG.from;
+    if (to !== DRAG.to) {
+      if (DRAG.to !== null) buzzSafe(10);
+      DRAG.to = to;
+      if (window.LKReorder) LKReorder.layout(DRAG.cards, DRAG.from, to, DRAG.h);
     }
   }
 
@@ -58134,9 +58449,29 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
         var b = c.getBoundingClientRect();
         return { mid: b.top + b.height / 2, h: b.height };
       });
-      DRAG = { from: e, to: e, y0: y0, cards: cards, boxes: boxes, h: boxes[e].h };
+      /* ONE SLOT, NOT ONE CARD. What a neighbour has to travel to take
+         over the gap is the card's height PLUS the space between cards.
+         Shifting by the height alone left every gap about eleven pixels
+         short, so the cards overlapped where the lifted one had been and
+         the gap you were aiming at was never quite open. */
+      var pitch = window.LKReorder && LKReorder.pitch
+        ? LKReorder.pitch(boxes, e) : boxes[e].h;
+      DRAG = { from: e, to: e, y0: y0, cards: cards, boxes: boxes, h: pitch,
+               dy: 0, v: 0, t: 0, cy: y0,
+               scroller: body, s0: body ? body.scrollTop : 0 };
       card.style.zIndex = '20';
-      buzzSafe(30);
+      /* v6 fired 30 and then 20 back to back from two different places,
+         and a second vibrate() call cancels the first -- so what the
+         shipped app's hand actually felt on a lift was the 20. */
+      buzzSafe(20);
+      /* A list longer than the screen could only be reordered inside one
+         screenful: there was nothing to carry a card past the bottom
+         edge. v6 crept the list and so does this. */
+      if (window.LKReorder && LKReorder.edgeScroll) {
+        DRAG.stopEdge = LKReorder.edgeScroll(body,
+          function () { return DRAG ? DRAG.cy : 0; },
+          function () { if (DRAG) placeDrag(DRAG.cy); });
+      }
     }, HOLD_MS);
   });
 
@@ -58214,20 +58549,19 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
   document.addEventListener('pointermove', function (ev) {
     if (!DRAG) return;
     ev.preventDefault();
-    var dy = ev.clientY - DRAG.y0;
-    var card = DRAG.cards[DRAG.from];
-    if (window.LKReorder) LKReorder.carry(card, dy);
-    var y = DRAG.boxes[DRAG.from].mid + dy;
-    var to = DRAG.boxes.length;
-    for (var i = 0; i < DRAG.boxes.length; i++) {
-      if (y < DRAG.boxes[i].mid) { to = i; break; }
+    /* The speed the drop spring is seeded with, smoothed v6's way: three
+       parts of this sample to one of the running value. A raw
+       frame-to-frame delta off a finger that has just paused is noise,
+       and noise here throws the card across the list. */
+    var now = ev.timeStamp || Date.now();
+    var ds = DRAG.scroller ? DRAG.scroller.scrollTop - DRAG.s0 : 0;
+    var dy = ev.clientY - DRAG.y0 + ds;
+    if (DRAG.t) {
+      var dtm = Math.max(now - DRAG.t, 1);
+      DRAG.v = 0.75 * ((dy - DRAG.dy) / dtm * 1000) + 0.25 * DRAG.v;
     }
-    if (to === DRAG.from + 1) to = DRAG.from;
-    if (to !== DRAG.to) {
-      if (DRAG.to !== null) buzzSafe(10);
-      DRAG.to = to;
-      if (window.LKReorder) LKReorder.layout(DRAG.cards, DRAG.from, to, DRAG.h);
-    }
+    DRAG.t = now;
+    placeDrag(ev.clientY);
   });
 
   document.addEventListener('pointerup', function () {

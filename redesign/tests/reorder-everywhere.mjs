@@ -134,7 +134,13 @@ async function surface(name, screen, gripSel, itemSel, labelOf) {
     await page.waitForTimeout(16);
   }
   await page.mouse.up();
-  await page.waitForTimeout(500);
+  /* LONG ENOUGH FOR THE LANDING. Letting go no longer drops every inline
+     style in one frame: the row flies to its slot on v6's spring, which
+     for a drop of a row or two is about half a second of visible travel
+     and a little longer than that to come fully to rest. 500ms was
+     enough only because the drags here are short, which is not a thing
+     to depend on. */
+  await page.waitForTimeout(900);
 
   const after = await inScreen(screen, labelOf, itemSel);
   ok(before !== after, 'dragging it down changes the order',
