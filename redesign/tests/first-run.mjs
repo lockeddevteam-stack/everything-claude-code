@@ -145,7 +145,13 @@ page.on('console', (m) => {
 page.on('framenavigated', (f) => { if (f === page.mainFrame()) console.log('NAV', f.url().slice(0, 100)); });
 try { await page.goto(APP, { waitUntil: 'domcontentloaded', timeout: 20000 }); }
 catch (e) { console.log('GOTO FAILED:', e.message.split('\n')[0]); }
-await page.waitForFunction(() => window.DEMO && Object.keys(window.DEMO.screens).length > 0, null, { timeout: 9000 });
+/* Twenty seconds rather than nine, because this is the app LOADING and
+   the gate runs sixty-odd browsers at once. It failed here once under
+   that load and passed on its own a minute later, which is a bound set
+   for one browser on an idle machine, not a fault in the build. The
+   checks below still fail fast; only the wait for the first paint is
+   generous. */
+await page.waitForFunction(() => window.DEMO && Object.keys(window.DEMO.screens).length > 0, null, { timeout: 20000 });
 await page.waitForTimeout(900);
 
 const shown = () => page.evaluate(() => {
@@ -393,7 +399,13 @@ for (const r of ['home', 'train', 'fuel', 'progress', 'coach', 'profile']) {
 /* And it survives being closed. */
 errs.length = 0;
 await page.reload();
-await page.waitForFunction(() => window.DEMO && Object.keys(window.DEMO.screens).length > 0, null, { timeout: 9000 });
+/* Twenty seconds rather than nine, because this is the app LOADING and
+   the gate runs sixty-odd browsers at once. It failed here once under
+   that load and passed on its own a minute later, which is a bound set
+   for one browser on an idle machine, not a fault in the build. The
+   checks below still fail fast; only the wait for the first paint is
+   generous. */
+await page.waitForFunction(() => window.DEMO && Object.keys(window.DEMO.screens).length > 0, null, { timeout: 20000 });
 await page.waitForTimeout(1000);
 ok((await shown()) !== 'onboarding', 'reopening does not ask the reader to sign up again', await shown());
 const back = await raw('lk_history');

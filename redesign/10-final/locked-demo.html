@@ -39444,6 +39444,9 @@ DEMO.define("coach", function (document, window, location, fetch) {
 
   function reset(fresh) {
     clearTimers();
+    /* Anything still in the air was asked by the state being thrown away,
+       so its reply has nowhere to land. */
+    flight.length = 0;
     var st = window.LKStore;
     /* `fresh` is the dev switcher rebuilding a state from scratch; it must
        not read a person's stored answers back over the state it is showing. */
@@ -39615,6 +39618,10 @@ DEMO.define("coach", function (document, window, location, fetch) {
 
   var timers = [];
   function later(fn, ms) { timers.push(setTimeout(fn, ms)); }
+  /* The questions currently in the air, oldest first. One entry per
+     request, so a reply can be matched to the question that asked for it
+     rather than to a single screen-wide "thinking" flag. See askCoach. */
+  var flight = [];
   function clearTimers() { timers.forEach(clearTimeout); timers = []; }
 
   /* ---------------------------------------------------------------
@@ -39949,17 +39956,28 @@ DEMO.define("coach", function (document, window, location, fetch) {
      nothing, or toasted as though it had, would be the lie the limit is
      already bad enough without. */
   function limitCard(m) {
+    /* THE SERVER IS THE ONE THAT KNOWS THE CAP. It says "You've used your
+       10 daily AI chats", and that sentence is already in the bubble above
+       this card, where the card then contradicted it with "this hour's
+       messages" and "The window resets on the hour" -- two different caps
+       on two consecutive lines of the same reply. When the server has
+       spoken, this card does not restate the limit; it only adds a reset
+       time if one came with it.
+
+       The paragraph about billing and plans screens was written for
+       whoever was building this. It shipped to readers. It is gone. */
+    var reset = m.resetAt ? 'The next one is available at ' + esc(m.resetAt) + '.' : '';
+    var banner = m.serverSaid
+      ? (reset ? '<div class="banner banner--warn">' + ico('alert') +
+                   '<span><strong>The coach is capped</strong>' + reset + '</span></div>' : '')
+      : '<div class="banner banner--warn">' + ico('alert') +
+          '<span><strong>You have used this hour’s messages</strong>' +
+          (reset || 'The window resets on the hour.') + '</span></div>';
     return '<div class="card card--outline msg__attach" data-testid="limit-card">' +
-      '<div class="banner banner--warn">' + ico('alert') +
-        '<span><strong>You have used this hour’s messages</strong>' +
-        (m.resetAt ? 'The next one is available at ' + esc(m.resetAt) + '.'
-                   : 'The window resets on the hour.') + '</span></div>' +
+      banner +
       '<p class="t-detail mt-3">Nothing you wrote was lost, and nothing in your training was ' +
         'touched. Check-in, Plan and Setup all work while the coach is capped, ' +
         'and they are on this phone rather than behind the limit.</p>' +
-      '<p class="t-detail quiet mt-3" data-testid="limit-plans">A higher cap is a paid plan, ' +
-        'and this build has no billing, no account and no plans screen to send you to. ' +
-        'When subscriptions are connected this is where the plan and its cap belong.</p>' +
       '<button class="btn btn--secondary btn--block mt-3" data-act="view" data-view="checkin" ' +
         'data-testid="limit-checkin"><span class="btn__label">Do today’s check-in instead</span></button>' +
     '</div>';
@@ -40221,6 +40239,26 @@ DEMO.define("coach", function (document, window, location, fetch) {
     return { text: text.replace(/\n{3,}/g, '\n\n').trim(), actions: actions };
   }
 
+  /* IS THERE ANYTHING IN HERE THE PARSER ABOVE KNOWS? The gate that asks
+     this question looked only for ###SOMETHING_START###, and REMEMBER and
+     SHOPPING_ADD are the two markers in the protocol that do not end that
+     way. Their replies never reached the parser twenty lines up that reads
+     them perfectly well, so the screen printed
+     "Noted. ###REMEMBER### You train five days a week. ###/REMEMBER###"
+     at the reader, markers and all, and lost the action inside. Built off
+     the same BLOCKS list the parser walks, so the two cannot drift apart
+     again. (Nothing currently tells the model to emit sentinels at all;
+     this is belt and braces on a legacy protocol, not a foundation.) */
+  function hasSentinel(raw) {
+    var s = String(raw == null ? '' : raw);
+    if (s.indexOf('###REMEMBER###') >= 0 || s.indexOf('###SHOPPING_ADD###') >= 0) return true;
+    for (var i = 0; i < BLOCKS.length; i++) {
+      if (s.indexOf('###' + BLOCKS[i][0] + '_START###') >= 0) return true;
+    }
+    return false;
+  }
+  window.__coachHasSentinel = hasSentinel;
+
   /* The whole path from a raw model string. This is what the Worker's
      response will be handed to; the test hook drives the same function. */
   function receiveReply(raw) {
@@ -40411,7 +40449,8 @@ DEMO.define("coach", function (document, window, location, fetch) {
 
     var approve = v.kind === 'shopping'
       ? '<button class="btn ' + pri + ' btn--block mt-3" data-act="act-review" data-mi="' + mi + '" data-ai="' + ai + '" ' +
-          'data-testid="act-' + id + '-apply"><span class="btn__label">Review and add ' + a.items.length + ' items</span></button>'
+          'data-testid="act-' + id + '-apply"><span class="btn__label">Review and add ' + a.items.length + ' ' +
+            LKPlural(a.items.length, 'item') + '</span></button>'
       : '<button class="btn ' + pri + ' btn--block mt-3" data-act="act-apply" data-mi="' + mi + '" data-ai="' + ai + '" ' +
           'data-testid="act-' + id + '-apply"><span class="btn__label">' + esc(KIND_LABEL[v.kind]) + '</span></button>';
 
@@ -40589,7 +40628,6 @@ DEMO.define("coach", function (document, window, location, fetch) {
 
   function composer() {
     var c = S.chat;
-    var busy = c.status === 'thinking';
     /* A PICTURE IS A QUESTION TOO. "Does this look like good form", "what
        is in this", "is this bar loaded right" -- none of which could be
        asked of a coach that took words only. The photo attaches to the
@@ -40598,7 +40636,11 @@ DEMO.define("coach", function (document, window, location, fetch) {
 
        Sending needs one or the other, not both: a photo with no words is
        a perfectly good question. */
-    var canSend = !busy && (c.draft.trim() || c.photo);
+    /* Send is NOT gated on thinking. A second question while the first is
+       in the air is answered, in turn (see askCoach), so greying the
+       button here while the Enter key sent anyway meant the two controls
+       told the reader opposite things about the same action. */
+    var canSend = !!(c.draft.trim() || c.photo);
     var send = '<button class="composer__send" data-act="send" ' + (canSend ? '' : 'disabled ') +
       'aria-label="Send message" data-testid="composer-send">' + ico('send') + '</button>';
     var attach = '<label class="composer__attach" for="chat-photo" ' +
@@ -42238,13 +42280,167 @@ DEMO.define("coach", function (document, window, location, fetch) {
     /* A message with a photo and no words is still a message. The filter
        required text, so sending a picture on its own dropped the very
        turn that carried it and the coach was asked nothing. */
-    return S.chat.msgs.filter(function (m) { return !m.error && !m.limit && (m.text || m.image); })
-      .slice(-12)
-      .map(function (m) {
+    /* THE APP'S OWN WORDS ARE NOT THE COACH'S. Anything this file wrote
+       itself -- the error bubble, the limit bubble, "Stopped before I
+       answered.", "That answer came back empty. Ask again." -- is a
+       message ABOUT the conversation, not a turn in it. A probe caught
+       "That answer came back empty. Ask again." going back up the wire
+       as something the coach had said, which is how the model ends up
+       apologising for a sentence it never wrote. */
+    var live = S.chat.msgs.filter(function (m) {
+      return !m.error && !m.limit && !m.stopped && !m.appText && (m.text || m.image);
+    });
+    var win = live.slice(-12);
+    /* A TWELVE-ITEM TAIL LANDS ON THE WRONG FOOT. At send time the thread
+       is always [user, coach, ..., user], an odd number of turns, so from
+       the seventh question onward slice(-12) started on the coach and
+       Gemini refuses a leading model turn. One dropped turn is cheaper
+       than a rejected request. */
+    while (win.length && win[0].role !== 'user') win.shift();
+    return win.map(function (m) {
         var out = { role: m.role === 'user' ? 'user' : 'assistant', content: String(m.text || '') };
         if (m.image) out.image = m.image;
         return out;
       });
+  }
+
+  /* ---- MORE THAN ONE QUESTION CAN BE IN THE AIR ---------------------
+     The Send button greys itself while the coach is thinking, but the
+     Enter key never did, and the composer is the one place a person types
+     without looking up. So two questions reached the server, and only one
+     answer was ever drawn: there was no identity on a request, just the
+     single S.chat.status, and the FIRST reply to land set it to 'ready',
+     after which every other handler bailed out on
+     `if (S.chat.status !== 'thinking') return;`. A real answer, already
+     asked for and already paid for, went in the bin, and the second
+     question sat unanswered for ever with nothing on screen to say why.
+
+     THE DECISION: both questions get answered, in the order they were
+     asked. That is what the person did; refusing the second would mean
+     explaining why the thing they just typed does not count. Each request
+     takes a token and joins this queue. A reply lands only if its token is
+     still wanted, and it waits behind anything asked earlier, so the
+     thread reads the way the conversation happened rather than the way
+     the network happened to answer. Send is no longer greyed while
+     thinking, because it now does something, and Enter and the button
+     behave the same as each other. The queue itself is declared beside
+     the timers, above, because reset() has to empty it. */
+
+  /* A reply arrived for one request. Park it on its own token, then drain
+     from the front while the head is answered. A token that is no longer
+     in the queue was cancelled by Stop, and throwing its reply away is
+     the point. */
+  function settle(entry, run) {
+    if (flight.indexOf(entry) < 0) return;
+    entry.done = true;
+    entry.run = run;
+    while (flight.length && flight[0].done) flight.shift().run();
+    /* 'thinking' is not a flag somebody sets any more, it is whether
+       anything is still in the air. */
+    S.chat.status = flight.length ? 'thinking' : (S.chat.msgs.length ? 'ready' : 'empty');
+    render();
+  }
+
+  /* THE PAGE GOING AWAY IS NOT THE SERVER FAILING. Reloading mid-flight
+     rejects the in-flight fetch, and this used to push "The coach could
+     not be reached." and persist it in the dying moments of the page --
+     so somebody came back to a failure that never happened, about a
+     question the server had answered perfectly well. */
+  var leaving = false;
+  window.addEventListener('pagehide', function () { leaving = true; });
+  window.addEventListener('beforeunload', function () { leaving = true; });
+
+  /* EVERY ROUTE THAT ASKS THE COACH COMES THROUGH HERE. Continue after a
+     Stop, and both Try again buttons, used to go straight to replyFor() --
+     the canned demo prose compiled into this build -- even with a server
+     configured and reachable. Pressing Continue printed a paragraph about
+     "the lifts that are moving" that no model wrote and no server was
+     asked for, under the coach's name. A canned sentence dressed as
+     coaching is the worst thing this screen can do, so there is now one
+     door and it checks for a server first.
+
+     `canned` is the fallback for a build with NO server, where a screen
+     sitting on "thinking" for ever would be worse than one that plainly
+     answers from what is on the device. */
+  function askCoach(canned) {
+    var entry = { done: false, run: null };
+    flight.push(entry);
+    S.chat.status = 'thinking';
+    render();
+
+    if (window.LKCloud && LKCloud.coachReady()) {
+      LKCloud.ask(chatForServer(), serverContext()).then(function (r) {
+        /* A fetch cut off by the page unloading comes back here, not down
+           the rejection path: cloud.js catches it and resolves it as
+           { ok:false, error:'network' }. Either way, a failure caused by
+           the page going away is not a failure of the request, and it is
+           neither drawn nor persisted. See `leaving` above. */
+        if (leaving && !r.ok) return;
+        settle(entry, function () { landReply(r); });
+      }, function () {
+        if (leaving) return;
+        settle(entry, function () {
+          S.chat.msgs.push({ role: 'coach', time: nowClock(), error: true,
+            text: 'The coach could not be reached.' });
+          persistChat();
+        });
+      });
+      return;
+    }
+    /* NO SECOND DEADLINE LIVES IN THIS FILE. cloud.js's post() carries the
+       only one; a request it gives up on resolves as
+       { ok:false, error:'timeout' } with a sentence, and lands in the
+       !r.ok branch of landReply like any other refusal. A timer here as
+       well would mean two clocks disagreeing about the same request. */
+    later(function () { settle(entry, canned); }, 1400);
+  }
+
+  /* What the server said, once it is this request's turn to speak. */
+  function landReply(r) {
+    if (!r.ok) {
+      /* A request that gave up waiting arrives here too, carrying the
+         sentence post() wrote. The thinking line clears, the composer
+         comes back, and the question is still sitting in the thread with
+         Try again underneath the failure, which is what a person needs to
+         get out of it without retyping. */
+      S.chat.msgs.push({ role: 'coach', time: nowClock(), error: true,
+        text: r.message || 'The coach could not be reached. Nothing was sent anywhere else.' });
+      persistChat();
+      return;
+    }
+    var d = r.data || {};
+    if (d.gated) {
+      /* Whether the sentence is the server's own decides what the card
+         below it is allowed to claim about the cap. */
+      S.chat.msgs.push({ role: 'coach', time: nowClock(), limit: true,
+        serverSaid: !!d.reply,
+        text: d.reply || 'You have used today\u2019s free messages.' });
+      persistChat();
+      return;
+    }
+    /* Structured actions when the model sent them; the raw answer through
+       this screen's own parser when it did not. Either way every action
+       goes through LKCoachActions before it is drawn, and nothing is
+       applied on arrival.
+
+       THE RAW ANSWER IS NOT THE REPLY. This handed the raw text to the
+       marker parser whenever no action came back, and the raw text of a
+       structured answer is the envelope itself -- so a perfectly good
+       reply was printed into the bubble as {"reply":"...","actions":[]},
+       braces and all. The raw text is only worth reading when it carries
+       the older sentinel-marker protocol, which is the one thing the
+       parsed envelope cannot represent. */
+    if (d.actions && d.actions.length) { pushCoachActions(d.actions, d.reply); return; }
+    if (hasSentinel(d.raw)) { receiveReply(d.raw); return; }
+    if (d.reply) {
+      S.chat.msgs.push({ role: 'coach', time: nowClock(), text: d.reply });
+    } else {
+      /* This sentence is written here, not by any model, so it is marked
+         as the app's own and chatForServer keeps it out of the history. */
+      S.chat.msgs.push({ role: 'coach', time: nowClock(), appText: true,
+        text: 'That answer came back empty. Ask again.' });
+    }
+    persistChat();
   }
 
   function sendMessage(text) {
@@ -42259,73 +42455,15 @@ DEMO.define("coach", function (document, window, location, fetch) {
     /* Clearing the state is not enough: LKPatch deliberately keeps what a
        person has typed into a live field, which is right on every other
        render and wrong on this one. The field kept the sent message, so it
-       read as "it did not go", and the obvious recovery — tap send again —
+       read as "it did not go", and the obvious recovery -- tap send again --
        posted it twice. */
     var box = phone.querySelector('[data-testid="composer-input"]');
     if (box) box.value = '';
-    /* THE MODEL, WHEN THERE IS ONE. Everything below this -- the cards,
-       the previews, approve, undo -- was built and driven against a hand
-       written reply, because the one missing piece was something to
-       propose an action in the first place. This is that piece. The
-       canned path underneath is kept for a build with no server, where a
-       screen that sat on "thinking" for ever would be worse than one that
-       plainly answers from what it has. */
-    if (window.LKCloud && LKCloud.coachReady()) {
-      LKCloud.ask(chatForServer(), serverContext()).then(function (r) {
-        if (S.chat.status !== 'thinking') return;
-        S.chat.status = 'ready';
-        if (!r.ok) {
-          S.chat.msgs.push({ role: 'coach', time: nowClock(), error: true,
-            text: r.message || 'The coach could not be reached. Nothing was sent anywhere else.' });
-          persistChat(); render();
-          return;
-        }
-        var d = r.data || {};
-        if (d.gated) {
-          S.chat.msgs.push({ role: 'coach', time: nowClock(), limit: true,
-            text: d.reply || 'You have used today\u2019s free messages.' });
-          persistChat(); render();
-          return;
-        }
-        /* Structured actions when the model sent them; the raw answer
-           through this screen's own parser when it did not. Either way
-           every action goes through LKCoachActions before it is drawn,
-           and nothing is applied on arrival. */
-        /* THE RAW ANSWER IS NOT THE REPLY. This handed the raw text to
-           the marker parser whenever no action came back, and the raw
-           text of a structured answer is the envelope itself -- so a
-           perfectly good reply was printed into the bubble as
-           {"reply":"...","actions":[]}, braces and all. That is what
-           anybody on the live build saw for every plain answer.
 
-           The raw text is only worth reading when it carries the older
-           sentinel-marker protocol, which is the one thing the parsed
-           envelope cannot represent. */
-        if (d.actions && d.actions.length) { pushCoachActions(d.actions, d.reply); }
-        else if (/###[A-Z_]+_START###/.test(String(d.raw || ''))) { receiveReply(d.raw); }
-        else {
-          S.chat.status = 'ready';
-          S.chat.msgs.push({ role: 'coach', time: nowClock(),
-                             text: d.reply || 'That answer came back empty. Ask again.' });
-          persistChat();
-          render();
-        }
-      }, function () {
-        if (S.chat.status !== 'thinking') return;
-        S.chat.status = 'ready';
-        S.chat.msgs.push({ role: 'coach', time: nowClock(), error: true,
-          text: 'The coach could not be reached.' });
-        persistChat(); render();
-      });
-      return;
-    }
-
-    later(function () {
-      if (S.chat.status !== 'thinking') return;
+    askCoach(function () {
       /* A plan is built on the loads being hit, so it needs the training
          switch like any other answer that reads the log. */
       var wantsPlan = /plan|block|program/i.test(text) && permOn('training');
-      S.chat.status = 'ready';
       if (wantsPlan) {
         S.chat.offer = true;
         S.chat.offerSaved = false;
@@ -42335,8 +42473,7 @@ DEMO.define("coach", function (document, window, location, fetch) {
         S.chat.msgs.push({ role: 'coach', time: nowClock(), text: replyFor(text) });
       }
       persistChat();
-      render();
-    }, 1400);
+    });
   }
 
   /* A control that disables itself under the reader's finger drops focus to
@@ -42518,16 +42655,13 @@ DEMO.define("coach", function (document, window, location, fetch) {
       var q = null;
       for (var k = msgs.length - 1; k >= 0; k--) { if (msgs[k].role === 'user') { q = msgs[k].text; break; } }
       persistChat();
-      S.chat.status = 'thinking';
-      render();
-      later(function () {
-        if (S.chat.status !== 'thinking') return;
-        S.chat.status = 'ready';
-        S.chat.msgs.push({ role: 'coach', time: nowClock(),
-          text: replyFor(q || '') });
+      /* Asking again means asking the SERVER again when there is one. This
+         used to drop straight into replyFor(), so Try again on a real
+         conversation answered with demo prose. */
+      askCoach(function () {
+        S.chat.msgs.push({ role: 'coach', time: nowClock(), text: replyFor(q || '') });
         persistChat();
-        render();
-      }, 1200);
+      });
     },
     /* Empties the field. It kept the text, which every chat on the platform
        reads as "it did not send" — and the obvious recovery, tapping send
@@ -42546,7 +42680,11 @@ DEMO.define("coach", function (document, window, location, fetch) {
       render();
     },
     'stop': function () {
-      S.chat.status = 'ready';
+      /* Emptying the queue is what makes Stop mean stop: any reply still
+         on its way finds its token gone and is discarded rather than
+         printed under a message that says it was stopped. */
+      flight.length = 0;
+      S.chat.status = S.chat.msgs.length ? 'ready' : 'empty';
       /* A stopped reply is a stopped reply, and the thread says so with a way
          on. It used to leave nothing but a toast, so the only route forward
          was to retype the question. */
@@ -42562,15 +42700,14 @@ DEMO.define("coach", function (document, window, location, fetch) {
       for (var k = S.chat.msgs.length - 1; k >= 0; k--) {
         if (S.chat.msgs[k].role === 'user') { q = S.chat.msgs[k].text; break; }
       }
-      S.chat.status = 'thinking';
-      render();
-      later(function () {
-        if (S.chat.status !== 'thinking') return;
-        S.chat.status = 'ready';
+      /* CONTINUE MUST ASK. With a server configured and reachable this
+         went straight to replyFor(), sent nothing at all, and printed a
+         paragraph out of the build under the coach's name. Stop then
+         Continue is exactly when somebody is waiting on a real answer. */
+      askCoach(function () {
         S.chat.msgs.push({ role: 'coach', time: nowClock(), text: replyFor(q || '') });
         persistChat();
-        render();
-      }, 1200);
+      });
     },
     /* It copies. The handler toasted "Reply copied." and never touched the
        clipboard, so the one thing the button claims to do was the one thing
@@ -42608,16 +42745,18 @@ DEMO.define("coach", function (document, window, location, fetch) {
     'retry': function () {
       var last = S.chat.msgs[S.chat.msgs.length - 1];
       if (last && last.error) S.chat.msgs.pop();
-      S.chat.status = 'thinking';
-      render();
-      later(function () {
-        if (S.chat.status !== 'thinking') return;
-        S.chat.status = 'ready';
-        S.chat.msgs.push({ role: 'coach', time: nowClock(),
-          text: 'Four days at 7 hours of sleep and soreness at 3. Push tomorrow is fine, but drop the last set on every movement. Recovery is the limiter this week, not strength.' });
+      var q = null;
+      for (var k = S.chat.msgs.length - 1; k >= 0; k--) {
+        if (S.chat.msgs[k].role === 'user') { q = S.chat.msgs[k].text; break; }
+      }
+      persistChat();
+      /* The same door as everything else. This one answered with a fixed
+         sentence about seven hours of sleep whatever the question had
+         been, and whether or not there was a server to ask. */
+      askCoach(function () {
+        S.chat.msgs.push({ role: 'coach', time: nowClock(), text: replyFor(q || '') });
         persistChat();
-        render();
-      }, 1200);
+      });
     },
     /* The write. Saving here is what the Plan view then renders. */
     'save-plan': function () {
@@ -43187,7 +43326,7 @@ DEMO.define("coach", function (document, window, location, fetch) {
       var send = phone.querySelector('[data-testid="composer-send"]');
       /* A photo already attached is enough on its own, so the button
          must not re-disable itself as the last word is deleted. */
-      if (send) send.disabled = (!el.value.trim() && !S.chat.photo) || S.chat.status === 'thinking';
+      if (send) send.disabled = !el.value.trim() && !S.chat.photo;
       return;
     }
     if (el.getAttribute('data-act') === 'instr') {
