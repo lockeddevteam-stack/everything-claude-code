@@ -1209,4 +1209,82 @@
      and closes that trap for good. Anything structural still belongs in
      MIGRATIONS. */
   try { API.repair(); } catch (e) {}
+
+  /* =================================================================
+     LKPrescription — how many sets, how many reps, and how to say so.
+
+     A planned exercise in lk_splits had no sets and no reps anywhere.
+     The coach's gate checked them, the card printed "4 sets", and the
+     write dropped both, so a split lost its prescription the moment it
+     was saved. It is stored now, on the exercise row inside the day:
+     `{ id, name, group, muscle, sets, reps }`, where `sets` is a number
+     and `reps` is a STRING because "8-12" and "AMRAP" are prescriptions
+     as ordinary as 10 and neither of them is a number. Nothing does
+     arithmetic on a planned rep count; it is printed, and it seeds the
+     keypad the way last session's figure does.
+
+     AN ABSENT PRESCRIPTION IS A NORMAL STATE. Every split already on a
+     phone has exercises with neither field, and there is no migration
+     to give them one, because there is no honest guess at how somebody
+     else meant to train. So these three read leniently -- a number, a
+     numeric string, a range, a word, or nothing at all -- and return
+     null or '' for "not prescribed" rather than 0, which would be a
+     claim nobody made.
+
+     This is the READER's half. The gate in coach-actions.js has its own
+     stricter twin that refuses what it cannot read, because a model's
+     output has to be checked and a reader's own stored data has to be
+     tolerated. The two agree on the three canonical forms they emit:
+     "10", "8-12", "AMRAP".
+     ================================================================= */
+  var MAX_SETS = 10, MAX_REPS = 100;   /* the same bounds coach-actions.js uses */
+  var REPS_WORDS = { amrap: 'AMRAP', max: 'AMRAP', 'to failure': 'AMRAP', failure: 'AMRAP' };
+
+  function presSets(v) {
+    var x = typeof v === 'string' ? parseInt(v.replace(/[^0-9]/g, ''), 10) : v;
+    if (typeof x !== 'number' || !isFinite(x)) return null;
+    x = Math.round(x);
+    return x >= 1 && x <= MAX_SETS ? x : null;
+  }
+  function presReps(v) {
+    var t = typeof v === 'number' && isFinite(v) ? String(v) : typeof v === 'string' ? v : '';
+    t = t.replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!t) return '';
+    t = t.replace(/\breps?\b/g, '').replace(/\s+/g, ' ').trim();
+    if (!t) return '';
+    if (REPS_WORDS[t]) return REPS_WORDS[t];
+    t = t.replace(/\s*(?:to|\u2013|\u2014)\s*/g, '-').replace(/\s+/g, '');
+    var one = /^([0-9]+)\+?$/.exec(t);
+    if (one) { var n1 = parseInt(one[1], 10); return n1 >= 1 && n1 <= MAX_REPS ? String(n1) : ''; }
+    var span = /^([0-9]+)-([0-9]+)$/.exec(t);
+    if (span) {
+      var lo = parseInt(span[1], 10), hi = parseInt(span[2], 10);
+      if (!(lo >= 1 && lo <= MAX_REPS) || !(hi >= 1 && hi <= MAX_REPS) || lo > hi) return '';
+      return lo === hi ? String(lo) : lo + '-' + hi;
+    }
+    return '';
+  }
+  /* One line, in the order a lifter says it out loud: "4 x 8-12". Half a
+     prescription is still a prescription and is printed as the half it
+     is, because a day that says how many sets and not how many reps has
+     said something true. Nothing at all prints nothing, and the screens
+     fall back to the muscle name they showed before. */
+  function presText(sets, reps) {
+    var s2 = presSets(sets), r2 = presReps(reps);
+    if (s2 && r2) return s2 + ' \u00d7 ' + r2;
+    if (s2) return s2 + (s2 === 1 ? ' set' : ' sets');
+    if (r2) return /[0-9]/.test(r2) ? r2 + ' reps' : r2;
+    return '';
+  }
+  /* What a day prescribes for one lift, read off whichever of the two
+     stored day shapes it is in. A day held as `exIds: [111, 302]` has no
+     prescription to give and says so, which is the same answer as a
+     resolved day whose rows never carried one. */
+  function presOf(ex) {
+    if (!ex || typeof ex !== 'object') return { sets: null, reps: '' };
+    return { sets: presSets(ex.sets), reps: presReps(ex.reps) };
+  }
+
+  g.LKPrescription = { sets: presSets, reps: presReps, text: presText, of: presOf,
+                       MAX_SETS: MAX_SETS, MAX_REPS: MAX_REPS };
 })(typeof window !== 'undefined' ? window : this);

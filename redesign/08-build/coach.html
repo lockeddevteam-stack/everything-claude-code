@@ -1178,7 +1178,10 @@
     ['PROGRAM', 'json', function (j) { return { kind: 'split', title: j.title || j.name, split: {
         name: j.name, days: (j.days || []).map(function (d) {
           return { name: d.name, exercises: (d.exercises || d.lifts || []).map(function (e) {
-            return { id: e.id, name: e.name, sets: e.sets };
+            /* The reps too. The sentinel parser carried sets and stopped,
+               so a PROGRAM block that prescribed 4 x 8-12 arrived at the
+               gate as four sets of nothing. */
+            return { id: e.id, name: e.name, sets: e.sets, reps: e.reps };
           }) };
         }) } }; }],
     ['RECIPE', 'json', function (j) { return { kind: 'recipe', title: j.name, recipe: {
@@ -1305,7 +1308,15 @@
               '<span class="row__sub">' + n(d.exercises.length) +
               (d.exercises.length === 1 ? ' lift' : ' lifts') + '</span></span></div>' +
             d.exercises.map(function (e) {
-              return lineRow(esc(e.name), n(e.sets) + ' ' + LKPlural(e.sets, 'set') + ' &middot; ' + esc(e.muscle || e.group || ''));
+              /* WHAT THE CARD PROMISES IS WHAT GETS SAVED. It said "4 sets"
+                 and nothing about reps, which was honest only because reps
+                 was being thrown away. Now that both are stored, both are
+                 shown: "4 x 8-12" when there is a rep prescription, "4
+                 sets" when the coach only said how many. */
+              var pres = e.reps
+                ? n(e.sets) + ' \u00d7 ' + esc(e.reps)
+                : n(e.sets) + ' ' + LKPlural(e.sets, 'set');
+              return lineRow(esc(e.name), pres + ' &middot; ' + esc(e.muscle || e.group || ''));
             }).join('') +
           '</div>';
         }).join('') +

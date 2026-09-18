@@ -98,6 +98,7 @@ weigh-in-tenths|node weigh-in-tenths.mjs
 body-zoom|node body-zoom.mjs
 muscle-week|node muscle-week.mjs
 split-writeback|node split-writeback.mjs
+split-prescription|node split-prescription.mjs
 pick-body|node pick-body.mjs
 addex-body|node addex-body.mjs
 input-feel|node input-feel.mjs

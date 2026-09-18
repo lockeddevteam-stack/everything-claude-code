@@ -5659,6 +5659,31 @@ textarea,
 /* The step toggle under it: how much one click of the bezel is worth. */
 .dial__steps { display: flex; justify-content: center; gap: var(--sp-2); margin-top: var(--sp-3); }
 
+/* THE PRESCRIPTION ON AN EXERCISE ROW.
+
+   A planned lift in a split had no sets and no reps anywhere in the app,
+   so there was nothing to show and no way to type one. It is two small
+   fields beside each other, in the order a lifter says it out loud --
+   four by eight to twelve -- sitting where .row__sub sits, because a
+   prescription is part of what the row IS rather than a panel about it.
+
+   Both fields keep the full tap height: they are the smallest controls
+   on the screen and shrinking them would be the first place a thumb
+   misses. Widths are in ch so "AMRAP" and "8-12" both fit without the
+   pair growing wide enough to push the delete button off the row. */
+.presc { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2); }
+.presc .input {
+  width: auto;
+  min-width: var(--tap);
+  padding-left: var(--sp-2);
+  padding-right: var(--sp-2);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.presc__sets { width: 5ch; }
+.presc__reps { width: 9ch; }
+.presc__x { flex: none; color: var(--text-tertiary); font-size: var(--type-13); line-height: var(--lh-13); }
+
 
 </style>
 <style id="demo-chrome-css">
@@ -17551,6 +17576,84 @@ textarea,
      and closes that trap for good. Anything structural still belongs in
      MIGRATIONS. */
   try { API.repair(); } catch (e) {}
+
+  /* =================================================================
+     LKPrescription — how many sets, how many reps, and how to say so.
+
+     A planned exercise in lk_splits had no sets and no reps anywhere.
+     The coach's gate checked them, the card printed "4 sets", and the
+     write dropped both, so a split lost its prescription the moment it
+     was saved. It is stored now, on the exercise row inside the day:
+     `{ id, name, group, muscle, sets, reps }`, where `sets` is a number
+     and `reps` is a STRING because "8-12" and "AMRAP" are prescriptions
+     as ordinary as 10 and neither of them is a number. Nothing does
+     arithmetic on a planned rep count; it is printed, and it seeds the
+     keypad the way last session's figure does.
+
+     AN ABSENT PRESCRIPTION IS A NORMAL STATE. Every split already on a
+     phone has exercises with neither field, and there is no migration
+     to give them one, because there is no honest guess at how somebody
+     else meant to train. So these three read leniently -- a number, a
+     numeric string, a range, a word, or nothing at all -- and return
+     null or '' for "not prescribed" rather than 0, which would be a
+     claim nobody made.
+
+     This is the READER's half. The gate in coach-actions.js has its own
+     stricter twin that refuses what it cannot read, because a model's
+     output has to be checked and a reader's own stored data has to be
+     tolerated. The two agree on the three canonical forms they emit:
+     "10", "8-12", "AMRAP".
+     ================================================================= */
+  var MAX_SETS = 10, MAX_REPS = 100;   /* the same bounds coach-actions.js uses */
+  var REPS_WORDS = { amrap: 'AMRAP', max: 'AMRAP', 'to failure': 'AMRAP', failure: 'AMRAP' };
+
+  function presSets(v) {
+    var x = typeof v === 'string' ? parseInt(v.replace(/[^0-9]/g, ''), 10) : v;
+    if (typeof x !== 'number' || !isFinite(x)) return null;
+    x = Math.round(x);
+    return x >= 1 && x <= MAX_SETS ? x : null;
+  }
+  function presReps(v) {
+    var t = typeof v === 'number' && isFinite(v) ? String(v) : typeof v === 'string' ? v : '';
+    t = t.replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!t) return '';
+    t = t.replace(/\breps?\b/g, '').replace(/\s+/g, ' ').trim();
+    if (!t) return '';
+    if (REPS_WORDS[t]) return REPS_WORDS[t];
+    t = t.replace(/\s*(?:to|\u2013|\u2014)\s*/g, '-').replace(/\s+/g, '');
+    var one = /^([0-9]+)\+?$/.exec(t);
+    if (one) { var n1 = parseInt(one[1], 10); return n1 >= 1 && n1 <= MAX_REPS ? String(n1) : ''; }
+    var span = /^([0-9]+)-([0-9]+)$/.exec(t);
+    if (span) {
+      var lo = parseInt(span[1], 10), hi = parseInt(span[2], 10);
+      if (!(lo >= 1 && lo <= MAX_REPS) || !(hi >= 1 && hi <= MAX_REPS) || lo > hi) return '';
+      return lo === hi ? String(lo) : lo + '-' + hi;
+    }
+    return '';
+  }
+  /* One line, in the order a lifter says it out loud: "4 x 8-12". Half a
+     prescription is still a prescription and is printed as the half it
+     is, because a day that says how many sets and not how many reps has
+     said something true. Nothing at all prints nothing, and the screens
+     fall back to the muscle name they showed before. */
+  function presText(sets, reps) {
+    var s2 = presSets(sets), r2 = presReps(reps);
+    if (s2 && r2) return s2 + ' \u00d7 ' + r2;
+    if (s2) return s2 + (s2 === 1 ? ' set' : ' sets');
+    if (r2) return /[0-9]/.test(r2) ? r2 + ' reps' : r2;
+    return '';
+  }
+  /* What a day prescribes for one lift, read off whichever of the two
+     stored day shapes it is in. A day held as `exIds: [111, 302]` has no
+     prescription to give and says so, which is the same answer as a
+     resolved day whose rows never carried one. */
+  function presOf(ex) {
+    if (!ex || typeof ex !== 'object') return { sets: null, reps: '' };
+    return { sets: presSets(ex.sets), reps: presReps(ex.reps) };
+  }
+
+  g.LKPrescription = { sets: presSets, reps: presReps, text: presText, of: presOf,
+                       MAX_SETS: MAX_SETS, MAX_REPS: MAX_REPS };
 })(typeof window !== 'undefined' ? window : this);
 
 </script>
@@ -19280,7 +19383,12 @@ window.LK_CLOUD = {
        those, but the model is taught exactly one vocabulary: the one
        below. Anything documented here is what check() reads first. */
     'Each action is one of:',
-    '{"kind":"split","split":{"name":"","days":[{"name":"","exercises":[{"id":0,"name":"","sets":0,"reps":0}]}]}}',
+    /* REPS IS A STRING, and the prompt says so, because "8-12" is a rep
+       prescription as often as 10 is and the app stores what was actually
+       prescribed. It documented `"reps":0`, which taught the model to send
+       a number for something that frequently is not one -- and the gate
+       then dropped the field entirely, so nothing about it was ever true. */
+    '{"kind":"split","split":{"name":"","days":[{"name":"","exercises":[{"id":0,"name":"","sets":0,"reps":"8-12"}]}]}}',
     '{"kind":"goal","goal":{"title":"","target":0,"unit":"","by":"YYYY-MM-DD"}}',
     '{"kind":"recipe","recipe":{"name":"","servings":1,"items":[{"name":"","grams":0}],"steps":[""]}}',
     '{"kind":"shopping","items":[{"name":"","qty":1,"unit":""}]}',
@@ -21447,6 +21555,62 @@ window.LK_CLOUD = {
   }
   function inRange(v, lo, hi) { return v !== null && v >= lo && v <= hi; }
 
+  /* ---- A PRESCRIPTION, AND WHY REPS IS A STRING -------------------
+     A planned exercise had no sets and no reps anywhere in the app. The
+     model was told to send them, this gate kept `sets` and dropped
+     `reps` on the floor, and APPLY.split then wrote neither -- so a
+     split the coach wrote lost its prescription on the way to storage
+     and every screen showed a day as a bare list of lift names.
+
+     SETS IS A NUMBER because sets are counted: the workout log lays out
+     that many rows, so it has to be an integer and it is bounded by
+     LIMIT.sets, the same 1 to 10 this file already used.
+
+     REPS IS A STRING. A real prescription is "8-12" or "AMRAP" at least
+     as often as it is 10, and a number cannot hold either. Nothing in
+     the app does arithmetic on a planned rep count -- it is printed on
+     the builder row and on the coach's card, and it seeds the keypad
+     the way last session's figure does -- so storing what was actually
+     prescribed costs nothing and rounding it to a single integer would
+     throw away the half of it that says how hard the set is meant to
+     be. Where a number IS wanted (seeding the pad) it is parsed at the
+     point of use, and a prescription that is not a plain number simply
+     leaves the pad blank rather than inventing one.
+
+     What comes out is one of three canonical forms: "10", "8-12", or
+     "AMRAP". What goes in can be a number, "10 reps", "8 to 12", an en
+     dash, "max" or "to failure", because that is the spread of things a
+     model actually sends when asked for a rep range. Anything else is
+     REFUSED by name rather than dropped, for the reason this whole
+     field exists: a prescription that disappears without a word is the
+     bug being fixed here, and doing it again in a new place would be
+     worse than saying "I could not read that".
+
+     Absent is not an error. A day with no prescription is a normal day
+     -- every split already on a phone is one -- so an exercise that
+     carries no reps at all carries none, and the screens read that as
+     "not prescribed" rather than as zero. */
+  var REPS_WORDS = { amrap: 'AMRAP', max: 'AMRAP', 'to failure': 'AMRAP', failure: 'AMRAP' };
+  function normReps(v) {
+    var s = typeof v === 'number' && isFinite(v) ? String(v)
+          : typeof v === 'string' ? v : '';
+    s = s.replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!s) return '';
+    s = s.replace(/\breps?\b/g, '').replace(/\s+/g, ' ').trim();
+    if (!s) return '';
+    if (REPS_WORDS[s]) return REPS_WORDS[s];
+    s = s.replace(/\s*(?:to|\u2013|\u2014)\s*/g, '-').replace(/\s+/g, '');
+    var one = /^(\d+)\+?$/.exec(s);
+    if (one) return inRange(num(one[1]), 1, LIMIT.reps) ? String(num(one[1])) : null;
+    var span = /^(\d+)-(\d+)$/.exec(s);
+    if (span) {
+      var lo = num(span[1]), hi = num(span[2]);
+      if (!inRange(lo, 1, LIMIT.reps) || !inRange(hi, 1, LIMIT.reps) || lo > hi) return null;
+      return lo === hi ? String(lo) : lo + '-' + hi;
+    }
+    return null;
+  }
+
   /* ---- ONE VOCABULARY, SPELT TWO WAYS -----------------------------
      The system prompt in cloud.js tells the model to send goal.title,
      food.protein, items[].qty, items[].grams, a "cardio" object and a
@@ -21531,8 +21695,22 @@ window.LK_CLOUD = {
     }
     /* The catalogue's name wins over the model's. A right id under a wrong
        name is the failure that is hardest to see afterwards. */
-    return { id: hit.id, name: hit.name, group: hit.group, muscle: hit.muscle,
-             sets: inRange(num(e.sets), 1, LIMIT.sets) ? Math.round(num(e.sets)) : 3 };
+    /* The sets default of 3 is the one this file already shipped and the
+       one the workout log already lays out when a day says nothing, so a
+       model that sends no sets changes nothing about what anybody sees.
+       Reps has no such default: there is no honest guess at how many
+       reps somebody else meant, so a lift with none is simply not
+       prescribed reps. */
+    var out = { id: hit.id, name: hit.name, group: hit.group, muscle: hit.muscle,
+                sets: inRange(num(e.sets), 1, LIMIT.sets) ? Math.round(num(e.sets)) : 3 };
+    var r = normReps(first(e, 'reps', 'rep', 'repRange', 'reps_range'));
+    if (r === null) {
+      problems.push(where + ': "' + str(String(e.reps == null ? '' : e.reps), 20) +
+        '" is not a rep count, a range like 8-12, or AMRAP');
+      return null;
+    }
+    if (r) out.reps = r;
+    return out;
   }
 
   /* ---- the food table ---------------------------------------------- */
@@ -21818,7 +21996,16 @@ window.LK_CLOUD = {
                   days: a.days.map(function (d) {
                     return { name: d.name, blocks: [],
                              exercises: d.exercises.map(function (e) {
-                               return { id: e.id, name: e.name, group: e.group, muscle: e.muscle };
+                               /* THE PRESCRIPTION REACHES STORAGE. This wrote
+                                  four fields and stopped, so the sets the gate
+                                  had just checked and the reps it had just read
+                                  were thrown away one line before they would
+                                  have been saved. Reps is only written when
+                                  there is one: absent means not prescribed. */
+                               var row = { id: e.id, name: e.name, group: e.group,
+                                           muscle: e.muscle, sets: e.sets };
+                               if (e.reps) row.reps = e.reps;
+                               return row;
                              }) };
                   }) };
       all.unshift(rec);
@@ -40447,7 +40634,10 @@ DEMO.define("coach", function (document, window, location, fetch) {
     ['PROGRAM', 'json', function (j) { return { kind: 'split', title: j.title || j.name, split: {
         name: j.name, days: (j.days || []).map(function (d) {
           return { name: d.name, exercises: (d.exercises || d.lifts || []).map(function (e) {
-            return { id: e.id, name: e.name, sets: e.sets };
+            /* The reps too. The sentinel parser carried sets and stopped,
+               so a PROGRAM block that prescribed 4 x 8-12 arrived at the
+               gate as four sets of nothing. */
+            return { id: e.id, name: e.name, sets: e.sets, reps: e.reps };
           }) };
         }) } }; }],
     ['RECIPE', 'json', function (j) { return { kind: 'recipe', title: j.name, recipe: {
@@ -40574,7 +40764,15 @@ DEMO.define("coach", function (document, window, location, fetch) {
               '<span class="row__sub">' + n(d.exercises.length) +
               (d.exercises.length === 1 ? ' lift' : ' lifts') + '</span></span></div>' +
             d.exercises.map(function (e) {
-              return lineRow(esc(e.name), n(e.sets) + ' ' + LKPlural(e.sets, 'set') + ' &middot; ' + esc(e.muscle || e.group || ''));
+              /* WHAT THE CARD PROMISES IS WHAT GETS SAVED. It said "4 sets"
+                 and nothing about reps, which was honest only because reps
+                 was being thrown away. Now that both are stored, both are
+                 shown: "4 x 8-12" when there is a rep prescription, "4
+                 sets" when the coach only said how many. */
+              var pres = e.reps
+                ? n(e.sets) + ' \u00d7 ' + esc(e.reps)
+                : n(e.sets) + ' ' + LKPlural(e.sets, 'set');
+              return lineRow(esc(e.name), pres + ' &middot; ' + esc(e.muscle || e.group || ''));
             }).join('') +
           '</div>';
         }).join('') +
@@ -44574,6 +44772,16 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
                       the same exercises the rest of the app knows. */
                    row.exId = e.id;
                    row.group = e.group || '';
+                   /* THE PRESCRIPTION COMES IN WITH THE LIFT. Opening the
+                      builder on a split the coach wrote and being shown the
+                      lifts with no sets and no reps would lose the
+                      prescription on the next save, which is how it was lost
+                      in the first place. Held as the typed text, because
+                      these are two fields somebody is in the middle of
+                      editing; they are read back through LKPrescription when
+                      the split is written. */
+                   row.sets = e.sets == null ? '' : String(e.sets);
+                   row.reps = e.reps == null ? '' : String(e.reps);
                    return row;
                  }) };
       })
@@ -44773,6 +44981,39 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
   /* At rest an exercise is a line of text. The only way to destroy one is
      the iOS way: swipe it left, which reveals exactly one red button and
      leaves an Undo behind. In Edit the row grows a handle and a delete. */
+  /* "Mid Chest \u00b7 4 \u00d7 8-12", or just the muscle where the day says
+     nothing about how to train the lift. A day with no prescription is the
+     ordinary case -- every split already on a phone is one -- so nothing is
+     printed rather than a zero, which would be a claim nobody made. */
+  function presSub(x) {
+    var P = window.LKPrescription;
+    var t = P ? P.text(x.sets, x.reps) : '';
+    var mus = x.muscle || '';
+    if (!t) return esc(mus);
+    return (mus ? esc(mus) + ' \u00b7 ' : '') +
+      '<span data-num data-testid="ex-presc-' + x.id + '">' + esc(t) + '</span>';
+  }
+
+  /* The two fields, in Edit. Sets is a count and reps is text, because a
+     prescription is "8-12" or "AMRAP" at least as often as it is 10 and a
+     number input cannot hold either. Both are free text as they are typed
+     and are read back through LKPrescription on save, so a half-typed "8-"
+     is not rewritten under the caret. */
+  function presFields(x, day) {
+    var who = esc(x.name) + ' in ' + esc(day.name);
+    return '<div class="presc">' +
+      '<input class="input presc__sets" type="text" inputmode="numeric" ' +
+        'value="' + esc(x.sets || '') + '" placeholder="Sets" ' +
+        'data-testid="ex-sets-' + x.id + '" data-action="ex-sets" data-id="' + x.id +
+        '" data-day="' + day.id + '" aria-label="Sets of ' + who + '">' +
+      '<span class="presc__x" aria-hidden="true">\u00d7</span>' +
+      '<input class="input presc__reps" type="text" ' +
+        'value="' + esc(x.reps || '') + '" placeholder="Reps" ' +
+        'data-testid="ex-reps-' + x.id + '" data-action="ex-reps" data-id="' + x.id +
+        '" data-day="' + day.id + '" aria-label="Reps of ' + who + '">' +
+    '</div>';
+  }
+
   function exerciseRow(x, day, i, n) {
     var m = S.manual;
     if (!m.edit) {
@@ -44785,7 +45026,7 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
           '<div class="row">' +
             '<div class="row__main">' +
               '<div class="row__title">' + esc(x.name) + '</div>' +
-              '<div class="row__sub">' + esc(x.muscle) + '</div>' +
+              '<div class="row__sub">' + presSub(x) + '</div>' +
             '</div>' +
           '</div>' +
         '</div>' +
@@ -44801,6 +45042,7 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
       '<div class="row__main">' +
         '<div class="row__title">' + esc(x.name) + '</div>' +
         '<div class="row__sub">' + esc(x.muscle) + '</div>' +
+        presFields(x, day) +
       '</div>' +
       '<button class="iconbtn iconbtn--danger-quiet" data-testid="ex-remove-' + x.id + '" data-action="ex-remove" data-id="' + x.id +
         '" data-day="' + day.id + '" aria-label="Remove ' + esc(x.name) + ' from ' + esc(day.name) + '">' + ico('trash') + '</button>' +
@@ -45757,6 +45999,12 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
      Behaviour
      --------------------------------------------------------------- */
   function findDay(id) { return S.manual.days.filter(function (d) { return d.id === id; })[0]; }
+  function findEx(dayId, exId) {
+    var d = findDay(dayId);
+    if (!d) return null;
+    for (var i = 0; i < d.exercises.length; i++) if (d.exercises[i].id === exId) return d.exercises[i];
+    return null;
+  }
   function markDirty() { S.manual.dirty = true; S.manual.savedAt = null; }
   function move(arr, from, to) {
     if (to < 0 || to >= arr.length) return false;
@@ -45840,8 +46088,22 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
                The builder's own rows carry a generated id and a muscle, so
                anything already known keeps its figures and anything new
                carries what the builder has. */
-            return { id: x.exId || x.id, name: x.name,
-                     group: x.group || '', muscle: x.muscle || '' };
+            /* THE PRESCRIPTION IS SAVED WITH THE LIFT. This wrote four
+               fields, so a split with sets and reps on it -- one the coach
+               wrote, or one somebody typed into the two fields above --
+               came out of a save with neither. Read back through
+               LKPrescription so what lands in storage is the canonical
+               form ("10", "8-12", "AMRAP") whatever was typed, and a field
+               left blank writes no key at all rather than a zero: not
+               prescribed is a real answer and has to stay one. */
+            var row = { id: x.exId || x.id, name: x.name,
+                        group: x.group || '', muscle: x.muscle || '' };
+            var P = window.LKPrescription;
+            var ps = P ? P.sets(x.sets) : null;
+            var pr = P ? P.reps(x.reps) : '';
+            if (ps) row.sets = ps;
+            if (pr) row.reps = pr;
+            return row;
           })
         };
       })
@@ -46320,6 +46582,15 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
   var INPUTS = {
     'split-name': function (el) { S.manual.name = el.value; markDirty(); patch(); },
     'day-name': function (el) { var d = findDay(el.getAttribute('data-id')); if (d) { d.name = el.value; markDirty(); patch(); } },
+    /* The prescription, as it is typed. Nothing is normalised here: doing it
+       on every keystroke would rewrite "8-" to "8" under the caret halfway
+       through typing "8-12". persistSplit reads both through
+       LKPrescription when the split is actually written. patch() for the
+       same reason day-name needs one: the save bar only exists while there
+       are unsaved changes, so a screen that is not repainted offers no way
+       to save what was just typed into it. */
+    'ex-sets': function (el) { var x = findEx(el.getAttribute('data-day'), el.getAttribute('data-id')); if (x) { x.sets = el.value; markDirty(); patch(); } },
+    'ex-reps': function (el) { var x = findEx(el.getAttribute('data-day'), el.getAttribute('data-id')); if (x) { x.reps = el.value; markDirty(); patch(); } },
     'ai-note': function (el) { S.ai.note = el.value; patchAi(); },
     'pick-search': function (el) {
       S.modal.q = el.value;
@@ -47258,6 +47529,16 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
         if (bare) day.exIds.push(it.id);
         else {
           day.exercises = day.exercises || [];
+          /* NO PRESCRIPTION, DELIBERATELY. A day's lifts carry sets and
+             reps now, and a lift added from here carries neither -- this
+             is one tap from a browse screen that never asks how the lift
+             should be trained, so writing 3 x 10 would be the app putting
+             words in somebody's mouth and then showing them back as their
+             own plan. Absent is a real state: the builder shows the row
+             with just its muscle, the workout log lays out the three rows
+             it has always laid out, and the reader says how many in the
+             builder when they mean to. Nothing else in the day is touched,
+             so the prescriptions already on it are untouched too. */
           day.exercises.push({ id: it.id, name: it.name, group: it.group, muscle: it.muscle });
         }
         done = true;
@@ -49536,21 +49817,36 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
      were wrong: 501 is an Incline DB Curl, not a squat; 502 is a Hammer
      Curl, not a deadlift; 521 is not an exercise at all. A first split built
      here pointed at lifts nobody chose, and the whole app reads it by id. */
+  /* AND HOW TO TRAIN THEM. The seeded plan handed over a list of lift
+     names and nothing else -- no sets, no reps -- which is a list of
+     equipment rather than a programme. Somebody who has just answered
+     five questions and been given a split has nothing else to go on, so
+     this is the one place in the build where a prescription is written
+     without being asked for: a plan the app hands you is a plan, and a
+     plan says how many. The reader can change any of it in the builder,
+     and a lift THEY add anywhere else is left unprescribed, because
+     there the app has not been asked to program anything.
+
+     The figures are the ordinary ones: heavier compounds in the lower
+     ranges for more sets, isolations higher and shorter. Reps is a
+     string for the reason LKPrescription gives -- a range is the honest
+     answer and a single number would be a harder promise than anybody
+     meant. */
   var EX = {
-    bench:   { id: 111,  name: 'Barbell Bench Press', group: 'Chest', muscle: 'Mid Chest' },
-    incline: { id: 103,  name: 'Incline Cable Fly', group: 'Chest', muscle: 'Upper Chest' },
-    ohp:     { id: 302,  name: 'DB Shoulder Press', group: 'Shoulders', muscle: 'Front Delt' },
-    lat:     { id: 311,  name: 'Lateral Raise', group: 'Shoulders', muscle: 'Side Delt' },
-    push:    { id: 411,  name: 'Tricep Pushdown', group: 'Triceps', muscle: 'Lateral Head' },
-    row:     { id: 211,  name: 'Barbell Row', group: 'Back', muscle: 'Mid Back' },
-    pull:    { id: 202,  name: 'Lat Pulldown', group: 'Back', muscle: 'Lats' },
-    curl:    { id: 503,  name: 'Barbell Curl', group: 'Biceps', muscle: 'Long Head' },
-    squat:   { id: 701,  name: 'Barbell Squat', group: 'Quads', muscle: 'Quads' },
-    rdl:     { id: 801,  name: 'Romanian Deadlift', group: 'Hamstrings', muscle: 'Hamstrings' },
-    press:   { id: 703,  name: 'Leg Press', group: 'Quads', muscle: 'Quads' },
-    ham:     { id: 803,  name: 'Seated Leg Curl', group: 'Hamstrings', muscle: 'Hamstrings' },
-    calf:    { id: 1102, name: 'Seated Calf Raise', group: 'Calves', muscle: 'Calves' },
-    dead:    { id: 221,  name: 'Barbell Deadlift', group: 'Back', muscle: 'Lower Back' }
+    bench:   { id: 111,  name: 'Barbell Bench Press', group: 'Chest', muscle: 'Mid Chest', sets: 4, reps: '6-10' },
+    incline: { id: 103,  name: 'Incline Cable Fly', group: 'Chest', muscle: 'Upper Chest', sets: 3, reps: '10-15' },
+    ohp:     { id: 302,  name: 'DB Shoulder Press', group: 'Shoulders', muscle: 'Front Delt', sets: 4, reps: '6-10' },
+    lat:     { id: 311,  name: 'Lateral Raise', group: 'Shoulders', muscle: 'Side Delt', sets: 3, reps: '12-20' },
+    push:    { id: 411,  name: 'Tricep Pushdown', group: 'Triceps', muscle: 'Lateral Head', sets: 3, reps: '10-15' },
+    row:     { id: 211,  name: 'Barbell Row', group: 'Back', muscle: 'Mid Back', sets: 4, reps: '6-10' },
+    pull:    { id: 202,  name: 'Lat Pulldown', group: 'Back', muscle: 'Lats', sets: 3, reps: '8-12' },
+    curl:    { id: 503,  name: 'Barbell Curl', group: 'Biceps', muscle: 'Long Head', sets: 3, reps: '8-12' },
+    squat:   { id: 701,  name: 'Barbell Squat', group: 'Quads', muscle: 'Quads', sets: 4, reps: '5-8' },
+    rdl:     { id: 801,  name: 'Romanian Deadlift', group: 'Hamstrings', muscle: 'Hamstrings', sets: 3, reps: '6-10' },
+    press:   { id: 703,  name: 'Leg Press', group: 'Quads', muscle: 'Quads', sets: 3, reps: '8-12' },
+    ham:     { id: 803,  name: 'Seated Leg Curl', group: 'Hamstrings', muscle: 'Hamstrings', sets: 3, reps: '10-15' },
+    calf:    { id: 1102, name: 'Seated Calf Raise', group: 'Calves', muscle: 'Calves', sets: 4, reps: '10-15' },
+    dead:    { id: 221,  name: 'Barbell Deadlift', group: 'Back', muscle: 'Lower Back', sets: 3, reps: '3-6' }
   };
   function planDay(name) {
     var ex = [];
@@ -54223,7 +54519,11 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
   /* One exercise, with `todaysSets` of its own and the rest filled from the
      last session. Anything beyond what was done last time gets no previous
      figure rather than a repeated one. */
-  function exFromHistory(id, name, muscle, note, todaysSets, planned) {
+  /* `planned` is how many rows to lay out and `planReps` is what the day
+     says to do in them. Both come off the split day; both are absent for a
+     freestyle session, a repeat, or a lift added mid-workout, and absent is
+     an ordinary state rather than a missing value to fill in. */
+  function exFromHistory(id, name, muscle, note, todaysSets, planned, planReps) {
     var prev = lastSetsFor(id) || [];
     var work = prev.filter(function (st) { return !st.warm; });
     var warm = prev.filter(function (st) { return st.warm; });
@@ -54250,7 +54550,14 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       if (all[id]) kept = all[id];
     }
     var eq = equipFor(id) || {};
+    /* THE PRESCRIPTION BELONGS TO THE EXERCISE, not to each of its rows.
+       A fifth set added to a lift the day prescribes 8-12 for is still a
+       set of that lift, so it reads the same prescription the first four
+       do, and nothing has to remember to copy it onto every row that gets
+       pushed. It rides to storage with the rest of the session, so a
+       reload mid-Push comes back still knowing what Push asked for. */
     return { id: id, name: name, muscle: muscle, note: kept || note || '', sets: sets,
+             planReps: planReps || '',
              unit: eq.unit === 'lb' || eq.unit === 'kg' ? eq.unit : null };
   }
 
@@ -54444,13 +54751,28 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       splitId: d.splitId, splitName: d.split,
       dayId: d.dayId, dayName: d.day,
       planned: d.exercises.map(function (e) {
-        return { id: e.id, name: e.name, group: e.group || '', muscle: e.muscle || '' };
+        var row = { id: e.id, name: e.name, group: e.group || '', muscle: e.muscle || '' };
+        /* The prescription travels with the plan, so Review can put back
+           what the day asked for when it rewrites the day. */
+        if (e.sets != null) row.sets = e.sets;
+        if (e.reps != null) row.reps = e.reps;
+        return row;
       })
     };
     /* Nothing is logged yet. Each lift carries its planned rows, empty, with
-       last session's figures beside them the way every other card does. */
+       last session's figures beside them the way every other card does.
+
+       AS MANY ROWS AS THE DAY PRESCRIBES. This laid out three rows for
+       every lift whatever the split said, so a day programmed as five sets
+       of squats opened with three and a day of two warm-down sets opened
+       with three -- the plan existed only in the head of whoever wrote it.
+       A day that prescribes nothing still gets three, which is what it has
+       always got and what a session with no plan behind it should get. */
     S.exercises = d.exercises.map(function (e) {
-      return exFromHistory(e.id, e.name, e.muscle || '', '', [], 3);
+      var P = window.LKPrescription;
+      var rows = P ? P.sets(e.sets) : null;
+      return exFromHistory(e.id, e.name, e.muscle || '', '', [], rows || 3,
+                           P ? P.reps(e.reps) : '');
     });
     /* THE STATE HAS TO FOLLOW THE EXERCISES, NOT THE OTHER WAY ROUND.
        applyState() seeds from pushDay(), and in the product build there is
@@ -54775,22 +55097,36 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
        but in the ghost tone, because it is not yet the lifter's entry.
        Reps start blank, also as shipped. */
     var u = unitAt(e);
+    /* WHAT THE DAY PRESCRIBED, shown the way last session's weight is shown.
+       A prescribed rep count is not a logged one and must never look like
+       one, so it sits in the same ghost tone an empty cell has always had
+       and the first digit typed replaces it. It is a string, because "8-12"
+       and "AMRAP" are what people actually prescribe, so it is printed
+       rather than counted. A warm-up gets none: the prescription is for the
+       working sets, and a warm-up set that claimed to owe 8-12 would be the
+       screen telling the lifter to do the wrong thing. */
+    var plan = field === 'reps' && !st.warm ? (S.exercises[e].planReps || '') : '';
     var raw = own !== null ? own : (field === 'weight' ? prev : null);
     var shown = field === 'weight' ? toDisplay(raw, u) : raw;
     var blank = shown === null || shown === undefined;
     var ghost = blank || own === null;
     var text = blank ? '--' : (field === 'weight' ? trim(shown) : String(shown));
+    var prescribed = blank && !!plan;
+    if (prescribed) text = plan;
     /* Partials belong ON the reps, because that is what they are: eight and
        three halves is one set. They were a separate cell in a separate row
        and the reps column read 8, so the figure a reader checks the session
        against left them out. */
     var partial = (field === 'reps' && !blank && st.partials) ? st.partials : 0;
-    var label = 'Set ' + (i + 1) + ' ' + field + (blank ? ', empty'
+    var label = 'Set ' + (i + 1) + ' ' + field + (
+        prescribed ? ', prescribed ' + text
+      : blank ? ', empty'
       : (ghost ? ', last session ' : ', ') + text + (field === 'weight' ? ' ' + unitWord(u) : ' reps')) +
       (partial ? ' plus ' + partial + (partial === 1 ? ' partial' : ' partials') : '');
     return '<button class="cell' + (ghost ? ' cell--empty' : '') + (editing ? ' cell--editing' : '') + '" type="button" ' +
       'data-act="edit" data-ex="' + e + '" data-set="' + i + '" data-field="' + field + '" ' +
-      'data-testid="cell-' + e + '-' + i + '-' + field + '" aria-label="' + esc(label) + '">' +
+      'data-testid="cell-' + e + '-' + i + '-' + field + '"' +
+      (prescribed ? ' data-prescribed="true"' : '') + ' aria-label="' + esc(label) + '">' +
       n(esc(text)) +
       (partial ? '<span class="cell__plus" aria-hidden="true" data-testid="cell-partials-' + e + '-' + i + '">+' +
         partial + '</span>' : '') +
@@ -55157,7 +55493,18 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     var st = S.exercises[e].sets[i];
     var own = field === 'weight' ? st.kg : st.reps;
     var u = unitAt(e);
-    var raw = own !== null ? own : (field === 'weight' ? st.prevKg : null);
+    /* A PRESCRIPTION SEEDS THE PAD, but only when it is a plain number.
+       The pad's buffer is digits, and there is nothing sensible it could
+       do with "8-12" -- opening at 8 would be the app picking the bottom
+       of somebody's range for them, and opening at 12 the top. So a range
+       or AMRAP opens the pad blank with the prescription still legible in
+       the cell behind it, and the lifter types what they did. */
+    var planNum = null;
+    if (field === 'reps' && own === null && !st.warm) {
+      var pl = S.exercises[e].planReps || '';
+      if (/^[0-9]+$/.test(pl)) planNum = parseInt(pl, 10);
+    }
+    var raw = own !== null ? own : (field === 'weight' ? st.prevKg : planNum);
     var shown = field === 'weight' ? toDisplay(raw, u) : raw;
     return {
       ex: e, set: i, field: field, unit: u,
@@ -55167,7 +55514,10 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
          it. Digits after the first append and DEL still edits, so
          nothing else about the pad's behaviour changed. */
       replaced: false,
-      fromPrev: own === null && shown !== null && shown !== undefined
+      fromPrev: own === null && shown !== null && shown !== undefined,
+      /* Which kind of pending figure it is, because the hint under it has
+         to say the right thing: a prescription is not last session. */
+      fromPlan: planNum !== null
     };
   }
 
@@ -55206,7 +55556,9 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
            in place and keeps the sheet the same height, so the keys do
            not move 21px up under the finger that just hit one. */
         '<p class="padsheet__hint' + (pending ? '' : ' padsheet__hint--gone') +
-          '" data-testid="pad-hint">Last session. Type to replace it.</p>' +
+          '" data-testid="pad-hint">' +
+          (p.fromPlan ? 'Prescribed. Type to replace it.' : 'Last session. Type to replace it.') +
+          '</p>' +
         '<div class="padchips">' + steps.map(function (s) {
           return '<button class="padchip" type="button" data-act="pad-step" data-step="' + s + '" data-testid="pad-step-' + String(s).replace('.', '_').replace('-', 'm') + '" aria-label="' + (s > 0 ? 'Add ' : 'Subtract ') + Math.abs(s) + '">' + (s > 0 ? '+' : '') + s + '</button>';
         }).join('') + '</div>' +
@@ -56434,12 +56786,28 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
 
       case 'done': {
         var st = S.exercises[e].sets[i];
+        /* WHAT THE CELL SHOWS IS WHAT THE TICK COMMITS. A ghosted figure in
+           an empty cell has always been the thing a tick turns into a
+           logged one, and a prescribed rep count is now one of those
+           figures -- so a lifter looking at a cell reading 10 and ticking
+           it would have been told to "put reps in set 1 first" about a
+           number they could see. Only a plain number: a range has no single
+           value to commit and AMRAP has none at all, so those still need a
+           figure typed, which is the honest answer to "how many did you
+           do". And a prescription REPLACES last session in that cell rather
+           than sitting beside it: showing 8-12 and quietly logging last
+           week's 8 would be the app choosing for the lifter, which is the
+           exact failure a visible ghost figure exists to avoid. */
+        var planText = st.warm ? '' : (S.exercises[e].planReps || '');
+        var ghostReps = planText
+          ? (/^[0-9]+$/.test(planText) ? parseInt(planText, 10) : null)
+          : st.prevReps;
         if (!st.done) {
           /* Nothing to log. The tick used to turn a row of dashes into a
              counted set of 0 kg, which inflated the header, the shelf and the
              discard warning by tapping. */
           var fillKg = st.kg !== null ? st.kg : st.prevKg;
-          var fillReps = st.reps !== null ? st.reps : st.prevReps;
+          var fillReps = st.reps !== null ? st.reps : ghostReps;
           if (fillKg === null || fillKg === undefined || fillReps === null || fillReps === undefined) {
             say('Set ' + (i + 1) + ' needs a weight and reps first.');
             toast('Put a weight and reps in set ' + (i + 1) + ' before logging it.');
@@ -56449,7 +56817,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
         st.done = !st.done;
         if (st.done) {
           if (st.kg === null) st.kg = st.prevKg;
-          if (st.reps === null) st.reps = st.prevReps;
+          if (st.reps === null) st.reps = ghostReps;
           startRest(S.exercises[e] && S.exercises[e].name);
           /* Felt as well as seen. One short pulse for a set, two for a
              record, and the tick pops under the thumb. */
@@ -61053,6 +61421,26 @@ DEMO.define("review", function (document, window, location, fetch) {
     var before = { exercises: day.exercises ? JSON.parse(JSON.stringify(day.exercises)) : undefined,
                    exIds: day.exIds ? day.exIds.slice() : undefined,
                    updated: found.split.updated };
+    /* WHAT THE DAY PRESCRIBED SURVIVES THE REWRITE. A day carries sets
+       and reps on its lifts now, and every path below rebuilds the list
+       out of what was logged -- an order change replaces it wholesale
+       from `performed`, and a swap builds a fresh record from the
+       catalogue. A session has no prescription in it, so all of them
+       dropped it: reorder your Push day once and the 4 x 8-12 you or
+       your coach wrote was gone from every lift in it.
+
+       So it is taken off the stored day FIRST, by exercise id, and put
+       back at the end whatever route the list took. A lift that was not
+       in the day before -- one swapped in, one added mid-session --
+       finds nothing here and is written unprescribed, which is the
+       truth: nobody has said how to train it yet. */
+    var wasPrescribed = {};
+    dayLifts(day).forEach(function (e) {
+      if (!e || e.id == null) return;
+      if (e.sets != null || e.reps != null) {
+        wasPrescribed[String(e.id)] = { sets: e.sets, reps: e.reps };
+      }
+    });
     /* The day as it stands wins on its own lifts: a name or a group the
        reader edited in the builder is theirs, and rebuilding the whole
        list out of the session would quietly write over it. */
@@ -61097,7 +61485,13 @@ DEMO.define("review", function (document, window, location, fetch) {
        is the one every screen can read without a catalogue lookup. */
     if (day.exercises || !day.exIds) {
       day.exercises = list.map(function (e) {
-        return { id: e.id, name: e.name, group: e.group || '', muscle: e.muscle || '' };
+        var row = { id: e.id, name: e.name, group: e.group || '', muscle: e.muscle || '' };
+        var was = wasPrescribed[String(e.id)];
+        if (was) {
+          if (was.sets != null) row.sets = was.sets;
+          if (was.reps != null) row.reps = was.reps;
+        }
+        return row;
       });
     }
     if (day.exIds) day.exIds = list.map(function (e) { return e.id; });
@@ -67696,7 +68090,17 @@ DEMO.define("progress", function (document, window, location, fetch) {
       var have = false;
       day.exercises.forEach(function (e) { if (e.id === l.id) have = true; });
       if (have) return;
-      day.exercises.push({ id: l.id, name: l.name, group: l.group, muscle: l.muscle, sets: 3, reps: 10 });
+      /* THE CANONICAL PRESCRIPTION SHAPE. This wrote `reps: 10` into a
+         field nothing in the app could read, because a planned exercise
+         had no sets and no reps anywhere. It does now, and reps is stored
+         as a string so "8-12" and "AMRAP" can be stored too -- so the
+         number here becomes the string form of itself rather than a
+         second shape every reader would have to know about. Three sets of
+         ten is what the weak-point reading recommends and it is stated as
+         such on the card, so this is the app writing down what it just
+         said out loud rather than a default nobody chose. */
+      day.exercises.push({ id: l.id, name: l.name, group: l.group, muscle: l.muscle,
+                           sets: 3, reps: '10' });
       added++;
     });
     put('lk_splits', splits);

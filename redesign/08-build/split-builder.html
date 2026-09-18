@@ -208,6 +208,16 @@
                       the same exercises the rest of the app knows. */
                    row.exId = e.id;
                    row.group = e.group || '';
+                   /* THE PRESCRIPTION COMES IN WITH THE LIFT. Opening the
+                      builder on a split the coach wrote and being shown the
+                      lifts with no sets and no reps would lose the
+                      prescription on the next save, which is how it was lost
+                      in the first place. Held as the typed text, because
+                      these are two fields somebody is in the middle of
+                      editing; they are read back through LKPrescription when
+                      the split is written. */
+                   row.sets = e.sets == null ? '' : String(e.sets);
+                   row.reps = e.reps == null ? '' : String(e.reps);
                    return row;
                  }) };
       })
@@ -407,6 +417,39 @@
   /* At rest an exercise is a line of text. The only way to destroy one is
      the iOS way: swipe it left, which reveals exactly one red button and
      leaves an Undo behind. In Edit the row grows a handle and a delete. */
+  /* "Mid Chest \u00b7 4 \u00d7 8-12", or just the muscle where the day says
+     nothing about how to train the lift. A day with no prescription is the
+     ordinary case -- every split already on a phone is one -- so nothing is
+     printed rather than a zero, which would be a claim nobody made. */
+  function presSub(x) {
+    var P = window.LKPrescription;
+    var t = P ? P.text(x.sets, x.reps) : '';
+    var mus = x.muscle || '';
+    if (!t) return esc(mus);
+    return (mus ? esc(mus) + ' \u00b7 ' : '') +
+      '<span data-num data-testid="ex-presc-' + x.id + '">' + esc(t) + '</span>';
+  }
+
+  /* The two fields, in Edit. Sets is a count and reps is text, because a
+     prescription is "8-12" or "AMRAP" at least as often as it is 10 and a
+     number input cannot hold either. Both are free text as they are typed
+     and are read back through LKPrescription on save, so a half-typed "8-"
+     is not rewritten under the caret. */
+  function presFields(x, day) {
+    var who = esc(x.name) + ' in ' + esc(day.name);
+    return '<div class="presc">' +
+      '<input class="input presc__sets" type="text" inputmode="numeric" ' +
+        'value="' + esc(x.sets || '') + '" placeholder="Sets" ' +
+        'data-testid="ex-sets-' + x.id + '" data-action="ex-sets" data-id="' + x.id +
+        '" data-day="' + day.id + '" aria-label="Sets of ' + who + '">' +
+      '<span class="presc__x" aria-hidden="true">\u00d7</span>' +
+      '<input class="input presc__reps" type="text" ' +
+        'value="' + esc(x.reps || '') + '" placeholder="Reps" ' +
+        'data-testid="ex-reps-' + x.id + '" data-action="ex-reps" data-id="' + x.id +
+        '" data-day="' + day.id + '" aria-label="Reps of ' + who + '">' +
+    '</div>';
+  }
+
   function exerciseRow(x, day, i, n) {
     var m = S.manual;
     if (!m.edit) {
@@ -419,7 +462,7 @@
           '<div class="row">' +
             '<div class="row__main">' +
               '<div class="row__title">' + esc(x.name) + '</div>' +
-              '<div class="row__sub">' + esc(x.muscle) + '</div>' +
+              '<div class="row__sub">' + presSub(x) + '</div>' +
             '</div>' +
           '</div>' +
         '</div>' +
@@ -435,6 +478,7 @@
       '<div class="row__main">' +
         '<div class="row__title">' + esc(x.name) + '</div>' +
         '<div class="row__sub">' + esc(x.muscle) + '</div>' +
+        presFields(x, day) +
       '</div>' +
       '<button class="iconbtn iconbtn--danger-quiet" data-testid="ex-remove-' + x.id + '" data-action="ex-remove" data-id="' + x.id +
         '" data-day="' + day.id + '" aria-label="Remove ' + esc(x.name) + ' from ' + esc(day.name) + '">' + ico('trash') + '</button>' +
@@ -1391,6 +1435,12 @@
      Behaviour
      --------------------------------------------------------------- */
   function findDay(id) { return S.manual.days.filter(function (d) { return d.id === id; })[0]; }
+  function findEx(dayId, exId) {
+    var d = findDay(dayId);
+    if (!d) return null;
+    for (var i = 0; i < d.exercises.length; i++) if (d.exercises[i].id === exId) return d.exercises[i];
+    return null;
+  }
   function markDirty() { S.manual.dirty = true; S.manual.savedAt = null; }
   function move(arr, from, to) {
     if (to < 0 || to >= arr.length) return false;
@@ -1474,8 +1524,22 @@
                The builder's own rows carry a generated id and a muscle, so
                anything already known keeps its figures and anything new
                carries what the builder has. */
-            return { id: x.exId || x.id, name: x.name,
-                     group: x.group || '', muscle: x.muscle || '' };
+            /* THE PRESCRIPTION IS SAVED WITH THE LIFT. This wrote four
+               fields, so a split with sets and reps on it -- one the coach
+               wrote, or one somebody typed into the two fields above --
+               came out of a save with neither. Read back through
+               LKPrescription so what lands in storage is the canonical
+               form ("10", "8-12", "AMRAP") whatever was typed, and a field
+               left blank writes no key at all rather than a zero: not
+               prescribed is a real answer and has to stay one. */
+            var row = { id: x.exId || x.id, name: x.name,
+                        group: x.group || '', muscle: x.muscle || '' };
+            var P = window.LKPrescription;
+            var ps = P ? P.sets(x.sets) : null;
+            var pr = P ? P.reps(x.reps) : '';
+            if (ps) row.sets = ps;
+            if (pr) row.reps = pr;
+            return row;
           })
         };
       })
@@ -1954,6 +2018,15 @@
   var INPUTS = {
     'split-name': function (el) { S.manual.name = el.value; markDirty(); patch(); },
     'day-name': function (el) { var d = findDay(el.getAttribute('data-id')); if (d) { d.name = el.value; markDirty(); patch(); } },
+    /* The prescription, as it is typed. Nothing is normalised here: doing it
+       on every keystroke would rewrite "8-" to "8" under the caret halfway
+       through typing "8-12". persistSplit reads both through
+       LKPrescription when the split is actually written. patch() for the
+       same reason day-name needs one: the save bar only exists while there
+       are unsaved changes, so a screen that is not repainted offers no way
+       to save what was just typed into it. */
+    'ex-sets': function (el) { var x = findEx(el.getAttribute('data-day'), el.getAttribute('data-id')); if (x) { x.sets = el.value; markDirty(); patch(); } },
+    'ex-reps': function (el) { var x = findEx(el.getAttribute('data-day'), el.getAttribute('data-id')); if (x) { x.reps = el.value; markDirty(); patch(); } },
     'ai-note': function (el) { S.ai.note = el.value; patchAi(); },
     'pick-search': function (el) {
       S.modal.q = el.value;

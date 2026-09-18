@@ -443,7 +443,12 @@
        those, but the model is taught exactly one vocabulary: the one
        below. Anything documented here is what check() reads first. */
     'Each action is one of:',
-    '{"kind":"split","split":{"name":"","days":[{"name":"","exercises":[{"id":0,"name":"","sets":0,"reps":0}]}]}}',
+    /* REPS IS A STRING, and the prompt says so, because "8-12" is a rep
+       prescription as often as 10 is and the app stores what was actually
+       prescribed. It documented `"reps":0`, which taught the model to send
+       a number for something that frequently is not one -- and the gate
+       then dropped the field entirely, so nothing about it was ever true. */
+    '{"kind":"split","split":{"name":"","days":[{"name":"","exercises":[{"id":0,"name":"","sets":0,"reps":"8-12"}]}]}}',
     '{"kind":"goal","goal":{"title":"","target":0,"unit":"","by":"YYYY-MM-DD"}}',
     '{"kind":"recipe","recipe":{"name":"","servings":1,"items":[{"name":"","grams":0}],"steps":[""]}}',
     '{"kind":"shopping","items":[{"name":"","qty":1,"unit":""}]}',

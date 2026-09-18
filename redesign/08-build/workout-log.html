@@ -263,7 +263,11 @@
   /* One exercise, with `todaysSets` of its own and the rest filled from the
      last session. Anything beyond what was done last time gets no previous
      figure rather than a repeated one. */
-  function exFromHistory(id, name, muscle, note, todaysSets, planned) {
+  /* `planned` is how many rows to lay out and `planReps` is what the day
+     says to do in them. Both come off the split day; both are absent for a
+     freestyle session, a repeat, or a lift added mid-workout, and absent is
+     an ordinary state rather than a missing value to fill in. */
+  function exFromHistory(id, name, muscle, note, todaysSets, planned, planReps) {
     var prev = lastSetsFor(id) || [];
     var work = prev.filter(function (st) { return !st.warm; });
     var warm = prev.filter(function (st) { return st.warm; });
@@ -290,7 +294,14 @@
       if (all[id]) kept = all[id];
     }
     var eq = equipFor(id) || {};
+    /* THE PRESCRIPTION BELONGS TO THE EXERCISE, not to each of its rows.
+       A fifth set added to a lift the day prescribes 8-12 for is still a
+       set of that lift, so it reads the same prescription the first four
+       do, and nothing has to remember to copy it onto every row that gets
+       pushed. It rides to storage with the rest of the session, so a
+       reload mid-Push comes back still knowing what Push asked for. */
     return { id: id, name: name, muscle: muscle, note: kept || note || '', sets: sets,
+             planReps: planReps || '',
              unit: eq.unit === 'lb' || eq.unit === 'kg' ? eq.unit : null };
   }
 
@@ -484,13 +495,28 @@
       splitId: d.splitId, splitName: d.split,
       dayId: d.dayId, dayName: d.day,
       planned: d.exercises.map(function (e) {
-        return { id: e.id, name: e.name, group: e.group || '', muscle: e.muscle || '' };
+        var row = { id: e.id, name: e.name, group: e.group || '', muscle: e.muscle || '' };
+        /* The prescription travels with the plan, so Review can put back
+           what the day asked for when it rewrites the day. */
+        if (e.sets != null) row.sets = e.sets;
+        if (e.reps != null) row.reps = e.reps;
+        return row;
       })
     };
     /* Nothing is logged yet. Each lift carries its planned rows, empty, with
-       last session's figures beside them the way every other card does. */
+       last session's figures beside them the way every other card does.
+
+       AS MANY ROWS AS THE DAY PRESCRIBES. This laid out three rows for
+       every lift whatever the split said, so a day programmed as five sets
+       of squats opened with three and a day of two warm-down sets opened
+       with three -- the plan existed only in the head of whoever wrote it.
+       A day that prescribes nothing still gets three, which is what it has
+       always got and what a session with no plan behind it should get. */
     S.exercises = d.exercises.map(function (e) {
-      return exFromHistory(e.id, e.name, e.muscle || '', '', [], 3);
+      var P = window.LKPrescription;
+      var rows = P ? P.sets(e.sets) : null;
+      return exFromHistory(e.id, e.name, e.muscle || '', '', [], rows || 3,
+                           P ? P.reps(e.reps) : '');
     });
     /* THE STATE HAS TO FOLLOW THE EXERCISES, NOT THE OTHER WAY ROUND.
        applyState() seeds from pushDay(), and in the product build there is
@@ -815,22 +841,36 @@
        but in the ghost tone, because it is not yet the lifter's entry.
        Reps start blank, also as shipped. */
     var u = unitAt(e);
+    /* WHAT THE DAY PRESCRIBED, shown the way last session's weight is shown.
+       A prescribed rep count is not a logged one and must never look like
+       one, so it sits in the same ghost tone an empty cell has always had
+       and the first digit typed replaces it. It is a string, because "8-12"
+       and "AMRAP" are what people actually prescribe, so it is printed
+       rather than counted. A warm-up gets none: the prescription is for the
+       working sets, and a warm-up set that claimed to owe 8-12 would be the
+       screen telling the lifter to do the wrong thing. */
+    var plan = field === 'reps' && !st.warm ? (S.exercises[e].planReps || '') : '';
     var raw = own !== null ? own : (field === 'weight' ? prev : null);
     var shown = field === 'weight' ? toDisplay(raw, u) : raw;
     var blank = shown === null || shown === undefined;
     var ghost = blank || own === null;
     var text = blank ? '--' : (field === 'weight' ? trim(shown) : String(shown));
+    var prescribed = blank && !!plan;
+    if (prescribed) text = plan;
     /* Partials belong ON the reps, because that is what they are: eight and
        three halves is one set. They were a separate cell in a separate row
        and the reps column read 8, so the figure a reader checks the session
        against left them out. */
     var partial = (field === 'reps' && !blank && st.partials) ? st.partials : 0;
-    var label = 'Set ' + (i + 1) + ' ' + field + (blank ? ', empty'
+    var label = 'Set ' + (i + 1) + ' ' + field + (
+        prescribed ? ', prescribed ' + text
+      : blank ? ', empty'
       : (ghost ? ', last session ' : ', ') + text + (field === 'weight' ? ' ' + unitWord(u) : ' reps')) +
       (partial ? ' plus ' + partial + (partial === 1 ? ' partial' : ' partials') : '');
     return '<button class="cell' + (ghost ? ' cell--empty' : '') + (editing ? ' cell--editing' : '') + '" type="button" ' +
       'data-act="edit" data-ex="' + e + '" data-set="' + i + '" data-field="' + field + '" ' +
-      'data-testid="cell-' + e + '-' + i + '-' + field + '" aria-label="' + esc(label) + '">' +
+      'data-testid="cell-' + e + '-' + i + '-' + field + '"' +
+      (prescribed ? ' data-prescribed="true"' : '') + ' aria-label="' + esc(label) + '">' +
       n(esc(text)) +
       (partial ? '<span class="cell__plus" aria-hidden="true" data-testid="cell-partials-' + e + '-' + i + '">+' +
         partial + '</span>' : '') +
@@ -1197,7 +1237,18 @@
     var st = S.exercises[e].sets[i];
     var own = field === 'weight' ? st.kg : st.reps;
     var u = unitAt(e);
-    var raw = own !== null ? own : (field === 'weight' ? st.prevKg : null);
+    /* A PRESCRIPTION SEEDS THE PAD, but only when it is a plain number.
+       The pad's buffer is digits, and there is nothing sensible it could
+       do with "8-12" -- opening at 8 would be the app picking the bottom
+       of somebody's range for them, and opening at 12 the top. So a range
+       or AMRAP opens the pad blank with the prescription still legible in
+       the cell behind it, and the lifter types what they did. */
+    var planNum = null;
+    if (field === 'reps' && own === null && !st.warm) {
+      var pl = S.exercises[e].planReps || '';
+      if (/^[0-9]+$/.test(pl)) planNum = parseInt(pl, 10);
+    }
+    var raw = own !== null ? own : (field === 'weight' ? st.prevKg : planNum);
     var shown = field === 'weight' ? toDisplay(raw, u) : raw;
     return {
       ex: e, set: i, field: field, unit: u,
@@ -1207,7 +1258,10 @@
          it. Digits after the first append and DEL still edits, so
          nothing else about the pad's behaviour changed. */
       replaced: false,
-      fromPrev: own === null && shown !== null && shown !== undefined
+      fromPrev: own === null && shown !== null && shown !== undefined,
+      /* Which kind of pending figure it is, because the hint under it has
+         to say the right thing: a prescription is not last session. */
+      fromPlan: planNum !== null
     };
   }
 
@@ -1246,7 +1300,9 @@
            in place and keeps the sheet the same height, so the keys do
            not move 21px up under the finger that just hit one. */
         '<p class="padsheet__hint' + (pending ? '' : ' padsheet__hint--gone') +
-          '" data-testid="pad-hint">Last session. Type to replace it.</p>' +
+          '" data-testid="pad-hint">' +
+          (p.fromPlan ? 'Prescribed. Type to replace it.' : 'Last session. Type to replace it.') +
+          '</p>' +
         '<div class="padchips">' + steps.map(function (s) {
           return '<button class="padchip" type="button" data-act="pad-step" data-step="' + s + '" data-testid="pad-step-' + String(s).replace('.', '_').replace('-', 'm') + '" aria-label="' + (s > 0 ? 'Add ' : 'Subtract ') + Math.abs(s) + '">' + (s > 0 ? '+' : '') + s + '</button>';
         }).join('') + '</div>' +
@@ -2474,12 +2530,28 @@
 
       case 'done': {
         var st = S.exercises[e].sets[i];
+        /* WHAT THE CELL SHOWS IS WHAT THE TICK COMMITS. A ghosted figure in
+           an empty cell has always been the thing a tick turns into a
+           logged one, and a prescribed rep count is now one of those
+           figures -- so a lifter looking at a cell reading 10 and ticking
+           it would have been told to "put reps in set 1 first" about a
+           number they could see. Only a plain number: a range has no single
+           value to commit and AMRAP has none at all, so those still need a
+           figure typed, which is the honest answer to "how many did you
+           do". And a prescription REPLACES last session in that cell rather
+           than sitting beside it: showing 8-12 and quietly logging last
+           week's 8 would be the app choosing for the lifter, which is the
+           exact failure a visible ghost figure exists to avoid. */
+        var planText = st.warm ? '' : (S.exercises[e].planReps || '');
+        var ghostReps = planText
+          ? (/^[0-9]+$/.test(planText) ? parseInt(planText, 10) : null)
+          : st.prevReps;
         if (!st.done) {
           /* Nothing to log. The tick used to turn a row of dashes into a
              counted set of 0 kg, which inflated the header, the shelf and the
              discard warning by tapping. */
           var fillKg = st.kg !== null ? st.kg : st.prevKg;
-          var fillReps = st.reps !== null ? st.reps : st.prevReps;
+          var fillReps = st.reps !== null ? st.reps : ghostReps;
           if (fillKg === null || fillKg === undefined || fillReps === null || fillReps === undefined) {
             say('Set ' + (i + 1) + ' needs a weight and reps first.');
             toast('Put a weight and reps in set ' + (i + 1) + ' before logging it.');
@@ -2489,7 +2561,7 @@
         st.done = !st.done;
         if (st.done) {
           if (st.kg === null) st.kg = st.prevKg;
-          if (st.reps === null) st.reps = st.prevReps;
+          if (st.reps === null) st.reps = ghostReps;
           startRest(S.exercises[e] && S.exercises[e].name);
           /* Felt as well as seen. One short pulse for a set, two for a
              record, and the tick pops under the thumb. */

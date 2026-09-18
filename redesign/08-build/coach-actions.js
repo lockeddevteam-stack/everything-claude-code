@@ -54,6 +54,62 @@
   }
   function inRange(v, lo, hi) { return v !== null && v >= lo && v <= hi; }
 
+  /* ---- A PRESCRIPTION, AND WHY REPS IS A STRING -------------------
+     A planned exercise had no sets and no reps anywhere in the app. The
+     model was told to send them, this gate kept `sets` and dropped
+     `reps` on the floor, and APPLY.split then wrote neither -- so a
+     split the coach wrote lost its prescription on the way to storage
+     and every screen showed a day as a bare list of lift names.
+
+     SETS IS A NUMBER because sets are counted: the workout log lays out
+     that many rows, so it has to be an integer and it is bounded by
+     LIMIT.sets, the same 1 to 10 this file already used.
+
+     REPS IS A STRING. A real prescription is "8-12" or "AMRAP" at least
+     as often as it is 10, and a number cannot hold either. Nothing in
+     the app does arithmetic on a planned rep count -- it is printed on
+     the builder row and on the coach's card, and it seeds the keypad
+     the way last session's figure does -- so storing what was actually
+     prescribed costs nothing and rounding it to a single integer would
+     throw away the half of it that says how hard the set is meant to
+     be. Where a number IS wanted (seeding the pad) it is parsed at the
+     point of use, and a prescription that is not a plain number simply
+     leaves the pad blank rather than inventing one.
+
+     What comes out is one of three canonical forms: "10", "8-12", or
+     "AMRAP". What goes in can be a number, "10 reps", "8 to 12", an en
+     dash, "max" or "to failure", because that is the spread of things a
+     model actually sends when asked for a rep range. Anything else is
+     REFUSED by name rather than dropped, for the reason this whole
+     field exists: a prescription that disappears without a word is the
+     bug being fixed here, and doing it again in a new place would be
+     worse than saying "I could not read that".
+
+     Absent is not an error. A day with no prescription is a normal day
+     -- every split already on a phone is one -- so an exercise that
+     carries no reps at all carries none, and the screens read that as
+     "not prescribed" rather than as zero. */
+  var REPS_WORDS = { amrap: 'AMRAP', max: 'AMRAP', 'to failure': 'AMRAP', failure: 'AMRAP' };
+  function normReps(v) {
+    var s = typeof v === 'number' && isFinite(v) ? String(v)
+          : typeof v === 'string' ? v : '';
+    s = s.replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!s) return '';
+    s = s.replace(/\breps?\b/g, '').replace(/\s+/g, ' ').trim();
+    if (!s) return '';
+    if (REPS_WORDS[s]) return REPS_WORDS[s];
+    s = s.replace(/\s*(?:to|\u2013|\u2014)\s*/g, '-').replace(/\s+/g, '');
+    var one = /^(\d+)\+?$/.exec(s);
+    if (one) return inRange(num(one[1]), 1, LIMIT.reps) ? String(num(one[1])) : null;
+    var span = /^(\d+)-(\d+)$/.exec(s);
+    if (span) {
+      var lo = num(span[1]), hi = num(span[2]);
+      if (!inRange(lo, 1, LIMIT.reps) || !inRange(hi, 1, LIMIT.reps) || lo > hi) return null;
+      return lo === hi ? String(lo) : lo + '-' + hi;
+    }
+    return null;
+  }
+
   /* ---- ONE VOCABULARY, SPELT TWO WAYS -----------------------------
      The system prompt in cloud.js tells the model to send goal.title,
      food.protein, items[].qty, items[].grams, a "cardio" object and a
@@ -138,8 +194,22 @@
     }
     /* The catalogue's name wins over the model's. A right id under a wrong
        name is the failure that is hardest to see afterwards. */
-    return { id: hit.id, name: hit.name, group: hit.group, muscle: hit.muscle,
-             sets: inRange(num(e.sets), 1, LIMIT.sets) ? Math.round(num(e.sets)) : 3 };
+    /* The sets default of 3 is the one this file already shipped and the
+       one the workout log already lays out when a day says nothing, so a
+       model that sends no sets changes nothing about what anybody sees.
+       Reps has no such default: there is no honest guess at how many
+       reps somebody else meant, so a lift with none is simply not
+       prescribed reps. */
+    var out = { id: hit.id, name: hit.name, group: hit.group, muscle: hit.muscle,
+                sets: inRange(num(e.sets), 1, LIMIT.sets) ? Math.round(num(e.sets)) : 3 };
+    var r = normReps(first(e, 'reps', 'rep', 'repRange', 'reps_range'));
+    if (r === null) {
+      problems.push(where + ': "' + str(String(e.reps == null ? '' : e.reps), 20) +
+        '" is not a rep count, a range like 8-12, or AMRAP');
+      return null;
+    }
+    if (r) out.reps = r;
+    return out;
   }
 
   /* ---- the food table ---------------------------------------------- */
@@ -425,7 +495,16 @@
                   days: a.days.map(function (d) {
                     return { name: d.name, blocks: [],
                              exercises: d.exercises.map(function (e) {
-                               return { id: e.id, name: e.name, group: e.group, muscle: e.muscle };
+                               /* THE PRESCRIPTION REACHES STORAGE. This wrote
+                                  four fields and stopped, so the sets the gate
+                                  had just checked and the reps it had just read
+                                  were thrown away one line before they would
+                                  have been saved. Reps is only written when
+                                  there is one: absent means not prescribed. */
+                               var row = { id: e.id, name: e.name, group: e.group,
+                                           muscle: e.muscle, sets: e.sets };
+                               if (e.reps) row.reps = e.reps;
+                               return row;
                              }) };
                   }) };
       all.unshift(rec);

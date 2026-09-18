@@ -752,6 +752,26 @@
     var before = { exercises: day.exercises ? JSON.parse(JSON.stringify(day.exercises)) : undefined,
                    exIds: day.exIds ? day.exIds.slice() : undefined,
                    updated: found.split.updated };
+    /* WHAT THE DAY PRESCRIBED SURVIVES THE REWRITE. A day carries sets
+       and reps on its lifts now, and every path below rebuilds the list
+       out of what was logged -- an order change replaces it wholesale
+       from `performed`, and a swap builds a fresh record from the
+       catalogue. A session has no prescription in it, so all of them
+       dropped it: reorder your Push day once and the 4 x 8-12 you or
+       your coach wrote was gone from every lift in it.
+
+       So it is taken off the stored day FIRST, by exercise id, and put
+       back at the end whatever route the list took. A lift that was not
+       in the day before -- one swapped in, one added mid-session --
+       finds nothing here and is written unprescribed, which is the
+       truth: nobody has said how to train it yet. */
+    var wasPrescribed = {};
+    dayLifts(day).forEach(function (e) {
+      if (!e || e.id == null) return;
+      if (e.sets != null || e.reps != null) {
+        wasPrescribed[String(e.id)] = { sets: e.sets, reps: e.reps };
+      }
+    });
     /* The day as it stands wins on its own lifts: a name or a group the
        reader edited in the builder is theirs, and rebuilding the whole
        list out of the session would quietly write over it. */
@@ -796,7 +816,13 @@
        is the one every screen can read without a catalogue lookup. */
     if (day.exercises || !day.exIds) {
       day.exercises = list.map(function (e) {
-        return { id: e.id, name: e.name, group: e.group || '', muscle: e.muscle || '' };
+        var row = { id: e.id, name: e.name, group: e.group || '', muscle: e.muscle || '' };
+        var was = wasPrescribed[String(e.id)];
+        if (was) {
+          if (was.sets != null) row.sets = was.sets;
+          if (was.reps != null) row.reps = was.reps;
+        }
+        return row;
       });
     }
     if (day.exIds) day.exIds = list.map(function (e) { return e.id; });
