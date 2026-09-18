@@ -1057,6 +1057,25 @@
             }));
           });
           g.appendChild(mover);
+          /* AND SOMETHING TO TAP. Every element in here is painted and
+             none of them take a pointer: the ground has pointer-events
+             none so the bands can overlap, the striation has none so it
+             never steals a tap, and pointer-events is inherited, so the
+             group's own `none` reaches anything that does not say
+             otherwise. The bands branch has always added a transparent
+             hard-edged copy for the finger; this branch never did.
+
+             The result was nine of the twelve groups drawing their parts
+             and answering nothing when one was tapped -- quads, hams,
+             glutes, calves, forearms, abs, triceps and the back, every
+             one of them look-but-do-not-touch. */
+          var hit = api.el('g', { class: 'part__hit' });
+          var hinner = api.el('g', { transform: fitAttr(v) });
+          (spec.paths[nm] || []).forEach(function (d) {
+            hinner.appendChild(api.el('path', { d: d, fill: 'transparent', stroke: 'none' }));
+          });
+          hit.appendChild(hinner);
+          g.appendChild(hit);
           layer.appendChild(g);
           /* Kept so it can be labelled. These shapes carry no anchor of
              their own -- a band knows the wedge it was cut to, a drawn

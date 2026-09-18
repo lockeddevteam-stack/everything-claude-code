@@ -213,6 +213,50 @@ if (pt) {
      s3.parts.length + ' parts, zoomed ' + s3.zoomed);
 }
 
+console.log('\n=== and a part is tappable on every muscle, not only the three ===\n');
+
+/* THE BUG THIS EXISTS FOR. Three groups are cut into bands out of one
+   sheet -- chest, shoulders, biceps -- and the band code has always
+   added a transparent hard-edged copy of the shape for the finger,
+   because the painted bands overlap by design and cannot take a tap.
+   The other nine are drawn apart in the art and go down a different
+   path, and that path never added one. Every element in it is
+   unclickable by design: the ground so the bands can overlap, the
+   striation so it never steals a tap, and pointer-events is inherited,
+   so the group's own `none` reached everything.
+
+   The result was nine of twelve muscles dividing into named parts that
+   answered nothing at all when tapped. It looked finished and it was
+   look-but-do-not-touch. */
+const REACHABLE = [['front', 'quads'], ['front', 'abs'], ['front', 'calves'],
+                   ['front', 'forearms'], ['back', 'triceps'], ['back', 'hams'],
+                   ['back', 'glutes'], ['back', 'back']];
+for (const [view, g] of REACHABLE) {
+  await back(); await setView(view);
+  if (!(await tapGroup(g))) { ok(false, g + ' is on the ' + view + ' view'); continue; }
+  await page.waitForTimeout(700);
+  const hit = await page.evaluate(() => {
+    const r = window.DEMO.screens['exercise-library'].root;
+    const parts = [...r.querySelectorAll('.parts [data-part]')];
+    if (!parts.length) return { n: 0 };
+    /* Aimed at the way a finger finds one: the first point inside the
+       part's own box that resolves back to a part. */
+    for (const p of parts) {
+      const b = p.getBoundingClientRect();
+      for (let y = Math.ceil(b.top); y < b.bottom; y += 2) {
+        for (let x = Math.ceil(b.left); x < b.right; x += 2) {
+          const el = r.elementFromPoint(x, y);
+          const h = el && el.closest ? el.closest('[data-part]') : null;
+          if (h) return { n: parts.length, name: h.getAttribute('data-part') };
+        }
+      }
+    }
+    return { n: parts.length };
+  });
+  ok(hit.n > 1 && !!hit.name, view + ' / ' + g + ': a part can actually be hit',
+     hit.n + ' parts, aimed at ' + (hit.name || 'NOTHING'));
+}
+
 ok(errs.length === 0, 'no page errors', errs.join(' | '));
 
 await br.close(); site.close();
