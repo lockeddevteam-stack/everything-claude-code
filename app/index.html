@@ -3341,6 +3341,13 @@ textarea, select {
    flag is set for the length of the gesture and dropped on release, where
    the spring is wanted again. */
 .map__svg[data-gesture] .cam { transition: none; }
+/* AND WHILE THE CAMERA IS FLYING TO A MUSCLE, FOR THE SAME REASON. The
+   trip to a chosen muscle is integrated in JavaScript now, frame by
+   frame, so that the exercise list can ride the same progress instead of
+   running its own timer beside it. Left on, this transition would be a
+   420ms chase laid over a 420ms spring: the camera would lag its own
+   animation and arrive after the list. */
+.map__svg[data-flight] .cam { transition: none; }
 
 /* Rotation front to back: the two views cross-fade through a Y-scale,
    which reads as a turn rather than a cut. */
@@ -5171,6 +5178,38 @@ img.avatar { object-fit: cover; background: var(--fill); }
 @media (prefers-reduced-motion: reduce) {
   .map__svg .cam { transition: none; }
 }
+.map__svg[data-flight] .cam { transition: none; }
+
+/* --- THE LIST RIDES THE CAMERA ------------------------------------------
+   Tapping a muscle used to be two events that shared a frame and nothing
+   else: the camera moved on the stylesheet's clock, and the exercise list
+   simply appeared, fully formed, in the place a list goes. Two unrelated
+   motions in the same instant is what a page switch looks like, and that
+   is what people called it.
+
+   There is no timer here and no transition, deliberately. --zoom-t is the
+   fraction of the camera's journey that is behind it, published by
+   bodymap.js on every frame of the move and put on this root by the
+   screen. The list is a pure function of that number, so it moves at
+   exactly the camera's rate: it accelerates when the camera accelerates,
+   eases as the camera eases, and lands in the frame the camera lands.
+   A transition on top would put it back on its own clock.
+
+   Keyed on an attribute rather than left standing, because a transform
+   that is always declared -- even as translateY(0) -- makes this element
+   the containing block for anything fixed inside it, and these lists
+   carry sticky headings. The attribute is there only while something is
+   travelling. */
+[data-zoomride] .zoomride {
+  transform: translateY(calc((1 - var(--zoom-t, 1)) * 16px));
+  opacity: calc(0.2 + 0.8 * var(--zoom-t, 1));
+}
+/* Less motion gets the end state, not a slower version of the trip. The
+   figure already cuts to the framed muscle in one frame; the list is
+   simply there with it. */
+@media (prefers-reduced-motion: reduce) {
+  [data-zoomride] .zoomride { transform: none; opacity: 1; }
+}
 /* Once the camera is in close, the unselected muscles are scenery rather
    than targets competing with the one that was chosen. */
 .map__svg .cam[data-zoomed="true"] .mg:not([data-on="true"]) { opacity: .35; }
@@ -6157,6 +6196,24 @@ textarea,
      Attributes and live properties
      --------------------------------------------------------------- */
 
+  /* ATTRIBUTES THE RUNTIME OWNS AND THE MARKUP NEVER WRITES.
+
+     The removal pass above deletes anything the new markup does not
+     declare, which is right for state a screen renders and wrong for
+     state chrome.js measured. data-from-trigger is the case that hurt:
+     chrome.js sets it the frame a sheet lands, and it swaps the entry
+     animation from a rise up the full height of the screen to a 24px
+     settle under a scale. Every later paint stripped it, the
+     animation-name changed back to sheetUp, and the sheet re-ran a
+     626px rise -- so choosing a muscle inside the Add Exercise sheet
+     threw the whole sheet off the bottom of the screen and slid it
+     back, which reads as a page switch rather than a zoom.
+
+     Neither name is written by any screen's markup, so leaving them
+     alone cannot strand one: the runtime that set it is the only thing
+     that clears it. */
+  var RUNTIME_ATTR = { 'data-from-trigger': 1, 'data-grabber': 1 };
+
   function syncAttributes(oldEl, newEl) {
     var i, a;
 
@@ -6182,7 +6239,7 @@ textarea,
         if (!newEl.hasAttributeNS(a.namespaceURI, a.localName)) {
           oldEl.removeAttributeNS(a.namespaceURI, a.localName);
         }
-      } else if (!newEl.hasAttribute(a.name)) {
+      } else if (!newEl.hasAttribute(a.name) && !RUNTIME_ATTR[a.name]) {
         oldEl.removeAttribute(a.name);
       }
     }
@@ -8762,6 +8819,184 @@ textarea,
     }
     api.cam3 = function () { return { s: cam3.s, tx: cam3.tx, ty: cam3.ty }; };
 
+    /* ---- THE CAMERA TRAVELS, AND THE SCREEN TRAVELS WITH IT -----------
+
+       Tapping a muscle used to be two unrelated events that happened to
+       land in the same frame: the camera transform changed and the
+       stylesheet carried it over 420ms on its own clock, while the screen
+       re-rendered and the exercise list simply appeared. Two motions with
+       nothing in common read as a page switch, which is exactly what it
+       was being called -- "a big tacky page switch". The body did not
+       take you anywhere; it was swapped for a list.
+
+       So the move is one move. A spring integrated here, frame by frame,
+       drives the camera, and the fraction of the journey it has covered
+       is published as it goes: on the svg as --zoom-t, and through
+       opts.onZoom so a screen can put the same number on its own root.
+       The list interpolates its transform and its opacity from that
+       number, which means it is not on a timer at all -- it rises at
+       whatever rate the camera is travelling, slowing as the camera
+       slows, and arrives in the frame the camera arrives.
+
+       Why an integrator rather than the CSS transition that was already
+       here: a transition can only go from where it is to where it was
+       told, at a fixed rate, and it publishes nothing on the way. The
+       gesture code below has run its settle and its fling on rAF since
+       the day fingers were allowed on the figure, for the same reason.
+       This is the same machinery pointed at a destination. */
+
+    /* CRITICALLY DAMPED, AND MEANT IT THIS TIME. A spring that passes its
+       target and comes back is right for a button answering a thumb and
+       wrong for a lens: the picture arrives, slides past what you were
+       looking at, and returns. This is the exact critically damped
+       response, 1 - (1 + wt)e^-wt, at w = 18 per second: 99% of the
+       journey is behind it by 370ms, which is about the length the
+       stylesheet's own camera duration was tuned to, and the last
+       thousandth of it -- well under a pixel -- is given up at half a
+       second.
+
+       READ OFF THE CLOCK RATHER THAN INTEGRATED, which is where this
+       differs from settle() and fling() below. Those integrate because
+       their input is a live velocity nobody knows the end of. A flight
+       knows its destination the moment it starts, and integrating it
+       frame by frame tied the move to how many frames the browser
+       happened to deliver: anything that blocked the main thread -- a
+       screen re-rendering a long list, a test walking a muscle pixel by
+       pixel -- stretched a 420ms move into a second and a half, because
+       the per-frame step is capped and a dropped frame is a step never
+       taken. Off the clock, a frame that arrives late arrives further
+       along, and a tab that comes back from the background finds the
+       camera already at the muscle, which is where it should be. */
+    var FLY_W = 18;
+    var flight = null;
+    /* 1 means "nothing is travelling", which is the state a figure sitting
+       still is in. It starts there so a list riding this property is at
+       full opacity and in place before anything has been tapped. */
+    var zoomT = 1;
+
+    function publishT(t, gid) {
+      zoomT = t;
+      svg.style.setProperty('--zoom-t', String(Math.round(t * 1e3) / 1e3));
+      if (opts.onZoom) { try { opts.onZoom(t, gid || null); } catch (e) {} }
+    }
+    api.zoomT = function () { return zoomT; };
+    /* Published before anything has been tapped, so a list styled off this
+       property is in place and legible on a figure that has never moved. */
+    svg.style.setProperty('--zoom-t', '1');
+
+    /* CUT SHORT IS STILL ARRIVED. A finger landing on a moving picture
+       stops the camera where it is, which is right -- grabbing a moving
+       thing should feel like grabbing. The list is a different question:
+       left at the 0.6 it happened to be passing through, it stays half
+       faded and half a centimetre low for as long as the screen is open,
+       because nothing will ever publish another number. So an interrupted
+       move hands the list its end state. The camera is the reader's now;
+       the list is just the list. `quiet` is the one exception, used by the
+       loop itself, which has already published its own 1. */
+    function stopFlight(quiet) {
+      if (!flight) return;
+      if (flight.raf) cancelAnimationFrame(flight.raf);
+      var gid = flight.gid;
+      flight = null;
+      /* NOT IN THE SAME FRAME AS THE LAST STEP. The flag is what holds the
+         stylesheet's transition off the camera, and putting the transform
+         and the transition back in one style recalculation starts a 420ms
+         transition from wherever the second-to-last frame left the
+         picture. It is a fraction of a pixel and it is still wrong: the
+         figure went on creeping for four hundred milliseconds after the
+         camera had visibly stopped, which moved the parts under a finger
+         that was already aiming at one. A tap on the top edge of a band
+         landed on the muscle behind it. A frame later the transform is
+         committed, nothing is changing, and the transition has nothing to
+         interpolate. */
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(function () { if (!flight) svg.removeAttribute('data-flight'); });
+      } else {
+        svg.removeAttribute('data-flight');
+      }
+      if (!quiet) publishT(1, gid);
+    }
+    /* The gesture block owns its own rAF loop and hands its canceller up
+       here, so a tap that starts a camera move kills a fling still in the
+       air instead of the two of them fighting over cam3 frame by frame.
+       It stays null on a figure mounted as a picture, which has no
+       gestures to cancel. */
+    var stopGesture = null;
+    api.stopZoom = stopFlight;
+
+    function reduced() {
+      try {
+        return !!(global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      } catch (e) { return false; }
+    }
+
+    /* THE WHOLE MOVE IS ONE NUMBER. Scale and both translations are read
+       off a single 0-to-1 position along the path rather than sprung
+       separately, which is what makes the published progress mean
+       something: it is the fraction of the distance actually travelled,
+       so a short hop from one neighbouring muscle to the next reaches 1
+       in the same breath the camera does, and the long haul from the
+       whole body into a calf takes the list the whole way with it. Three
+       independent springs would have arrived at three different moments
+       and there would be no honest number to publish.
+
+       Magnification is interpolated geometrically. 1x to 4x through the
+       arithmetic middle spends most of the move already close in; through
+       the geometric middle every frame is the same proportional step,
+       which is what a zoom looks like. */
+    function flyTo(s, tx, ty, gid) {
+      var to = clampCam(s, tx, ty);
+      /* Already there, or as good as: there is no journey to ride and a
+         spring asked to travel nothing publishes a 0 that never becomes
+         anything. This is the re-sync case, which on some screens is
+         every paint. */
+      var near = Math.abs(Math.log(to.s / cam3.s)) < 0.004 &&
+                 Math.abs(to.tx - cam3.tx) < 0.4 && Math.abs(to.ty - cam3.ty) < 0.4;
+      if (near) { stopFlight(true); setCam(to.s, to.tx, to.ty); publishT(1, gid); return; }
+      /* AND A REPEAT OF THE SAME INSTRUCTION DOES NOT START AGAIN. The
+         screens re-sync the camera on every paint, and the paint that
+         follows a tap lands a frame or two into the move it caused. Reset
+         there, the list dropped back down and climbed a second time. */
+      if (flight && Math.abs(Math.log(flight.to.s / to.s)) < 0.004 &&
+          Math.abs(flight.to.tx - to.tx) < 0.4 && Math.abs(flight.to.ty - to.ty) < 0.4) return;
+      if (stopGesture) stopGesture();
+      stopFlight(true);
+      /* LESS MOTION MEANS THE DESTINATION, NOT A SLOWER TRIP. Somebody who
+         asked for less motion gets the framed muscle and the list in
+         place, in one frame, with nothing to follow. */
+      if (reduced() || typeof requestAnimationFrame !== 'function') {
+        setCam(to.s, to.tx, to.ty); publishT(1, gid); return;
+      }
+      var from = { s: cam3.s, tx: cam3.tx, ty: cam3.ty };
+      var t0 = 0;
+      flight = { to: to, gid: gid || null, raf: 0 };
+      /* The stylesheet's transition on .cam would now be chasing a
+         transform that moves every frame, which is a 420ms lag laid over
+         a 420ms spring. The flag drops it for the length of the move, the
+         same way the gesture flag does while fingers are down. */
+      svg.setAttribute('data-flight', 'true');
+      publishT(0, gid);
+      var step = function (now) {
+        if (!flight) return;
+        if (!t0) t0 = now;
+        var e = (now - t0) / 1000;
+        var w = FLY_W * e;
+        var u = 1 - (1 + w) * Math.exp(-w);
+        /* The tail of an exponential never quite arrives, so it is called
+           arrived at a thousandth of the journey, which is well under a
+           pixel on a 393-wide frame. */
+        var done = u > 0.999;
+        if (done) u = 1;
+        setCam(from.s * Math.pow(to.s / from.s, u),
+               from.tx + (to.tx - from.tx) * u,
+               from.ty + (to.ty - from.ty) * u);
+        publishT(u, gid);
+        if (done) { stopFlight(true); return; }
+        flight.raf = requestAnimationFrame(step);
+      };
+      flight.raf = requestAnimationFrame(step);
+    }
+
     /* ---- A ZOOM THE READER SET THEMSELVES OUTRANKS A RE-SYNC ----------
        The screen calls zoomTo on every paint, so the camera follows the
        chosen group rather than being reset behind it. That is right for a
@@ -8813,7 +9048,7 @@ textarea,
            was setting it, which is the zoom "resetting and locking". A
            camera the reader is holding stays where they put it; only a
            muscle they choose moves it. */
-        setCam(1, 0, 0);
+        flyTo(1, 0, 0, null);
         return false;
       }
       /* A PAIRED MUSCLE IS TWO MUSCLES WIDE, and framing both of them is
@@ -8872,7 +9107,7 @@ textarea,
       }
       s = Math.max(1, Math.min(s, MAX_S));
       var cx = b.x + b.w / 2, cy = b.y + b.h / 2;
-      setCam(s, (VB.x + VB.w / 2) - s * cx, (VB.y + VB.h / 2) - s * cy);
+      flyTo(s, (VB.x + VB.w / 2) - s * cx, (VB.y + VB.h / 2) - s * cy, gid);
       return true;
     };
 
@@ -9686,7 +9921,16 @@ textarea,
       var glide = null;
       function stopGlide() {
         if (glide) { cancelAnimationFrame(glide); glide = null; }
+        /* AND THE TRIP TO A MUSCLE, WHICH IS THE SAME CAMERA. Every entry
+           into a gesture goes through here, so a finger arriving while
+           the camera is flying to a chest takes it over at the point it
+           had reached rather than wrestling a loop that is still writing
+           cam3 sixty times a second. */
+        stopFlight();
       }
+      /* And the other way round: a tap that starts a camera move has to be
+         able to kill a fling that is still in the air. */
+      stopGesture = function () { if (glide) { cancelAnimationFrame(glide); glide = null; live(false); } };
 
       /* A critically damped spring: no wobble, no second pass, arrives
          and stops. Wobble is right for a button and wrong for a camera --
@@ -17984,7 +18228,12 @@ window.LK_CLOUD = {
         </div>
       </div>
 
-      <div id="body-content"></div>
+      <!-- THE LIST RIDES THE CAMERA. Everything the screen patches in lives
+           here, and while the figure is travelling to a muscle this block
+           rises into place at the camera's own rate rather than appearing
+           beside it. The class is only a hook for that: the stylesheet
+           does nothing with it unless the root says something is moving. -->
+      <div id="body-content" class="zoomride"></div>
       </main>
 
       <div class="findbar findbar--bottom" id="findbar" role="search" aria-label="Find an exercise">
@@ -19016,6 +19265,34 @@ window.LK_CLOUD = {
   ALSO. A lift the prior session did not contain is marked New and left
   uncompared rather than given a delta against nothing, and when the
   exercises differ the day total says it is not like for like.
+
+  AND IT IS REAL. All of the above described four dev states and nothing
+  else: the differences were four hand-written lists, the split was a
+  PPL/Push constant, and the buttons moved a variable in this screen and
+  wrote to lk_splits never. A lifter could swap the incline press for a
+  flat press every Push for a month and the plan never heard about it,
+  which is the one promise this card makes. The workout log now carries
+  its split day across (`source` on lk_lastSession: the split's id and
+  name, the day's id and name, and the exercises the day PLANNED), the
+  difference is computed from that against what was logged, and taking
+  the offer rewrites that day in lk_splits -- in whichever of the two
+  shapes the day already carries, exIds or resolved exercises, or both --
+  and stamps the split's `updated` so Train's "edited" line stays honest.
+  The dev states are untouched and still read the constant, because that
+  is what they are: a mock with no session behind it.
+
+  ORDER. The same lifts in another order is its own kind of difference
+  and gets its own line and its own verb, rather than being dressed up as
+  five swaps. It is only ever the whole card: a swap moves everything
+  below it, and that is the swap, not a reorder.
+
+  NOT TWICE. The answer is stored against the session it was given for,
+  so the edge-swipe back onto this screen does not ask again, and
+  tomorrow's Push still does.
+
+  NOTHING QUIETLY. Neither button is required. The session is logged
+  either way and the plan is only ever changed by a press on the button
+  that names the change.
 -->
 
 <div class="stage">
@@ -39553,13 +39830,19 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
           '</div>' +
         '</div>' +
       '</div>' +
-      '<div class="spread mt-2" data-testid="pick-crumb">' +
-        '<button class="btn btn--tertiary btn--sm" data-action="' +
-          (m.sub ? 'pick-whole' : 'pick-back') + '" data-testid="pick-back">' +
-          ico('back') + '<span class="btn__label">' +
-          (m.sub ? esc(name) : 'Body') + '</span></button>' +
-        '<span class="t-label">' + here + '</span>' +
-      '</div>' + pickList(m);
+      /* THE LIFTS RIDE THE CAMERA IN, the same as the log's picker. These
+         two sheets are deliberately one idea in two places, and a move
+         that reads as one movement in one of them and as a page switch in
+         the other would be worse than either. */
+      '<div class="zoomride">' +
+        '<div class="spread mt-2" data-testid="pick-crumb">' +
+          '<button class="btn btn--tertiary btn--sm" data-action="' +
+            (m.sub ? 'pick-whole' : 'pick-back') + '" data-testid="pick-back">' +
+            ico('back') + '<span class="btn__label">' +
+            (m.sub ? esc(name) : 'Body') + '</span></button>' +
+          '<span class="t-label">' + here + '</span>' +
+        '</div>' + pickList(m) +
+      '</div>';
   }
 
   function pickRows(m) {
@@ -39616,11 +39899,34 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     if (!slot || !window.LKBodyMap || !window.LKExercises) { PICK_FIG = null; return; }
     var m = S.modal;
     if (!slot.firstChild) {
+      /* THE FIGURE THAT IS BEING REPLACED MUST STOP TRAVELLING. This
+         screen rebuilds its sheet whole on every paint, so the previous
+         figure is already detached -- but its camera loop is not, and it
+         goes on publishing progress onto the same root as the new one.
+         Two springs writing one custom property is a list that jitters
+         between two journeys. */
+      try { if (PICK_FIG && PICK_FIG.stopZoom) PICK_FIG.stopZoom(); } catch (e0) {}
       try {
         PICK_FIG = LKBodyMap.mount(slot, {
           groups: LKExercises.groupCounts(LIBRARY),
           order: LKExercises.groups.map(function (gr) { return gr[0]; }),
           view: (m && m.view) || 'front',
+          /* HOW FAR THE CAMERA HAS GOT, ON THE SCREEN'S OWN ROOT. The
+             figure publishes this on its svg, which reaches nothing
+             outside the figure; the list under it is a sibling. Put on
+             #app it inherits into the sheet, and the crumb and the lifts
+             are a pure function of it -- no timer of their own, so they
+             travel at exactly the camera's rate. The attribute switches
+             the rule on and leaves with the move: a transform left
+             standing on a scrolling list changes what its sticky children
+             are positioned against. */
+          onZoom: function (t) {
+            var root = document.getElementById('app');
+            if (!root) return;
+            root.style.setProperty('--zoom-t', String(t));
+            if (t < 1) root.setAttribute('data-zoomride', '');
+            else root.removeAttribute('data-zoomride');
+          },
           onSelect: function (gid) {
             if (!S.modal) return;
             S.modal.gid = gid;
@@ -42492,6 +42798,26 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
     return out;
   }
 
+  /* HOW FAR THE CAMERA HAS GOT, ON THE SCREEN'S OWN ROOT.
+
+     The figure publishes this on its svg, which is enough for anything
+     inside the figure and no use at all to the list, which is a sibling
+     two levels up. So the number is put on #screen as well, where it
+     inherits into everything the screen draws, and the list's transform
+     and opacity are read straight off it.
+
+     The attribute is what switches the rule on. A transform left standing
+     on a scrolling list -- even an identity one -- changes what fixed and
+     sticky children are positioned against, and there is no reason to pay
+     that for the 400ms a tap is actually travelling. */
+  function rideZoom(t) {
+    var root = document.getElementById('screen');
+    if (!root) return;
+    root.style.setProperty('--zoom-t', String(t));
+    if (t < 1) root.setAttribute('data-zoomride', '');
+    else root.removeAttribute('data-zoomride');
+  }
+
   function syncMap() {
     /* THE MAP STAYS UP WHILE A MUSCLE IS OPEN ON IT. A group being chosen
        used to take the body off the screen, which is the moment the body
@@ -42531,6 +42857,12 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
           });
           return out;
         })(),
+        /* ONE SPRING, TWO THINGS MOVING. The camera's progress arrives
+           here on every frame of the trip to a muscle, and goes straight
+           onto the screen's root for the list to read. Nothing is
+           recomputed and nothing re-renders: it is one custom property
+           being written sixty times a second. */
+        onZoom: function (t) { rideZoom(t); },
         onSelect: function (gid) {
           /* The same destination a row in the list goes to. The map is a
              second way to the group, not a second flow. */
@@ -48323,6 +48655,35 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
      seeded PPL - Push, twenty-one minutes in with 1,088 kg on it, so
      "Start Upper A" began somebody else's Push session. lk_startDay carries
      "<splitId>:<dayId>"; the day it names is built here, empty, at zero. */
+  /* A DAY'S LIFTS, IN EITHER SHAPE IT IS STORED IN. Train's own dayExercises
+     has understood both for a while and this one did not: a phone that has
+     been running LOCKED holds `exIds: [111, 302]` on each day, while the
+     split builder writes the resolved `exercises: [{id, name, group,
+     muscle}]`. Reading only the second opened an EMPTY session off a real
+     user's Push day -- the header said Push and there was nothing in it --
+     and, now that the session carries what the day planned, it would also
+     have read every one of those days as planning nothing and so found a
+     difference in a session that ran exactly to plan. The catalogue is what
+     turns an id back into a name; an id it does not know keeps its id and a
+     placeholder name rather than dropping out of the plan. */
+  function dayLifts(d) {
+    if (d && d.exercises && d.exercises.length) return d.exercises;
+    var ids = (d && d.exIds) || [];
+    if (!ids.length) return [];
+    var byId = {};
+    if (window.LKExercises && LKExercises.all) {
+      LKExercises.all().forEach(function (x) { byId[x.id] = x; });
+    }
+    (window.LKStore ? (LKStore.get('lk_customEx', []) || []) : []).forEach(function (x) {
+      if (x && x.id != null) byId[x.id] = x;
+    });
+    return ids.map(function (id) {
+      var k = byId[id] || {};
+      return { id: id, name: k.name || ('Exercise ' + id),
+               group: k.group || '', muscle: k.muscle || '' };
+    });
+  }
+
   function splitDayFor(key) {
     if (!key) return null;
     var cut = String(key).indexOf(':');
@@ -48336,7 +48697,17 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       for (var j = 0; j < days.length; j++) {
         var slug = String(days[j].name || ('day' + j)).toLowerCase().replace(/\W+/g, '-');
         if (slug !== wantDay) continue;
-        return { split: all[i].name, day: days[j].name, exercises: days[j].exercises || [] };
+        /* THE SPLIT DAY TRAVELS WITH THE SESSION. The key was read, the day
+           was built from it, and the key was thrown away -- so the session
+           knew it was called "PPL - Push" and nothing more. Swap the incline
+           press for a flat press during Push and next week's Push day still
+           said incline, because by the time anybody could have asked whether
+           to keep the change there was nothing left to say WHICH day had run
+           differently. The ids are what Review writes back through, and the
+           names are what it says out loud. */
+        return { splitId: String(all[i].id), split: all[i].name,
+                 dayId: slug, day: days[j].name,
+                 exercises: dayLifts(days[j]) };
       }
     }
     return null;
@@ -48406,6 +48777,11 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
   function beginFresh() {
     if (window.LKSession && LKSession.end) LKSession.end();
     S.elapsed = 0;
+    /* AND IT CAME FROM NOWHERE UNTIL SOMETHING SAYS OTHERWISE. A quick
+       workout begun straight after a split day must not inherit that day's
+       plan, or Review would offer to rewrite Push out of a session that had
+       nothing to do with it. startRequested() sets this again, after. */
+    S.source = null;
     /* AND IT IS NOT OVER. Ending the old record fires the onChange
        listener below, which sets S.over -- so a session begun here was
        marked finished the instant it began, and record() then refused to
@@ -48434,6 +48810,19 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     S.name = d.split + ' - ' + d.day;
     S.elapsed = 0;
     S.over = false;
+    /* WHAT THIS DAY PLANNED, kept beside what gets logged. Review compares
+       the two at the end and offers to write the difference back into the
+       split, which it can only do if it knows which split, which day, and
+       what the day held BEFORE this session started editing it. Recorded
+       here rather than re-read on finish, because the split may have been
+       renamed, reordered or deleted in between. */
+    S.source = {
+      splitId: d.splitId, splitName: d.split,
+      dayId: d.dayId, dayName: d.day,
+      planned: d.exercises.map(function (e) {
+        return { id: e.id, name: e.name, group: e.group || '', muscle: e.muscle || '' };
+      })
+    };
     /* Nothing is logged yet. Each lift carries its planned rows, empty, with
        last session's figures beside them the way every other card does. */
     S.exercises = d.exercises.map(function (e) {
@@ -48517,6 +48906,11 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
        it outside their split. Both travel to history on finish. */
     note: '',
     quick: false,
+    /* WHICH SPLIT DAY THIS SESSION IS, when it is one: the split's id and
+       name, the day's id and name, and the exercises that day PLANNED.
+       Null for a quick workout, a repeat, and the seeded demo session, all
+       of which have no plan to have drifted from. */
+    source: null,
     /* lk_profile.useKg, through LKUnits. This screen's switch was its own:
        it converted this screen correctly and toasted "Showing lb everywhere"
        while every other screen stayed in kg, and it opened in kg whatever the
@@ -49749,13 +50143,21 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
           '</div>' +
         '</div>' +
       '</div>' +
-      '<div class="spread mt-2" data-testid="addex-crumb">' +
-        '<button class="btn btn--tertiary btn--sm" type="button" data-act="' +
-          (S.addexSub ? 'addex-whole' : 'addex-back') + '" ' +
-          'data-testid="addex-back">' + ICO.chevLeft + '<span class="btn__label">' +
-          (S.addexSub ? esc(name) : 'Body') + '</span></button>' +
-        '<span class="t-label">' + here + '</span>' +
-      '</div>' + addExList();
+      /* THE LIFTS RIDE THE CAMERA IN. The crumb and the list are the half
+         of this move that is not the figure, and until now they simply
+         existed the instant the muscle was tapped while the body zoomed
+         beside them. Wrapped, they rise into place at the rate the camera
+         is travelling, so the sheet reads as one movement rather than as
+         a picture animating next to a list that changed. */
+      '<div class="zoomride">' +
+        '<div class="spread mt-2" data-testid="addex-crumb">' +
+          '<button class="btn btn--tertiary btn--sm" type="button" data-act="' +
+            (S.addexSub ? 'addex-whole' : 'addex-back') + '" ' +
+            'data-testid="addex-back">' + ICO.chevLeft + '<span class="btn__label">' +
+            (S.addexSub ? esc(name) : 'Body') + '</span></button>' +
+          '<span class="t-label">' + here + '</span>' +
+        '</div>' + addExList() +
+      '</div>';
   }
 
   /* THE FIGURE, BUILT ONCE THE SHEET IS ON SCREEN.
@@ -49796,6 +50198,22 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
           groups: LKExercises.groupCounts(offeredLibrary()),
           order: LKExercises.groups.map(function (gr) { return gr[0]; }),
           view: S.addexView,
+          /* HOW FAR THE CAMERA HAS GOT, ON THE SCREEN'S OWN ROOT. The
+             figure publishes this on its svg, which reaches nothing
+             outside the figure; the list is a sibling of it. Put on
+             #screen it inherits into the whole sheet, and the crumb and
+             the lifts under the body are a pure function of it -- no
+             timer of their own, so they move at exactly the camera's
+             rate. The attribute switches the rule on, and is gone the
+             moment the trip is over: a transform left standing on a
+             scrolling list changes what its sticky children stick to. */
+          onZoom: function (t) {
+            var root = document.getElementById('screen');
+            if (!root) return;
+            root.style.setProperty('--zoom-t', String(t));
+            if (t < 1) root.setAttribute('data-zoomride', '');
+            else root.removeAttribute('data-zoomride');
+          },
           onSelect: function (gid) {
             S.addexGid = gid;
             S.addexSub = null;
@@ -50173,7 +50591,11 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
          per session meant a switch flipped in Settings could never reach a
          phone that had ever opened this screen. */
       restEnabled: S.restEnabled,
-      restSeconds: S.restSeconds
+      restSeconds: S.restSeconds,
+      /* The split day this came from goes with the rows. Left out, a reload
+         mid-Push came back with every set intact and no memory of being a
+         Push day at all, so finishing it asked nothing. */
+      source: S.source
     });
   }
 
@@ -50190,6 +50612,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     S.blocks = rows.blocks || [];
     if (rows.restEnabled !== undefined) S.restEnabled = rows.restEnabled;
     if (rows.restSeconds !== undefined) S.restSeconds = rows.restSeconds;
+    S.source = rows.source || null;
     /* The note belongs to the exercise, not to the session's saved rows. A
        note typed mid-workout was written to lk_exNotes and then read back
        over by the rows this same workout had saved a moment earlier, so it
@@ -51387,6 +51810,11 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
          gym" is the difference between a bad week and a week away. */
       type: S.quick ? 'quick' : 'split',
       note: S.note || '',
+      /* WHERE IT CAME FROM, so Review can offer to keep what changed.
+         Undefined for a quick workout and for the demo's seeded session:
+         Review asks about a split day or it asks about nothing, and a
+         session with no plan behind it has nothing to have drifted from. */
+      source: S.source || null,
       dateISO: window.LKStore ? LKStore.today() : null,
       sets: doneSets(),
       warmups: doneWarmups(),
@@ -54477,7 +54905,9 @@ DEMO.define("review", function (document, window, location, fetch) {
     plus:   svg('<path d="M12 5v14M5 12h14"/>'),
     minus:  svg('<path d="M5 12h14"/>'),
     check:  svg('<path d="m5 12.5 4.5 4.5L19 7.5"/>'),
-    close:  svg('<path d="M6 6l12 12M18 6L6 18"/>')
+    close:  svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+    /* The same lifts, run in another order: two rows trading places. */
+    order:  svg('<path d="M7 4v13l-3-3M17 20V7l3 3"/>')
   };
 
   /* ---- formatting ------------------------------------------------ */
@@ -54637,12 +55067,31 @@ DEMO.define("review", function (document, window, location, fetch) {
                 ? shortDate(String(held.date).slice(0, 10)) : held.date };
     });
 
+    /* HOW TODAY DIFFERED FROM THE DAY IT CAME FROM. Null for a quick
+       workout, for a session with no split behind it, for a day that has
+       been deleted since, for a session that ran exactly to plan, and for
+       a session that has already been asked about once. */
+    var dkey = driftKey(r);
+    var drift = driftAnswered(dkey) ? null : driftFor(r);
+
     return {
       title: r.title || 'Workout',
       dateISO: r.dateISO,
       date: r.dateISO ? longDate(r.dateISO) : '',
       sets: r.sets, volumeKg: r.volumeKg, minutes: r.minutes,
       lifts: lifts,
+      /* The card reads these two; everything it needs to WRITE is on
+         `drift`, which never reaches the markup. */
+      split: drift ? drift.split : null,
+      diffs: drift ? drift.diffs : null,
+      drift: drift,
+      driftKey: dkey,
+      /* `mixed` is deliberately NOT set from the difference. It switches on
+         the comparison card's "the exercises differ from <date>" line, and
+         that date is the dev state's own Sep 3 constant unless a real prior
+         session was found -- so a true difference printed a sentence about
+         a session that does not exist. The comparison decides for itself
+         what it can compare; this card is not its source. */
       /* The rows, so the screen can show what was actually done and the
          record it saves has sets in it. */
       exercises: r.exercises || [],
@@ -54753,6 +55202,304 @@ DEMO.define("review", function (document, window, location, fetch) {
              'Two of the three have now run that way twice.'
   };
   DATA['diff-updated'] = DATA['diff-swap'];
+
+  /* ---- THE SAME CARD, OVER A REAL SESSION ---------------------------
+     Everything above this line was a mock: four hand-written difference
+     lists behind four dev-state buttons, a PPL/Push constant, and four
+     buttons that moved a variable in this screen and touched lk_splits
+     never. The card read beautifully and could not have changed a split
+     if you had pressed it all afternoon -- swap the incline press for a
+     flat press during Push and next week's Push day still said incline,
+     which is the one thing the card promises not to happen.
+
+     What follows is the same detection over the session the workout log
+     actually handed across. The log now carries its split day with it
+     (`source`: the split's id and name, the day's id and name, and the
+     exercises the day PLANNED), so this can compare like with like even
+     if the split has been renamed or reordered since.
+     ------------------------------------------------------------------ */
+
+  function sameId(a, b) { return String(a) === String(b); }
+  function hasId(list, id) {
+    for (var i = 0; i < list.length; i++) if (sameId(list[i].id, id)) return true;
+    return false;
+  }
+
+  /* A session is asked about once. Answered, the screen is reopened --
+     the edge-swipe back off Train is one tap away -- and the card came
+     back offering to write a change that had already been written. The
+     answer is stored against the session it was given for, not against
+     the day, so tomorrow's Push is still asked about. */
+  function driftKey(r) {
+    var src = r && r.source;
+    if (!src) return null;
+    return [src.splitId, src.dayId, r.dateISO || '', r.sets, r.volumeKg].join('|');
+  }
+  function driftAnswered(key) {
+    if (!key || !window.LKStore) return false;
+    return String(LKStore.get('lk_splitDriftDone', '') || '') === key;
+  }
+  function markDriftAnswered(key, yes) {
+    if (!key || !window.LKStore) return;
+    if (yes) LKStore.set('lk_splitDriftDone', key);
+    else LKStore.remove('lk_splitDriftDone');
+  }
+
+  /* The difference between what the day prescribed and what was logged.
+     Returns null when there is nothing to say: no split behind the
+     session, a day that has since been deleted, or a session that ran
+     exactly to plan. There is no "no changes detected" state, so the
+     nothing case has to be nothing at all rather than an empty card. */
+  function driftFor(r) {
+    var src = r && r.source;
+    if (!src || !src.splitId || !src.planned || !src.planned.length) return null;
+    /* THE DAY HAS TO STILL EXIST. Delete or rename the split between the
+       session and the review and this used to be asked anyway, and the
+       write behind it would have thrown looking for a day that is not
+       there. Offering to update something that is gone is worse than
+       staying quiet about it. */
+    if (!findDay(src)) return null;
+
+    var planned = src.planned.map(function (e) {
+      return { id: e.id, name: e.name, group: e.group || '', muscle: e.muscle || '' };
+    });
+    var performed = (r.exercises || []).map(function (e) {
+      var working = (e.sets || []).filter(function (st) { return !st.warm; }).length;
+      return { id: e.id, name: e.name, group: '', muscle: e.muscle || '',
+               sets: working || (e.sets || []).length };
+    });
+    if (!performed.length) return null;
+
+    var added = performed.filter(function (e) { return !hasId(planned, e.id); });
+    var skipped = planned.filter(function (e) { return !hasId(performed, e.id); });
+
+    /* SAME LIFTS, DIFFERENT ORDER. Worth offering -- an order somebody
+       settled into over three weeks is a decision -- but it is its own
+       kind of change and says so, rather than being dressed up as five
+       swaps. It can only be the whole story when nothing came or went,
+       because a swap moves everything below it and that is not a
+       reorder, it is the swap. */
+    if (!added.length && !skipped.length) {
+      var same = planned.length === performed.length;
+      for (var i = 0; same && i < planned.length; i++) {
+        if (!sameId(planned[i].id, performed[i].id)) same = false;
+      }
+      if (same) return null;
+      return { split: { id: src.splitId, name: src.splitName,
+                        dayId: src.dayId, day: src.dayName },
+               planned: planned, performed: performed,
+               diffs: [{ kind: 'order', count: performed.length,
+                         first: performed[0].name, was: planned[0].name }] };
+    }
+
+    /* A SKIP AND AN ADDITION IN THE SAME SLOT ARE ONE DECISION. Paired by
+       the muscle the two lifts train, which is what "the same slot" means
+       to a reader; failing that, by position, because the replacement is
+       normally reached at the moment the original would have been. */
+    var pairs = [], usedAdd = [];
+    skipped.forEach(function (sk) {
+      var slot = String(sk.muscle || '').toLowerCase();
+      var mate = null;
+      if (slot) {
+        for (var a = 0; a < added.length; a++) {
+          if (usedAdd.indexOf(added[a]) > -1) continue;
+          if (String(added[a].muscle || '').toLowerCase() === slot) { mate = added[a]; break; }
+        }
+      }
+      if (!mate) {
+        var at = -1;
+        for (var q = 0; q < planned.length; q++) if (sameId(planned[q].id, sk.id)) at = q;
+        for (var b = 0; b < added.length; b++) {
+          if (usedAdd.indexOf(added[b]) > -1) continue;
+          var pat = -1;
+          for (var w = 0; w < performed.length; w++) if (sameId(performed[w].id, added[b].id)) pat = w;
+          if (pat === at) { mate = added[b]; break; }
+        }
+      }
+      if (mate) { usedAdd.push(mate); pairs.push([sk, mate]); }
+    });
+
+    var diffs = [];
+    planned.forEach(function (pl) {
+      var pair = null;
+      for (var i = 0; i < pairs.length; i++) if (pairs[i][0] === pl) pair = pairs[i];
+      if (pair) {
+        diffs.push({ kind: 'swap', from: pl.name, fromId: pl.id,
+                     to: pair[1].name, toId: pair[1].id,
+                     slot: pair[1].muscle || pl.muscle || 'the same slot',
+                     sets: pair[1].sets });
+        return;
+      }
+      if (skipped.indexOf(pl) > -1) {
+        diffs.push({ kind: 'skipped', from: pl.name, fromId: pl.id,
+                     slot: pl.muscle || 'the same slot', sets: 3 });
+      }
+    });
+    added.forEach(function (ad) {
+      if (usedAdd.indexOf(ad) > -1) return;
+      diffs.push({ kind: 'added', to: ad.name, toId: ad.id,
+                   slot: ad.muscle || 'a new slot', sets: ad.sets });
+    });
+    if (!diffs.length) return null;
+
+    return { split: { id: src.splitId, name: src.splitName,
+                      dayId: src.dayId, day: src.dayName },
+             planned: planned, performed: performed, diffs: diffs };
+  }
+
+  /* ---- writing it back ----------------------------------------------
+     lk_splits holds a day's lifts in either of two shapes: `exIds: [111,
+     302]` on a phone that has been running LOCKED, and the resolved
+     `exercises: [{id, name, group, muscle}]` from the split builder.
+     Whichever a day already carries is what it gets written back in --
+     and a day carrying both keeps both, because Train reads one and the
+     builder reads the other and a half-written day would show five
+     lifts on one screen and two on another.
+     ------------------------------------------------------------------ */
+
+  function allSplits() {
+    var raw = window.LKStore ? LKStore.get('lk_splits', null) : null;
+    return Array.isArray(raw) ? raw : [];
+  }
+  function daySlug(name, i) {
+    return String(name || ('day' + i)).toLowerCase().replace(/\W+/g, '-');
+  }
+  /* The day as it stands NOW, found by id first and by name second, so a
+     day that has been renamed since the session is still found and a day
+     that has been deleted is honestly not. */
+  function findDay(src) {
+    var all = allSplits();
+    for (var i = 0; i < all.length; i++) {
+      if (!sameId(all[i].id, src.splitId)) continue;
+      var days = all[i].days || [];
+      for (var j = 0; j < days.length; j++) {
+        if (daySlug(days[j].name, j) === src.dayId) return { split: all[i], day: days[j], list: all };
+      }
+      for (var k = 0; k < days.length; k++) {
+        if (days[k].name === src.dayName) return { split: all[i], day: days[k], list: all };
+      }
+      return null;
+    }
+    return null;
+  }
+  function dayLifts(d) {
+    if (d && d.exercises && d.exercises.length) return d.exercises.slice();
+    return ((d && d.exIds) || []).map(function (id) { return { id: id }; });
+  }
+  /* THE GROUP TOO, NOT ONLY THE NAME. What was logged carries an id, a
+     name and a muscle; a stored split day carries a group as well, and a
+     lift written into a day without one read as ungrouped everywhere the
+     builder shows a day by group. The catalogue knows it, so it is asked
+     rather than left blank. */
+  function liftFor(id, drift) {
+    var out = null;
+    var pools = [drift.performed || [], drift.planned || []];
+    for (var p = 0; p < pools.length && !out; p++) {
+      for (var i = 0; i < pools[p].length; i++) {
+        if (sameId(pools[p][i].id, id)) {
+          var e = pools[p][i];
+          out = { id: e.id, name: e.name, group: e.group || '', muscle: e.muscle || '' };
+          break;
+        }
+      }
+    }
+    if (!out) out = { id: id, name: 'Exercise ' + id, group: '', muscle: '' };
+    if ((!out.group || !out.muscle) && window.LKExercises && LKExercises.all) {
+      var rows = LKExercises.all();
+      for (var k = 0; k < rows.length; k++) {
+        if (!sameId(rows[k].id, id)) continue;
+        if (!out.group) out.group = rows[k].group || '';
+        if (!out.muscle) out.muscle = rows[k].muscle || '';
+        if (!out.name) out.name = rows[k].name;
+        break;
+      }
+    }
+    return out;
+  }
+
+  /* Applies the chosen differences and returns what the day looked like
+     before, so Undo has something to put back. Returns null if anything
+     is missing, and in that case nothing at all was written. */
+  function writeSplit(drift, applied) {
+    if (!window.LKStore || !drift || !applied || !applied.length) return null;
+    var found = findDay({ splitId: drift.split.id, dayId: drift.split.dayId,
+                          dayName: drift.split.day });
+    if (!found) return null;
+    var day = found.day;
+    var before = { exercises: day.exercises ? JSON.parse(JSON.stringify(day.exercises)) : undefined,
+                   exIds: day.exIds ? day.exIds.slice() : undefined,
+                   updated: found.split.updated };
+    /* The day as it stands wins on its own lifts: a name or a group the
+       reader edited in the builder is theirs, and rebuilding the whole
+       list out of the session would quietly write over it. */
+    var list = dayLifts(day).map(function (e) {
+      var k = liftFor(e.id, drift);
+      return { id: e.id, name: e.name || k.name, group: e.group || k.group,
+               muscle: e.muscle || k.muscle };
+    });
+
+    applied.forEach(function (df) {
+      if (df.kind === 'order') {
+        list = drift.performed.map(function (e) { return liftFor(e.id, drift); });
+        return;
+      }
+      if (df.kind === 'skipped') {
+        list = list.filter(function (e) { return !sameId(e.id, df.fromId); });
+        return;
+      }
+      if (df.kind === 'swap') {
+        var at = -1;
+        for (var i = 0; i < list.length; i++) if (sameId(list[i].id, df.fromId)) at = i;
+        if (at > -1) list.splice(at, 1, liftFor(df.toId, drift));
+        else if (!hasId(list, df.toId)) list.push(liftFor(df.toId, drift));
+        return;
+      }
+      if (df.kind === 'added' && !hasId(list, df.toId)) list.push(liftFor(df.toId, drift));
+    });
+
+    /* EVERY DIFFERENCE TAKEN MEANS "SAVE THIS VERSION", so the day ends up
+       in the order it was actually run in rather than the old order with
+       the new lifts bolted on where the old ones stood. Applying only
+       some of them leaves the rest of the day where it was, which is the
+       whole point of choosing per change. */
+    var sameSet = list.length === drift.performed.length;
+    for (var s2 = 0; sameSet && s2 < list.length; s2++) {
+      if (!hasId(drift.performed, list[s2].id)) sameSet = false;
+    }
+    if (sameSet) list = drift.performed.map(function (e) { return liftFor(e.id, drift); });
+
+    /* Both shapes, or the one the day already had. A day with neither --
+       a day somebody emptied -- is written in the builder's shape, which
+       is the one every screen can read without a catalogue lookup. */
+    if (day.exercises || !day.exIds) {
+      day.exercises = list.map(function (e) {
+        return { id: e.id, name: e.name, group: e.group || '', muscle: e.muscle || '' };
+      });
+    }
+    if (day.exIds) day.exIds = list.map(function (e) { return e.id; });
+
+    /* Train prints "edited <date>" from this, falling back to `created`.
+       Left alone, a split rewritten from here still claimed to have been
+       edited on the day it was first built. */
+    found.split.updated = LKStore.today();
+    LKStore.set('lk_splits', found.list);
+    return before;
+  }
+
+  function restoreSplit(drift, before) {
+    if (!window.LKStore || !drift || !before) return false;
+    var found = findDay({ splitId: drift.split.id, dayId: drift.split.dayId,
+                          dayName: drift.split.day });
+    if (!found) return false;
+    if (before.exercises === undefined) delete found.day.exercises;
+    else found.day.exercises = before.exercises;
+    if (before.exIds === undefined) delete found.day.exIds;
+    else found.day.exIds = before.exIds;
+    if (before.updated === undefined) delete found.split.updated;
+    else found.split.updated = before.updated;
+    LKStore.set('lk_splits', found.list);
+    return true;
+  }
 
   /* HOW IT FELT. One four-chip question -- easy, steady, hard, all out --
      was stored nowhere and shown nowhere afterwards: workout-detail's "How
@@ -54988,20 +55735,33 @@ DEMO.define("review", function (document, window, location, fetch) {
 
   /* One line per difference, each naming the exercise and enough detail
      to judge it without opening anything. */
+  /* EVERY NAME IN HERE IS SOMEBODY'S OWN WORDS NOW. While this card was a
+     mock the four names in it were written by hand; the day, the split and
+     both lift names are read off the split and off the session, and a
+     custom exercise can be called anything at all. Escaped, or a lift
+     named with an angle bracket rewrites the card. */
   function diffLine(diff, i, forSheet) {
     var ico, title, sub;
     if (diff.kind === 'swap') {
       ico = ICO.swap;
-      title = diff.to + ' instead of ' + diff.from;
-      sub = n(diff.sets) + ' sets logged · same slot, ' + diff.slot;
+      title = esc(diff.to) + ' instead of ' + esc(diff.from);
+      sub = n(diff.sets) + ' ' + LKPlural(diff.sets, 'set') + ' logged · same slot, ' + esc(diff.slot);
     } else if (diff.kind === 'added') {
       ico = ICO.plus;
-      title = 'Added ' + diff.to + ', ' + diff.sets + ' sets';
-      sub = 'Not in ' + SPLIT.day + ' · ' + diff.slot;
+      title = 'Added ' + esc(diff.to) + ', ' + diff.sets + ' ' + LKPlural(diff.sets, 'set');
+      sub = 'Not in ' + esc(SPLIT.day) + ' · ' + esc(diff.slot);
+    } else if (diff.kind === 'order') {
+      /* THE SAME LIFTS, RUN IN A DIFFERENT ORDER. Its own kind and its own
+         sentence: an order settled into over three weeks is a decision, and
+         calling it five swaps would be a lie about what happened. */
+      ico = ICO.order;
+      title = 'A different order';
+      sub = 'Same ' + n(diff.count) + ' lifts · ' + esc(diff.first) +
+            ' first, not ' + esc(diff.was);
     } else {
       ico = ICO.minus;
-      title = 'Skipped ' + diff.from;
-      sub = n(diff.sets) + ' sets prescribed · none started';
+      title = 'Skipped ' + esc(diff.from);
+      sub = n(diff.sets) + ' ' + LKPlural(diff.sets, 'set') + ' prescribed · none started';
     }
     if (!forSheet) {
       return '<div class="row" data-testid="split-diff-' + i + '">' +
@@ -55022,8 +55782,10 @@ DEMO.define("review", function (document, window, location, fetch) {
                '<span class="opt__title">' + title + '</span>' +
                '<span class="opt__sub">' + sub +
                  (diff.kind === 'skipped'
-                   ? ' · choosing this removes it from ' + SPLIT.day
-                   : ' · choosing this writes it into ' + SPLIT.day) +
+                   ? ' · choosing this removes it from ' + esc(SPLIT.day)
+                   : diff.kind === 'order'
+                     ? ' · choosing this reorders ' + esc(SPLIT.day)
+                     : ' · choosing this writes it into ' + esc(SPLIT.day)) +
                '</span>' +
              '</span>' +
            '</button>';
@@ -55032,14 +55794,15 @@ DEMO.define("review", function (document, window, location, fetch) {
   /* What a given set of applied differences did, in one named line. */
   function appliedLine(applied, diffs) {
     var parts = applied.map(function (dd) {
-      if (dd.kind === 'swap') return dd.to + ' replaces ' + dd.from + '.';
-      if (dd.kind === 'added') return dd.to + ' added.';
-      return dd.from + ' removed.';
+      if (dd.kind === 'swap') return esc(dd.to) + ' replaces ' + esc(dd.from) + '.';
+      if (dd.kind === 'added') return esc(dd.to) + ' added.';
+      if (dd.kind === 'order') return 'The order you ran it in was kept.';
+      return esc(dd.from) + ' removed.';
     });
     var keptSkips = diffs.filter(function (dd) {
       return dd.kind === 'skipped' && applied.indexOf(dd) === -1;
     });
-    keptSkips.forEach(function (dd) { parts.push(dd.from + ' stays in ' + SPLIT.day + '.'); });
+    keptSkips.forEach(function (dd) { parts.push(esc(dd.from) + ' stays in ' + esc(SPLIT.day) + '.'); });
     return parts.join(' ');
   }
 
@@ -55048,13 +55811,13 @@ DEMO.define("review", function (document, window, location, fetch) {
     var diffs = d.diffs;
     var head = '<div class="section" data-testid="section-split">' +
                  '<div class="section__head"><h2 class="t-label">' +
-                   SPLIT.name + ' · ' + SPLIT.day + ' day</h2></div>';
+                   esc(SPLIT.name) + ' · ' + esc(SPLIT.day) + ' day</h2></div>';
 
     if (S.split === 'updated') {
       return head +
         '<div class="card" data-testid="card-split-updated">' +
           '<div class="banner banner--success" role="status">' + ICO.check +
-            '<span><strong>' + SPLIT.day + ' updated</strong>' +
+            '<span><strong>' + esc(SPLIT.day) + ' updated</strong>' +
             appliedLine(S.applied, diffs) + '</span></div>' +
           '<button class="btn btn--secondary btn--block mt-3" data-testid="split-undo">' +
             '<span class="btn__label">Undo update</span></button>' +
@@ -55063,7 +55826,7 @@ DEMO.define("review", function (document, window, location, fetch) {
     if (S.split === 'kept') {
       /* A quiet acknowledgement, and the screen does not ask again. */
       return head + '<p class="t-meta" data-testid="split-kept">' +
-             SPLIT.day + ' kept as it is.</p></div>';
+             esc(SPLIT.day) + ' kept as it is.</p></div>';
     }
 
     var skips = diffs.filter(function (dd) { return dd.kind === 'skipped'; });
@@ -55074,25 +55837,43 @@ DEMO.define("review", function (document, window, location, fetch) {
        it is never applied unless it is picked by name. When a skip is
        the only difference, the card says so and keeping is the reading
        the copy and the button order both point at. */
-    var note = skipOnly
-      ? 'Missing a lift once is usually the rack or the clock, not a change of ' +
-        'plan. ' + SPLIT.day + ' stays as it is unless you say otherwise.'
-      : (skips.length
-          ? 'Update ' + SPLIT.day + ' applies the ' +
-            (applicable.length > 1 ? 'swap and the addition' : applicable[0].kind === 'swap' ? 'swap' : 'addition') +
-            '. Skipped exercises stay in ' + SPLIT.day + ' unless you pick them one by one.'
-          : 'Update ' + SPLIT.day + ' writes this into the split. Later ' +
-            SPLIT.day + ' sessions start from it.');
+    /* An order change is never mixed in with anything else -- a swap moves
+       everything below it, and that is the swap, not a reorder -- so when
+       it is here it is the whole card, and the wording says so. */
+    var orderOnly = diffs.length === 1 && diffs[0].kind === 'order';
+    var DAY = esc(SPLIT.day);
 
-    var actions = skipOnly
-      ? '<button class="btn btn--secondary btn--block" data-testid="split-keep">' +
-          '<span class="btn__label">Keep ' + SPLIT.day + ' as it is</span></button>' +
-        '<button class="btn btn--secondary btn--block mt-2" data-testid="split-update">' +
-          '<span class="btn__label">Remove ' + skips[0].from + ' from ' + SPLIT.day + '</span></button>'
-      : '<button class="btn btn--secondary btn--block" data-testid="split-update">' +
-          '<span class="btn__label">Update ' + SPLIT.day + '</span></button>' +
+    var note = orderOnly
+      ? 'Save this order as ' + DAY + ' and later ' + DAY + ' sessions start ' +
+        'in it. The lifts themselves do not change.'
+      : skipOnly
+      ? 'Missing a lift once is usually the rack or the clock, not a change of ' +
+        'plan. ' + DAY + ' stays as it is unless you say otherwise.'
+      : (skips.length
+          ? 'Save as your ' + DAY + ' day applies the ' +
+            (applicable.length > 1 ? 'swap and the addition' : applicable[0].kind === 'swap' ? 'swap' : 'addition') +
+            '. Skipped exercises stay in ' + DAY + ' unless you pick them one by one.'
+          : 'Save as your ' + DAY + ' day writes this version into the split. ' +
+            'Later ' + DAY + ' sessions start from it.');
+
+    /* THE VERB IS "SAVE", NOT "UPDATE". "Update Push" reads like
+       housekeeping the app is asking you to do for it; what is actually on
+       offer is keeping the session you just ran, which is the reader's own
+       word for it: save this as your Push day. */
+    var actions = orderOnly
+      ? '<button class="btn btn--secondary btn--block" data-testid="split-update">' +
+          '<span class="btn__label">Save this order as ' + DAY + '</span></button>' +
         '<button class="btn btn--secondary btn--block mt-2" data-testid="split-keep">' +
-          '<span class="btn__label">Keep ' + SPLIT.day + ' as it is</span></button>';
+          '<span class="btn__label">Keep ' + DAY + ' as it is</span></button>'
+      : skipOnly
+      ? '<button class="btn btn--secondary btn--block" data-testid="split-keep">' +
+          '<span class="btn__label">Keep ' + DAY + ' as it is</span></button>' +
+        '<button class="btn btn--secondary btn--block mt-2" data-testid="split-update">' +
+          '<span class="btn__label">Remove ' + esc(skips[0].from) + ' from ' + DAY + '</span></button>'
+      : '<button class="btn btn--secondary btn--block" data-testid="split-update">' +
+          '<span class="btn__label">Save as your ' + DAY + ' day</span></button>' +
+        '<button class="btn btn--secondary btn--block mt-2" data-testid="split-keep">' +
+          '<span class="btn__label">Keep ' + DAY + ' as it is</span></button>';
 
     /* The third route exists only when there is more than one decision
        to separate. */
@@ -55104,7 +55885,7 @@ DEMO.define("review", function (document, window, location, fetch) {
     return head +
       '<div class="card card--flush">' +
         '<div class="card__head">' +
-          '<span class="t-label grow">' + SPLIT.day + ' ran differently</span>' +
+          '<span class="t-label grow">' + esc(SPLIT.day) + ' ran differently</span>' +
           '<span class="badge">' + diffs.length +
             (diffs.length === 1 ? ' change' : ' changes') + '</span>' +
         '</div>' +
@@ -55126,7 +55907,7 @@ DEMO.define("review", function (document, window, location, fetch) {
            'data-testid="split-sheet">' +
         '<div class="sheet__grab"></div>' +
         '<div class="sheet__head">' +
-          '<h2 class="t-section" id="split-sheet-title">Update ' + SPLIT.day + '</h2>' +
+          '<h2 class="t-section" id="split-sheet-title">Update ' + esc(SPLIT.day) + '</h2>' +
           '<button class="iconbtn" type="button" data-testid="split-sheet-close" ' +
                   'aria-label="Close, change nothing">' + ICO.close + '</button>' +
         '</div>' +
@@ -55142,7 +55923,7 @@ DEMO.define("review", function (document, window, location, fetch) {
             '<button class="btn btn--secondary grow" data-testid="split-sheet-cancel">' +
               '<span class="btn__label">Cancel</span></button>' +
             '<button class="btn btn--secondary grow" data-testid="split-sheet-apply">' +
-              '<span class="btn__label">Apply to ' + SPLIT.day + '</span></button>' +
+              '<span class="btn__label">Apply to ' + esc(SPLIT.day) + '</span></button>' +
           '</div>' +
         '</div>' +
       '</div>';
@@ -55530,6 +56311,9 @@ DEMO.define("review", function (document, window, location, fetch) {
      after boot -- so it reported its fixture's 16 sets and 4,383 kg against
      a session of two sets and 1,088 kg. */
   var HANDED = null;
+  /* Which session the split decision on screen belongs to, and the day as
+     it stood before it was written, which is all Undo needs. */
+  var DRIFT_KEY = null, DRIFT_BEFORE = null;
   function takeHanded() {
     var h = handed();
     if (!h) return false;
@@ -55555,6 +56339,26 @@ DEMO.define("review", function (document, window, location, fetch) {
     DATA.empty = { title: HANDED.title, date: HANDED.date };
     DATA.loading = DATA.empty;
     SAVED = null;
+    /* THE CARD TALKS ABOUT THE DAY IN FRONT OF IT. This was a PPL/Push
+       constant, so the one real session that ever reached it would have
+       been offered a "Save as your Push day" over somebody else's split.
+       The dev states below still read the constant, which is what they
+       are: a mock with no session behind it. */
+    if (HANDED.split) SPLIT = HANDED.split;
+    /* A NEW SESSION HAS NOT BEEN ANSWERED. This screen is mounted once for
+       the life of the page, so an answer given after Monday's Push was
+       still on the state when Wednesday's arrived: the card came back
+       already reading "Push updated" over a session nobody had decided
+       anything about, with an Undo that would have put back a day the
+       reader had never touched. Same family of bug as S.saved below. */
+    if (DRIFT_KEY !== HANDED.driftKey) {
+      DRIFT_KEY = HANDED.driftKey;
+      DRIFT_BEFORE = null;
+      S.split = 'pending';
+      S.applied = [];
+      S.picks = [];
+      S.sheet = false;
+    }
     /* A NEW SESSION IS NOT THE LAST ONE'S SAVE. In the assembled build this
        screen is mounted once for the life of the page, so S.saved survived
        from the previous workout: the second session of the day arrived with
@@ -55726,6 +56530,16 @@ DEMO.define("review", function (document, window, location, fetch) {
     toastTimer = setTimeout(function () { S.toast = null; paint(true); }, 4000);
   }
 
+  /* Writes the chosen differences into lk_splits and remembers the day as
+     it was, for Undo. Called from three places, so it lives in one. */
+  function applySplit(d, applied) {
+    if (!d || !d.drift) return false;
+    var before = writeSplit(d.drift, applied);
+    if (before) DRIFT_BEFORE = before;
+    markDriftAnswered(d.driftKey, true);
+    return !!before;
+  }
+
   /* One delegated handler. Every control on the screen is in here, so
      there is no path that reaches a control with no behaviour. */
   document.addEventListener('click', function (e) {
@@ -55844,10 +56658,20 @@ DEMO.define("review", function (document, window, location, fetch) {
            Update writes the swaps and additions and leaves skips alone. */
         var applicable = d.diffs.filter(function (dd) { return dd.kind !== 'skipped'; });
         S.applied = applicable.length ? applicable : d.diffs.slice();
+        /* AND IT REACHES lk_splits. Until now every one of these buttons
+           moved a variable in this screen and touched the stored split
+           never: the card said "Push updated", the banner said which lift
+           replaced which, and next week's Push day still ran the old one.
+           Over a dev state there is nothing to write and the card is still
+           worth showing, so a failed write is not an error here. */
+        applySplit(d, S.applied);
         S.split = 'updated';
         paint(true);
         return;
       case 'split-keep':
+        /* Answered, so it is not asked again -- but nothing was written,
+           and the session itself was already logged either way. */
+        markDriftAnswered(d.driftKey, true);
         S.split = 'kept'; paint(true); return;
       case 'split-per-change':
         S.picks = []; S.sheet = true; paint(true); return;
@@ -55860,17 +56684,24 @@ DEMO.define("review", function (document, window, location, fetch) {
         S.sheet = false;
         if (!S.picks.length) {
           /* Opened, read, nothing picked. That is a decision to keep. */
+          markDriftAnswered(d.driftKey, true);
           S.split = 'kept'; S.picks = []; paint(true); return;
         }
         S.applied = S.picks.slice().sort(function (a, b) { return a - b; })
                       .map(function (i) { return d.diffs[i]; });
         S.picks = []; S.split = 'updated';
+        applySplit(d, S.applied);
         paint(true);
         return;
       case 'split-undo':
+        /* The day goes back exactly as it was, timestamp included, and the
+           question is open again: undoing an answer is not an answer. */
+        if (DRIFT_BEFORE) restoreSplit(d.drift, DRIFT_BEFORE);
+        DRIFT_BEFORE = null;
+        markDriftAnswered(d.driftKey, false);
         S.split = 'pending'; S.applied = []; S.picks = [];
         paint(true);
-        toast(SPLIT.day + ' update undone. The split is back as it was.');
+        toast(esc(SPLIT.day) + ' update undone. The split is back as it was.');
         return;
       default:
         return;

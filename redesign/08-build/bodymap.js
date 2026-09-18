@@ -833,6 +833,184 @@
     }
     api.cam3 = function () { return { s: cam3.s, tx: cam3.tx, ty: cam3.ty }; };
 
+    /* ---- THE CAMERA TRAVELS, AND THE SCREEN TRAVELS WITH IT -----------
+
+       Tapping a muscle used to be two unrelated events that happened to
+       land in the same frame: the camera transform changed and the
+       stylesheet carried it over 420ms on its own clock, while the screen
+       re-rendered and the exercise list simply appeared. Two motions with
+       nothing in common read as a page switch, which is exactly what it
+       was being called -- "a big tacky page switch". The body did not
+       take you anywhere; it was swapped for a list.
+
+       So the move is one move. A spring integrated here, frame by frame,
+       drives the camera, and the fraction of the journey it has covered
+       is published as it goes: on the svg as --zoom-t, and through
+       opts.onZoom so a screen can put the same number on its own root.
+       The list interpolates its transform and its opacity from that
+       number, which means it is not on a timer at all -- it rises at
+       whatever rate the camera is travelling, slowing as the camera
+       slows, and arrives in the frame the camera arrives.
+
+       Why an integrator rather than the CSS transition that was already
+       here: a transition can only go from where it is to where it was
+       told, at a fixed rate, and it publishes nothing on the way. The
+       gesture code below has run its settle and its fling on rAF since
+       the day fingers were allowed on the figure, for the same reason.
+       This is the same machinery pointed at a destination. */
+
+    /* CRITICALLY DAMPED, AND MEANT IT THIS TIME. A spring that passes its
+       target and comes back is right for a button answering a thumb and
+       wrong for a lens: the picture arrives, slides past what you were
+       looking at, and returns. This is the exact critically damped
+       response, 1 - (1 + wt)e^-wt, at w = 18 per second: 99% of the
+       journey is behind it by 370ms, which is about the length the
+       stylesheet's own camera duration was tuned to, and the last
+       thousandth of it -- well under a pixel -- is given up at half a
+       second.
+
+       READ OFF THE CLOCK RATHER THAN INTEGRATED, which is where this
+       differs from settle() and fling() below. Those integrate because
+       their input is a live velocity nobody knows the end of. A flight
+       knows its destination the moment it starts, and integrating it
+       frame by frame tied the move to how many frames the browser
+       happened to deliver: anything that blocked the main thread -- a
+       screen re-rendering a long list, a test walking a muscle pixel by
+       pixel -- stretched a 420ms move into a second and a half, because
+       the per-frame step is capped and a dropped frame is a step never
+       taken. Off the clock, a frame that arrives late arrives further
+       along, and a tab that comes back from the background finds the
+       camera already at the muscle, which is where it should be. */
+    var FLY_W = 18;
+    var flight = null;
+    /* 1 means "nothing is travelling", which is the state a figure sitting
+       still is in. It starts there so a list riding this property is at
+       full opacity and in place before anything has been tapped. */
+    var zoomT = 1;
+
+    function publishT(t, gid) {
+      zoomT = t;
+      svg.style.setProperty('--zoom-t', String(Math.round(t * 1e3) / 1e3));
+      if (opts.onZoom) { try { opts.onZoom(t, gid || null); } catch (e) {} }
+    }
+    api.zoomT = function () { return zoomT; };
+    /* Published before anything has been tapped, so a list styled off this
+       property is in place and legible on a figure that has never moved. */
+    svg.style.setProperty('--zoom-t', '1');
+
+    /* CUT SHORT IS STILL ARRIVED. A finger landing on a moving picture
+       stops the camera where it is, which is right -- grabbing a moving
+       thing should feel like grabbing. The list is a different question:
+       left at the 0.6 it happened to be passing through, it stays half
+       faded and half a centimetre low for as long as the screen is open,
+       because nothing will ever publish another number. So an interrupted
+       move hands the list its end state. The camera is the reader's now;
+       the list is just the list. `quiet` is the one exception, used by the
+       loop itself, which has already published its own 1. */
+    function stopFlight(quiet) {
+      if (!flight) return;
+      if (flight.raf) cancelAnimationFrame(flight.raf);
+      var gid = flight.gid;
+      flight = null;
+      /* NOT IN THE SAME FRAME AS THE LAST STEP. The flag is what holds the
+         stylesheet's transition off the camera, and putting the transform
+         and the transition back in one style recalculation starts a 420ms
+         transition from wherever the second-to-last frame left the
+         picture. It is a fraction of a pixel and it is still wrong: the
+         figure went on creeping for four hundred milliseconds after the
+         camera had visibly stopped, which moved the parts under a finger
+         that was already aiming at one. A tap on the top edge of a band
+         landed on the muscle behind it. A frame later the transform is
+         committed, nothing is changing, and the transition has nothing to
+         interpolate. */
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(function () { if (!flight) svg.removeAttribute('data-flight'); });
+      } else {
+        svg.removeAttribute('data-flight');
+      }
+      if (!quiet) publishT(1, gid);
+    }
+    /* The gesture block owns its own rAF loop and hands its canceller up
+       here, so a tap that starts a camera move kills a fling still in the
+       air instead of the two of them fighting over cam3 frame by frame.
+       It stays null on a figure mounted as a picture, which has no
+       gestures to cancel. */
+    var stopGesture = null;
+    api.stopZoom = stopFlight;
+
+    function reduced() {
+      try {
+        return !!(global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      } catch (e) { return false; }
+    }
+
+    /* THE WHOLE MOVE IS ONE NUMBER. Scale and both translations are read
+       off a single 0-to-1 position along the path rather than sprung
+       separately, which is what makes the published progress mean
+       something: it is the fraction of the distance actually travelled,
+       so a short hop from one neighbouring muscle to the next reaches 1
+       in the same breath the camera does, and the long haul from the
+       whole body into a calf takes the list the whole way with it. Three
+       independent springs would have arrived at three different moments
+       and there would be no honest number to publish.
+
+       Magnification is interpolated geometrically. 1x to 4x through the
+       arithmetic middle spends most of the move already close in; through
+       the geometric middle every frame is the same proportional step,
+       which is what a zoom looks like. */
+    function flyTo(s, tx, ty, gid) {
+      var to = clampCam(s, tx, ty);
+      /* Already there, or as good as: there is no journey to ride and a
+         spring asked to travel nothing publishes a 0 that never becomes
+         anything. This is the re-sync case, which on some screens is
+         every paint. */
+      var near = Math.abs(Math.log(to.s / cam3.s)) < 0.004 &&
+                 Math.abs(to.tx - cam3.tx) < 0.4 && Math.abs(to.ty - cam3.ty) < 0.4;
+      if (near) { stopFlight(true); setCam(to.s, to.tx, to.ty); publishT(1, gid); return; }
+      /* AND A REPEAT OF THE SAME INSTRUCTION DOES NOT START AGAIN. The
+         screens re-sync the camera on every paint, and the paint that
+         follows a tap lands a frame or two into the move it caused. Reset
+         there, the list dropped back down and climbed a second time. */
+      if (flight && Math.abs(Math.log(flight.to.s / to.s)) < 0.004 &&
+          Math.abs(flight.to.tx - to.tx) < 0.4 && Math.abs(flight.to.ty - to.ty) < 0.4) return;
+      if (stopGesture) stopGesture();
+      stopFlight(true);
+      /* LESS MOTION MEANS THE DESTINATION, NOT A SLOWER TRIP. Somebody who
+         asked for less motion gets the framed muscle and the list in
+         place, in one frame, with nothing to follow. */
+      if (reduced() || typeof requestAnimationFrame !== 'function') {
+        setCam(to.s, to.tx, to.ty); publishT(1, gid); return;
+      }
+      var from = { s: cam3.s, tx: cam3.tx, ty: cam3.ty };
+      var t0 = 0;
+      flight = { to: to, gid: gid || null, raf: 0 };
+      /* The stylesheet's transition on .cam would now be chasing a
+         transform that moves every frame, which is a 420ms lag laid over
+         a 420ms spring. The flag drops it for the length of the move, the
+         same way the gesture flag does while fingers are down. */
+      svg.setAttribute('data-flight', 'true');
+      publishT(0, gid);
+      var step = function (now) {
+        if (!flight) return;
+        if (!t0) t0 = now;
+        var e = (now - t0) / 1000;
+        var w = FLY_W * e;
+        var u = 1 - (1 + w) * Math.exp(-w);
+        /* The tail of an exponential never quite arrives, so it is called
+           arrived at a thousandth of the journey, which is well under a
+           pixel on a 393-wide frame. */
+        var done = u > 0.999;
+        if (done) u = 1;
+        setCam(from.s * Math.pow(to.s / from.s, u),
+               from.tx + (to.tx - from.tx) * u,
+               from.ty + (to.ty - from.ty) * u);
+        publishT(u, gid);
+        if (done) { stopFlight(true); return; }
+        flight.raf = requestAnimationFrame(step);
+      };
+      flight.raf = requestAnimationFrame(step);
+    }
+
     /* ---- A ZOOM THE READER SET THEMSELVES OUTRANKS A RE-SYNC ----------
        The screen calls zoomTo on every paint, so the camera follows the
        chosen group rather than being reset behind it. That is right for a
@@ -884,7 +1062,7 @@
            was setting it, which is the zoom "resetting and locking". A
            camera the reader is holding stays where they put it; only a
            muscle they choose moves it. */
-        setCam(1, 0, 0);
+        flyTo(1, 0, 0, null);
         return false;
       }
       /* A PAIRED MUSCLE IS TWO MUSCLES WIDE, and framing both of them is
@@ -943,7 +1121,7 @@
       }
       s = Math.max(1, Math.min(s, MAX_S));
       var cx = b.x + b.w / 2, cy = b.y + b.h / 2;
-      setCam(s, (VB.x + VB.w / 2) - s * cx, (VB.y + VB.h / 2) - s * cy);
+      flyTo(s, (VB.x + VB.w / 2) - s * cx, (VB.y + VB.h / 2) - s * cy, gid);
       return true;
     };
 
@@ -1757,7 +1935,16 @@
       var glide = null;
       function stopGlide() {
         if (glide) { cancelAnimationFrame(glide); glide = null; }
+        /* AND THE TRIP TO A MUSCLE, WHICH IS THE SAME CAMERA. Every entry
+           into a gesture goes through here, so a finger arriving while
+           the camera is flying to a chest takes it over at the point it
+           had reached rather than wrestling a loop that is still writing
+           cam3 sixty times a second. */
+        stopFlight();
       }
+      /* And the other way round: a tap that starts a camera move has to be
+         able to kill a fling that is still in the air. */
+      stopGesture = function () { if (glide) { cancelAnimationFrame(glide); glide = null; live(false); } };
 
       /* A critically damped spring: no wobble, no second pass, arrives
          and stops. Wobble is right for a button and wrong for a camera --

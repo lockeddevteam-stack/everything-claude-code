@@ -122,7 +122,12 @@
         </div>
       </div>
 
-      <div id="body-content"></div>
+      <!-- THE LIST RIDES THE CAMERA. Everything the screen patches in lives
+           here, and while the figure is travelling to a muscle this block
+           rises into place at the camera's own rate rather than appearing
+           beside it. The class is only a hook for that: the stylesheet
+           does nothing with it unless the root says something is moving. -->
+      <div id="body-content" class="zoomride"></div>
       </main>
 
       <div class="findbar findbar--bottom" id="findbar" role="search" aria-label="Find an exercise">
@@ -1972,6 +1977,26 @@
     return out;
   }
 
+  /* HOW FAR THE CAMERA HAS GOT, ON THE SCREEN'S OWN ROOT.
+
+     The figure publishes this on its svg, which is enough for anything
+     inside the figure and no use at all to the list, which is a sibling
+     two levels up. So the number is put on #screen as well, where it
+     inherits into everything the screen draws, and the list's transform
+     and opacity are read straight off it.
+
+     The attribute is what switches the rule on. A transform left standing
+     on a scrolling list -- even an identity one -- changes what fixed and
+     sticky children are positioned against, and there is no reason to pay
+     that for the 400ms a tap is actually travelling. */
+  function rideZoom(t) {
+    var root = document.getElementById('screen');
+    if (!root) return;
+    root.style.setProperty('--zoom-t', String(t));
+    if (t < 1) root.setAttribute('data-zoomride', '');
+    else root.removeAttribute('data-zoomride');
+  }
+
   function syncMap() {
     /* THE MAP STAYS UP WHILE A MUSCLE IS OPEN ON IT. A group being chosen
        used to take the body off the screen, which is the moment the body
@@ -2011,6 +2036,12 @@
           });
           return out;
         })(),
+        /* ONE SPRING, TWO THINGS MOVING. The camera's progress arrives
+           here on every frame of the trip to a muscle, and goes straight
+           onto the screen's root for the list to read. Nothing is
+           recomputed and nothing re-renders: it is one custom property
+           being written sixty times a second. */
+        onZoom: function (t) { rideZoom(t); },
         onSelect: function (gid) {
           /* The same destination a row in the list goes to. The map is a
              second way to the group, not a second flow. */

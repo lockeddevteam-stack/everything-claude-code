@@ -192,6 +192,41 @@ ok(!soleus.quadExact && soleus.quadN > 0 && /one/i.test(soleus.quadNote),
    'and a muscle that trains as one piece says so rather than pretending',
    soleus.quadNote);
 
+console.log('\n=== the sheet holds still while the camera flies ===\n');
+
+/* THE ONE THING THAT MADE IT READ AS A PAGE SWITCH.
+
+   chrome.js marks a sheet with data-from-trigger the frame it lands,
+   which swaps its entry animation from a rise up the full height of the
+   screen to a 24px settle under a scale. Nothing in the markup declares
+   that attribute, so every repaint stripped it: the animation-name
+   changed back to sheetUp and the sheet re-ran a 626px rise. Choosing a
+   muscle repaints, so the zoom that was supposed to happen inside the
+   sheet threw the sheet off the bottom of the screen and slid it back.
+
+   Measured on the element, not on how it looks: the same node, and no
+   full-height rise running on it a frame after the tap. */
+await click('[data-testid="addex-close"]');
+await page.waitForTimeout(500);
+await click('[data-testid="btn-add-exercise"]') || await click('[data-testid="empty-add"]');
+await page.waitForTimeout(800);
+await root((r) => { const s = r.querySelector('[data-testid="addex-sheet"]'); if (s) s.__lkMark = 'A'; });
+await click('#addex-fig svg [data-g="chest"]');
+await page.waitForTimeout(80);
+const held = await root((r) => {
+  const s = r.querySelector('[data-testid="addex-sheet"]');
+  if (!s) return { gone: true };
+  return {
+    same: s.__lkMark === 'A',
+    names: s.getAnimations({ subtree: false }).map((a) => a.animationName),
+    y: Math.round(new DOMMatrixReadOnly(getComputedStyle(s).transform).m42)
+  };
+});
+ok(held.same, 'the sheet is the same element after the muscle is chosen');
+ok(!(held.names || []).includes('sheetUp'),
+   'it does not re-run the rise from the bezel', (held.names || []).join(','));
+ok(Math.abs(held.y || 0) < 8, 'so it has not moved down the screen', String(held.y));
+
 ok(errors.length === 0, 'no page errors', errors.join(' | '));
 
 await browser.close();

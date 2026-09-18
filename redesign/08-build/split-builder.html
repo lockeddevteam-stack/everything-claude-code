@@ -1088,13 +1088,19 @@
           '</div>' +
         '</div>' +
       '</div>' +
-      '<div class="spread mt-2" data-testid="pick-crumb">' +
-        '<button class="btn btn--tertiary btn--sm" data-action="' +
-          (m.sub ? 'pick-whole' : 'pick-back') + '" data-testid="pick-back">' +
-          ico('back') + '<span class="btn__label">' +
-          (m.sub ? esc(name) : 'Body') + '</span></button>' +
-        '<span class="t-label">' + here + '</span>' +
-      '</div>' + pickList(m);
+      /* THE LIFTS RIDE THE CAMERA IN, the same as the log's picker. These
+         two sheets are deliberately one idea in two places, and a move
+         that reads as one movement in one of them and as a page switch in
+         the other would be worse than either. */
+      '<div class="zoomride">' +
+        '<div class="spread mt-2" data-testid="pick-crumb">' +
+          '<button class="btn btn--tertiary btn--sm" data-action="' +
+            (m.sub ? 'pick-whole' : 'pick-back') + '" data-testid="pick-back">' +
+            ico('back') + '<span class="btn__label">' +
+            (m.sub ? esc(name) : 'Body') + '</span></button>' +
+          '<span class="t-label">' + here + '</span>' +
+        '</div>' + pickList(m) +
+      '</div>';
   }
 
   function pickRows(m) {
@@ -1151,11 +1157,34 @@
     if (!slot || !window.LKBodyMap || !window.LKExercises) { PICK_FIG = null; return; }
     var m = S.modal;
     if (!slot.firstChild) {
+      /* THE FIGURE THAT IS BEING REPLACED MUST STOP TRAVELLING. This
+         screen rebuilds its sheet whole on every paint, so the previous
+         figure is already detached -- but its camera loop is not, and it
+         goes on publishing progress onto the same root as the new one.
+         Two springs writing one custom property is a list that jitters
+         between two journeys. */
+      try { if (PICK_FIG && PICK_FIG.stopZoom) PICK_FIG.stopZoom(); } catch (e0) {}
       try {
         PICK_FIG = LKBodyMap.mount(slot, {
           groups: LKExercises.groupCounts(LIBRARY),
           order: LKExercises.groups.map(function (gr) { return gr[0]; }),
           view: (m && m.view) || 'front',
+          /* HOW FAR THE CAMERA HAS GOT, ON THE SCREEN'S OWN ROOT. The
+             figure publishes this on its svg, which reaches nothing
+             outside the figure; the list under it is a sibling. Put on
+             #app it inherits into the sheet, and the crumb and the lifts
+             are a pure function of it -- no timer of their own, so they
+             travel at exactly the camera's rate. The attribute switches
+             the rule on and leaves with the move: a transform left
+             standing on a scrolling list changes what its sticky children
+             are positioned against. */
+          onZoom: function (t) {
+            var root = document.getElementById('app');
+            if (!root) return;
+            root.style.setProperty('--zoom-t', String(t));
+            if (t < 1) root.setAttribute('data-zoomride', '');
+            else root.removeAttribute('data-zoomride');
+          },
           onSelect: function (gid) {
             if (!S.modal) return;
             S.modal.gid = gid;

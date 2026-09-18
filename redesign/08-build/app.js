@@ -345,6 +345,24 @@
      Attributes and live properties
      --------------------------------------------------------------- */
 
+  /* ATTRIBUTES THE RUNTIME OWNS AND THE MARKUP NEVER WRITES.
+
+     The removal pass above deletes anything the new markup does not
+     declare, which is right for state a screen renders and wrong for
+     state chrome.js measured. data-from-trigger is the case that hurt:
+     chrome.js sets it the frame a sheet lands, and it swaps the entry
+     animation from a rise up the full height of the screen to a 24px
+     settle under a scale. Every later paint stripped it, the
+     animation-name changed back to sheetUp, and the sheet re-ran a
+     626px rise -- so choosing a muscle inside the Add Exercise sheet
+     threw the whole sheet off the bottom of the screen and slid it
+     back, which reads as a page switch rather than a zoom.
+
+     Neither name is written by any screen's markup, so leaving them
+     alone cannot strand one: the runtime that set it is the only thing
+     that clears it. */
+  var RUNTIME_ATTR = { 'data-from-trigger': 1, 'data-grabber': 1 };
+
   function syncAttributes(oldEl, newEl) {
     var i, a;
 
@@ -370,7 +388,7 @@
         if (!newEl.hasAttributeNS(a.namespaceURI, a.localName)) {
           oldEl.removeAttributeNS(a.namespaceURI, a.localName);
         }
-      } else if (!newEl.hasAttribute(a.name)) {
+      } else if (!newEl.hasAttribute(a.name) && !RUNTIME_ATTR[a.name]) {
         oldEl.removeAttribute(a.name);
       }
     }

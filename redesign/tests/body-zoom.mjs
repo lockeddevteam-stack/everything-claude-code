@@ -452,6 +452,165 @@ ok(!!picked && chosen.on === picked, 'a tap after a drag still chooses the muscl
    chosen.on + ' vs ' + picked);
 ok(chosen.parts >= 2, 'and the camera goes to it and divides it', String(chosen.parts));
 
+console.log('\n=== 8. the camera travels, and the list travels with it ===\n');
+
+/* THE BUG THIS EXISTS FOR, IN THE READER'S OWN WORDS: "a big tacky page
+   switch". Tapping a muscle used to be two unrelated things that shared
+   a frame. The camera transform changed once and the stylesheet carried
+   it over 420ms on a clock of its own; the screen re-rendered and the
+   exercise list simply existed, fully formed, wherever a list goes. Two
+   motions with nothing in common in the same instant is what a page
+   switch looks like, and that is what it was read as: the body did not
+   take you anywhere, it was swapped for a list.
+
+   One spring drives both now. bodymap.js integrates the camera's trip
+   frame by frame and publishes the fraction of the journey behind it,
+   and the screen puts that fraction on its own root for the list to be a
+   function of. So there are two claims to make good here and they are
+   different claims: that the camera really passes THROUGH the distance
+   rather than arriving at the end of it, and that the number the list
+   rides gets to 1 exactly when the camera gets to the muscle. A list
+   that finished early is back on its own timer, which is the bug.
+
+   Filmed rather than sampled: every frame between the tap and a second
+   later, read inside the page, because anything asked from outside
+   arrives at whatever rate the test harness can round-trip and would
+   miss the travelling entirely. */
+/* EVERYTHING ABOVE LEFT THE FIGURE SOMEWHERE. The session that proves
+   the reader's zoom survives ends on a triceps, turned to the back, at
+   4x and hand-held. Chest is not drawn on a back, so filming a tap on it
+   from there would film the camera refusing to move. Front, whole body,
+   at rest, and checked rather than assumed. */
+const toWholeBody = async () => {
+  await page.evaluate(() => {
+    const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+    const f = r.querySelector('#tab-front');
+    if (f) f.click();
+  });
+  await page.waitForTimeout(350);
+  for (let i = 0; i < 3; i++) {
+    await page.evaluate(() => {
+      const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+      const b = r.querySelector('[data-testid="libmap-back"], [data-act="map-back"], [data-action="back"]');
+      if (b) b.click();
+    });
+    await page.waitForTimeout(300);
+  }
+  /* AND THE BACK BUTTON WILL NOT DO IT ON ITS OWN, on purpose. The zoom
+     up there is the reader's: turning the figure over kept it, and a
+     camera somebody set by hand outranks every instruction the screen
+     sends, which is the invariant section 7 exists to protect. The only
+     thing that hands it back is the reader, so the test hands it back
+     the way they would, with fingers. */
+  await pinch(240, 30);
+  return rest();
+};
+const home = await toWholeBody();
+ok(home < 1.05, 'the figure is back at the whole body to be filmed from', 'scale ' + home);
+
+const film = await page.evaluate(() => new Promise((done) => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  const svg = r.querySelector('.map__svg');
+  const screen = r.querySelector('#screen');
+  const rows = [];
+  const t0 = performance.now();
+  (function tick() {
+    const tr = svg.querySelector('.cam').getAttribute('transform') || '';
+    const m = /scale\(([\d.]+)\)/.exec(tr);
+    rows.push({
+      s: m ? Number(m[1]) : 1,
+      /* What the figure publishes, and what the screen passes on. They
+         are two ends of the same wire and both are worth having: the
+         first proves the module is doing it, the second proves the
+         screen wired it up. */
+      svgT: Number(svg.style.getPropertyValue('--zoom-t') || 1),
+      t: Number(screen.style.getPropertyValue('--zoom-t') || 1),
+      ride: screen.hasAttribute('data-zoomride')
+    });
+    if (performance.now() - t0 < 1400) requestAnimationFrame(tick);
+    else done(rows);
+  })();
+  svg.querySelector('[data-g="chest"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+}));
+
+const scales = film.map((f) => f.s);
+const first = scales[0], landed = scales[scales.length - 1];
+ok(landed > 2, 'the tap frames the muscle', first + ' -> ' + landed);
+
+/* NOT A JUMP. One frame at 1x and every frame after it at 3.1x is
+   exactly the picture switch this was. The camera has to be caught
+   somewhere in between, repeatedly: five distinct readings is a third of
+   a spring's worth of frames and cannot happen by accident. */
+const between = [...new Set(scales.filter((s) => s > first + 0.05 && s < landed - 0.05))];
+ok(between.length >= 5, 'the camera passes through the distance rather than jumping',
+   between.length + ' distinct positions on the way: ' +
+   between.slice(0, 4).map((s) => s.toFixed(2)).join(', ') + '...');
+
+/* AND NEVER BACKWARDS. A spring that overshoots its target and returns
+   reads as a wobble in the lens: the muscle arrives, slides past what
+   you were looking at, and comes back. Critically damped means this list
+   only ever climbs. */
+let slipped = 0;
+for (let i = 1; i < scales.length; i++) if (scales[i] < scales[i - 1] - 0.0005) slipped++;
+ok(slipped === 0 && landed <= 4.0001, 'and never overshoots and comes back',
+   slipped + ' frames going the wrong way');
+
+/* THE LIST IS NOT ON A TIMER. If the two were independent animations of
+   the same length they would still track each other loosely, so the
+   claim is made the tight way: the camera's magnification is the
+   published fraction's own curve, geometrically, which is only true if
+   the number IS the camera's position rather than a second thing
+   happening to run alongside it. */
+const drift = film
+  .filter((f) => f.t > 0 && f.t < 1)
+  .map((f) => Math.abs(f.s - first * Math.pow(landed / first, f.t)) / landed);
+const worst = drift.length ? Math.max(...drift) : 1;
+ok(drift.length >= 5 && worst < 0.02,
+   'the progress the list rides is the camera\'s own position, not a parallel timer',
+   drift.length + ' frames sampled mid-flight, worst disagreement ' +
+   (worst * 100).toFixed(2) + '%');
+
+/* AND THEY FINISH TOGETHER. The list arriving early leaves the camera
+   still travelling under a page that has already settled, which is the
+   same two-clocks problem pointing the other way. */
+const arrived = scales.findIndex((s) => s >= landed - 0.001);
+const full = film.findIndex((f) => f.t >= 1 && f.s >= landed - 0.001);
+ok(full > -1 && Math.abs(full - arrived) <= 2,
+   'and the progress reaches 1 in the same frame the camera reaches the muscle',
+   'camera at frame ' + arrived + ', progress at frame ' + full);
+ok(film[film.length - 1].t === 1 && film[film.length - 1].svgT === 1 &&
+   !film[film.length - 1].ride,
+   'with the list left in place and nothing still riding',
+   JSON.stringify(film[film.length - 1]));
+
+/* ---- 9. less motion is the destination, not a slower trip ---------
+   Somebody who asked their phone for less movement is not asking for the
+   same movement taken gently. The stylesheet has always cut the camera's
+   transition under that preference; the spring has to cut with it, or
+   the one person who most needs the picture to hold still gets 400ms of
+   travel the stylesheet can no longer stop. */
+await page.emulateMedia({ reducedMotion: 'reduce' });
+await toWholeBody();
+const cut = await page.evaluate(() => new Promise((done) => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  const svg = r.querySelector('.map__svg');
+  const read = () => {
+    const tr = svg.querySelector('.cam').getAttribute('transform') || '';
+    return Number((/scale\(([\d.]+)\)/.exec(tr) || [])[1] || 1);
+  };
+  svg.querySelector('[data-g="chest"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  /* Read on the very next frame. There is nothing to wait for: if the
+     figure is where it is going before a frame has passed, no travel
+     happened. */
+  requestAnimationFrame(function () {
+    done({ s: read(), t: Number(svg.style.getPropertyValue('--zoom-t') || 1) });
+  });
+}));
+ok(cut.s > 2 && cut.t === 1,
+   'reduced motion gets the framed muscle in one frame, with no travel to follow',
+   JSON.stringify(cut));
+await page.emulateMedia({ reducedMotion: null });
+
 ok(errors.length === 0, 'no page errors', errors.slice(0, 2).join(' | '));
 
 await browser.close();

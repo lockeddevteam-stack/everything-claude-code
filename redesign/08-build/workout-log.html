@@ -319,6 +319,35 @@
      seeded PPL - Push, twenty-one minutes in with 1,088 kg on it, so
      "Start Upper A" began somebody else's Push session. lk_startDay carries
      "<splitId>:<dayId>"; the day it names is built here, empty, at zero. */
+  /* A DAY'S LIFTS, IN EITHER SHAPE IT IS STORED IN. Train's own dayExercises
+     has understood both for a while and this one did not: a phone that has
+     been running LOCKED holds `exIds: [111, 302]` on each day, while the
+     split builder writes the resolved `exercises: [{id, name, group,
+     muscle}]`. Reading only the second opened an EMPTY session off a real
+     user's Push day -- the header said Push and there was nothing in it --
+     and, now that the session carries what the day planned, it would also
+     have read every one of those days as planning nothing and so found a
+     difference in a session that ran exactly to plan. The catalogue is what
+     turns an id back into a name; an id it does not know keeps its id and a
+     placeholder name rather than dropping out of the plan. */
+  function dayLifts(d) {
+    if (d && d.exercises && d.exercises.length) return d.exercises;
+    var ids = (d && d.exIds) || [];
+    if (!ids.length) return [];
+    var byId = {};
+    if (window.LKExercises && LKExercises.all) {
+      LKExercises.all().forEach(function (x) { byId[x.id] = x; });
+    }
+    (window.LKStore ? (LKStore.get('lk_customEx', []) || []) : []).forEach(function (x) {
+      if (x && x.id != null) byId[x.id] = x;
+    });
+    return ids.map(function (id) {
+      var k = byId[id] || {};
+      return { id: id, name: k.name || ('Exercise ' + id),
+               group: k.group || '', muscle: k.muscle || '' };
+    });
+  }
+
   function splitDayFor(key) {
     if (!key) return null;
     var cut = String(key).indexOf(':');
@@ -332,7 +361,17 @@
       for (var j = 0; j < days.length; j++) {
         var slug = String(days[j].name || ('day' + j)).toLowerCase().replace(/\W+/g, '-');
         if (slug !== wantDay) continue;
-        return { split: all[i].name, day: days[j].name, exercises: days[j].exercises || [] };
+        /* THE SPLIT DAY TRAVELS WITH THE SESSION. The key was read, the day
+           was built from it, and the key was thrown away -- so the session
+           knew it was called "PPL - Push" and nothing more. Swap the incline
+           press for a flat press during Push and next week's Push day still
+           said incline, because by the time anybody could have asked whether
+           to keep the change there was nothing left to say WHICH day had run
+           differently. The ids are what Review writes back through, and the
+           names are what it says out loud. */
+        return { splitId: String(all[i].id), split: all[i].name,
+                 dayId: slug, day: days[j].name,
+                 exercises: dayLifts(days[j]) };
       }
     }
     return null;
@@ -402,6 +441,11 @@
   function beginFresh() {
     if (window.LKSession && LKSession.end) LKSession.end();
     S.elapsed = 0;
+    /* AND IT CAME FROM NOWHERE UNTIL SOMETHING SAYS OTHERWISE. A quick
+       workout begun straight after a split day must not inherit that day's
+       plan, or Review would offer to rewrite Push out of a session that had
+       nothing to do with it. startRequested() sets this again, after. */
+    S.source = null;
     /* AND IT IS NOT OVER. Ending the old record fires the onChange
        listener below, which sets S.over -- so a session begun here was
        marked finished the instant it began, and record() then refused to
@@ -430,6 +474,19 @@
     S.name = d.split + ' - ' + d.day;
     S.elapsed = 0;
     S.over = false;
+    /* WHAT THIS DAY PLANNED, kept beside what gets logged. Review compares
+       the two at the end and offers to write the difference back into the
+       split, which it can only do if it knows which split, which day, and
+       what the day held BEFORE this session started editing it. Recorded
+       here rather than re-read on finish, because the split may have been
+       renamed, reordered or deleted in between. */
+    S.source = {
+      splitId: d.splitId, splitName: d.split,
+      dayId: d.dayId, dayName: d.day,
+      planned: d.exercises.map(function (e) {
+        return { id: e.id, name: e.name, group: e.group || '', muscle: e.muscle || '' };
+      })
+    };
     /* Nothing is logged yet. Each lift carries its planned rows, empty, with
        last session's figures beside them the way every other card does. */
     S.exercises = d.exercises.map(function (e) {
@@ -513,6 +570,11 @@
        it outside their split. Both travel to history on finish. */
     note: '',
     quick: false,
+    /* WHICH SPLIT DAY THIS SESSION IS, when it is one: the split's id and
+       name, the day's id and name, and the exercises that day PLANNED.
+       Null for a quick workout, a repeat, and the seeded demo session, all
+       of which have no plan to have drifted from. */
+    source: null,
     /* lk_profile.useKg, through LKUnits. This screen's switch was its own:
        it converted this screen correctly and toasted "Showing lb everywhere"
        while every other screen stayed in kg, and it opened in kg whatever the
@@ -1745,13 +1807,21 @@
           '</div>' +
         '</div>' +
       '</div>' +
-      '<div class="spread mt-2" data-testid="addex-crumb">' +
-        '<button class="btn btn--tertiary btn--sm" type="button" data-act="' +
-          (S.addexSub ? 'addex-whole' : 'addex-back') + '" ' +
-          'data-testid="addex-back">' + ICO.chevLeft + '<span class="btn__label">' +
-          (S.addexSub ? esc(name) : 'Body') + '</span></button>' +
-        '<span class="t-label">' + here + '</span>' +
-      '</div>' + addExList();
+      /* THE LIFTS RIDE THE CAMERA IN. The crumb and the list are the half
+         of this move that is not the figure, and until now they simply
+         existed the instant the muscle was tapped while the body zoomed
+         beside them. Wrapped, they rise into place at the rate the camera
+         is travelling, so the sheet reads as one movement rather than as
+         a picture animating next to a list that changed. */
+      '<div class="zoomride">' +
+        '<div class="spread mt-2" data-testid="addex-crumb">' +
+          '<button class="btn btn--tertiary btn--sm" type="button" data-act="' +
+            (S.addexSub ? 'addex-whole' : 'addex-back') + '" ' +
+            'data-testid="addex-back">' + ICO.chevLeft + '<span class="btn__label">' +
+            (S.addexSub ? esc(name) : 'Body') + '</span></button>' +
+          '<span class="t-label">' + here + '</span>' +
+        '</div>' + addExList() +
+      '</div>';
   }
 
   /* THE FIGURE, BUILT ONCE THE SHEET IS ON SCREEN.
@@ -1792,6 +1862,22 @@
           groups: LKExercises.groupCounts(offeredLibrary()),
           order: LKExercises.groups.map(function (gr) { return gr[0]; }),
           view: S.addexView,
+          /* HOW FAR THE CAMERA HAS GOT, ON THE SCREEN'S OWN ROOT. The
+             figure publishes this on its svg, which reaches nothing
+             outside the figure; the list is a sibling of it. Put on
+             #screen it inherits into the whole sheet, and the crumb and
+             the lifts under the body are a pure function of it -- no
+             timer of their own, so they move at exactly the camera's
+             rate. The attribute switches the rule on, and is gone the
+             moment the trip is over: a transform left standing on a
+             scrolling list changes what its sticky children stick to. */
+          onZoom: function (t) {
+            var root = document.getElementById('screen');
+            if (!root) return;
+            root.style.setProperty('--zoom-t', String(t));
+            if (t < 1) root.setAttribute('data-zoomride', '');
+            else root.removeAttribute('data-zoomride');
+          },
           onSelect: function (gid) {
             S.addexGid = gid;
             S.addexSub = null;
@@ -2169,7 +2255,11 @@
          per session meant a switch flipped in Settings could never reach a
          phone that had ever opened this screen. */
       restEnabled: S.restEnabled,
-      restSeconds: S.restSeconds
+      restSeconds: S.restSeconds,
+      /* The split day this came from goes with the rows. Left out, a reload
+         mid-Push came back with every set intact and no memory of being a
+         Push day at all, so finishing it asked nothing. */
+      source: S.source
     });
   }
 
@@ -2186,6 +2276,7 @@
     S.blocks = rows.blocks || [];
     if (rows.restEnabled !== undefined) S.restEnabled = rows.restEnabled;
     if (rows.restSeconds !== undefined) S.restSeconds = rows.restSeconds;
+    S.source = rows.source || null;
     /* The note belongs to the exercise, not to the session's saved rows. A
        note typed mid-workout was written to lk_exNotes and then read back
        over by the rows this same workout had saved a moment earlier, so it
@@ -3383,6 +3474,11 @@
          gym" is the difference between a bad week and a week away. */
       type: S.quick ? 'quick' : 'split',
       note: S.note || '',
+      /* WHERE IT CAME FROM, so Review can offer to keep what changed.
+         Undefined for a quick workout and for the demo's seeded session:
+         Review asks about a split day or it asks about nothing, and a
+         session with no plan behind it has nothing to have drifted from. */
+      source: S.source || null,
       dateISO: window.LKStore ? LKStore.today() : null,
       sets: doneSets(),
       warmups: doneWarmups(),
