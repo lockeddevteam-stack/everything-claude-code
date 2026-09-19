@@ -1139,7 +1139,7 @@
       '<div class="zoomride">' +
         '<div class="spread mt-2" data-testid="pick-crumb">' +
           '<button class="btn btn--tertiary btn--sm" data-action="' +
-            (m.sub ? 'pick-whole' : 'pick-back') + '" data-testid="pick-back">' +
+            (m.sub ? 'pick-whole' : 'pick-body') + '" data-testid="pick-back">' +
             ico('back') + '<span class="btn__label">' +
             (m.sub ? esc(name) : 'Body') + '</span></button>' +
           '<span class="t-label">' + here + '</span>' +
@@ -1192,24 +1192,40 @@
 
   /* LKBodyMap draws into a host element, so it cannot be part of the
      string the sheet is patched in from: it is mounted after, into the
-     slot that string left. This screen redraws itself whole, so the
-     figure is rebuilt with it rather than kept -- a kept one would be
-     pointing at a node that no longer exists. */
+     slot that string left.
+
+     MOUNTED ONCE, MOVED EVERY PAINT. This screen redraws itself whole on
+     every paint, and the figure used to be rebuilt with it: the slot came
+     back empty, a brand new map went into it, and a brand new map starts
+     at 1x looking at the whole body. So every render threw the reader's
+     camera away. Pinch into a calf and the next thing that touched the
+     state -- the split that lands when the pinch crosses the threshold, a
+     keystroke in the search box, the day list behind the sheet -- put the
+     body back where it started. That is the "zoom does not lock"
+     complaint on this screen, and none of it was in bodymap.js: the
+     module was holding the camera exactly as it was told and the screen
+     kept replacing the module.
+
+     The figure lives in a host of its own now, the way the Add exercise
+     sheet in a live workout has since it was written, and the host is
+     moved into whichever slot the latest paint left. Same element, same
+     camera, across as many renders as the screen likes. */
   var PICK_FIG = null;
+  var PICK_HOST = null;
   function syncPickFigure() {
     var slot = document.getElementById('pick-fig');
-    if (!slot || !window.LKBodyMap || !window.LKExercises) { PICK_FIG = null; return; }
+    if (!slot || !window.LKBodyMap || !window.LKExercises) return;
     var m = S.modal;
-    if (!slot.firstChild) {
-      /* THE FIGURE THAT IS BEING REPLACED MUST STOP TRAVELLING. This
-         screen rebuilds its sheet whole on every paint, so the previous
-         figure is already detached -- but its camera loop is not, and it
-         goes on publishing progress onto the same root as the new one.
-         Two springs writing one custom property is a list that jitters
-         between two journeys. */
-      try { if (PICK_FIG && PICK_FIG.stopZoom) PICK_FIG.stopZoom(); } catch (e0) {}
+    if (!PICK_HOST) {
+      PICK_HOST = document.createElement('div');
+      PICK_HOST.className = 'addexmap__host';
+      /* IN THE DOCUMENT BEFORE IT IS DRAWN INTO. The map writes its hue
+         rules into the root it finds itself in, and a detached host has no
+         root to find: the stylesheet goes to the top document, never
+         reaches this screen, and every muscle renders black. */
+      slot.appendChild(PICK_HOST);
       try {
-        PICK_FIG = LKBodyMap.mount(slot, {
+        PICK_FIG = LKBodyMap.mount(PICK_HOST, {
           groups: LKExercises.groupCounts(LIBRARY),
           order: LKExercises.groups.map(function (gr) { return gr[0]; }),
           view: (m && m.view) || 'front',
@@ -1251,8 +1267,14 @@
             render();
           }
         });
-      } catch (e) { PICK_FIG = null; return; }
+      } catch (e) {
+        PICK_FIG = null;
+        if (PICK_HOST && PICK_HOST.parentNode) PICK_HOST.parentNode.removeChild(PICK_HOST);
+        PICK_HOST = null;
+        return;
+      }
     }
+    if (PICK_HOST.parentNode !== slot) slot.appendChild(PICK_HOST);
     /* The camera and the split follow the state on every paint, so a
        redraw never leaves a muscle framed with its parts gone. */
     var fig = PICK_FIG;
@@ -1872,7 +1894,16 @@
         render();
       }
     },
-    'pick-back': function () { if (S.modal) { S.modal.gid = null; S.modal.sub = null; render(); } },
+    /* TWO ACTIONS CANNOT SHARE A NAME IN ONE TABLE. This crumb used to
+       be called 'pick-back' as well, and the mode picker's header back --
+       "leave this screen for the manual builder" -- is called that
+       further down the same object literal. The later key wins in a
+       JavaScript object, so the mode picker's owned both: pressing Body
+       on the crumb ran S.screen = 'manual', which the builder already
+       was, and the muscle stayed chosen. Back to the body did nothing at
+       all, silently, and the camera stayed framed on a muscle nobody
+       could get out of. */
+    'pick-body': function () { if (S.modal) { S.modal.gid = null; S.modal.sub = null; render(); } },
     /* Back out of a part to the whole muscle, without leaving the muscle. */
     'pick-whole': function () { if (S.modal) { S.modal.sub = null; render(); } },
     'pick-view': function (el) {

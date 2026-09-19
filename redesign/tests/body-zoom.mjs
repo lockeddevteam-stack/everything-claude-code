@@ -611,6 +611,651 @@ ok(cut.s > 2 && cut.t === 1,
    JSON.stringify(cut));
 await page.emulateMedia({ reducedMotion: null });
 
+console.log('\n=== 10. the same camera, under real fingers, in all three pickers ===\n');
+
+/* WHY THIS SECTION EXISTS, AND WHY EVERYTHING ABOVE IT MISSED THE BUG.
+   Everything above drives the figure with TouchEvents built in the page
+   and dispatched at the svg. That is a touch sequence as far as this
+   module's own listeners are concerned, and it is NOT what a finger
+   produces: a real touch also emits pointer events, one pointerdown and
+   one pointerup per finger. The double-tap listener here counts
+   pointerups. Two fingers coming off a pinch are two pointerups in the
+   same millisecond, so every real pinch was read as a double tap, and a
+   double tap on a zoomed figure sends the camera home. The zoom held
+   perfectly under test and collapsed under a hand, three times reported
+   and three times not reproduced.
+
+   So this section drives the browser's own input pipeline through CDP
+   instead, which is the closest thing to a finger available here, and it
+   runs the same matrix on all three pickers rather than on the library
+   alone: the module is shared but the screens around it are not, and the
+   split builder was throwing the camera away in its own way -- by
+   rebuilding the whole figure on every paint.
+
+   The rule for every cell below: the camera is exactly where the reader
+   left it. Not close, not nearly. The one exception is choosing a
+   different muscle, which is the one instruction that is allowed to move
+   it. */
+
+const PICKERS = [
+  {
+    name: 'exercise library', screen: 'exercise-library', sel: '.map__svg',
+    async open(pg) {
+      await pg.evaluate(() => { location.hash = '#/exercise-library'; });
+      await pg.waitForTimeout(900);
+    },
+    home: `(r)=>{const cs=r.querySelector('[data-testid="sheet-close"]');
+      if(cs)cs.dispatchEvent(new MouseEvent('click',{bubbles:true,composed:true}));
+      const q=r.querySelector('[data-testid="search-input"]');
+      if(q&&q.value){q.value='';q.dispatchEvent(new Event('input',{bubbles:true}));}
+      const m=r.querySelector('[data-action="browse"][data-browse="map"]');
+      if(m)m.dispatchEvent(new MouseEvent('click',{bubbles:true,composed:true}));
+      const b=r.querySelector('[data-action="back"]');
+      if(b){b.dispatchEvent(new MouseEvent('click',{bubbles:true,composed:true}));return true}return false}`,
+    front: `(r)=>{const f=r.querySelector('#tab-front');if(f){f.dispatchEvent(new MouseEvent('click',{bubbles:true,composed:true}));return true}return false}`,
+    flip: `(r)=>{const f=r.querySelector('#tab-back');if(f){f.dispatchEvent(new MouseEvent('click',{bubbles:true,composed:true}));return true}return false}`,
+    row: '[data-testid^="row-ex-"]',
+    host: 'map #map'
+  },
+  {
+    name: 'in-workout Add exercise', screen: 'workout-log', sel: '#addex-fig svg',
+    async open(pg) {
+      await pg.evaluate(() => window.LKGo('workout-log'));
+      await pg.waitForTimeout(900);
+      await pg.evaluate(() => {
+        const r = window.DEMO.screens['workout-log'].root;
+        const b = r.querySelector('[data-testid="btn-add-exercise"]') ||
+                  r.querySelector('[data-testid="empty-add"]');
+        if (b) b.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
+      });
+      await pg.waitForTimeout(700);
+    },
+    home: `(r)=>{const b=r.querySelector('[data-testid="addex-back"]');
+      if(b){b.dispatchEvent(new MouseEvent('click',{bubbles:true,composed:true}));return true}return false}`,
+    front: `(r)=>{const f=r.querySelector('[data-testid="addex-view-front"]');if(f){f.dispatchEvent(new MouseEvent('click',{bubbles:true,composed:true}));return true}return false}`,
+    flip: `(r)=>{const f=r.querySelector('[data-testid="addex-view-back"]');if(f){f.dispatchEvent(new MouseEvent('click',{bubbles:true,composed:true}));return true}return false}`,
+    row: '[data-act="addex-pick"]',
+    host: 'addexmap__host'
+  },
+  {
+    name: 'split builder Add exercise', screen: 'split-builder', sel: '.map__svg',
+    async open(pg) {
+      await pg.evaluate(() => { localStorage.setItem('lk_openSplit', '__new__'); location.hash = '#/split-builder'; });
+      await pg.waitForTimeout(800);
+      await pg.evaluate(() => {
+        const r = window.DEMO.screens['split-builder'].root;
+        const nm = r.querySelector('[data-testid="split-name"]');
+        if (nm) { nm.value = 'PPL'; nm.dispatchEvent(new Event('input', { bubbles: true })); }
+        const d = r.querySelector('[data-testid="add-day-empty"], [data-action="add-day"]');
+        if (d) d.click();
+      });
+      await pg.waitForTimeout(400);
+      await pg.evaluate(() => {
+        const r = window.DEMO.screens['split-builder'].root;
+        const b = r.querySelector('[data-action="add-exercise"]');
+        if (b) b.click();
+      });
+      await pg.waitForTimeout(600);
+    },
+    home: `(r)=>{const b=r.querySelector('.sheet [data-testid="pick-back"]');
+      if(b){b.dispatchEvent(new MouseEvent('click',{bubbles:true,composed:true}));return true}return false}`,
+    front: `(r)=>{const f=r.querySelector('[data-testid="pick-view-front"]');if(f){f.dispatchEvent(new MouseEvent('click',{bubbles:true,composed:true}));return true}return false}`,
+    flip: `(r)=>{const f=r.querySelector('[data-testid="pick-view-back"]');if(f){f.dispatchEvent(new MouseEvent('click',{bubbles:true,composed:true}));return true}return false}`,
+    row: '[data-action="pick-add"]',
+    host: 'addexmap__host'
+  }
+];
+
+for (const P of PICKERS) {
+  const pctx = await browser.newContext({ viewport: { width: 393, height: 852 },
+                                          isMobile: true, hasTouch: true });
+  const pg = await pctx.newPage();
+  const perrs = [];
+  pg.on('pageerror', (e) => perrs.push(String(e)));
+  /* Every mount of the PICKER's figure is counted. A screen that rebuilds
+     the map on every paint cannot hold a camera however well the module
+     behaves, which is exactly what the split builder was doing.
+
+     Hooked before a line of the page has run, because the demo boots
+     every screen the moment it loads and the library mounts its figure
+     while it does. Wrapped from inside the test instead, after the load,
+     it counted zero mounts for a figure that had plainly been mounted:
+     the one that mattered was already behind us.
+
+     Only this picker's own figure, though, told apart by the host it
+     goes into. Two other kinds of figure share the module and share the
+     page: the library's map, which every screen booting up front means
+     is mounted even in a run about the workout log, and the two small
+     front-and-back pictures on an exercise's own card, which are
+     pictures rather than controls and have no camera to lose. Counting
+     those made this read "mounted twice" about a figure that had been
+     mounted exactly once. */
+  await pg.addInitScript(() => {
+    window.__HOSTS = [];
+    let real;
+    Object.defineProperty(window, 'LKBodyMap', {
+      configurable: true,
+      get: function () { return real; },
+      set: function (v) {
+        real = v;
+        if (!v || typeof v.mount !== 'function' || v.__counted) return;
+        const m = v.mount;
+        v.mount = function (host) {
+          window.__HOSTS.push(String((host && host.className) || '') +
+                              ' #' + String((host && host.id) || ''));
+          return m.apply(this, arguments);
+        };
+        v.__counted = true;
+      }
+    });
+  });
+  await pg.goto('file://' + ROOT + '/10-final/locked-demo.html');
+  await pg.waitForFunction(() => window.DEMO && Object.keys(window.DEMO.screens).length > 0);
+  await pg.evaluate(() => {
+    localStorage.setItem('lk_onboarded', 'true');
+    localStorage.setItem('lk_tutorialSeen', 'true');
+  });
+  await pg.reload();
+  await pg.waitForFunction(() => window.DEMO && window.LKBodyMap);
+  /* Every mount of the PICKER's figure is counted. A screen that rebuilds
+     the map on every paint cannot hold a camera however well the module
+     behaves, which is exactly what the split builder was doing.
+
+     Not every mount, though. An exercise's own card carries two small
+     figures of its own, front and back, with the muscle it works
+     shaded -- pictures rather than controls, with no camera to lose.
+     Cell 12 opens an exercise, so counting those too made this read
+     "mounted twice" about a figure that had been mounted once. They are
+     told apart by the host they go into. */
+  await P.open(pg);
+  const cdp = await pctx.newCDPSession(pg);
+
+  const inRoot = (src, arg) => pg.evaluate(({ src, arg, screen }) => {
+    const r = window.DEMO.screens[screen].root;
+    /* eslint-disable no-new-func */
+    return new Function('r', 'arg', 'return (' + src + ')(r, arg);')(r, arg);
+  }, { src, arg, screen: P.screen });
+
+  const box = () => inRoot(`(r,a)=>{const s=r.querySelector(a);if(!s)return null;
+    const b=s.getBoundingClientRect();return{x:b.left,y:b.top,w:b.width,h:b.height}}`, P.sel);
+  /* The camera as a string, because the claim is that it is EXACTLY where
+     it was left and a string compares exactly. */
+  const at = () => inRoot(`(r,a)=>{const s=r.querySelector(a);if(!s)return 'no figure';
+    const c=s.querySelector('.cam');return (c&&c.getAttribute('transform'))||'none'}`, P.sel);
+  const scaleOf = (s) => Number((/scale\(([\d.]+)\)/.exec(s || '') || [])[1] || 1);
+  const mounts = () => pg.evaluate((h) => window.__HOSTS
+    .filter((x) => x.indexOf(h) > -1), P.host);
+
+  const send = (type, pts) => cdp.send('Input.dispatchTouchEvent', {
+    type, touchPoints: pts.map((p, i) => ({ x: Math.round(p.x), y: Math.round(p.y),
+                                            id: p.id == null ? i : p.id })) });
+  /* The camera is read once it has stopped: a released gesture is allowed
+     to overshoot and the spring brings it back, and the picture somebody
+     is left looking at is the one after that. */
+  const still = async (ms = 1600) => {
+    let last = null; const t0 = Date.now();
+    while (Date.now() - t0 < ms) {
+      const now = await at();
+      if (now === last) return now;
+      last = now; await pg.waitForTimeout(90);
+    }
+    return last;
+  };
+  const centre = async () => { const b = await box(); return { cx: b.x + b.w / 2, cy: b.y + b.h / 2, b: b }; };
+  async function pinch(from, to, opts) {
+    opts = opts || {};
+    const { cx, cy } = await centre();
+    const pair = (g) => [{ x: cx - g / 2, y: cy, id: 1 }, { x: cx + g / 2, y: cy, id: 2 }];
+    await send('touchStart', pair(from));
+    for (let i = 1; i <= 8; i++) { await send('touchMove', pair(from + (to - from) * i / 8)); await pg.waitForTimeout(16); }
+    if (opts.hold) return { cx, cy, gap: to };
+    await send('touchEnd', []);
+    if (!opts.raw) await still();
+    return null;
+  }
+  async function pan(dx, dy, opts) {
+    opts = opts || {};
+    const { cx, cy } = await centre();
+    await send('touchStart', [{ x: cx, y: cy, id: 1 }]);
+    for (let i = 1; i <= 8; i++) { await send('touchMove', [{ x: cx + dx * i / 8, y: cy + dy * i / 8, id: 1 }]); await pg.waitForTimeout(16); }
+    if (opts.hold) return { cx, cy };
+    await send('touchEnd', []);
+    await still();
+    return null;
+  }
+  const tapMuscle = (gid) => inRoot(`(r,a)=>{const s=r.querySelector(a.sel);
+    const v=s.querySelector('.view:not([data-hidden="true"])')||s;
+    const g=v.querySelector('.mg[data-g="'+a.gid+'"]');if(!g)return false;
+    g.dispatchEvent(new MouseEvent('click',{bubbles:true,composed:true}));return true}`, { sel: P.sel, gid });
+  const tapPart = () => inRoot(`(r)=>{const p=r.querySelector('.part');if(!p)return false;
+    p.dispatchEvent(new MouseEvent('click',{bubbles:true,composed:true}));
+    return p.getAttribute('data-part')}`);
+
+  /* A LIFT TO CHOOSE. Each picker names its own rows, and they are not
+     the same rows: the library's are the catalogue's, the two sheets'
+     are the ones being added to a day. Cell 12 needs one to pick. */
+  const rowThere = () => inRoot(`(r,a)=>!!r.querySelector(a)`, P.row);
+  const pickRow = () => inRoot(`(r,a)=>{const x=r.querySelector(a);if(!x)return false;
+    x.dispatchEvent(new MouseEvent('click',{bubbles:true,composed:true}));return true}`, P.row);
+  /* A REPAINT IS PROVED, NOT ASSUMED. Cell 9 used to pass the moment a
+     control was FOUND, and one of the three controls it was finding
+     repaints nothing at all: the split builder's "60 more" is a
+     paragraph and not a button, so that picker had been signing off on a
+     repaint that never happened.
+
+     Proved by what the screen says afterwards rather than by node
+     identity. These screens patch their HTML in rather than replacing
+     it, so a node put there before the render is very often the same
+     node after it, and a marker on one proves only that the patcher did
+     its job. The words on the screen change when a render does anything
+     at all, and that is what is compared. */
+  const words = () => inRoot(`(r)=>(r.textContent||'').length`);
+
+  /* A muscle chosen, framed and divided, with the figure still up: the
+     state somebody is in when they are looking closely at something and
+     have not picked a lift yet. Cells that need a repaint or an exercise
+     list start here rather than from the bare body, which is what the
+     two unfinished cells were doing and why they had nothing to act on:
+     the library answers a muscle with its three heads and lists no lift
+     at all until one of them is tapped. */
+  async function armed() {
+    await whole();
+    await tapMuscle('chest');
+    await pg.waitForTimeout(900);
+    await still();
+    return scaleOf(await at());
+  }
+
+  /* The whole body, facing front, at life size, with the camera handed
+     back the only way it can be: by hand. Every cell starts here, so no
+     cell is reading the one before it. */
+  /* AND IT CHECKS THAT IT GOT THERE. This used to run its way home once
+     and hand back whatever it found, so a cell that started from a
+     figure still hidden behind an exercise sheet -- which is where cell
+     12 leaves the library -- ran its whole gesture against an element
+     with no box on screen and asserted on a camera nothing had touched.
+     A silent no-op is worse than a failure. It goes round until the
+     figure is really up and really at life size. */
+  /* AND NO MUSCLE STILL CHOSEN. Backing out is one step at a time -- out
+     of the part, then out of the muscle -- so one press of Back lands on
+     the muscle rather than on the body, and the cell after it then
+     "chose" the muscle that was already chosen. Tapping the muscle you
+     are already on is not a new instruction and rightly leaves a
+     hand-set camera alone, so that cell ran its whole gesture at life
+     size and asserted nothing. It goes round until the figure says
+     nothing is selected. */
+  const chosen = () => inRoot(`(r,a)=>{const s=r.querySelector(a);
+    return !!(s&&s.getAttribute('data-selected'))}`, P.sel);
+  /* AND EVERY TIME IT FAILS IS COUNTED. Twice now a cell has run its
+     whole gesture against a figure that was never brought home and
+     asserted happily on a camera nothing had touched. A quiet no-op is
+     worse than a red line, so the misses are tallied and reported at the
+     end of the picker. */
+  let missedHome = 0;
+  async function whole() {
+    for (let i = 0; i < 8; i++) {
+      await inRoot(P.home).catch(() => {});
+      await pg.waitForTimeout(320);
+      const b = await box();
+      if (!b || b.w < 40 || b.h < 40) continue;
+      if (await chosen()) continue;
+      await inRoot(P.front).catch(() => {});
+      await pg.waitForTimeout(320);
+      await pinch(240, 30);
+      if (scaleOf(await at()) < 1.05) break;
+    }
+    const got = scaleOf(await at());
+    if (!(got < 1.05) || (await chosen())) missedHome++;
+    return got;
+  }
+
+  const tag = (s) => P.name + ': ' + s;
+  console.log('--- ' + P.name);
+  ok(scaleOf(await whole()) < 1.05, tag('the body opens whole and at life size'));
+
+  /* ---- THE ONE THAT WAS BREAKING IT ------------------------------- */
+  const held = await pinch(80, 240, { raw: true });
+  const during = await at();
+  await pg.waitForTimeout(500);
+  const afterRelease = await at();
+  ok(scaleOf(during) > 2, tag('a real two-finger pinch zooms in'), during);
+  ok(afterRelease === during,
+     tag('and lifting the fingers does not send it home'), during + ' -> ' + afterRelease);
+
+  /* 1. A muscle chosen by hand is the one instruction that moves it. */
+  await whole();
+  await pinch(70, 230);
+  const set1 = await at();
+  await tapMuscle('chest');
+  await pg.waitForTimeout(900);
+  const framed = await still();
+  ok(framed !== set1 && scaleOf(framed) > 1.5,
+     tag('1. choosing a muscle takes the camera back, which is the point of choosing'),
+     set1 + ' -> ' + framed);
+
+  /* 2. The adjustment made after the muscle was framed survives the part. */
+  await whole();
+  await tapMuscle('chest');
+  await pg.waitForTimeout(800);
+  await pinch(120, 200);
+  const set2 = await at();
+  const part = await tapPart();
+  await pg.waitForTimeout(800);
+  ok(!!part, tag('2. the split has a part to tap'), String(part));
+  ok((await still()) === set2, tag('2. and the zoom set by hand survives tapping it'), set2 + ' -> ' + (await at()));
+
+  /* 3. Turning the figure over is the same body, mirrored. */
+  await whole();
+  await tapMuscle('chest');
+  await pg.waitForTimeout(800);
+  await pinch(120, 200);
+  const set3 = await at();
+  ok(await inRoot(P.flip), tag('3. the figure can be turned over'));
+  await pg.waitForTimeout(900);
+  ok((await still()) === set3, tag('3. and front to back keeps the zoom'), set3 + ' -> ' + (await at()));
+
+  /* 4. Panning stays panned. */
+  await whole();
+  await pinch(70, 230);
+  const zoom4 = await at();
+  await pan(-55, -45);
+  const set4 = await at();
+  ok(set4 !== zoom4, tag('4. a finger drags the zoomed figure around'), zoom4 + ' -> ' + set4);
+  await pg.waitForTimeout(700);
+  ok((await at()) === set4, tag('4. and it stays where it was dragged'), set4);
+
+  /* 5. Pinch, lift one finger, carry on with the other, pinch again --
+     one continuous thing a hand does, with nothing lifted in between. */
+  await whole();
+  await pinch(70, 200, { hold: true });
+  const mid5 = await at();
+  const c5 = await centre();
+  await send('touchEnd', [{ x: c5.cx - 100, y: c5.cy, id: 1 }]);
+  await pg.waitForTimeout(60);
+  ok((await at()) === mid5, tag('5. lifting one finger of two moves nothing'), mid5 + ' -> ' + (await at()));
+  for (let i = 1; i <= 6; i++) { await send('touchMove', [{ x: c5.cx + 100 - i * 6, y: c5.cy - i * 5, id: 2 }]); await pg.waitForTimeout(16); }
+  const panned5 = await at();
+  ok(panned5 !== mid5 && Math.abs(scaleOf(panned5) - scaleOf(mid5)) < 0.05,
+     tag('5. and the finger still down carries on panning, at the same zoom'),
+     mid5 + ' -> ' + panned5);
+  await send('touchStart', [{ x: c5.cx + 64, y: c5.cy - 30, id: 3 }]);
+  for (let i = 1; i <= 6; i++) {
+    await send('touchMove', [{ x: c5.cx + 64 - i * 4, y: c5.cy - 30, id: 2 },
+                             { x: c5.cx + 64 + i * 8, y: c5.cy - 30, id: 3 }]);
+    await pg.waitForTimeout(16);
+  }
+  await send('touchEnd', []);
+  const set5 = await still();
+  ok(scaleOf(set5) > 1.5, tag('5. and a second pinch with no lift between is still a pinch'), set5);
+
+  /* 6. Out of a part and back to the body. */
+  await whole();
+  await tapMuscle('chest');
+  await pg.waitForTimeout(800);
+  await pinch(120, 190);
+  const set6 = await at();
+  await tapPart();
+  await pg.waitForTimeout(700);
+  await inRoot(P.home);
+  await pg.waitForTimeout(800);
+  ok((await still()) === set6, tag('6. coming back from a part finds the zoom still set'), set6 + ' -> ' + (await at()));
+
+  /* 7. Past the stops, both ways. */
+  await whole();
+  await pinch(30, 1200);
+  const far = await at();
+  ok(scaleOf(far) > 3.5 && scaleOf(far) <= 4.0001,
+     tag('7. pushed past the stop it springs back to the stop, not to life size'), far);
+  await pinch(300, 10);
+  const small = await at();
+  ok(scaleOf(small) === 1, tag('7. and pinched in below life size it comes home to life size'), small);
+
+  /* 8. A finger on a moving picture takes it over. */
+  await whole();
+  await tapMuscle('chest');
+  await pg.waitForTimeout(80);
+  await pinch(90, 200);
+  const set8 = await at();
+  ok(scaleOf(set8) > 1.5, tag('8. a pinch during the flight to a muscle takes the camera'), set8);
+  await pg.waitForTimeout(900);
+  ok((await at()) === set8, tag('8. and the interrupted flight does not finish behind it'), set8 + ' -> ' + (await at()));
+
+  /* 9. A repaint landing in the middle of the gesture, not after it. */
+  /* The repaint is a tap on one of the parts, because that is the one
+     render all three pickers really have with the figure on screen: a
+     search takes the figure away on the split builder, and the Add
+     exercise sheet has no "Show more" left once a part has narrowed the
+     list. Each half starts fresh, because on the library the part that
+     was tapped puts the body away and there would be nothing to pan. */
+  ok((await armed()) > 1.5, tag('9. there is a framed muscle to gesture on'));
+  await pinch(70, 200, { hold: true });
+  const mid9 = await at();
+  const w9 = await words();
+  ok(await tapPart(), tag('9. the screen had something to repaint'));
+  await pg.waitForTimeout(450);
+  ok((await words()) !== w9, tag('9. and the repaint really landed, under the fingers'),
+     w9 + ' -> ' + (await words()));
+  ok((await at()) === mid9, tag('9. a repaint mid-pinch moves nothing'), mid9 + ' -> ' + (await at()));
+  await send('touchEnd', []);
+  await still();
+
+  ok((await armed()) > 1.5, tag('9. and a framed muscle again, to pan on'));
+  await pan(-40, -30, { hold: true });
+  const mid9b = await at();
+  const w9b = await words();
+  await tapPart();
+  await pg.waitForTimeout(450);
+  ok((await words()) !== w9b, tag('9. and again under a finger that is panning'),
+     w9b + ' -> ' + (await words()));
+  ok((await at()) === mid9b, tag('9. and a repaint mid-pan moves nothing either'), mid9b + ' -> ' + (await at()));
+  await send('touchEnd', []);
+  await still();
+
+  /* 10. Two fingers down, one up, the other dragged. */
+  await whole();
+  await pinch(70, 230);
+  const c10 = await centre();
+  await send('touchStart', [{ x: c10.cx - 40, y: c10.cy, id: 1 }, { x: c10.cx + 40, y: c10.cy, id: 2 }]);
+  await send('touchMove', [{ x: c10.cx - 45, y: c10.cy, id: 1 }, { x: c10.cx + 45, y: c10.cy, id: 2 }]);
+  const set10 = await at();
+  await send('touchEnd', [{ x: c10.cx - 45, y: c10.cy, id: 1 }]);
+  for (let i = 1; i <= 8; i++) { await send('touchMove', [{ x: c10.cx + 45 - i * 7, y: c10.cy - i * 5, id: 2 }]); await pg.waitForTimeout(16); }
+  const dragged10 = await at();
+  await send('touchEnd', []);
+  await still();
+  ok(dragged10 !== set10 && Math.abs(scaleOf(dragged10) - scaleOf(set10)) < 0.1,
+     tag('10. the finger left behind pans the figure rather than freezing it'),
+     set10 + ' -> ' + dragged10);
+
+  /* 11. The page moving under a zoomed figure. */
+  ok((await armed()) > 1.5, tag('11. there is a framed muscle to scroll under'));
+  await pinch(70, 200);
+  const set11 = await at();
+  /* And the scroll has to have happened, or this cell is asserting that
+     nothing moves when nothing moved. Whatever is actually scrollable on
+     this screen gets pushed, and the one that took it is reported. */
+  const pushScroll = () => pg.evaluate((s) => {
+    const r = window.DEMO.screens[s].root;
+    /* Whatever is actually scrollable, found rather than guessed. A
+       hand-written list of likely class names found nothing on the
+       library, so that cell had been asserting that the camera holds
+       still while nothing moved. */
+    const all = [...r.querySelectorAll('*')]
+      .filter((n) => n.scrollHeight > n.clientHeight + 20);
+    for (const sc of all) {
+      const was = sc.scrollTop;
+      sc.scrollTop = was + 140;
+      if (sc.scrollTop !== was) {
+        return (sc.getAttribute('data-testid') || sc.className || sc.tagName) +
+               ' ' + was + ' -> ' + sc.scrollTop;
+      }
+    }
+    const w = window.scrollY;
+    window.scrollBy(0, 140);
+    if (window.scrollY !== w) return 'window ' + w + ' -> ' + window.scrollY;
+    return null;
+  }, P.screen);
+  let scrolled = await pushScroll();
+  /* THE LIBRARY HAS NOTHING TO SCROLL WHILE THE BODY IS UP. Its screen
+     fits the viewport exactly with the figure on it -- measured, not
+     assumed: no element in that shadow root overflows by a pixel -- and
+     the list that does overflow only arrives once a part has been
+     chosen, which is also the moment that screen puts the body away. So
+     where the first push finds nothing to move, the part is opened and
+     the list under it is scrolled instead. The claim is the same either
+     way: the camera the reader set is still there afterwards. */
+  if (!scrolled) { await tapPart(); await pg.waitForTimeout(700); scrolled = await pushScroll(); }
+  ok(!!scrolled, tag('11. something under the figure really scrolled'), String(scrolled));
+  await pg.waitForTimeout(500);
+  ok((await at()) === set11, tag('11. scrolling the sheet does not move the camera'), set11 + ' -> ' + (await at()));
+
+  /* 12. Away to an exercise and back to the picker. */
+  /* The zoom is set BEFORE the part is tapped, which is the order a
+     reader does it in and the only order the library allows: tapping a
+     part is what opens the lifts there, and it takes the body off the
+     screen as it goes. */
+
+  /* A PINCH THAT NEVER LANDED IS NOT A ZOOM SOMEBODY SET. On a machine
+     with sixty browsers on it the injected gesture can be swallowed
+     whole: the two fingers go down, the eight touchmoves never reach the
+     page at all -- not the figure, not the window -- and the fingers come
+     up again with the camera exactly where the app had framed it. Traced
+     frame by frame, that is what the one failure in the gate was. The
+     cell then asked whether a camera NOBODY set by hand survives
+     reopening a picker with no muscle chosen, and the honest answer to
+     that is no: the figure goes back to the whole body, which is what a
+     picker opening on nothing is supposed to show. So the gesture is
+     confirmed to have moved the camera before a word is asserted about
+     it, and a gesture that keeps getting swallowed is a red line of its
+     own rather than a cell that quietly tests the wrong claim. */
+  async function pinchThatLands(from, to) {
+    let was = await at();
+    for (let i = 0; i < 4; i++) {
+      await pinch(from, to);
+      const now = await at();
+      if (now !== was) return now;
+      was = now;
+    }
+    return null;
+  }
+  /* EVERY FRAME OF THE REOPEN IS LOOKED AT, not just the one frame the
+     test happens to read. A sleep says nothing about what was on the
+     screen while it ran: an app that put the camera back late would show
+     the figure at life size for a moment and have fixed itself before
+     anybody looked, and that is precisely the defect this cell is here to
+     catch. The camera is sampled every animation frame from before the
+     reopen until after it, and a frame with the figure up at any camera
+     other than the one it was left at fails, however the last read comes
+     out. Frames where the figure is not on screen are not frames anybody
+     sees: the library takes the body away while the exercise is open. */
+  const watchCamera = () => pg.evaluate(({ screen, sel }) => {
+    window.__CAMFRAMES = [];
+    const t0 = performance.now();
+    const tick = () => {
+      const r = window.DEMO.screens[screen].root;
+      const s = r.querySelector(sel);
+      const c = s && s.querySelector('.cam');
+      window.__CAMFRAMES.push({
+        t: Math.round(performance.now() - t0),
+        cam: s ? ((c && c.getAttribute('transform')) || 'none') : 'no figure',
+        vis: !!(s && s.getBoundingClientRect().width > 40)
+      });
+      if (window.__CAMFRAMES.length < 4000) window.__CAMRAF = requestAnimationFrame(tick);
+    };
+    tick();
+  }, { screen: P.screen, sel: P.sel });
+  const stopWatching = () => pg.evaluate(() => {
+    cancelAnimationFrame(window.__CAMRAF);
+    return window.__CAMFRAMES;
+  });
+  /* WAITED FOR, NOT SLEPT THROUGH. 600ms was enough on an idle machine
+     and not on a loaded one, where the in-workout sheet was still
+     settling the last thousandth of a scale when the camera was read.
+     The wait is for the figure to be up and the camera to have stopped
+     changing, which is the thing the cell actually needs. */
+  const settled = async (ms = 5000) => {
+    let last = null; const t0 = Date.now();
+    while (Date.now() - t0 < ms) {
+      const b = await box();
+      const now = await at();
+      if (b && b.w > 40 && now === last) return now;
+      last = now;
+      await pg.waitForTimeout(90);
+    }
+    return last;
+  };
+  /* And the list is waited for as well, for the same reason: under load
+     the rows arrive when they arrive. */
+  const rowSoon = async (ms = 4000) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) {
+      if (await rowThere()) return true;
+      await pg.waitForTimeout(120);
+    }
+    return false;
+  };
+
+  ok((await armed()) > 1.5, tag('12. there is a framed muscle to set a zoom on'));
+  const set12 = await pinchThatLands(120, 190);
+  ok(!!set12, tag('12. and a hand really moved the camera off that framing'), String(set12));
+  await tapPart();
+  ok(await rowSoon(), tag('12. there is an exercise to choose'));
+  await pickRow();
+  await pg.waitForTimeout(800);
+  await watchCamera();
+  await P.open(pg);
+  const back12 = await settled();
+  const frames = await stopWatching();
+  const strayed = frames.filter((f) => f.vis && f.cam !== set12);
+  ok(back12 === set12, tag('12. and the picker comes back to the zoom it was left at'),
+     set12 + ' -> ' + back12);
+  ok(strayed.length === 0,
+     tag('12. and it is never drawn at another camera on the way back'),
+     strayed.length + ' of ' + frames.length + ' frames, first at ' +
+     (strayed[0] ? strayed[0].t + 'ms ' + strayed[0].cam : '-'));
+
+  /* A double tap is still a double tap: two separate single-finger taps,
+     which is the gesture the pinch was being mistaken for. */
+  ok((await whole()) < 1.05, tag('the body is back at life size for the double tap'));
+  /* AIMED AT CANVAS, NOT AT A MUSCLE. A single tap on a muscle chooses
+     it and flies the camera in, so two taps on one are a choice followed
+     by a double tap on an already zoomed figure, and the figure
+     correctly goes home: the cell read that as the double tap failing
+     when it was the first tap succeeding. The two gestures are only
+     distinguishable where there is nothing to choose, which is what a
+     reader double-taps on anyway. */
+  const spot = await inRoot(`(r,a)=>{const s=r.querySelector(a);
+    const b=s.getBoundingClientRect();
+    for(const fx of [0.06,0.94,0.12,0.88]) for(const fy of [0.08,0.5,0.92]){
+      const x=b.left+b.width*fx, y=b.top+b.height*fy;
+      const el=r.elementFromPoint(x,y);
+      if(el&&s.contains(el)&&!(el.closest&&el.closest('[data-g],[data-part]')))return{x:x,y:y};
+    }
+    return null}`, P.sel);
+  ok(!!spot, tag('there is bare canvas on the figure to double tap'), JSON.stringify(spot));
+  const cdt = spot || (await centre());
+  const oneTap = async () => {
+    await send('touchStart', [{ x: cdt.x, y: cdt.y, id: 1 }]);
+    await send('touchEnd', []);
+  };
+  await oneTap(); await pg.waitForTimeout(90); await oneTap();
+  const dbl = await still();
+  ok(scaleOf(dbl) > 1.5, tag('a genuine double tap still zooms in'), dbl);
+  await oneTap(); await pg.waitForTimeout(90); await oneTap();
+  const dbl2 = await still();
+  ok(scaleOf(dbl2) < 1.05, tag('and a second one takes it back out'), dbl2);
+
+  /* THE FIGURE IS MOUNTED ONCE. A screen that rebuilds it cannot hold a
+     camera, whatever this module does. */
+  const hosts = await mounts();
+  ok(hosts.length <= 1, tag('the figure was mounted once and moved, not rebuilt'),
+     hosts.length + ' mounts: ' + JSON.stringify(hosts));
+  ok(missedHome === 0, tag('every cell started from the whole body, not from wherever the last one left it'),
+     missedHome + ' cells started somewhere else');
+  ok(perrs.length === 0, tag('no page errors'), perrs.slice(0, 2).join(' | '));
+  await pctx.close();
+}
+
 ok(errors.length === 0, 'no page errors', errors.slice(0, 2).join(' | '));
 
 await browser.close();

@@ -1907,7 +1907,13 @@
          is the enemy -- it lags the fingers by 300ms -- so the element is
          flagged for the duration and the stylesheet drops the transition.
          A person who asked for reduced motion already gets the cut. */
-      var pinch = null, pan = null, lastTap = 0;
+      var pinch = null, pan = null, lastTap = 0, lastTapAt = null;
+      /* WHAT THIS TOUCH SEQUENCE TURNED OUT TO BE. Built up from the
+         first finger down to the last one up: how many fingers were ever
+         on the glass at once, and whether anything moved. The double-tap
+         listener reads it to tell a tap from the tail of a pinch, which
+         the pointer events on their own cannot say. */
+      var tapSeq = null;
       /* Anything a finger does to the camera is the reader's, and stays
          until they choose a different muscle. */
       function mine(s, tx, ty, soft) { userCam = true; return setCam(s, tx, ty, soft); }
@@ -2034,6 +2040,13 @@
       svg.addEventListener('touchstart', function (e) {
         /* A finger on a moving picture stops it where it is. */
         stopGlide();
+        /* A sequence begins when the first finger lands and is NOT cleared
+           when the last one leaves: the pointerups that end a pinch arrive
+           interleaved with the touchends, so anything that forgot at
+           touchend would have handed the last pointerup of a pinch back to
+           the tap listener. It stands until the next first finger. */
+        if (!tapSeq || e.touches.length === 1) tapSeq = { fingers: 0, moved: false };
+        tapSeq.fingers = Math.max(tapSeq.fingers, e.touches.length);
         splitFrom = cam3.s;
         if (e.touches.length === 2) {
           pan = null;
@@ -2064,6 +2077,7 @@
           /* Hold the midpoint of the two fingers still: the model point
              under it before the pinch must land under it after. */
           var m = pinch.mid;
+          if (tapSeq) tapSeq.moved = true;
           mine(s, m.x - (m.x - pinch.tx) * (s / pinch.s), m.y - (m.y - pinch.ty) * (s / pinch.s), true);
           e.preventDefault();
           return;
@@ -2075,7 +2089,7 @@
              the event would cost the reader the muscle they meant to
              choose. */
           if (!pan.moved && Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
-          if (!pan.moved) { pan.moved = true; live(true); }
+          if (!pan.moved) { pan.moved = true; live(true); if (tapSeq) tapSeq.moved = true; }
           var r = svg.getBoundingClientRect();
           var k2 = Math.min(r.width / VB.w, r.height / VB.h) || 1;
           var ntx = pan.tx + dx / k2, nty = pan.ty + dy / k2;
@@ -2124,7 +2138,21 @@
 
       function endGesture(e) {
         var flung = null;
-        if (pinch && (!e.touches || e.touches.length < 2)) { pinch = null; }
+        if (pinch && (!e.touches || e.touches.length < 2)) {
+          pinch = null;
+          /* ONE FINGER OFF A PINCH IS STILL A FINGER ON THE PICTURE. Lift
+             one and keep the other down, and this used to end the gesture
+             outright: the pinch was forgotten, no pan was ever started,
+             and the finger still on the glass dragged nothing at all until
+             it was lifted and put back. Pinch in and slide to the muscle
+             you were heading for is one continuous thing a hand does, so
+             the finger that stayed takes over the pan from where it is. */
+          if (e.touches && e.touches.length === 1 && cam3.s > 1.02) {
+            var rem = e.touches[0];
+            pan = { x: rem.clientX, y: rem.clientY, tx: cam3.tx, ty: cam3.ty, moved: false,
+                    vx: 0, vy: 0, at: (e.timeStamp || Date.now()) };
+          }
+        }
         if (pan && (!e.touches || e.touches.length === 0)) {
           /* A drag is not a tap. Swallow the click the browser is about
              to synthesise, or panning across the figure also picks a
@@ -2171,13 +2199,44 @@
       svg.addEventListener('touchcancel', endGesture);
 
       /* DOUBLE TAP. Two taps in 300ms within a thumb's width of each
-         other: in if we are out, out if we are in. */
+         other: in if we are out, out if we are in.
+
+         AND A PINCH IS NOT TWO TAPS, which is the whole of the "zoom does
+         not lock" complaint and was invisible to every test we had. A
+         touch gesture also emits pointer events, one per finger: lift two
+         fingers off a pinch and two pointerups arrive in the same
+         millisecond. This handler counted them as a first tap and a
+         second tap, decided it had been double-tapped, saw a zoomed
+         figure and sent the camera home -- so EVERY pinch snapped back to
+         1x the instant the fingers left, and a second pinch straight
+         after went to 2.2x instead. Nothing in the module was wrong; the
+         camera was being told to go home by the thing that listens for
+         taps.
+
+         A synthetic TouchEvent, which is what the tests dispatched,
+         produces no pointer events at all. That is why the pinch held
+         perfectly under test and reset under a finger every single time.
+
+         So a pointerup only counts as a tap if the gesture it belongs to
+         was one finger that never moved. Two fingers is a pinch, a moved
+         finger is a pan, and the tail of either one is not a tap. Mouse
+         pointers keep the old behaviour: they have no touch sequence
+         behind them and a double click is still a double tap. */
       svg.addEventListener('pointerup', function (e) {
         if (e.pointerType === 'mouse' && e.button !== 0) return;
+        if (e.pointerType !== 'mouse' && tapSeq && (tapSeq.fingers > 1 || tapSeq.moved)) {
+          /* And it does not arm the next one either: half a double tap
+             left over from a pinch would take the tap after it. */
+          lastTap = 0;
+          return;
+        }
         stopGlide();
         var now = Date.now();
-        var near = lastTap && (now - lastTap) < 300;
+        var near = lastTap && (now - lastTap) < 300 &&
+                   lastTapAt && Math.abs(e.clientX - lastTapAt.x) < 44 &&
+                   Math.abs(e.clientY - lastTapAt.y) < 44;
         lastTap = near ? 0 : now;
+        lastTapAt = near ? null : { x: e.clientX, y: e.clientY };
         if (!near) return;
         splitFrom = cam3.s;
         if (cam3.s > 1.02) { mine(1, 0, 0); syncSplit(); return; }
