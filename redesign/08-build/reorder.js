@@ -266,10 +266,24 @@
       var box = scroller.getBoundingClientRect();
       var y = at();
       var dy = 0;
-      if (y > box.top && y < box.top + EDGE_ZONE) {
-        dy = -((EDGE_ZONE - (y - box.top)) / EDGE_DIV + EDGE_BASE);
-      } else if (y > box.bottom - EDGE_ZONE && y < box.bottom) {
-        dy = (y - (box.bottom - EDGE_ZONE)) / EDGE_DIV + EDGE_BASE;
+      /* A finger that has left the list entirely is still asking for the
+         list. This used to require the finger to be INSIDE the scroller --
+         `y > box.top` -- and on this screen the scroller starts 86px down,
+         under a header. So dragging a card to the top of the SCREEN, which
+         is exactly what the owner said should carry the list with you, put
+         the finger above the box and the creep never fired once. Anything
+         at or past the edge counts as being at the far end of the band and
+         gets the band's top speed, which is what a list does on iOS when
+         you hold a row off the end of it. */
+      if (!isFinite(y)) {
+        engaged = 0;
+        raf = requestAnimationFrame(loop);
+        return;
+      }
+      if (y < box.top + EDGE_ZONE) {
+        dy = -(Math.min(EDGE_ZONE, box.top + EDGE_ZONE - y) / EDGE_DIV + EDGE_BASE);
+      } else if (y > box.bottom - EDGE_ZONE) {
+        dy = Math.min(EDGE_ZONE, y - (box.bottom - EDGE_ZONE)) / EDGE_DIV + EDGE_BASE;
       }
       if (dy !== 0) {
         if (!engaged) engaged = ts;
@@ -382,8 +396,12 @@
                  scroller: scroller, s0: scroller ? scroller.scrollTop : 0,
                  y: y0 };
         if (rows[from]) rows[from].style.zIndex = '20';
+        /* NaN, not 0, once the drag is over. Zero is a real coordinate --
+           it is the top of the screen -- and the band now reaches past the
+           scroller's edge, so reporting it would have the list creeping
+           upwards after the finger had gone. */
         DRAG.stopEdge = edgeScroll(scroller,
-          function () { return DRAG ? DRAG.y : 0; },
+          function () { return DRAG ? DRAG.y : NaN; },
           function () { if (DRAG) place(DRAG.y, 0); });
         /* ONE BUZZ, 20ms. v6 fired 30 and then 20 back to back from two
            different places, and a second vibrate() cancels the first --

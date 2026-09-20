@@ -256,6 +256,8 @@
         if (st.warm || st.kg == null || st.reps == null) return;
         if (counts(st)) sets++;
         vol += st.kg * st.reps;
+        /* The other arm. One row, two rep counts; see volume() above. */
+        if (st.repsR) vol += (st.kgR != null ? st.kgR : st.kg) * st.repsR;
       });
     });
     rec.sets = sets;
@@ -282,10 +284,20 @@
       return a + e.sets.filter(counts).length;
     }, 0);
   }
+  /* BOTH SIDES ARE WORK. In the two-row shape the right-hand side arrived
+     as its own row and was already in this sum; on one row it is `repsR`
+     under the same weight, and leaving it out would halve the volume of
+     every session tracked left and right. `kgR` exists only on a set
+     folded out of the old shape whose two rows carried different weights,
+     which the old screen allowed. */
   function volume(w) {
     return w.exercises.reduce(function (a, e) {
       return a + e.sets.filter(function (s) { return !s.warm; })
-        .reduce(function (b, s) { return b + s.kg * s.reps; }, 0);
+        .reduce(function (b, s) {
+          var v = b + s.kg * s.reps;
+          if (s.repsR) v += (s.kgR != null ? s.kgR : s.kg) * s.repsR;
+          return v;
+        }, 0);
     }, 0);
   }
   function prCount(w) {
@@ -331,11 +343,19 @@
   }
 
   function setRow(s, i, exIdx) {
-    var label = s.warm ? 'W' : (String(i) + (s.side || ''));
+    /* LEFT AND RIGHT ON ONE ROW, which is how the log records a set tracked
+       per side now: one weight, one RIR, two rep counts. A session banked
+       by the older build carries two rows instead, the second marked side
+       'R', and it still reads as 1L and 1R -- nothing in history was
+       rewritten, so both shapes have to be legible here. */
+    var label = s.warm ? 'W' : (String(i) + (s.side || (s.repsR != null ? ' L/R' : '')));
+    var reps = s.repsR != null
+      ? n(s.reps) + ' \u2502 ' + n(s.repsR) + ' reps'
+      : n(s.reps) + ' reps';
     return '<div class="setgrid" data-testid="dset-' + exIdx + '-' + i + '">' +
         '<span class="setgrid__n' + (s.warm ? ' setgrid__n--warm' : '') + '">' + label + '</span>' +
         '<span class="setgrid__n" style="text-align:left">' + n(LKUnits.v(s.kg)) + ' ' + LKUnits.label() + '</span>' +
-        '<span class="setgrid__n" style="text-align:left">' + n(s.reps) + ' reps</span>' +
+        '<span class="setgrid__n" style="text-align:left">' + reps + '</span>' +
         '<span class="setgrid__n">' + (s.rir != null ? n(s.rir) + ' RIR' : '') + '</span>' +
         '<span class="setgrid__n">' + (s.pr ? '<span class="badge badge--success">PR</span>' : '') + '</span>' +
       '</div>' +
@@ -459,6 +479,7 @@
         if (s.warm || s.kg == null || s.reps == null) return;
         if (counts(s)) sets++;
         vol += s.kg * s.reps;
+        if (s.repsR) vol += (s.kgR != null ? s.kgR : s.kg) * s.repsR;
       });
     });
     return { sets: sets, vol: vol };
@@ -881,11 +902,23 @@
               /* One record, one badge. Two identical sets both matched the
                  stored record and both wore PR, so the session claimed more
                  records than it set. */
+              /* THE REPS A RECORD WAS CLAIMED ON. A set tracked left and
+                 right claims its record on the better arm, so a row that
+                 did 12 on the right and 10 on the left is stored in lk_prs
+                 as 12 -- and comparing only the left would lose the badge
+                 on the very set that earned it. */
+              var best = st.repsR == null ? st.reps
+                : (st.reps == null ? st.repsR : Math.max(st.reps, st.repsR));
               var isPr = !!(rec && !st.warm && !prClaimed && rec.date === w.date &&
-                            st.kg === rec.kg && st.reps === rec.reps);
+                            st.kg === rec.kg && best === rec.reps);
               if (isPr) prClaimed = true;
               return {
                 kg: st.kg, reps: st.reps, rir: st.rir, warm: st.warm,
+                /* Both shapes travel through: `side` is what a session
+                   banked by the two-row build carries, `repsR` is what one
+                   banked since carries. Dropped here, neither could be
+                   drawn and a unilateral session read as ordinary sets. */
+                side: st.side, repsR: st.repsR, kgR: st.kgR,
                 prev: lp ? lp.kg + ' x ' + lp.reps : null,
                 pr: isPr
               };

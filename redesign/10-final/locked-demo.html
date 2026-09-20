@@ -3054,6 +3054,25 @@ textarea, select {
   gap: var(--sp-2);
   align-items: center;
 }
+/* LEFT AND RIGHT ON ONE ROW. An exercise tracked per side gets a sixth
+   column, so the set reads across the way it was performed: number,
+   weight, L, R, RIR, done. One weight and one RIR, shared, which is the
+   shape the shipped app had and the one the owner asked for back.
+
+   The two rep columns are narrower than the single one they replace and
+   the gap tightens with them: six columns at --sp-2 overflowed a 393px
+   card and turned the grid into a sideways scroller, which is the one
+   thing a table of numbers must not be. */
+.setgrid--lr {
+  grid-template-columns:
+    minmax(var(--tap), auto) minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr)
+    minmax(calc(var(--sp-5) + var(--sp-3)), auto) minmax(var(--tap), auto);
+  gap: var(--sp-1);
+}
+/* A bilateral lift sharing a superset's grid with a unilateral one. Its
+   reps are one figure, so its cell takes both of the side columns rather
+   than pretending the right-hand one is empty. */
+.cell--span2 { grid-column: span 2; }
 .setgrid__head { font-size: var(--type-11); line-height: var(--lh-11); letter-spacing: var(--tr-11); font-weight: var(--w-semibold); text-transform: uppercase; color: var(--text-tertiary); text-align: center; padding-bottom: var(--sp-1); }
 .setgrid__head--n { text-align: left; }
 /* A column header is a label, not a control. It was accent, which put five
@@ -5402,6 +5421,14 @@ img.avatar { object-fit: cover; background: var(--fill); }
    changed colour. It carries no transition: it tracks the finger. */
 .is-dragging {
   opacity: 0.96;
+  /* A BLACK SHADOW ON A BLACK PAGE IS NOT A LIFT. The shadow below does
+     the whole job in the light theme and almost nothing in the dark one,
+     where the card, the page and the shadow are all within a few points
+     of L* 7. --surface-raised is the token this app already uses for the
+     thing that has come off the page -- a sheet, a popover -- and it goes
+     the right way in both themes: lighter than the card in the dark one,
+     white against grey in the light one. */
+  background: var(--surface-raised);
   animation: none !important;
   transition: none !important;
   z-index: 20;
@@ -6715,13 +6742,22 @@ textarea,
 
     /* Working volume and top set of one exercise as it was logged.
        Warm-ups excluded, which is what every other count in the app does. */
+    /* BOTH SIDES OF A SET TRACKED LEFT AND RIGHT. It used to arrive as two
+       rows and was counted twice over; on one row the right side is
+       `repsR` under the same weight, and a sum that ignored it would report
+       half the work for every unilateral lift. `kgR` is only ever present
+       on a set folded out of the two-row shape whose halves carried
+       different weights. The top set is judged on the better arm, which is
+       the figure the record was claimed on. */
     liftStats: function (ex) {
       var vol = 0, top = null;
       if (!ex || !Array.isArray(ex.sets)) return { vol: 0, top: null };
       ex.sets.forEach(function (st) {
         if (!st || !st.done || st.warm || st.kg == null || st.reps == null) return;
         vol += st.kg * st.reps;
-        if (!top || st.kg > top[0] || (st.kg === top[0] && st.reps > top[1])) top = [st.kg, st.reps];
+        if (st.repsR) vol += (st.kgR != null ? st.kgR : st.kg) * st.repsR;
+        var r = st.repsR != null ? Math.max(st.reps, st.repsR) : st.reps;
+        if (!top || st.kg > top[0] || (st.kg === top[0] && r > top[1])) top = [st.kg, r];
       });
       return { vol: Math.round(vol), top: top };
     },
@@ -18150,10 +18186,24 @@ var LB_PER_KG = 2.2046226218;
       var box = scroller.getBoundingClientRect();
       var y = at();
       var dy = 0;
-      if (y > box.top && y < box.top + EDGE_ZONE) {
-        dy = -((EDGE_ZONE - (y - box.top)) / EDGE_DIV + EDGE_BASE);
-      } else if (y > box.bottom - EDGE_ZONE && y < box.bottom) {
-        dy = (y - (box.bottom - EDGE_ZONE)) / EDGE_DIV + EDGE_BASE;
+      /* A finger that has left the list entirely is still asking for the
+         list. This used to require the finger to be INSIDE the scroller --
+         `y > box.top` -- and on this screen the scroller starts 86px down,
+         under a header. So dragging a card to the top of the SCREEN, which
+         is exactly what the owner said should carry the list with you, put
+         the finger above the box and the creep never fired once. Anything
+         at or past the edge counts as being at the far end of the band and
+         gets the band's top speed, which is what a list does on iOS when
+         you hold a row off the end of it. */
+      if (!isFinite(y)) {
+        engaged = 0;
+        raf = requestAnimationFrame(loop);
+        return;
+      }
+      if (y < box.top + EDGE_ZONE) {
+        dy = -(Math.min(EDGE_ZONE, box.top + EDGE_ZONE - y) / EDGE_DIV + EDGE_BASE);
+      } else if (y > box.bottom - EDGE_ZONE) {
+        dy = Math.min(EDGE_ZONE, y - (box.bottom - EDGE_ZONE)) / EDGE_DIV + EDGE_BASE;
       }
       if (dy !== 0) {
         if (!engaged) engaged = ts;
@@ -18266,8 +18316,12 @@ var LB_PER_KG = 2.2046226218;
                  scroller: scroller, s0: scroller ? scroller.scrollTop : 0,
                  y: y0 };
         if (rows[from]) rows[from].style.zIndex = '20';
+        /* NaN, not 0, once the drag is over. Zero is a real coordinate --
+           it is the top of the screen -- and the band now reaches past the
+           scroller's edge, so reporting it would have the list creeping
+           upwards after the finger had gone. */
         DRAG.stopEdge = edgeScroll(scroller,
-          function () { return DRAG ? DRAG.y : 0; },
+          function () { return DRAG ? DRAG.y : NaN; },
           function () { if (DRAG) place(DRAG.y, 0); });
         /* ONE BUZZ, 20ms. v6 fired 30 and then 20 back to back from two
            different places, and a second vibrate() cancels the first --
@@ -55329,6 +55383,69 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
      everywhere else that counts: the card's own numbering, Review's set
      list, and the record that reaches history. */
   function counts(st) { return !st.warm && st.side !== 'R'; }
+
+  /* =============================================================
+     LEFT AND RIGHT ON ONE ROW.
+
+     An exercise tracked per side used to be two rows per set, one
+     labelled 1L and one 1R, each with its own weight, its own reps and
+     its own reps-in-reserve. The owner asked for the shape the shipped
+     app had: ONE row, both sides side by side, one weight and one RIR
+     for the set. He was asked about the loss of a per-arm RIR and said
+     he prefers it that way, so that is settled.
+
+     THE STORED SET, AFTER:  { kg, reps, repsR, rir, done, warm, ... }
+                             `reps` is the left side, `repsR` the right.
+     THE STORED SET, BEFORE: two objects, each { kg, reps, rir, ... },
+                             the second carrying side: 'R'.
+
+     NOTHING STORED IS REWRITTEN. Sessions already in lk_history keep the
+     two-row shape and every screen that reads history still understands
+     it -- that is what `st.side` is still tested for, here and on Review
+     and on the session detail. What IS folded is a LIVE session resumed
+     off a phone mid-workout, because that session is about to be edited
+     on a screen that now draws one row.
+
+     The fold keeps every figure. The left row becomes the set. The right
+     row's reps become `repsR`, and if the right row was carrying a
+     weight or an RIR of its own -- which the two-row screen allowed,
+     even if nobody ever used it -- those are kept as `kgR` and `rirR`
+     rather than thrown away. They are not shown and cannot be typed;
+     they exist so that the volume a resumed session adds up to is the
+     same number it was before the fold, and so that no figure anybody
+     logged is discarded by an upgrade.
+     ============================================================= */
+  function foldSides(ex) {
+    if (!ex || !ex.sets || !ex.sets.length) return ex;
+    var hasSides = false;
+    ex.sets.forEach(function (st) { if (st && st.side) hasSides = true; });
+    if (!hasSides) return ex;
+    var out = [];
+    ex.sets.forEach(function (st) {
+      if (!st) return;
+      if (st.side === 'R') {
+        var host = out[out.length - 1];
+        /* A right row with no left in front of it has nothing to fold
+           into, so it becomes a set of its own rather than vanishing. */
+        if (!host) { delete st.side; out.push(st); return; }
+        if (st.reps != null) host.repsR = st.reps;
+        if (st.kg != null && st.kg !== host.kg) host.kgR = st.kg;
+        if (st.rir != null && st.rir !== host.rir) host.rirR = st.rir;
+        /* Both halves ticked is a set that was done. */
+        if (!st.done) host.done = false;
+        return;
+      }
+      delete st.side;
+      out.push(st);
+    });
+    ex.sets = out;
+    ex.unilateral = true;
+    return ex;
+  }
+
+  /* The load on the right, which is the set's own weight unless this set
+     came out of the two-row shape carrying a different one. */
+  function kgRight(st) { return st && st.kgR != null ? st.kgR : (st ? st.kg : null); }
   function doneSets() {
     var c = 0;
     S.exercises.forEach(function (ex) { ex.sets.forEach(function (st) { if (st.done && counts(st)) c++; }); });
@@ -55351,10 +55468,17 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     return c;
   }
 
+  /* BOTH SIDES ARE WORK. Ten reps on the left and nine on the right is
+     nineteen reps of load, and it was nineteen before this change too --
+     it was just spread over two rows. */
   function volumeKg() {
     var v = 0;
     S.exercises.forEach(function (ex) {
-      ex.sets.forEach(function (st) { if (st.done && !st.warm && st.kg && st.reps) v += st.kg * st.reps; });
+      ex.sets.forEach(function (st) {
+        if (!st.done || st.warm) return;
+        if (st.kg && st.reps) v += st.kg * st.reps;
+        if (st.repsR && kgRight(st)) v += kgRight(st) * st.repsR;
+      });
     });
     return v;
   }
@@ -55363,8 +55487,9 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     var v = 0;
     S.exercises.forEach(function (ex) {
       ex.sets.forEach(function (st) {
-        if (!st.done || st.warm || !st.kg || !st.reps) return;
-        v += Math.round(toDisplay(st.kg) * 10) / 10 * st.reps;
+        if (!st.done || st.warm) return;
+        if (st.kg && st.reps) v += Math.round(toDisplay(st.kg) * 10) / 10 * st.reps;
+        if (st.repsR && kgRight(st)) v += Math.round(toDisplay(kgRight(st)) * 10) / 10 * st.repsR;
       });
     });
     return v;
@@ -55442,10 +55567,24 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
      The exercise card. The screen's whole idea: several sets
      visible and editable at once.
      ============================================================= */
-  function cellHTML(e, i, field) {
+  /* THE THREE KINDS OF CELL. `reps` is the left side on an exercise
+     tracked per side and simply the reps on every other one, which is why
+     it kept its name: a set that is not unilateral is byte for byte the
+     set it always was. `repsR` is the right side and exists only on a
+     unilateral set. */
+  function fieldWord(e, field) {
+    if (field === 'weight') return 'weight';
+    if (field === 'repsR') return 'right reps';
+    return S.exercises[e] && S.exercises[e].unilateral ? 'left reps' : 'reps';
+  }
+  function cellHTML(e, i, field, span) {
     var st = S.exercises[e].sets[i];
     var editing = S.pad && S.pad.ex === e && S.pad.set === i && S.pad.field === field;
-    var own = field === 'weight' ? st.kg : st.reps;
+    var own = field === 'weight' ? st.kg : field === 'repsR' ? st.repsR : st.reps;
+    /* One record per set, read by both rep cells. There has never been a
+       separate record of what the right arm did last week, and there is no
+       call for one: the two sides of a set share a weight and a
+       prescription, so they ghost the same figures. */
     var prev = field === 'weight' ? st.prevKg : st.prevReps;
     /* Weight carries over from last session and is shown, as shipped —
        but in the ghost tone, because it is not yet the lifter's entry.
@@ -55459,11 +55598,11 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
        rather than counted. A warm-up gets none: the prescription is for the
        working sets, and a warm-up set that claimed to owe 8-12 would be the
        screen telling the lifter to do the wrong thing. */
-    var plan = field === 'reps' && !st.warm ? (S.exercises[e].planReps || '') : '';
-    var raw = own !== null ? own : (field === 'weight' ? prev : null);
+    var plan = field !== 'weight' && !st.warm ? (S.exercises[e].planReps || '') : '';
+    var raw = own != null ? own : (field === 'weight' ? prev : null);
     var shown = field === 'weight' ? toDisplay(raw, u) : raw;
     var blank = shown === null || shown === undefined;
-    var ghost = blank || own === null;
+    var ghost = blank || own == null;
     var text = blank ? '--' : (field === 'weight' ? trim(shown) : String(shown));
     var prescribed = blank && !!plan;
     if (prescribed) text = plan;
@@ -55472,12 +55611,13 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
        and the reps column read 8, so the figure a reader checks the session
        against left them out. */
     var partial = (field === 'reps' && !blank && st.partials) ? st.partials : 0;
-    var label = 'Set ' + (i + 1) + ' ' + field + (
+    var label = 'Set ' + (i + 1) + ' ' + fieldWord(e, field) + (
         prescribed ? ', prescribed ' + text
       : blank ? ', empty'
       : (ghost ? ', last session ' : ', ') + text + (field === 'weight' ? ' ' + unitWord(u) : ' reps')) +
       (partial ? ' plus ' + partial + (partial === 1 ? ' partial' : ' partials') : '');
-    return '<button class="cell' + (ghost ? ' cell--empty' : '') + (editing ? ' cell--editing' : '') + '" type="button" ' +
+    return '<button class="cell' + (ghost ? ' cell--empty' : '') + (editing ? ' cell--editing' : '') +
+      (span ? ' cell--span2' : '') + '" type="button" ' +
       'data-act="edit" data-ex="' + e + '" data-set="' + i + '" data-field="' + field + '" ' +
       'data-testid="cell-' + e + '-' + i + '-' + field + '"' +
       (prescribed ? ' data-prescribed="true"' : '') + ' aria-label="' + esc(label) + '">' +
@@ -55556,6 +55696,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
           (letter || '') + (st.warm ? 'W' : n(setNumber(ex, i))) + '</button>' +
         cellHTML(e, i, 'weight') +
         cellHTML(e, i, 'reps') +
+        (ex.unilateral ? cellHTML(e, i, 'repsR') : '') +
         rirHTML(e, i) +
         doneHTML(e, i);
       if (!S.hidePartials) rows += partialsHTML(e, i);
@@ -55563,11 +55704,18 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     return rows;
   }
 
-  function gridHead(e) {
+  /* L AND R, SIDE BY SIDE, under one weight and one RIR. The shipped app
+     drew the set this way and the owner asked for it back: the two sides
+     of one set read across, the way the set was performed, instead of as
+     two rows he has to pair up by eye. */
+  function gridHead(e, uni) {
     return '<div class="setgrid__head setgrid__head--n">#</div>' +
       '<div class="setgrid__head setgrid__head--unit" data-testid="unit-head-' + e + '">' +
         unitLabel(unitAt(e)).toUpperCase() + '</div>' +
-      '<div class="setgrid__head">Reps</div>' +
+      (uni
+        ? '<div class="setgrid__head" data-testid="head-left-' + e + '">L</div>' +
+          '<div class="setgrid__head" data-testid="head-right-' + e + '">R</div>'
+        : '<div class="setgrid__head">Reps</div>') +
       '<div class="setgrid__head">RIR</div>' +
       '<div class="setgrid__head" aria-hidden="true"></div>';
   }
@@ -55694,7 +55842,8 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       '<div class="exc__head">' + headBtns(ex, e) +
         (exHasPR(ex) ? '<span class="badge badge--success" data-testid="pr-badge-' + e + '">PR</span>' : '') +
       '</div>' +
-      '<div class="sets"><div class="setgrid">' + gridHead(e) + setRows(ex, e) + '</div></div>' +
+      '<div class="sets"><div class="setgrid' + (ex.unilateral ? ' setgrid--lr' : '') + '">' +
+        gridHead(e, !!ex.unilateral) + setRows(ex, e) + '</div></div>' +
       '<div class="exc__foot">' +
         '<button class="btn btn--sm btn--secondary" type="button" data-act="addset" data-ex="' + e + '" data-testid="btn-add-set-' + e + '">' + ICO.plus + '<span class="btn__label">Add Set</span></button>' +
         aiBtn(e, '') +
@@ -55714,9 +55863,15 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     var b = S.exercises[e + 1];
     var rows = '';
     var na = a.sets.length, nb = b.sets.length;
+    /* ONE GRID, TWO EXERCISES, and either of them may be tracked per side.
+       The pair shares its columns, so if one half wants an L and an R the
+       whole grid gets them and the bilateral half's reps cell spans the
+       two -- otherwise the numbers under L and R would mean one thing on
+       an A row and another on a B row. */
+    var uni = !!(a.unilateral || b.unilateral);
     for (var i = 0; i < Math.max(na, nb); i++) {
-      if (i < na) rows += setRow1(a, e, i, 'A');
-      if (i < nb) rows += setRow1(b, e + 1, i, 'B');
+      if (i < na) rows += setRow1(a, e, i, 'A', uni);
+      if (i < nb) rows += setRow1(b, e + 1, i, 'B', uni);
     }
     return '<article class="exc' + (S.liftedEx === e ? ' exc--lifted' : '') +
         (S.dragEx === e ? ' exc--dragging is-dragging' : '') +
@@ -55732,7 +55887,8 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
           '<span class="exc__muscle">' + esc(b.muscle) + '</span>' +
         '</button>' +
       '</div>' +
-      '<div class="sets"><div class="setgrid">' + gridHead(e) + rows + '</div></div>' +
+      '<div class="sets"><div class="setgrid' + (uni ? ' setgrid--lr' : '') + '">' +
+        gridHead(e, uni) + rows + '</div></div>' +
       '<div class="exc__foot">' +
         '<button class="btn btn--sm btn--secondary" type="button" data-act="addset-both" data-ex="' + e + '" data-testid="btn-add-set-' + e + '">' +
           ICO.plus + '<span class="btn__label">Add Set to both</span></button>' +
@@ -55745,12 +55901,13 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
   /* One row of the interleaved grid. The row carries its own exercise and
      set index, so every control on it is the same control as on a plain
      card and no handler had to learn about supersets. */
-  function setRow1(ex, e, i, letter) {
+  function setRow1(ex, e, i, letter, uni) {
     var st = ex.sets[i];
     return '<div class="setgrid__n' + (st.warm ? ' setgrid__n--warm' : '') + '" aria-hidden="true">' +
         letter + (st.warm ? 'W' : n(setNumber(ex, i))) + '</div>' +
       cellHTML(e, i, 'weight') +
-      cellHTML(e, i, 'reps') +
+      cellHTML(e, i, 'reps', uni && !ex.unilateral) +
+      (ex.unilateral ? cellHTML(e, i, 'repsR') : '') +
       rirHTML(e, i) +
       doneHTML(e, i, letter === 'A' ? waitingOnB(e, i) : false) +
       (S.hidePartials ? '' : partialsHTML(e, i));
@@ -55845,7 +56002,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
      ============================================================= */
   function openPadFor(e, i, field) {
     var st = S.exercises[e].sets[i];
-    var own = field === 'weight' ? st.kg : st.reps;
+    var own = field === 'weight' ? st.kg : field === 'repsR' ? st.repsR : st.reps;
     var u = unitAt(e);
     /* A PRESCRIPTION SEEDS THE PAD, but only when it is a plain number.
        The pad's buffer is digits, and there is nothing sensible it could
@@ -55854,11 +56011,11 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
        or AMRAP opens the pad blank with the prescription still legible in
        the cell behind it, and the lifter types what they did. */
     var planNum = null;
-    if (field === 'reps' && own === null && !st.warm) {
+    if (field !== 'weight' && own == null && !st.warm) {
       var pl = S.exercises[e].planReps || '';
       if (/^[0-9]+$/.test(pl)) planNum = parseInt(pl, 10);
     }
-    var raw = own !== null ? own : (field === 'weight' ? st.prevKg : planNum);
+    var raw = own != null ? own : (field === 'weight' ? st.prevKg : planNum);
     var shown = field === 'weight' ? toDisplay(raw, u) : raw;
     return {
       ex: e, set: i, field: field, unit: u,
@@ -55868,7 +56025,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
          it. Digits after the first append and DEL still edits, so
          nothing else about the pad's behaviour changed. */
       replaced: false,
-      fromPrev: own === null && shown !== null && shown !== undefined,
+      fromPrev: own == null && shown !== null && shown !== undefined,
       /* Which kind of pending figure it is, because the hint under it has
          to say the right thing: a prescription is not last session. */
       fromPlan: planNum !== null
@@ -55878,6 +56035,12 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
   function padHTML() {
     var p = S.pad;
     var isWeight = p.field === 'weight';
+    /* WHICH SIDE THE PAD IS EDITING. Two reps cells on one row and a pad
+       that says only "Reps" is a pad you can type the right arm's set into
+       thinking it is the left. */
+    var what = isWeight ? 'Weight'
+      : p.field === 'repsR' ? 'Right reps'
+      : (S.exercises[p.ex] && S.exercises[p.ex].unilateral ? 'Left reps' : 'Reps');
     var pu = p.unit || S.unit;
     var steps = isWeight ? STEPS[pu] : [-2, -1, 1, 2];
     var shown = p.buffer === '' ? '0' : p.buffer;
@@ -55890,10 +56053,10 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     keys += '<button class="pad__key pad__key--del" type="button" data-act="pad-del" data-testid="pad-del" aria-label="Delete last digit">DEL</button>';
 
     return '<div class="scrim" data-act="pad-cancel" data-testid="pad-scrim" role="presentation"></div>' +
-      '<div class="sheet padsheet" role="dialog" aria-modal="true" aria-label="' + (isWeight ? 'Weight' : 'Reps') + ' for set ' + (p.set + 1) + '" data-testid="pad-sheet">' +
+      '<div class="sheet padsheet" role="dialog" aria-modal="true" aria-label="' + what + ' for set ' + (p.set + 1) + '" data-testid="pad-sheet">' +
         '<div class="sheet__grab" aria-hidden="true"></div>' +
         '<div class="padsheet__read">' +
-          '<span class="padsheet__what">' + (isWeight ? 'Weight' : 'Reps') + ' · set ' + (p.set + 1) + '</span>' +
+          '<span class="padsheet__what">' + what + ' · set ' + (p.set + 1) + '</span>' +
           '<span class="padsheet__figure">' +
             '<span class="padsheet__value' + (pending ? ' padsheet__value--pending' : '') + '" data-testid="pad-value">' + esc(shown) + '</span>' +
             (isWeight ? '<span class="padsheet__unit" data-testid="pad-unit">' + unitLabel(pu) + '</span>' : '') +
@@ -55983,8 +56146,10 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
   function padCommit() {
     var p = S.pad, st = S.exercises[p.ex].sets[p.set];
     var v = p.buffer === '' ? null : parseFloat(p.buffer);
+    var num = v === null || isNaN(v) ? null : Math.round(v);
     if (p.field === 'weight') st.kg = v === null || isNaN(v) ? null : toKg(v, p.unit);
-    else st.reps = v === null || isNaN(v) ? null : Math.round(v);
+    else if (p.field === 'repsR') st.repsR = num;
+    else st.reps = num;
     S.pad = null;
   }
 
@@ -56938,7 +57103,11 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     /* A different workout's rows are not this workout's rows. */
     if (rows.startedAt !== live.startedAt) return false;
     S.name = rows.name || S.name;
-    S.exercises = rows.exercises;
+    /* A SESSION SAVED BY THE TWO-ROW BUILD IS STILL A SESSION. It is the
+       one place old per-side rows have to change shape, because the screen
+       they are coming back to draws one row per set. foldSides keeps every
+       figure either row was carrying. */
+    S.exercises = (rows.exercises || []).map(foldSides);
     S.blocks = rows.blocks || [];
     if (rows.restEnabled !== undefined) S.restEnabled = rows.restEnabled;
     if (rows.restSeconds !== undefined) S.restSeconds = rows.restSeconds;
@@ -57143,8 +57312,9 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       case 'pad-done': {
         var f = S.pad.field, ex = S.pad.ex, ix = S.pad.set;
         lastOpener = 'cell-' + ex + '-' + ix + '-' + f;
+        var spoken = fieldWord(ex, f);
         padCommit();
-        say('Set ' + (ix + 1) + ' ' + f + ' saved');
+        say('Set ' + (ix + 1) + ' ' + spoken + ' saved');
         break;
       }
       case 'pad-cancel': {
@@ -57190,6 +57360,12 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
         if (st.done) {
           if (st.kg === null) st.kg = st.prevKg;
           if (st.reps === null) st.reps = ghostReps;
+          /* THE RIGHT SIDE IS COMMITTED WITH THE LEFT. Both cells ghost the
+             same figure, so a tick that filled one and left the other empty
+             would silently log half the work -- the set would read 10 reps
+             on the left and a dash on the right, and the volume would be
+             half of what the lifter did. */
+          if (S.exercises[e].unilateral && st.repsR == null) st.repsR = st.reps;
           startRest(S.exercises[e] && S.exercises[e].name);
           /* Felt as well as seen. One short pulse for a set, two for a
              record, and the tick pops under the thumb. */
@@ -57208,7 +57384,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
              Profile read "0 Records" forever, and a record only ever
              appeared once you beat one that was never set. Announcing and
              recording are different questions. */
-          if (!pr && !st.warm && st.kg !== null && st.reps !== null &&
+          if (!pr && !st.warm && st.kg !== null && prReps(st) != null &&
               S.exercises[e].id && !bestFor(S.exercises[e].id)) {
             recordPR(S.exercises[e], st);
             st.pr = true;
@@ -57220,7 +57396,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
                Review needs it to name the mark, and without it Review could
                not claim the record at all: it re-derives records from lk_prs,
                which by then already contains the set it is looking at. */
-            var beat = bestFor(S.exercises[e].id, st.reps) || bestFor(S.exercises[e].id);
+            var beat = bestFor(S.exercises[e].id, prReps(st)) || bestFor(S.exercises[e].id);
             if (beat) st.prBeat = { kg: beat.w, reps: beat.r, date: beat.date };
             recordPR(S.exercises[e], st);
             /* On the set, so the banner and the card badge can be drawn from
@@ -57445,29 +57621,37 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
         }
         if (key === 'unilateral') {
           cur.unilateral = !cur.unilateral;
-          /* The flag alone changed nothing on screen. Turning it on splits
-             every set into the two rows it is actually performed in, and
-             turning it off folds them back onto the left-hand row -- which
-             is the row that already holds the weight and reps, so nothing a
-             person typed is lost either way. */
+          /* The flag alone changed nothing on screen. Turning it on gives
+             every set a second reps cell, beside the first one, on the same
+             row: one weight, one RIR, an L and an R. It used to split each
+             set into two whole rows and that is what the owner asked to be
+             undone.
+
+             Turning it on copies what is already logged across, because a
+             set that read 10 and suddenly reads 10 and a dash looks like
+             half of it has been lost. Turning it off drops the right-hand
+             figures, which the toast says out loud -- it is a deliberate
+             act with a stated consequence, not an upgrade quietly throwing
+             numbers away. */
           if (cur.unilateral) {
-            var out = [];
             cur.sets.forEach(function (st) {
-              st.side = 'L';
-              out.push(st);
-              var r = JSON.parse(JSON.stringify(st));
-              r.side = 'R'; r.done = false; r.partials = 0;
-              out.push(r);
+              delete st.side;
+              if (st.repsR == null) st.repsR = st.reps;
             });
-            cur.sets = out;
           } else {
-            cur.sets = cur.sets.filter(function (st) { return st.side !== 'R'; });
-            cur.sets.forEach(function (st) { delete st.side; });
+            /* An older session resumed on this phone may still be in the
+               two-row shape. Fold it before dropping the right side, or
+               the R rows survive as sets of their own. */
+            foldSides(cur);
+            cur.unilateral = false;
+            cur.sets.forEach(function (st) {
+              delete st.repsR; delete st.kgR; delete st.rirR;
+            });
           }
           S.overlay = null;
           toast(cur.unilateral
-            ? 'Left and right tracked separately. Each set is two rows now.'
-            : 'Tracked as one side. The right-hand rows are gone.');
+            ? 'Left and right on one row now, sharing the weight and the RIR.'
+            : 'Tracked as one side. The right-hand figures are gone.');
           break;
         }
         S.overlay = null;
@@ -57976,20 +58160,32 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
   /* In the unit the row is being read in. It printed "kg" whatever the
      screen said, so a lifter working in pounds was told they had just put
      165 kg over their head. */
+  /* THE REPS A RECORD IS JUDGED ON. On a set tracked per side that is the
+     better of the two arms: twelve on the right and ten on the left is
+     twelve reps at that weight, and reading only the left would lose the
+     lifter a record they earned. The old two-row shape got this for free,
+     because each row claimed its own. */
+  function prReps(st) {
+    if (!st) return null;
+    if (st.repsR == null) return st.reps;
+    if (st.reps == null) return st.repsR;
+    return Math.max(st.reps, st.repsR);
+  }
   function prBeaten(ex, st) {
     if (!ex || !ex.id || st.warm) return null;
-    if (st.kg === null || st.reps === null) return null;
+    var reps = prReps(st);
+    if (st.kg === null || reps == null) return null;
     var u = unitOf(ex);
     var w = function (v) { return trim(toDisplay(v, u)) + ' ' + unitLabel(u); };
-    var b = bestFor(ex.id, st.reps);
+    var b = bestFor(ex.id, reps);
     if (!b) {
       var any = bestFor(ex.id);
       if (!any) return null;              /* nothing to beat: not a claim */
-      if (st.kg > any.w) return w(st.kg) + ' for ' + st.reps + ', past ' + w(any.w) + ' for ' + any.r + '.';
+      if (st.kg > any.w) return w(st.kg) + ' for ' + reps + ', past ' + w(any.w) + ' for ' + any.r + '.';
       return null;
     }
-    if (st.kg > b.w) return w(st.kg) + ' for ' + st.reps + ', past ' + w(b.w) + '.';
-    if (st.kg === b.w && st.reps > b.r) return w(st.kg) + ' for ' + st.reps + ', past ' + b.r + ' reps.';
+    if (st.kg > b.w) return w(st.kg) + ' for ' + reps + ', past ' + w(b.w) + '.';
+    if (st.kg === b.w && reps > b.r) return w(st.kg) + ' for ' + reps + ', past ' + b.r + ' reps.';
     return null;
   }
 
@@ -58011,7 +58207,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       });
     }
     rows.unshift({ exId: ex.id, name: ex.name || '', group: ex.group || '',
-                   muscle: ex.muscle || '', kg: st.kg, reps: st.reps,
+                   muscle: ex.muscle || '', kg: st.kg, reps: prReps(st),
                    date: window.LKStore ? LKStore.today() : new Date().toISOString().slice(0, 10) });
     LKStore.set('lk_prs', rows);
   }
@@ -58129,12 +58325,22 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       var rows = [];
       ex.sets.forEach(function (st) {
         if (!st.done || st.kg == null || st.reps == null) return;
-        rows.push({ kg: st.kg, reps: st.reps, rir: st.rir, warm: !!st.warm,
+        var row = { kg: st.kg, reps: st.reps, rir: st.rir, warm: !!st.warm,
                     partials: st.partials || 0, done: true, pr: !!st.pr,
-                    prBeat: st.prBeat || null });
+                    prBeat: st.prBeat || null };
+        /* BOTH SIDES TRAVEL. The hand-over used to drop the side off every
+           row, so a session of three sets tracked left and right reached
+           history as six numbered sets that nothing could pair back up.
+           One row carrying both is what history now reads, and the rows
+           already in history keep their own shape and their own reader. */
+        if (st.repsR != null) row.repsR = st.repsR;
+        if (st.kgR != null) row.kgR = st.kgR;
+        rows.push(row);
         if (st.warm) return;
         sets++; vol += st.kg * st.reps;
-        if (!top || st.kg > top[0] || (st.kg === top[0] && st.reps > top[1])) top = [st.kg, st.reps];
+        if (st.repsR) vol += kgRight(st) * st.repsR;
+        var tr = prReps(st);
+        if (!top || st.kg > top[0] || (st.kg === top[0] && tr > top[1])) top = [st.kg, tr];
       });
       if (!rows.length) return;
       if (sets) lifts.push({ id: ex.id, name: ex.name, sets: sets, vol: Math.round(vol), top: top });
@@ -58440,6 +58646,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     if (!DRAG) return;
     var d = DRAG; DRAG = null;
     if (d.stopEdge) d.stopEdge();
+    if (d.topRaf) cancelAnimationFrame(d.topRaf);
     /* NOW, not when the spring finishes. The click that ends a drag lands
        on the grip within the same tick as the pointerup, and the grip's
        click handler opens the move bar; stamping this half a second later
@@ -58483,14 +58690,98 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
      once at the lift, in viewport coordinates, so once the list can
      creep under the drag every one of them is out by however far it has
      crept -- and the drop lands rows away from where it looks. */
+  /* THE LIST RUNS UP TO ITS TOP WHILE YOU HOLD THE CARD.
+
+     280ms on an ease-out, which is the length of a sheet arriving in this
+     app and short enough that it is over before anybody decides to move.
+     placeDrag on every frame, so the card does not travel with the list:
+     the scroll delta goes straight back into its translate and it sits
+     still under the finger while everything else slides past it. */
+  /* How much of the scroller is reserved rather than list. Read once at
+     the lift: getComputedStyle every frame of a drag is not free. */
+  function scrollInset(el) {
+    if (!el) return [0, 0];
+    try {
+      var cs = getComputedStyle(el);
+      return [parseFloat(cs.paddingTop) || 0, parseFloat(cs.paddingBottom) || 0];
+    } catch (e) { return [0, 0]; }
+  }
+
+  var TOP_GLIDE_MS = 280;
+  function glideToTop() {
+    if (!DRAG || !DRAG.scroller) return;
+    var from = DRAG.scroller.scrollTop;
+    if (from <= 0) return;
+    /* Anybody who has asked for less motion still has to end up at the top
+       of the list -- that is what makes the whole workout reachable -- they
+       just do not get three hundred milliseconds of scenery on the way. */
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      DRAG.scroller.scrollTop = 0;
+      placeDrag(DRAG.cy);
+      return;
+    }
+    var t0 = null;
+    function step(ts) {
+      if (!DRAG) return;
+      if (t0 == null) t0 = ts;
+      var p = Math.min(1, (ts - t0) / TOP_GLIDE_MS);
+      var k = 1 - Math.pow(1 - p, 3);
+      DRAG.scroller.scrollTop = Math.round(from * (1 - k));
+      placeDrag(DRAG.cy);
+      DRAG.topRaf = p < 1 ? requestAnimationFrame(step) : null;
+    }
+    DRAG.topRaf = requestAnimationFrame(step);
+  }
+
+  /* The translate that puts the card where the finger is, given where the
+     list has scrolled to since the lift. Wanted in two places: every move,
+     and the lift itself, which has to put the card under the hand before
+     anything else happens. */
+  function dragDy(clientY) {
+    var ds = DRAG.scroller ? DRAG.scroller.scrollTop - DRAG.s0 : 0;
+    /* `anchor` is what put the card back under the finger across the fold,
+       and it is a constant offset on everything that follows. Leave it out
+       of one of these two sums and the card and its drop target disagree
+       by however far the fold moved it. */
+    var dy = clientY - DRAG.y0 + ds + (DRAG.anchor || 0);
+    /* THE CARD STAYS INSIDE THE LIST, and the list moves instead.
+
+       Drag a row to the very top of a table on iOS and the row does not
+       carry on past the edge and disappear; it stops against the edge and
+       the content runs underneath it. Here the scroller starts 86px down
+       under a header, so a finger at the top of the SCREEN was putting the
+       card half behind that header -- you were holding something you could
+       not see. Pinned at the edge, the creep does the travelling, which is
+       the behaviour the edge creep exists for. */
+    if (DRAG.scroller) {
+      var box = DRAG.scroller.getBoundingClientRect();
+      var nat = DRAG.boxes[DRAG.from].top - ds;   /* where it sits with no translate */
+      var h = DRAG.boxes[DRAG.from].h;
+      /* The scroller's PADDING box, not its border box. The bottom of this
+         screen is reserved for the floating tab bar, which is why the list
+         has that much padding under it; clamped to the border box the card
+         parked itself behind the tab bar and you lost sight of the thing
+         you were holding. */
+      var top = box.top + DRAG.inset[0], bot = box.bottom - DRAG.inset[1];
+      if (nat + dy < top) dy = top - nat;
+      else if (nat + dy + h > bot) dy = bot - h - nat;
+    }
+    return dy;
+  }
+
   function placeDrag(clientY) {
     if (!DRAG) return;
-    var ds = DRAG.scroller ? DRAG.scroller.scrollTop - DRAG.s0 : 0;
-    var dy = clientY - DRAG.y0 + ds;
+    var dy = dragDy(clientY);
     DRAG.dy = dy;
     DRAG.cy = clientY;
     var card = DRAG.cards[DRAG.from];
     if (window.LKReorder) LKReorder.carry(card, dy);
+    /* NOT UNTIL THE FINGER HAS ACTUALLY MOVED. The lift brings the card to
+       the hand, and on a long list that alone puts it over a different slot
+       -- so a press and release with no drag in it would have quietly
+       reordered the workout. The gap only starts following once there is a
+       drag to follow. */
+    if (!DRAG.armed) return;
     var y = DRAG.boxes[DRAG.from].mid + dy;
     var to = DRAG.boxes.length;
     for (var i = 0; i < DRAG.boxes.length; i++) {
@@ -58525,6 +58816,13 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     document.addEventListener('pointermove', holdWatch);
     holdTimer = setTimeout(function () {
       clearHold();
+      /* WHERE ON THE CARD THE FINGER IS, read before anything folds. This
+         is the one measurement that has to happen first: it is how far
+         down the thing you grabbed you grabbed it, and it is what keeps
+         the card under your hand once every card on screen has changed
+         height. */
+      var was = cardEls()[e];
+      var grabDY = was ? y0 - was.getBoundingClientRect().top : 0;
       /* FOLDED FIRST, MEASURED SECOND. Every card becomes a tab the
          instant one is picked up, which changes every height on screen --
          so the geometry the drag works against is read after the fold,
@@ -58537,7 +58835,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
       if (!card) { S.dragEx = -1; paint(); return; }
       var boxes = cards.map(function (c) {
         var b = c.getBoundingClientRect();
-        return { mid: b.top + b.height / 2, h: b.height };
+        return { mid: b.top + b.height / 2, h: b.height, top: b.top };
       });
       /* ONE SLOT, NOT ONE CARD. What a neighbour has to travel to take
          over the gap is the card's height PLUS the space between cards.
@@ -58546,20 +58844,63 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
          the gap you were aiming at was never quite open. */
       var pitch = window.LKReorder && LKReorder.pitch
         ? LKReorder.pitch(boxes, e) : boxes[e].h;
+      /* THE CARD HAS TO STAY UNDER THE FINGER ACROSS THE FOLD.
+
+         This was the loudest thing wrong with the gesture. A 469px card
+         folds to a 62px tab, the list above it shrinks by thousands of
+         pixels, and the browser clamps the scroll -- so the card you were
+         holding ended up four hundred pixels away from your hand, and
+         from then on every millimetre of the drag was offset by that gap.
+         The card looked dropped and the drop landed somewhere you never
+         pointed at.
+
+         `anchor` is the translate that puts the grab point back under the
+         finger the instant the fold has happened, and it rides along with
+         every later translate. The finger's depth into the card is kept
+         where it will fit on the tab, clamped 8px in from either end so a
+         card grabbed by its bottom edge does not hang off the hand. */
+      var hold = Math.max(8, Math.min(grabDY, boxes[e].h - 8));
+      var anchor = (y0 - hold) - boxes[e].top;
       DRAG = { from: e, to: e, y0: y0, cards: cards, boxes: boxes, h: pitch,
-               dy: 0, v: 0, t: 0, cy: y0,
+               dy: anchor, anchor: anchor, v: 0, t: 0, cy: y0,
+               topRaf: null, armed: false, inset: scrollInset(body),
                scroller: body, s0: body ? body.scrollTop : 0 };
       card.style.zIndex = '20';
+      /* Carried, not re-targeted. The card comes to the hand at once, but
+         the gap stays in its own slot until the finger actually moves --
+         otherwise a hold with no drag at all would land the card wherever
+         the fold happened to leave it and count that as a reorder. */
+      if (window.LKReorder) LKReorder.carry(card, DRAG.dy = dragDy(y0));
       /* v6 fired 30 and then 20 back to back from two different places,
          and a second vibrate() call cancels the first -- so what the
          shipped app's hand actually felt on a lift was the 20. */
       buzzSafe(20);
+      /* BACK TO THE TOP OF THE LIST, WHICH IS THE POINT OF FOLDING IT.
+
+         Folding every card into a tab is what makes eight exercises fit on
+         one screen, and that is worth nothing if you are still parked
+         nine hundred pixels down where the eighth card used to be. The
+         browser's own clamp gets you part of the way -- it will not let
+         you stay past the end of a list that just got shorter -- and on a
+         long list that leaves you in the middle of it.
+
+         Glided rather than jumped. The card stays nailed to the finger the
+         whole way, because placeDrag adds the scroll delta back into the
+         translate, so what a reader sees is the list running up underneath
+         a card they are still holding. */
+      glideToTop();
       /* A list longer than the screen could only be reordered inside one
          screenful: there was nothing to carry a card past the bottom
-         edge. v6 crept the list and so does this. */
+         edge. v6 crept the list and so does this.
+
+         NaN once the drag is over, never 0: zero is the top of the screen
+         and the band now reaches past the scroller's own edge, so a stale
+         zero would leave the list creeping upwards on its own. While the
+         glide above is running the finger is reported as nowhere, so the
+         two are never writing scrollTop in the same frame. */
       if (window.LKReorder && LKReorder.edgeScroll) {
         DRAG.stopEdge = LKReorder.edgeScroll(body,
-          function () { return DRAG ? DRAG.cy : 0; },
+          function () { return DRAG ? (DRAG.topRaf ? NaN : DRAG.cy) : NaN; },
           function () { if (DRAG) placeDrag(DRAG.cy); });
       }
     }, HOLD_MS);
@@ -58645,12 +58986,17 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
        and noise here throws the card across the list. */
     var now = ev.timeStamp || Date.now();
     var ds = DRAG.scroller ? DRAG.scroller.scrollTop - DRAG.s0 : 0;
-    var dy = ev.clientY - DRAG.y0 + ds;
+    /* The same sum placeDrag makes, anchor and all. Without the anchor the
+       first sample is the whole fold offset measured as one frame of
+       travel, and the drop spring gets seeded with several thousand pixels
+       a second the finger never moved. */
+    var dy = ev.clientY - DRAG.y0 + ds + (DRAG.anchor || 0);
     if (DRAG.t) {
       var dtm = Math.max(now - DRAG.t, 1);
       DRAG.v = 0.75 * ((dy - DRAG.dy) / dtm * 1000) + 0.25 * DRAG.v;
     }
     DRAG.t = now;
+    DRAG.armed = true;
     placeDrag(ev.clientY);
   });
 
@@ -61346,6 +61692,17 @@ DEMO.define("review", function (document, window, location, fetch) {
   }
   function dir(v) { return v > 0 ? 'up' : (v < 0 ? 'down' : 'flat'); }
   function set(w, r) { return n(LKUnits.v(w)) + ' ' + LKUnits.label() + ' \u00d7 ' + n(r); }
+  /* LEFT AND RIGHT ON ONE LINE. A set tracked per side is one set with two
+     rep counts under one weight -- 20 kg x 10 | 9 -- which is how the log
+     now draws it and how it now reaches history.
+
+     THE OLD SHAPE STILL READS. Sessions already banked carry two rows, the
+     second marked side 'R', and they keep their 1L / 1R numbering below;
+     nothing stored has been rewritten. */
+  function setLine(s) {
+    if (s.repsR == null) return set(s.kg, s.reps);
+    return set(s.kg, s.reps) + ' \u2502 ' + n(s.repsR);
+  }
 
   /* ---- seed --------------------------------------------------------
      Prior column is w_1788458700000 in fixtures/seed-data.json:
@@ -62537,8 +62894,8 @@ DEMO.define("review", function (document, window, location, fetch) {
                   if (!s.warm && s.side !== 'R') wi++;
                   return '<div class="rsetline" data-testid="rset-' + i + '-' + k + '">' +
                       '<span class="rsetline__n' + (s.warm ? ' rsetline__n--warm' : '') + '">' +
-                        (s.warm ? 'W' : wi + (s.side || '')) + '</span>' +
-                      '<span class="t-detail num">' + set(s.kg, s.reps) + '</span>' +
+                        (s.warm ? 'W' : wi + (s.side || (s.repsR != null ? ' L/R' : ''))) + '</span>' +
+                      '<span class="t-detail num">' + setLine(s) + '</span>' +
                       '<span class="t-meta num">' + (s.rir != null ? s.rir + ' RIR' : '') + '</span>' +
                     '</div>';
                 }).join('') +
@@ -63389,6 +63746,8 @@ DEMO.define("workout-detail", function (document, window, location, fetch) {
         if (st.warm || st.kg == null || st.reps == null) return;
         if (counts(st)) sets++;
         vol += st.kg * st.reps;
+        /* The other arm. One row, two rep counts; see volume() above. */
+        if (st.repsR) vol += (st.kgR != null ? st.kgR : st.kg) * st.repsR;
       });
     });
     rec.sets = sets;
@@ -63415,10 +63774,20 @@ DEMO.define("workout-detail", function (document, window, location, fetch) {
       return a + e.sets.filter(counts).length;
     }, 0);
   }
+  /* BOTH SIDES ARE WORK. In the two-row shape the right-hand side arrived
+     as its own row and was already in this sum; on one row it is `repsR`
+     under the same weight, and leaving it out would halve the volume of
+     every session tracked left and right. `kgR` exists only on a set
+     folded out of the old shape whose two rows carried different weights,
+     which the old screen allowed. */
   function volume(w) {
     return w.exercises.reduce(function (a, e) {
       return a + e.sets.filter(function (s) { return !s.warm; })
-        .reduce(function (b, s) { return b + s.kg * s.reps; }, 0);
+        .reduce(function (b, s) {
+          var v = b + s.kg * s.reps;
+          if (s.repsR) v += (s.kgR != null ? s.kgR : s.kg) * s.repsR;
+          return v;
+        }, 0);
     }, 0);
   }
   function prCount(w) {
@@ -63464,11 +63833,19 @@ DEMO.define("workout-detail", function (document, window, location, fetch) {
   }
 
   function setRow(s, i, exIdx) {
-    var label = s.warm ? 'W' : (String(i) + (s.side || ''));
+    /* LEFT AND RIGHT ON ONE ROW, which is how the log records a set tracked
+       per side now: one weight, one RIR, two rep counts. A session banked
+       by the older build carries two rows instead, the second marked side
+       'R', and it still reads as 1L and 1R -- nothing in history was
+       rewritten, so both shapes have to be legible here. */
+    var label = s.warm ? 'W' : (String(i) + (s.side || (s.repsR != null ? ' L/R' : '')));
+    var reps = s.repsR != null
+      ? n(s.reps) + ' \u2502 ' + n(s.repsR) + ' reps'
+      : n(s.reps) + ' reps';
     return '<div class="setgrid" data-testid="dset-' + exIdx + '-' + i + '">' +
         '<span class="setgrid__n' + (s.warm ? ' setgrid__n--warm' : '') + '">' + label + '</span>' +
         '<span class="setgrid__n" style="text-align:left">' + n(LKUnits.v(s.kg)) + ' ' + LKUnits.label() + '</span>' +
-        '<span class="setgrid__n" style="text-align:left">' + n(s.reps) + ' reps</span>' +
+        '<span class="setgrid__n" style="text-align:left">' + reps + '</span>' +
         '<span class="setgrid__n">' + (s.rir != null ? n(s.rir) + ' RIR' : '') + '</span>' +
         '<span class="setgrid__n">' + (s.pr ? '<span class="badge badge--success">PR</span>' : '') + '</span>' +
       '</div>' +
@@ -63592,6 +63969,7 @@ DEMO.define("workout-detail", function (document, window, location, fetch) {
         if (s.warm || s.kg == null || s.reps == null) return;
         if (counts(s)) sets++;
         vol += s.kg * s.reps;
+        if (s.repsR) vol += (s.kgR != null ? s.kgR : s.kg) * s.repsR;
       });
     });
     return { sets: sets, vol: vol };
@@ -64014,11 +64392,23 @@ DEMO.define("workout-detail", function (document, window, location, fetch) {
               /* One record, one badge. Two identical sets both matched the
                  stored record and both wore PR, so the session claimed more
                  records than it set. */
+              /* THE REPS A RECORD WAS CLAIMED ON. A set tracked left and
+                 right claims its record on the better arm, so a row that
+                 did 12 on the right and 10 on the left is stored in lk_prs
+                 as 12 -- and comparing only the left would lose the badge
+                 on the very set that earned it. */
+              var best = st.repsR == null ? st.reps
+                : (st.reps == null ? st.repsR : Math.max(st.reps, st.repsR));
               var isPr = !!(rec && !st.warm && !prClaimed && rec.date === w.date &&
-                            st.kg === rec.kg && st.reps === rec.reps);
+                            st.kg === rec.kg && best === rec.reps);
               if (isPr) prClaimed = true;
               return {
                 kg: st.kg, reps: st.reps, rir: st.rir, warm: st.warm,
+                /* Both shapes travel through: `side` is what a session
+                   banked by the two-row build carries, `repsR` is what one
+                   banked since carries. Dropped here, neither could be
+                   drawn and a unilateral session read as ordinary sets. */
+                side: st.side, repsR: st.repsR, kgR: st.kgR,
                 prev: lp ? lp.kg + ' x ' + lp.reps : null,
                 pr: isPr
               };

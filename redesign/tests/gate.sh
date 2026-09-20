@@ -65,6 +65,7 @@ tutor-copy|node tutor-copy.mjs
 app-feel|node app-feel.mjs
 reorder-everywhere|node reorder-everywhere.mjs
 reorder-physics|node reorder-physics.mjs
+left-and-right|node left-and-right.mjs
 keypad-stable|node keypad-stable.mjs
 body-hidden-view|node body-hidden-view.mjs
 onboarding-handoff|node onboarding-handoff.mjs

@@ -852,13 +852,22 @@
 
     /* Working volume and top set of one exercise as it was logged.
        Warm-ups excluded, which is what every other count in the app does. */
+    /* BOTH SIDES OF A SET TRACKED LEFT AND RIGHT. It used to arrive as two
+       rows and was counted twice over; on one row the right side is
+       `repsR` under the same weight, and a sum that ignored it would report
+       half the work for every unilateral lift. `kgR` is only ever present
+       on a set folded out of the two-row shape whose halves carried
+       different weights. The top set is judged on the better arm, which is
+       the figure the record was claimed on. */
     liftStats: function (ex) {
       var vol = 0, top = null;
       if (!ex || !Array.isArray(ex.sets)) return { vol: 0, top: null };
       ex.sets.forEach(function (st) {
         if (!st || !st.done || st.warm || st.kg == null || st.reps == null) return;
         vol += st.kg * st.reps;
-        if (!top || st.kg > top[0] || (st.kg === top[0] && st.reps > top[1])) top = [st.kg, st.reps];
+        if (st.repsR) vol += (st.kgR != null ? st.kgR : st.kg) * st.repsR;
+        var r = st.repsR != null ? Math.max(st.reps, st.repsR) : st.reps;
+        if (!top || st.kg > top[0] || (st.kg === top[0] && r > top[1])) top = [st.kg, r];
       });
       return { vol: Math.round(vol), top: top };
     },

@@ -373,6 +373,176 @@ ok(errs.length === 0, 'no page errors', errs.join(' | '));
   await short.close();
 }
 
+/* =====================================================================
+   THE WHOLE LIST, AND THE TOP OF IT.
+
+   Three complaints, one gesture, and they are separate failures:
+
+     1. EVERYTHING FITS. Picking a card up folds every card on the screen
+        into a tab, which is what makes a workout of eight exercises
+        something you can see all of at once. v6's tab measured 75.1px on
+        an 87.1px pitch; this build's is a little tighter still. What is
+        pinned is the consequence, not the number: eight exercises are on
+        one screen with the list at its top.
+
+     2. IT PUTS YOU BACK AT THE TOP. This did not happen at all. The
+        browser's own clamp gets you as far as the new end of a list that
+        just got shorter, which on a long one leaves you in the middle of
+        it -- measured at scrollTop 414 of 414 with fourteen exercises.
+        The list now glides to 0 while the card is held.
+
+     3. IT FOLLOWS YOU. Two halves. The card has to stay under the finger
+        ACROSS the fold -- measured before the fix at 360px away from the
+        hand, because the fold moved the card and the drag was still
+        working from where the finger landed on the old layout. And
+        dragging to the top of the SCREEN has to carry the list with you.
+        That never fired once: the creep required the finger to be inside
+        the scroller, and the scroller starts 86px down under a header, so
+        the top of the screen was outside it. It was NOT the scroll clamp
+        -- the clamp only ever limited the bottom.
+   ===================================================================== */
+{
+  const EIGHT = [
+    [111, 'Barbell Bench Press', 'Mid Chest'], [302, 'DB Shoulder Press', 'Front Delt'],
+    [103, 'Incline Cable Fly', 'Upper Chest'], [311, 'Lateral Raise', 'Side Delt'],
+    [411, 'Tricep Pushdown', 'Lateral Head'], [412, 'Overhead Extension', 'Long Head'],
+    [312, 'Rear Delt Fly', 'Rear Delt'], [112, 'Chest Dip', 'Lower Chest']
+  ];
+  async function longList(n) {
+    const c = await br.newContext({ viewport: { width: 393, height: 852 },
+      isMobile: true, hasTouch: true });
+    await c.addInitScript(([rows]) => {
+      try {
+        localStorage.setItem('lk_onboarded', 'true');
+        localStorage.setItem('lk_tutorialSeen', 'true');
+        localStorage.setItem('lk_quickStart', rows);
+      } catch (e) {}
+      window.__buzz = [];
+      try { navigator.vibrate = function (p) { window.__buzz.push(p); return true; }; } catch (e) {}
+    }, [JSON.stringify({ name: 'Push Day', exercises: Array.from({ length: n }, (_, i) => {
+      const x = EIGHT[i % EIGHT.length];
+      return { id: x[0] + Math.floor(i / EIGHT.length) * 1000, name: x[1] + (i >= EIGHT.length ? ' ' + i : ''), muscle: x[2], sets: 3 };
+    }) })]);
+    const p = await c.newPage();
+    await p.goto('http://127.0.0.1:' + site.address().port + '/');
+    await p.waitForTimeout(1000);
+    /* THE BROWSER'S OWN INPUT PIPELINE. A TouchEvent built in the page
+       emits no pointer events at all, and every listener this gesture
+       hangs off is a pointer listener. */
+    const cdp = await c.newCDPSession(p);
+    const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', {
+      type, touchPoints: type === 'touchEnd' ? []
+        : [{ x, y, radiusX: 12, radiusY: 12, force: 1, id: 1 }] });
+    return { c, p, touch };
+  }
+  const look = (p) => p.evaluate(() => {
+    const sc = document.getElementById('body');
+    const b = sc.getBoundingClientRect();
+    const cards = [...document.querySelectorAll('[data-testid^="exercise-card-"]')]
+      .map((c) => { const r = c.getBoundingClientRect();
+                    return { top: r.top, bottom: r.bottom, h: r.height,
+                             held: c.classList.contains('is-dragging') }; });
+    return { scrollTop: sc.scrollTop, scrollH: sc.scrollHeight, clientH: sc.clientHeight,
+             box: { top: b.top, bottom: b.bottom }, cards };
+  });
+
+  /* ---- eight exercises, lifted from the bottom of the list ---------- */
+  {
+    const { c, p, touch } = await longList(8);
+    await p.evaluate(() => { const b = document.getElementById('body'); b.scrollTop = b.scrollHeight; });
+    await p.waitForTimeout(300);
+    const parked = await look(p);
+    ok(parked.scrollTop > 400,
+       'eight exercises unfolded are several screens of list',
+       Math.round(parked.scrollTop) + 'px down, ' + Math.round(parked.cards[0].h) + 'px a card');
+
+    const g = await p.evaluate(() => {
+      const gs = [...document.querySelectorAll('[data-act="grip"]')];
+      const b = gs[gs.length - 1].getBoundingClientRect();
+      return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
+    });
+    await touch('touchStart', g.x, g.y);
+    await p.waitForTimeout(900);              /* the hold, then the glide */
+    const lifted = await look(p);
+
+    ok(lifted.cards.every((c2) => c2.h < 80),
+       'every card folds to a tab the moment one is lifted',
+       'tallest ' + Math.max(...lifted.cards.map((c2) => Math.round(c2.h))) + 'px');
+    ok(lifted.scrollTop === 0,
+       'and the list is taken back to its top, not left where the eighth card was',
+       'scrollTop ' + Math.round(lifted.scrollTop) + ', was ' + Math.round(parked.scrollTop));
+    const off = lifted.cards.filter((c2) => c2.bottom > lifted.box.bottom || c2.top < lifted.box.top);
+    ok(off.length === 0, 'all eight are on the screen at once', off.length + ' off it');
+
+    /* THE CARD IS UNDER THE HAND. Before the fix it was 360px away. */
+    const held = lifted.cards.find((c2) => c2.held);
+    ok(held && g.y >= held.top - 2 && g.y <= held.bottom + 2,
+       'the card you picked up is under your finger, not where the fold left it',
+       held ? 'finger ' + g.y + ', card ' + Math.round(held.top) + '-' + Math.round(held.bottom) : 'no card held');
+
+    /* A HOLD IS NOT A REORDER. The lift brings the card to the hand, which
+       on a long list puts it over a different slot; releasing without ever
+       dragging must still leave the workout in the order it was in. */
+    const before8 = await p.evaluate(() => [...document.querySelectorAll('.exc__name')].map((x) => x.textContent).join('|'));
+    await touch('touchEnd', g.x, g.y);
+    await p.waitForTimeout(900);
+    const after8 = await p.evaluate(() => [...document.querySelectorAll('.exc__name')].map((x) => x.textContent).join('|'));
+    ok(before8 === after8, 'a hold with no drag in it reorders nothing', after8.slice(0, 50));
+    await c.close();
+  }
+
+  /* ---- fourteen, which is longer than the screen even folded -------- */
+  {
+    const { c, p, touch } = await longList(14);
+    await p.evaluate(() => { const b = document.getElementById('body'); b.scrollTop = b.scrollHeight; });
+    await p.waitForTimeout(300);
+    const g = await p.evaluate(() => {
+      const gs = [...document.querySelectorAll('[data-act="grip"]')];
+      const b = gs[gs.length - 1].getBoundingClientRect();
+      return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
+    });
+    const first = await p.evaluate(() => document.querySelector('.exc__name').textContent);
+    const last = await p.evaluate(() => { const n2 = [...document.querySelectorAll('.exc__name')]; return n2[n2.length - 1].textContent; });
+
+    await touch('touchStart', g.x, g.y);
+    await p.waitForTimeout(900);
+    const lifted = await look(p);
+    ok(lifted.scrollH > lifted.clientH,
+       'fourteen folded tabs are still longer than the screen, so there is somewhere to creep',
+       Math.round(lifted.scrollH) + ' of ' + Math.round(lifted.clientH));
+    ok(lifted.scrollTop === 0,
+       'and the lift still takes you to the top of it',
+       'scrollTop ' + Math.round(lifted.scrollTop));
+
+    /* DOWN first: carry the last card to the end, which needs the creep. */
+    for (let i = 0; i < 40; i++) { await touch('touchMove', g.x, 848); await p.waitForTimeout(40); }
+    const atEnd = await look(p);
+    ok(atEnd.scrollTop > lifted.scrollTop + 100,
+       'held against the bottom of the screen the list comes up to meet you',
+       'scrollTop ' + Math.round(atEnd.scrollTop));
+
+    /* UP: the top of the SCREEN, above the scroller, which is the case
+       that never fired. */
+    for (let i = 0; i < 40; i++) { await touch('touchMove', g.x, 2); await p.waitForTimeout(40); }
+    const atTop = await look(p);
+    ok(atTop.scrollTop === 0,
+       'and dragged to the top of the screen it carries you all the way back to the first card',
+       'scrollTop ' + Math.round(atTop.scrollTop));
+    const carried = atTop.cards.find((c2) => c2.held);
+    ok(carried && carried.top >= atTop.box.top - 2,
+       'with the card still inside the list rather than behind the header',
+       carried ? Math.round(carried.top) + ' against ' + Math.round(atTop.box.top) : 'no card held');
+
+    await touch('touchEnd', g.x, 2);
+    await p.waitForTimeout(1200);
+    const now = await p.evaluate(() => document.querySelector('.exc__name').textContent);
+    ok(now === last && now !== first,
+       'and the last exercise can be carried to the front of a list that does not fit',
+       first + ' -> ' + now);
+    await c.close();
+  }
+}
+
 /* And the assembled build carries the two rules the whole fix rests on:
    a wiggle on `rotate`, and a displacement transition on `translate`.
    A wiggle that goes back to animating `transform` silently undoes
