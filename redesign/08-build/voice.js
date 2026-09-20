@@ -446,7 +446,7 @@
       return toWav(raw).then(function (wav) {
         if (!g.LKCloud || !g.LKCloud.voice) {
           return { ok: false, error: 'not_configured',
-            message: 'Transcribing needs a server, and this build has none.' };
+            message: 'Transcribing is not available right now. Type it instead.' };
         }
         return g.LKCloud.voice(wav).then(function (r) {
           if (!r.ok) return r;

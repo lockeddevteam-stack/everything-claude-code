@@ -958,9 +958,15 @@
       p1.textContent = 'Your training is safe. Everything you logged was saved to this ' +
         'device as you logged it, and none of it is lost.';
       p1.style.cssText = 'margin:0;opacity:.8';
-      var p2 = doc.createElement('p');
-      p2.textContent = String(what || '').slice(0, 200);
-      p2.style.cssText = 'margin:0;opacity:.5;font-size:13px;font-family:ui-monospace,monospace';
+      /* WHAT WAS HERE: the exception's own text, in monospace, under the
+         two sentences. Nobody standing in a gym can do anything with a
+         stack frame, and it is the one line on this screen written for
+         whoever built the app rather than for the person whose session
+         just died. The two sentences above say the thing that matters --
+         the training is saved -- and the button does the only thing worth
+         doing. `what` is still taken, and the browser has already logged
+         the same error to the console, which is where whoever needs it
+         will look. */
       var b1 = doc.createElement('button');
       b1.textContent = 'Reload';
       b1.setAttribute('data-testid', 'crash-reload');
@@ -969,7 +975,6 @@
         'font:inherit;font-weight:600';
       b1.onclick = function () { try { global.location.reload(); } catch (e) {} };
       host.appendChild(h); host.appendChild(p1);
-      if (p2.textContent) host.appendChild(p2);
       host.appendChild(b1);
       (doc.body || doc.documentElement).appendChild(host);
     } catch (e) { /* the crash screen must never be the thing that crashes */ }

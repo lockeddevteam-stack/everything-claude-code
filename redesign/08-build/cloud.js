@@ -49,7 +49,7 @@
   var NOT_READY = {
     ok: false,
     error: 'not_configured',
-    message: 'This build has no server. Nothing has left this device.'
+    message: 'Nothing has left this phone. Everything you have logged is here.'
   };
 
   /* ---- session ----------------------------------------------------
@@ -352,7 +352,7 @@
     /* A network that is not there and a server that said no are different
        things, and a screen that conflates them tells somebody to check
        their connection when the real answer is that they are signed out. */
-    return { ok: false, error: 'network', message: 'Could not reach the server.', detail: String(e && e.message || e) };
+    return { ok: false, error: 'network', message: 'Could not connect just now.', detail: String(e && e.message || e) };
   }
 
   /* The three keys that never leave without the switch. Named once so
@@ -931,7 +931,7 @@
                beside the sentence; kept for the caller, not shown. */
             return { ok: false, error: 'server', status: r.status,
                      why: j.why || '',
-                     message: said || ('The server refused that (' + r.status + ').'),
+                     message: said || 'That did not go through. Try again.',
                      body: j };
           }
           return { ok: true, data: j };
@@ -1026,7 +1026,7 @@
               return res.json().catch(function () { return {}; }).then(function (j) {
                 return res.ok ? { ok: true }
                               : { ok: false, error: 'server',
-                                  message: j.msg || j.message || 'The server refused that password.' };
+                                  message: j.msg || j.message || 'That password was not accepted.' };
               });
             }, fail);
         });
@@ -1095,7 +1095,7 @@
       })
         .then(function (r) { return r.json(); }, fail)
         .then(function (rows) {
-          if (!Array.isArray(rows)) return { ok: false, error: 'server', message: 'The server sent something unreadable.' };
+          if (!Array.isArray(rows)) return { ok: false, error: 'server', message: 'The sync could not finish. Nothing was changed.' };
           var applied = 0;
           var mc2 = S.get('lk_mcProfile', null);
           var cycleOk2 = !!(mc2 && mc2.cloudBackup);
@@ -1366,7 +1366,7 @@
         }).then(function (r2) {
           if (!r2.ok) {
             return { ok: false, error: 'server',
-              message: 'The picture uploaded but the profile would not point at it.' };
+              message: 'The picture went up, but it would not save to your profile.' };
           }
           return { ok: true, data: { avatar: url, path: path } };
         });
@@ -1417,7 +1417,7 @@
     ask: function (messages, context) {
       if (!API.coachReady()) {
         return Promise.resolve({ ok: false, error: 'not_configured',
-          message: 'The coach needs a server, and this build has none.' });
+          message: 'The coach is not available right now.' });
       }
       var body = {
         system: systemPrompt(context || {}),
@@ -1489,7 +1489,7 @@
       }
       if (!c || !c.apiUrl) {
         return Promise.resolve({ ok: false, error: 'not_configured',
-          message: 'Working out a meal needs a server, and this build has none.' });
+          message: 'Working out a meal is not available right now.' });
       }
       return post(c.apiUrl.replace(/\/$/, '') + '/log-meal', { text: said })
         .then(function (r) {
@@ -1527,7 +1527,7 @@
       var c = cfg();
       if (!c || !c.apiUrl) {
         return Promise.resolve({ ok: false, error: 'not_configured',
-          message: 'Food search beyond this device needs a server.' });
+          message: 'Searching beyond the foods already here is not available right now.' });
       }
       var term = String(q || '').trim();
       if (term.length < 2) return Promise.resolve({ ok: true, data: [] });
@@ -1612,7 +1612,7 @@
              says so, and the screen can tell the reader the lookup is
              unavailable rather than that their food does not exist. */
           return { ok: false, error: 'network', data: [],
-                   message: 'Could not reach the food database.',
+                   message: 'Could not reach food search just now.',
                    detail: String((e && e.message) || e) };
         });
     },
@@ -1653,7 +1653,7 @@
         .then(function (j) {
           if (!j || j.error) {
             return { ok: false, error: 'unavailable',
-                     message: 'No catalogue detail is configured for this build.' };
+                     message: 'There is no more detail for this lift.' };
           }
           return { ok: true, data: j };
         });
@@ -1702,7 +1702,7 @@
       var c = cfg();
       if (!c || !c.apiUrl) {
         return Promise.resolve({ ok: false, error: 'not_configured',
-          message: 'Transcribing needs a server, and this build has none.' });
+          message: 'Transcribing is not available right now. Type it instead.' });
       }
       if (!blob || !blob.size) {
         return Promise.resolve({ ok: false, error: 'empty', message: 'There was no recording.' });
@@ -1731,7 +1731,7 @@
             var says = j.error || j.message || '';
             return { ok: false, error: 'server', status: r.status, detail: says,
               message: r.status >= 500 || !says
-                ? 'The server could not write that down just now. Try again, or type it.'
+                ? 'That could not be written down just now. Try again, or type it.'
                 : says };
           }
           if (j.error) return { ok: false, error: 'server', message: j.error };
@@ -1748,7 +1748,7 @@
       if (!path) return Promise.resolve({ ok: false, error: 'unknown', message: 'No such read.' });
       if (!c || !c.apiUrl) {
         return Promise.resolve({ ok: false, error: 'not_configured',
-          message: 'Reading a photo needs a server, and this build has none.' });
+          message: 'Reading a photo is not available right now.' });
       }
       if (!base64 && !(opts && opts.description)) {
         return Promise.resolve({ ok: false, error: 'empty', message: 'Nothing to read.' });
@@ -1842,7 +1842,7 @@
         var c = cfg(), P = API.reminders;
         if (!c || !c.apiUrl) {
           return Promise.resolve({ ok: false, error: 'not_configured',
-            message: 'Reminders need a server, and this build has none.' });
+            message: 'Reminders are not available right now.' });
         }
         if (!P.supported()) {
           return Promise.resolve({ ok: false, error: 'unsupported',
@@ -1945,10 +1945,10 @@
       if (!session()) return Promise.resolve({ ok: false, error: 'signed_out', message: 'Sign in first.' });
       var c = cfg();
       if (!c.apiUrl) return Promise.resolve({ ok: false, error: 'not_configured',
-        message: 'This build cannot delete an account from here.' });
+        message: 'An account cannot be deleted from here.' });
       return fetch(c.apiUrl.replace(/\/$/, '') + '/user/delete', { method: 'DELETE', headers: headers() })
         .then(function (r) {
-          if (!r.ok) return { ok: false, error: 'server', status: r.status, message: 'The server refused that.' };
+          if (!r.ok) return { ok: false, error: 'server', status: r.status, message: 'That did not go through. Nothing was deleted.' };
           setSession(null);
           return { ok: true };
         }, fail);

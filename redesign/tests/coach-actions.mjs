@@ -43,10 +43,10 @@ console.log('=== coach actions — what the gate refuses ===\n');
 
 /* ---- ids the catalogue does not hold ---------------------------- */
 refused({ kind: 'split', split: { name: 'X', days: [{ name: 'Push', exercises: [{ id: 99999, name: 'Bench' }] }] } },
-  'an exercise id that does not exist', 'not in the exercise catalogue');
+  'an exercise id that does not exist', 'is not a lift LOCKED knows');
 
 refused({ kind: 'split', split: { name: 'X', days: [{ name: 'Push', exercises: [{ name: 'Moon Press' }] }] } },
-  'an exercise name that matches nothing', 'not in the exercise catalogue');
+  'an exercise name that matches nothing', 'is not a lift LOCKED knows');
 
 /* The one that shipped by hand twice: a real id under the wrong name. */
 {

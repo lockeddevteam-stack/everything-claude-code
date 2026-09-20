@@ -7951,9 +7951,15 @@ textarea,
       p1.textContent = 'Your training is safe. Everything you logged was saved to this ' +
         'device as you logged it, and none of it is lost.';
       p1.style.cssText = 'margin:0;opacity:.8';
-      var p2 = doc.createElement('p');
-      p2.textContent = String(what || '').slice(0, 200);
-      p2.style.cssText = 'margin:0;opacity:.5;font-size:13px;font-family:ui-monospace,monospace';
+      /* WHAT WAS HERE: the exception's own text, in monospace, under the
+         two sentences. Nobody standing in a gym can do anything with a
+         stack frame, and it is the one line on this screen written for
+         whoever built the app rather than for the person whose session
+         just died. The two sentences above say the thing that matters --
+         the training is saved -- and the button does the only thing worth
+         doing. `what` is still taken, and the browser has already logged
+         the same error to the console, which is where whoever needs it
+         will look. */
       var b1 = doc.createElement('button');
       b1.textContent = 'Reload';
       b1.setAttribute('data-testid', 'crash-reload');
@@ -7962,7 +7968,6 @@ textarea,
         'font:inherit;font-weight:600';
       b1.onclick = function () { try { global.location.reload(); } catch (e) {} };
       host.appendChild(h); host.appendChild(p1);
-      if (p2.textContent) host.appendChild(p2);
       host.appendChild(b1);
       (doc.body || doc.documentElement).appendChild(host);
     } catch (e) { /* the crash screen must never be the thing that crashes */ }
@@ -14510,7 +14515,7 @@ window.LK_CLOUD = {
   var NOT_READY = {
     ok: false,
     error: 'not_configured',
-    message: 'This build has no server. Nothing has left this device.'
+    message: 'Nothing has left this phone. Everything you have logged is here.'
   };
 
   /* ---- session ----------------------------------------------------
@@ -14813,7 +14818,7 @@ window.LK_CLOUD = {
     /* A network that is not there and a server that said no are different
        things, and a screen that conflates them tells somebody to check
        their connection when the real answer is that they are signed out. */
-    return { ok: false, error: 'network', message: 'Could not reach the server.', detail: String(e && e.message || e) };
+    return { ok: false, error: 'network', message: 'Could not connect just now.', detail: String(e && e.message || e) };
   }
 
   /* The three keys that never leave without the switch. Named once so
@@ -15392,7 +15397,7 @@ window.LK_CLOUD = {
                beside the sentence; kept for the caller, not shown. */
             return { ok: false, error: 'server', status: r.status,
                      why: j.why || '',
-                     message: said || ('The server refused that (' + r.status + ').'),
+                     message: said || 'That did not go through. Try again.',
                      body: j };
           }
           return { ok: true, data: j };
@@ -15487,7 +15492,7 @@ window.LK_CLOUD = {
               return res.json().catch(function () { return {}; }).then(function (j) {
                 return res.ok ? { ok: true }
                               : { ok: false, error: 'server',
-                                  message: j.msg || j.message || 'The server refused that password.' };
+                                  message: j.msg || j.message || 'That password was not accepted.' };
               });
             }, fail);
         });
@@ -15556,7 +15561,7 @@ window.LK_CLOUD = {
       })
         .then(function (r) { return r.json(); }, fail)
         .then(function (rows) {
-          if (!Array.isArray(rows)) return { ok: false, error: 'server', message: 'The server sent something unreadable.' };
+          if (!Array.isArray(rows)) return { ok: false, error: 'server', message: 'The sync could not finish. Nothing was changed.' };
           var applied = 0;
           var mc2 = S.get('lk_mcProfile', null);
           var cycleOk2 = !!(mc2 && mc2.cloudBackup);
@@ -15827,7 +15832,7 @@ window.LK_CLOUD = {
         }).then(function (r2) {
           if (!r2.ok) {
             return { ok: false, error: 'server',
-              message: 'The picture uploaded but the profile would not point at it.' };
+              message: 'The picture went up, but it would not save to your profile.' };
           }
           return { ok: true, data: { avatar: url, path: path } };
         });
@@ -15878,7 +15883,7 @@ window.LK_CLOUD = {
     ask: function (messages, context) {
       if (!API.coachReady()) {
         return Promise.resolve({ ok: false, error: 'not_configured',
-          message: 'The coach needs a server, and this build has none.' });
+          message: 'The coach is not available right now.' });
       }
       var body = {
         system: systemPrompt(context || {}),
@@ -15950,7 +15955,7 @@ window.LK_CLOUD = {
       }
       if (!c || !c.apiUrl) {
         return Promise.resolve({ ok: false, error: 'not_configured',
-          message: 'Working out a meal needs a server, and this build has none.' });
+          message: 'Working out a meal is not available right now.' });
       }
       return post(c.apiUrl.replace(/\/$/, '') + '/log-meal', { text: said })
         .then(function (r) {
@@ -15988,7 +15993,7 @@ window.LK_CLOUD = {
       var c = cfg();
       if (!c || !c.apiUrl) {
         return Promise.resolve({ ok: false, error: 'not_configured',
-          message: 'Food search beyond this device needs a server.' });
+          message: 'Searching beyond the foods already here is not available right now.' });
       }
       var term = String(q || '').trim();
       if (term.length < 2) return Promise.resolve({ ok: true, data: [] });
@@ -16073,7 +16078,7 @@ window.LK_CLOUD = {
              says so, and the screen can tell the reader the lookup is
              unavailable rather than that their food does not exist. */
           return { ok: false, error: 'network', data: [],
-                   message: 'Could not reach the food database.',
+                   message: 'Could not reach food search just now.',
                    detail: String((e && e.message) || e) };
         });
     },
@@ -16114,7 +16119,7 @@ window.LK_CLOUD = {
         .then(function (j) {
           if (!j || j.error) {
             return { ok: false, error: 'unavailable',
-                     message: 'No catalogue detail is configured for this build.' };
+                     message: 'There is no more detail for this lift.' };
           }
           return { ok: true, data: j };
         });
@@ -16163,7 +16168,7 @@ window.LK_CLOUD = {
       var c = cfg();
       if (!c || !c.apiUrl) {
         return Promise.resolve({ ok: false, error: 'not_configured',
-          message: 'Transcribing needs a server, and this build has none.' });
+          message: 'Transcribing is not available right now. Type it instead.' });
       }
       if (!blob || !blob.size) {
         return Promise.resolve({ ok: false, error: 'empty', message: 'There was no recording.' });
@@ -16192,7 +16197,7 @@ window.LK_CLOUD = {
             var says = j.error || j.message || '';
             return { ok: false, error: 'server', status: r.status, detail: says,
               message: r.status >= 500 || !says
-                ? 'The server could not write that down just now. Try again, or type it.'
+                ? 'That could not be written down just now. Try again, or type it.'
                 : says };
           }
           if (j.error) return { ok: false, error: 'server', message: j.error };
@@ -16209,7 +16214,7 @@ window.LK_CLOUD = {
       if (!path) return Promise.resolve({ ok: false, error: 'unknown', message: 'No such read.' });
       if (!c || !c.apiUrl) {
         return Promise.resolve({ ok: false, error: 'not_configured',
-          message: 'Reading a photo needs a server, and this build has none.' });
+          message: 'Reading a photo is not available right now.' });
       }
       if (!base64 && !(opts && opts.description)) {
         return Promise.resolve({ ok: false, error: 'empty', message: 'Nothing to read.' });
@@ -16303,7 +16308,7 @@ window.LK_CLOUD = {
         var c = cfg(), P = API.reminders;
         if (!c || !c.apiUrl) {
           return Promise.resolve({ ok: false, error: 'not_configured',
-            message: 'Reminders need a server, and this build has none.' });
+            message: 'Reminders are not available right now.' });
         }
         if (!P.supported()) {
           return Promise.resolve({ ok: false, error: 'unsupported',
@@ -16406,10 +16411,10 @@ window.LK_CLOUD = {
       if (!session()) return Promise.resolve({ ok: false, error: 'signed_out', message: 'Sign in first.' });
       var c = cfg();
       if (!c.apiUrl) return Promise.resolve({ ok: false, error: 'not_configured',
-        message: 'This build cannot delete an account from here.' });
+        message: 'An account cannot be deleted from here.' });
       return fetch(c.apiUrl.replace(/\/$/, '') + '/user/delete', { method: 'DELETE', headers: headers() })
         .then(function (r) {
-          if (!r.ok) return { ok: false, error: 'server', status: r.status, message: 'The server refused that.' };
+          if (!r.ok) return { ok: false, error: 'server', status: r.status, message: 'That did not go through. Nothing was deleted.' };
           setSession(null);
           return { ok: true };
         }, fail);
@@ -16962,7 +16967,7 @@ window.LK_CLOUD = {
       return toWav(raw).then(function (wav) {
         if (!g.LKCloud || !g.LKCloud.voice) {
           return { ok: false, error: 'not_configured',
-            message: 'Transcribing needs a server, and this build has none.' };
+            message: 'Transcribing is not available right now. Type it instead.' };
         }
         return g.LKCloud.voice(wav).then(function (r) {
           if (!r.ok) return r;
@@ -17211,7 +17216,7 @@ window.LK_CLOUD = {
     if (!hit && e.name) hit = byName(e.name);
     if (!hit) {
       problems.push(where + ': "' + str(e.name, 40) + '"' +
-        (e.id != null ? ' (id ' + e.id + ')' : '') + ' is not in the exercise catalogue');
+        (e.id != null ? ' (id ' + e.id + ')' : '') + ' is not a lift LOCKED knows');
       return null;
     }
     /* The catalogue's name wins over the model's. A right id under a wrong
@@ -17305,7 +17310,7 @@ window.LK_CLOUD = {
 
   CHECK.split = function (a, problems) {
     if (!haveCatalogue()) {
-      problems.push('the exercise catalogue has not loaded, so no lift can be verified');
+      problems.push('the lifts it named could not be checked');
       return null;
     }
     var src = a.split || {};
@@ -17353,7 +17358,7 @@ window.LK_CLOUD = {
                 targetDate: /^\d{4}-\d{2}-\d{2}$/.test(by) ? by : '',
                 notes: str(first(src, 'notes', 'note'), LIMIT.note) };
     if (type === 'lift') {
-      if (!haveCatalogue()) { problems.push('the exercise catalogue has not loaded'); return null; }
+      if (!haveCatalogue()) { problems.push('the lifts it named could not be checked'); return null; }
       /* THE TITLE IS NOT A LIFT. This used to fall back to the goal's own
          name, so "Bench 100kg" -- a perfectly good goal title -- was
          looked up in the exercise catalogue, missed, and the whole goal
@@ -17899,13 +17904,13 @@ window.LK_CLOUD = {
            tutorial reaches it the way anybody adding a lift does. */
         { screen: 'train', testid: 'quick-workout', hint: 'Tap',
           say: 'Nothing scheduled, and you want to lift anyway.',
-          note: 'The catalogue opens when there is somewhere to put a lift.' },
+          note: 'The exercise list opens when there is somewhere to put a lift.' },
 
         { screen: 'train', testid: 'quick-plan', hint: 'Tap',
           say: 'Plan it first, and you get to pick the lifts.' },
 
         { screen: 'train', testid: 'qd-skip', hint: 'Tap',
-          say: 'Skip the name. The picker is the whole catalogue.',
+          say: 'Skip the name. The picker is the whole exercise list.',
           note: 'You do not scroll through hundreds of anything.' },
 
         { screen: 'exercise-library', testid: 'bodymap', read: true, pad: 10,
@@ -18077,14 +18082,11 @@ window.LK_CLOUD = {
           note: 'Not five tabs of unrelated surfaces. One question, one answer, on the screen.' },
 
         { screen: 'progress', testid: 'range-control', hint: 'Tap',
-          say: 'Two ranges, and both change the data.',
-          note: 'The old third option returned the same points as the second, so it was cut. ' +
-                'A control that does nothing is worse than one fewer control.' },
+          say: 'Two ranges, and both change the data.' },
 
         { screen: 'progress', testid: 'records-list', read: true,
           say: 'Every record row sets the chart above it.',
-          note: 'One tap to any lift. In the old build that chart was two levels deep behind ' +
-                'a tab clipped to zero visible pixels.' },
+          note: 'One tap to any lift.' },
 
         { screen: 'progress', testid: 'row-body-weight', hint: 'Tap',
           say: 'Body weight lives here too.' },
@@ -18112,8 +18114,7 @@ window.LK_CLOUD = {
 
         { screen: 'recap', testid: 'scale-month', hint: 'Tap Month',
           say: 'Day, week, month. The same training read at three distances.',
-          note: 'Every day with a session opens it. The old calendar\u2019s cells were ' +
-                'divs with a hover tooltip, dead on touch.' }
+          note: 'Every day with a session opens it.' }
       ]
     },
 
@@ -25543,7 +25544,7 @@ DEMO.define("train", function (document, window, location, fetch) {
               '<span class="opt__main"><span class="opt__title">' + esc(e[0]) + '</span>' +
               '<span class="opt__sub">' + e[1] + ' MET</span></span></button>';
           }).join('') + '</div></div>' +
-        '<p class="t-caption-1 quiet mt-3">Saved on this phone and added to the catalogue. ' +
+        '<p class="t-caption-1 quiet mt-3">Saved on this phone and added to your exercise list. ' +
           'The MET value is what the calorie estimate is built on.</p>' +
       '</div>' +
       '<div class="sheet__foot">' +
@@ -28867,9 +28868,9 @@ DEMO.define("fuel", function (document, window, location, fetch) {
      meal built from weighed ingredients was captioned as a camera guess. */
   var SRC = {
     verified: { word: 'Verified', cls: 'badge--ok', testid: 'badge-verified',
-      why: 'A barcode matched a database row, so the figures are the manufacturer\u2019s own.' },
+      why: 'The barcode matched the packet, so the figures are the manufacturer\u2019s own.' },
     estimate: { word: 'Estimate', cls: 'badge--est', testid: 'badge-estimate',
-      why: 'A model read the photo and estimated the portion. Expect it to be within about 15%, ' +
+      why: 'LOCKED read the photo and estimated the portion. Expect it to be within about 15%, ' +
            'and correct it with the portion controls if it looks wrong.' },
     /* A food-table row is not barcode evidence. Every row of the search sheet
        used to be stamped 'verified', so logging Chilli from a typed search
@@ -29724,7 +29725,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     return '<div class="mt-4" data-testid="state-error">' +
       '<div class="banner banner--error">' + ICO.alert +
         '<span><strong>Today did not load</strong>What you logged is on this device and is not lost. ' +
-          'The targets need the server and it did not answer.</span></div>' +
+          'Your targets could not be worked out just now.</span></div>' +
       '<button class="btn btn--primary btn--block mt-4" type="button" data-action="retry" data-testid="retry">' +
         '<span class="btn__label">Try again</span></button>' +
       '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="mic" data-testid="log-offline">' +
@@ -30914,8 +30915,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
               ? coachRecipes().length + ' of these came from your coach and are marked. They are ' +
                 'read-only here: a coach\u2019s recipe is theirs to change.'
               : 'A coach can send you recipes, and they would be listed here, marked and ' +
-                'read-only. None have arrived \u2014 they travel over the same account sync ' +
-                'as their plan.') + '</p>' +
+                'read-only. None have arrived yet.') + '</p>' +
           '</div>' +
         '</div>';
     }
@@ -31354,9 +31354,8 @@ DEMO.define("fuel", function (document, window, location, fetch) {
               '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
             '</button></div>' +
           '<div class="sheet__body">' +
-            '<p class="t-detail">Built from the food table against your own targets. Nothing is ' +
-              'generated by a model, so nothing in it can be invented \u2014 every meal is a row ' +
-              'that already exists.</p>' +
+            '<p class="t-detail">Built from the food table against your own targets. Nothing ' +
+              'in it is invented: every meal is food LOCKED already has the figures for.</p>' +
             '<h3 class="t-label mt-4">How many days</h3>' +
             '<div class="seg seg--lg mt-2" role="radiogroup" aria-label="How many days" ' +
                 'data-testid="gp-days">' +
@@ -31432,8 +31431,8 @@ DEMO.define("fuel", function (document, window, location, fetch) {
                        the target it was built against. */
                     var gap = DAY.target - ak;
                     if (gap > 150) {
-                      line += ' That is ' + n(gap) + ' kcal a day short: this build has eight ' +
-                        'foods and the biggest is ' + n(Math.max.apply(null, Object.keys(FOODS)
+                      line += ' That is ' + n(gap) + ' kcal a day short: the biggest food ' +
+                        'here is ' + n(Math.max.apply(null, Object.keys(FOODS)
                           .map(function (k) { return FOODS[k].kcal; }))) +
                         ' kcal, so ' + g.perDay + ' meals cannot reach it. More meals a day will.';
                     } else if (gap < -150) {
@@ -31763,8 +31762,8 @@ DEMO.define("fuel", function (document, window, location, fetch) {
             'placeholder="5060123456789" value="' + esc(S.scanCode || '') + '" data-testid="scan-code">' +
           (S.scanError ? '<p class="field__error mt-2" role="alert" data-testid="scan-error">' +
             esc(S.scanError) + '</p>' : '') +
-          '<p class="t-caption-1 quiet mt-3">Three resolve in this build. Anything else comes back ' +
-            'not found, which is what a table of eight foods can honestly do.</p>' +
+          '<p class="t-caption-1 quiet mt-3">Three codes work here. Anything else comes back ' +
+            'not found.</p>' +
           '<div class="chiprow mt-2">' + Object.keys(BARCODES).map(function (c, ci) {
             return '<button class="chip" type="button" data-action="scan-try" data-c="' + c + '" ' +
               'data-testid="scan-try-' + ci + '">' + esc(FOODS[BARCODES[c]].name) + '</button>';
@@ -31789,8 +31788,8 @@ DEMO.define("fuel", function (document, window, location, fetch) {
         return shell(
           '<p class="t-body-17" data-testid="scan-notfound">Nothing matches ' +
             esc(prettyCode(S.scanCode)) + '.</p>' +
-          '<p class="t-detail mt-2">That is not a broken scan. This build resolves three barcodes ' +
-            'and whatever you have told it about; a real one reaches a database of millions. ' +
+          '<p class="t-detail mt-2">That is not a broken scan. LOCKED knows three codes here, ' +
+            'plus whatever you have told it about. ' +
             'What is on the packet is on the label: type that in and it is kept against this ' +
             'code, so the next scan of it comes back with your figures instead of this.</p>' +
           '<p class="t-caption-1 quiet mt-2" data-testid="scan-carry">' +
@@ -31833,12 +31832,12 @@ DEMO.define("fuel", function (document, window, location, fetch) {
         '<p class="t-detail mt-4">' + (f.mine
           ? 'You have scanned this before, so it came back off this device without a lookup. ' +
             'The figures are the ones kept against the code.'
-          : 'A barcode matched a database row, so these are the manufacturer&rsquo;s own ' +
+          : 'The barcode matched the packet, so these are the manufacturer&rsquo;s own ' +
             'figures. They are only wrong if the portion is.') + '</p>' +
         '<p class="t-caption-1 quiet mt-2" data-testid="scan-kept">' + (f.mine
           ? 'It is already in your foods, and searchable by name.'
           : 'Kept in your foods as \u201c' + esc(f.name) + '\u201d \u2014 the next scan of this ' +
-            'code resolves on this device, and it is searchable by name from now on.') + '</p>' +
+            'code comes back off this phone, and it is searchable by name from now on.') + '</p>' +
         '<label class="t-label field__label mt-4" for="scan-servings">Servings</label>' +
         '<input class="input num" id="scan-servings" type="number" min="0.25" max="10" step="0.25" ' +
           'inputmode="decimal" value="' + S.scanServings + '" data-testid="scan-servings">' +
@@ -32127,7 +32126,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
                   '. ' + (!hit.length
                     ? ''
                     : hit.every(function (it) { return it.exact; })
-                    ? 'Measured against a food database.'
+                    ? 'Every item was looked up, not estimated.'
                     : 'Approximate: some of this was worked out rather than looked up.') +
                   '</p>' +
                 slotPicker(S.logSlot || slotForNow(), 'pick-slot', 'mic-slot')
@@ -33424,7 +33423,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     var C = window.LKCloud;
     if (!C || !C.ready() || !C.vision) {
       S.camState = 'nosrv';
-      S.camWhy = 'Reading a plate needs a model behind a server, and this build reaches none. ' +
+      S.camWhy = 'Reading a plate is not available right now. ' +
                  'The photo has not left this phone.';
       render();
       return;
@@ -33448,7 +33447,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     var C = window.LKCloud;
     if (!C || !C.ready() || !C.vision) {
       S.camState = 'nosrv';
-      S.camWhy = 'Reading a plate needs a model behind a server, and this build reaches none.';
+      S.camWhy = 'Reading a plate is not available right now.';
       render();
       return;
     }
@@ -33767,7 +33766,7 @@ DEMO.define("fuel", function (document, window, location, fetch) {
     }
     if (it.assumed === 'food') {
       return { sign: '≈', word: 'Approximate',
-               why: 'no database had this food, so the figures were worked out' };
+               why: 'nothing matched this food, so the figures were worked out' };
     }
     if (it.assumed === 'both') {
       return { sign: '≈', word: 'Approximate',
@@ -36082,14 +36081,16 @@ DEMO.define("coach", function (document, window, location, fetch) {
       render();
     } catch (e) { CATALOGUE.state = 'failed'; render(); }
   }
+  /* WHAT THIS USED TO SAY, AND WHY IT DOES NOT. Three sentences about
+     file:// versus http, an exercise count and a fetch that could not
+     run. All true, none of it any use to somebody holding a phone: they
+     did not open a page, they asked the coach for a split. What matters
+     to them is that nothing was saved, and both failing states mean the
+     same thing to them, so they now say the same thing. */
   function catalogueNote() {
     if (CATALOGUE.state === 'ready') return '';
-    if (CATALOGUE.state === 'loading') return 'The exercise catalogue is still loading.';
-    if (CATALOGUE.state === 'file')
-      return 'This page was opened from a file rather than over http, so the 867-exercise ' +
-        'catalogue could not be fetched. Nothing naming a lift can be verified here, and ' +
-        'nothing that cannot be verified is saved. Serve the build over http and ask again.';
-    return 'The exercise catalogue could not be fetched, so no lift can be checked against it.';
+    if (CATALOGUE.state === 'loading') return 'Still checking the lifts it named.';
+    return 'The lifts it named could not be checked, so nothing was saved.';
   }
 
   /* Every verdict currently on screen, re-checked. Verdicts are plain
@@ -36299,8 +36300,8 @@ DEMO.define("coach", function (document, window, location, fetch) {
         }).join('') +
         '<p class="t-detail quiet">' + n(a.days.length) + (a.days.length === 1 ? ' day, ' : ' days, ') +
           n(a.exercises) + (a.exercises === 1 ? ' lift' : ' lifts') +
-          '. Every lift above was resolved against the exercise catalogue and is ' +
-          'named as the catalogue names it.</p>' +
+          '. Every lift above is one LOCKED knows, under the name LOCKED uses ' +
+          'for it.</p>' +
       '</div>';
     }
     if (a.kind === 'recipe') {
@@ -37046,10 +37047,9 @@ DEMO.define("coach", function (document, window, location, fetch) {
       '<div class="card mt-2" data-testid="setup-style-effect">' +
         '<div class="t-label">What gets sent</div>' +
         '<p class="t-detail mt-2">&ldquo;' + esc(styleRow(s.style)[3]) + '&rdquo;</p>' +
-        '<p class="t-detail quiet mt-2">This build has no model behind the coach, so the replies ' +
-          'in Chat are written on this phone and read the same whichever tone is picked. ' +
-          'The choice is stored in lk_coachStyle and goes into the system prompt as soon as ' +
-          'the coach endpoint is connected.</p>' +
+        '<p class="t-detail quiet mt-2">The coach is not connected here, so the replies in ' +
+          'Chat are written on this phone and read the same whichever tone is picked. ' +
+          'Your choice is kept for when it is.</p>' +
       '</div></section>';
 
     /* Memory, with a master switch, a typed add and a way to clear the lot.
@@ -37224,8 +37224,8 @@ DEMO.define("coach", function (document, window, location, fetch) {
                to write it. */
             '<p class="t-detail quiet mt-3" data-testid="iv-preview-basis">Assembled on this phone ' +
               'from your six answers \u2014 every sentence above traces to one of them. ' +
-              'No model was asked, and nothing left the device. When the coach endpoint is ' +
-              'connected it will write these instead, and you will still approve them here.</p>' +
+              'Nothing was sent anywhere. When the coach is connected it will write these ' +
+              'instead, and you will still approve them here.</p>' +
             '<button class="btn btn--primary btn--block mt-4" data-act="iv-use" data-testid="iv-use">' +
               '<span class="btn__label">Use these instructions</span></button>' +
             '<button class="btn btn--secondary btn--block mt-2" data-act="iv-edit-first" data-testid="iv-edit-first">' +
@@ -37631,7 +37631,7 @@ DEMO.define("coach", function (document, window, location, fetch) {
             'data-testid="checkin-talk"><span class="btn__label">Talk about this</span></button>'
           : '') +
         '<p class="t-detail quiet mt-3">Worked out on this phone from your last thirty days. ' +
-          'No model was asked, and nothing left the device.</p>' +
+          'Nothing was sent anywhere.</p>' +
       '</div></section>';
   }
 
@@ -39860,7 +39860,7 @@ DEMO.define("profile", function (document, window, location, fetch) {
                 ? (window.LKCloud.signedIn()
                     ? 'Nothing has left this device yet. It syncs on your next change.'
                     : 'Nothing has left this device. Sign in to back it up.')
-                : 'Nothing has left this device. This build has no server to sync with.') + '</span>' +
+                : 'Nothing has left this device.') + '</span>' +
         '</span>' +
       '</div>' +
       '<button class="row" type="button" data-action="settings" data-testid="open-settings">' +
@@ -40026,7 +40026,7 @@ DEMO.define("profile", function (document, window, location, fetch) {
     return '<div class="mt-4" data-testid="state-error">' +
       '<div class="banner banner--error">' + ICO.alert +
         '<span><strong>Your totals did not load</strong>Every session you logged is on this phone and is ' +
-        'not lost. The totals are counted on the server and it did not answer.</span></div>' +
+        'not lost. Your totals could not be worked out just now.</span></div>' +
       '<button class="btn btn--primary btn--block mt-4" type="button" data-action="retry" data-testid="retry">' +
         '<span class="btn__label">Try again</span></button>' +
       '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="settings" data-testid="open-settings">' +
@@ -40840,7 +40840,7 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
         '<div class="card"><ul class="t-detail" data-testid="ai-reads">' +
           READS.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') +
         '</ul>' +
-        '<p class="t-caption-1 quiet mt-3">This is a rule running on your phone, not a model. ' +
+        '<p class="t-caption-1 quiet mt-3">This runs on your phone and follows fixed rules. ' +
         'It fills every slot from a fixed set of movements and swaps them for what you named. ' +
         'Anything it cannot read it leaves alone and tells you it left alone \u2014 it does not ' +
         'guess, and nothing you type is sent anywhere.</p></div>' +
@@ -40919,7 +40919,7 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     return '<div class="body" role="main" data-testid="ai-populated">' +
       '<div class="section">' +
         '<div class="banner banner--info">' + ico('check') +
-        '<div><strong>Built on this phone by a rule</strong>Not a model, and nothing was sent anywhere. ' +
+        '<div><strong>Built on this phone</strong>Nothing was sent anywhere. ' +
         'Every slot is filled; open any lift to pick one of three alternatives.</div></div>' +
       '</div>' +
       /* What was read, and what was not. The old screen printed the
@@ -41018,7 +41018,7 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
             '<span class="opt__mark">' + ico('layers') + '</span>' +
             '<span class="opt__main"><span class="opt__title">Import from a photo</span>' +
             '<span class="opt__sub">A programme on paper, or a screenshot. ' +
-            'Reading it needs a model on a server \u2014 not in this build.</span></span>' +
+            'Reading it is not available yet.</span></span>' +
             '<span class="row__chev">' + ico('chev') + '</span>' +
           '</button>' +
         '</div></div>' +
@@ -41453,11 +41453,11 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     ['Manual · edit mode', function () { reset(); var s = seedSplit(); S.manual.id = s.id || null; S.manual.created = s.created || null; S.manual.name = s.name; S.manual.days = s.days; S.manual.savedAt = '2 minutes ago'; S.manual.edit = true; }],
     ['Manual · unsaved', function () { reset(); var s = seedSplit(); S.manual.id = s.id || null; S.manual.created = s.created || null; S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; }],
     ['Manual · leave prompt', function () { reset(); var s = seedSplit(); S.manual.id = s.id || null; S.manual.created = s.created || null; S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; S.modal = { type: 'leave' }; }],
-    ['Manual · save error', function () { reset(); var s = seedSplit(); S.manual.id = s.id || null; S.manual.created = s.created || null; S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; S.manual.error = 'No connection to the LOCKED server. The draft is on this phone and will go up when you are back online.'; }],
+    ['Manual · save error', function () { reset(); var s = seedSplit(); S.manual.id = s.id || null; S.manual.created = s.created || null; S.manual.name = s.name; S.manual.days = s.days; S.manual.dirty = true; S.manual.error = 'No connection. The draft is on this phone and will go up when you are back online.'; }],
     ['Draft · two ways in', function () { reset(); S.screen = 'pick'; }],
     ['Draft · describe it', function () { reset(); S.screen = 'ai'; }],
     ['Draft · building', function () { reset(); S.screen = 'ai'; S.ai.status = 'loading'; S.ai.note = 'Three days a week, barbell and cables, shoulders need volume.'; }],
-    ['Draft · nothing readable', function () { reset(); S.screen = 'ai'; S.ai.status = 'error'; S.ai.note = 'make me strong'; S.ai.error = 'This builder is a rule on your phone, not a model, and nothing in \u201cmake me strong\u201d matched anything it knows how to act on. Say how many days, or name your equipment, or build it by hand.'; }],
+    ['Draft · nothing readable', function () { reset(); S.screen = 'ai'; S.ai.status = 'error'; S.ai.note = 'make me strong'; S.ai.error = 'This builder follows fixed rules on your phone, and nothing in \u201cmake me strong\u201d matched anything it knows how to act on. Say how many days, or name your equipment, or build it by hand.'; }],
     ['Draft · proposal', function () { reset(); S.screen = 'ai'; S.ai.note = 'Three days a week, barbell and cables, shoulders need volume.'; S.ai.status = 'ready'; S.ai.plan = planFor(S.ai.note); }],
     ['Photo · nothing chosen', function () { reset(); S.screen = 'photo'; }],
     ['Manual · a day with blocks', function () { reset(); var s2 = seedSplit(); S.manual.id = s2.id || null; S.manual.created = s2.created || null; S.manual.name = s2.name; S.manual.days = s2.days; S.manual.savedAt = 'on ' + (s2.created || 'this phone'); if (S.manual.days[0]) { S.manual.days[0].blocks = [blockRow({ title: 'Shoulder warm-up', duration: '8 min', notes: 'Band pull-aparts, two sets of twenty. Then the empty bar.' })]; } }]
@@ -41760,7 +41760,7 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     if (!plan.read.length) {
       S.ai.status = 'error';
       S.ai.plan = null;
-      S.ai.error = 'This builder is a rule on your phone, not a model, and nothing in ' +
+      S.ai.error = 'This builder follows fixed rules on your phone, and nothing in ' +
         '\u201c' + String(S.ai.note || '').trim() + '\u201d matched anything it knows how to act on. ' +
         'Say how many days, or name your equipment, or build it by hand.';
       render();
@@ -43144,25 +43144,19 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
     return true;
   }
 
-  /* ---------------------------------------------------------------
-     HOW MUCH OF THE CATALOGUE IS ACTUALLY HERE — F-TRAIN-306. The app
-     ships 867 exercises and Train's row says so; over file:// the fetch
-     cannot run and this screen has the inline list only. Rather than two
-     screens quoting two different totals with nothing saying why, the
-     count on screen is always the count of what can be opened, and this
-     sentence says what is missing when anything is.
-     --------------------------------------------------------------- */
-  function shipped() {
-    var lib = window.LKFixtures && window.LKFixtures.library;
-    return lib && lib.total ? Number(lib.total) : 0;
-  }
-  function shortfallNote() {
-    var have = S.items.length, all = shipped();
-    if (!all || have >= all) return '';
-    return have + ' of the ' + all + ' exercises LOCKED ships are readable here. ' +
-      'The rest are in the app’s own catalogue file, which a page opened straight ' +
-      'from disk cannot read.';
-  }
+  /* WHAT WAS HERE, AND WHY IT IS NOT. A sentence explaining that some of
+     the catalogue could not be read, naming the file it lives in and the
+     fact that a page opened from disk cannot fetch it. True, and written
+     for whoever built this rather than for anybody lifting. It only ever
+     appeared when the fetch had failed, which is the dev harness and not
+     a phone, so the only person it ever reached was the one person who
+     did not need telling.
+
+     The count beside the heading is already the count of what can be
+     opened, so the screen is still honest about what it has without
+     explaining the plumbing. If a real failure mode ever reaches a
+     reader, it earns a sentence in their words, about their lifts. */
+  function shortfallNote() { return ''; }
 
   /* ---------------------------------------------------------------
      LEAVING FOR THE WORKOUT LOG. In the assembled demo this file is one
@@ -43678,7 +43672,7 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
     return '<div class="empty" data-testid="state-empty">' +
       '<span class="empty__ico">' + ico('star', 'ico--lg') + '</span>' +
       '<h2 class="empty__title">No custom exercises</h2>' +
-      '<p class="empty__body">Add a lift your gym has and the catalogue does not. It appears in browse, in search and in the counts, next to the rest.</p>' +
+      '<p class="empty__body">Add a lift your gym has and LOCKED does not. It appears in browse, in search and in the counts, next to the rest.</p>' +
       '<button class="btn btn--primary" type="button" data-action="create" data-testid="create-custom">' +
         ico('plus') + '<span class="btn__label">Create a custom exercise</span>' +
       '</button>' +
@@ -43700,7 +43694,7 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
   function viewError() {
     return '<div class="gutter mt-4" data-testid="state-error">' +
       '<div class="banner banner--error">' + ico('alert') +
-        '<span><strong>The exercise list did not load</strong>LOCKED could not read the catalogue on this device. Your ' +
+        '<span><strong>The exercise list did not load</strong>Your ' +
         n(S.customs.length) + ' custom exercises are still here.</span>' +
       '</div>' +
       '<button class="btn btn--primary btn--block mt-4" type="button" data-action="retry" data-testid="retry">' +
@@ -43722,7 +43716,7 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
           '<button class="row" type="button" data-action="create" data-testid="create-custom">' +
             '<span class="ico-well">' + ico('plus') + '</span>' +
             '<span class="row__main stack"><span class="row__title accent">Create a custom exercise</span>' +
-            '<span class="row__sub">A lift your gym has and the catalogue does not</span></span>' +
+            '<span class="row__sub">A lift your gym has and LOCKED does not</span></span>' +
           '</button>'
         ]));
     }
@@ -43822,7 +43816,7 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
     if (!it) return;
     if (!C || !C.ready() || !C.formVideo) {
       S.media = 'error';
-      S.mediaWhy = 'There is no clip search in this build';
+      S.mediaWhy = 'No clip is available for this lift';
       render();
       return;
     }
@@ -43881,15 +43875,16 @@ DEMO.define("exercise-library", function (document, window, location, fetch) {
   }
 
   /* F-TRAIN-015, said rather than mimed. Nothing on this device holds a
-     demonstration clip: there is no cache to look in and no lookup to run,
-     so the slot is not shown as an empty box waiting on a network that is
-     not there. What the remaining half needs is named, at the point where a
-     reader would otherwise wonder where the video is. */
+     demonstration clip, so the slot is not shown as an empty box waiting on
+     something that is not coming. The second sentence used to name the media
+     service, the downloading and the caching, which is the app describing its
+     own wiring to somebody who only wanted to see the lift done. What is left
+     is the part that is about them: there is no clip, and they do not need one
+     for what is on the rest of the screen. */
   function demoNote() {
     return '<div class="section"><div class="section__head"><h3 class="t-label">Demonstration</h3></div>' +
-      '<p class="t-detail">No clip is stored on this phone. Form videos come from LOCKED’s ' +
-      'media service, which this build has no connection to; nothing is downloaded and nothing ' +
-      'is cached. The muscle map and your history above do not need one.</p></div>';
+      '<p class="t-detail">No clip is stored on this phone. The muscle map and your ' +
+      'history above do not need one.</p></div>';
   }
 
   function actions(it) {
@@ -45254,10 +45249,10 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
             'data to your account, and asking the coach, which sends the question and the figures the ' +
             'answer needs. Each one asks first and says what it is sending.</p>' +
           '<h3 class="t-label mt-4">Guest mode</h3>' +
-          '<p class="t-body mt-2">A guest account has no server side at all. Clearing the app\u2019s ' +
+          '<p class="t-body mt-2">A guest account lives on this phone alone. Clearing the app\u2019s ' +
             'data or losing the phone loses the history with it, which is why the guest screen says ' +
             'so before you choose it.</p>' +
-          '<h3 class="t-label mt-4">This build</h3>' +
+          '<h3 class="t-label mt-4">Right now</h3>' +
           /* THIS PARAGRAPH IS THE ONE PLACE A PERSON IS TOLD WHAT HAPPENS
              TO WHAT THEY TYPE, so it has to be read off the build rather
              than written into it. It said "there is no server behind it,
@@ -45265,13 +45260,13 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
              lie the moment a deploy configures one, in the direction that
              matters most. */
           (serverReady()
-            ? '<p class="t-body mt-2">Creating an account sends your email and password to the ' +
-                'server that holds your account, and nothing else. Your training stays on this ' +
-                'phone until you are signed in and sync it. No terms have been agreed to \u2014 ' +
-                'the full text belongs here and is not written yet.</p>'
-            : '<p class="t-body mt-2">There is no server behind this build, no account is really ' +
-                'created, and no terms have been agreed to \u2014 the full text belongs here and ' +
-                'is not written yet. Nothing you type into it is transmitted anywhere.</p>') +
+            ? '<p class="t-body mt-2">Creating an account sends your email and password to ' +
+                'LOCKED, and nothing else. Your training stays on this ' +
+                'phone until you are signed in and sync it. No terms have been agreed to. ' +
+                'The full text belongs here and is not written yet.</p>'
+            : '<p class="t-body mt-2">Accounts are not switched on yet, so no account is really ' +
+                'created, and no terms have been agreed to. The full text belongs here and ' +
+                'is not written yet. Nothing you type into it goes anywhere.</p>') +
         '</div>' +
         '<div class="sheet__foot">' +
           '<button class="btn btn--secondary btn--block" data-testid="legal-done">' +
@@ -45727,7 +45722,7 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
     if (S.variant === 'network') {
       email.value = 'cesco@example.com';
       pw.value = 'locked1234';
-      banner('#signin-banner', 'warn', 'Could not reach the server',
+      banner('#signin-banner', 'warn', 'Could not reach LOCKED',
         'Your details were not sent, so nothing is wrong with them. Retry when you have a connection.', 'Retry', 'signin-retry');
     }
     if (S.variant === 'busy') {
@@ -45754,9 +45749,8 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
     }
     var C = CLOUD();
     if (!serverReady()) {
-      banner('#signin-banner', 'info', 'Resetting a password needs a server',
-        'There is no account system behind this build, so nothing can be sent to ' + escapeHtml(typed) +
-        '. In the live app this is where the link would go.');
+      banner('#signin-banner', 'info', 'There is no account to reset',
+        'Accounts are not switched on yet, so nothing was sent to ' + escapeHtml(typed) + '.');
       return;
     }
     banner('#signin-banner', 'info', 'Asking for a reset link', 'Sending the request for ' + escapeHtml(typed) + '.');
@@ -45767,10 +45761,10 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
         return;
       }
       banner('#signin-banner', 'error', 'No reset link was sent',
-        (r && r.message) || 'The server refused that. Nothing was sent.');
+        (r && r.message) || 'That did not go through. Nothing was sent.');
     }, function () {
       banner('#signin-banner', 'error', 'No reset link was sent',
-        'The server could not be reached, so nothing was sent.');
+        'LOCKED could not be reached, so nothing was sent.');
     });
   }
 
@@ -45811,7 +45805,7 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
       setBusy('signin-submit', false);
       if (r && r.ok && isSignedIn()) { afterSignedIn(); return; }
       if (r && r.error === 'network') {
-        banner('#signin-banner', 'warn', 'Could not reach the server',
+        banner('#signin-banner', 'warn', 'Could not reach LOCKED',
           'Your details were not sent, so nothing is wrong with them. Retry when you have a connection.',
           'Retry', 'signin-retry');
         return;
@@ -45827,7 +45821,7 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
       $('#signin-password').focus();
     }, function () {
       setBusy('signin-submit', false);
-      banner('#signin-banner', 'warn', 'Could not reach the server',
+      banner('#signin-banner', 'warn', 'Could not reach LOCKED',
         'Your details were not sent, so nothing is wrong with them. Retry when you have a connection.',
         'Retry', 'signin-retry');
     });
@@ -45896,7 +45890,7 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
         return;
       }
       if (r && r.error === 'network') {
-        banner('#signup-banner', 'warn', 'Could not reach the server',
+        banner('#signup-banner', 'warn', 'Could not reach LOCKED',
           'Nothing was sent, so nothing was created. Retry when you have a connection.',
           'Retry', 'signup-retry');
         return;
@@ -45910,10 +45904,10 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
         return;
       }
       banner('#signup-banner', 'error', 'No account was created',
-        msg || 'The server refused that.');
+        msg || 'That did not go through.');
     }, function () {
       setBusy('signup-submit', false);
-      banner('#signup-banner', 'warn', 'Could not reach the server',
+      banner('#signup-banner', 'warn', 'Could not reach LOCKED',
         'Nothing was sent, so nothing was created. Retry when you have a connection.',
         'Retry', 'signup-retry');
     });
@@ -45946,9 +45940,9 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
       '<p class="t-detail mt-2 wrap">' + NO_ACCOUNT + '</p>' +
       '<div class="card mt-4">' +
         '<p class="t-body-em">What this screen is for</p>' +
-        '<p class="t-detail mt-2">With a server behind it, a new account has to confirm its email ' +
-          'before it can sign in, and this is where that is said and where the email is asked for ' +
-          'again. There is no server here, so there is no email and no account.</p>' +
+        '<p class="t-detail mt-2">A new account has to confirm its email before it can sign in, ' +
+          'and this is where that is said and where the email is asked for again. Accounts are ' +
+          'not switched on yet, so there is no email and no account.</p>' +
       '</div>');
   }
 
@@ -45963,19 +45957,18 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
          sign-in, reset and sign-out; a resend is Supabase's /auth/v1/resend
          and belongs in that seam rather than as a second network call here,
          which is why this screen does not make one. */
-      banner('#confirm-banner', 'warn', 'Resending is not wired yet',
-        'The one seam to the server carries sign-up, sign-in, password reset and sign-out. ' +
-        'A resend is another endpoint on it and is not built, so nothing was sent.');
+      banner('#confirm-banner', 'warn', 'Resending is not available yet',
+        'Nothing was sent.');
       return;
     }
     setBusy('confirm-resend', true, 'Sending');
     C.resend(S.pending).then(function (r) {
       setBusy('confirm-resend', false);
       if (r && r.ok) { banner('#confirm-banner', 'success', 'Sent again', 'Another link is on its way to ' + escapeHtml(S.pending) + '.'); return; }
-      banner('#confirm-banner', 'error', 'Nothing was sent', (r && r.message) || 'The server refused that.');
+      banner('#confirm-banner', 'error', 'Nothing was sent', (r && r.message) || 'That did not go through.');
     }, function () {
       setBusy('confirm-resend', false);
-      banner('#confirm-banner', 'error', 'Nothing was sent', 'The server could not be reached.');
+      banner('#confirm-banner', 'error', 'Nothing was sent', 'LOCKED could not be reached.');
     });
   }
 
@@ -45983,10 +45976,10 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
   function renderGuest() {
     setBusy('guest-warning-continue', false);
     if (S.variant === 'busy') {
-      setBusy('guest-warning-continue', true, 'Setting up local storage');
+      setBusy('guest-warning-continue', true, 'Setting up');
     } else if (S.variant === 'error') {
       banner('#guest-banner', 'error', 'This browser is blocking storage',
-        'Guest mode needs local storage, and private browsing usually blocks it. An account works either way.');
+        'Private browsing usually blocks what guest mode needs to save. An account works either way.');
     } else {
       banner('#guest-banner', null);
     }
@@ -46393,10 +46386,10 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
   function isSignedIn() { var C = CLOUD(); return !!(C && C.signedIn()); }
 
   var NO_ACCOUNT =
-    'There is no account system behind this build. What you typed was ' +
-    'checked on this device and then dropped: nothing was sent, no email ' +
+    'Accounts are not switched on yet. What you typed was ' +
+    'checked on this phone and then dropped: nothing was sent, no email ' +
     'left this phone, and no account was created. You can carry on ' +
-    'without one — everything you log stays here.';
+    'without one. Everything you log stays here.';
 
   /* Guest is the honest way on when there is no server, and it is the same
      write the guest screen makes: one key, one place. */
@@ -46535,10 +46528,8 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
        the worst thing on this screen. It says what is missing instead. */
     var asked = S.proAsked
       ? '<div class="banner banner--warn mt-3" role="alert" data-testid="pro-checkout">' + ICO.alert +
-          '<span class="grow"><strong>Checkout is not connected</strong>' +
-          'No payment provider is wired to this build, nothing was charged, and you are still on Free. ' +
-          'Pro is granted by the payment webhook writing your entitlement row — nothing in the app ' +
-          'can do it, which is what stops it being worth faking.</span></div>'
+          '<span class="grow"><strong>Paying is not switched on yet</strong>' +
+          'Nothing was charged, and you are still on Free.</span></div>'
       : '';
 
     LKPatch(slot,
@@ -46567,8 +46558,8 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
           '<h3 class="t-label mt-4">Free, and staying free</h3>' +
           '<p class="t-body mt-2">' + PRO.free.join('. ') + '. None of it is behind this, ' +
             'and none of it needs an account.</p>' +
-          '<p class="t-meta mt-4">Your entitlement is read from the server and never cached as a yes: ' +
-            'if this build cannot reach it, the answer is free.</p>' +
+          '<p class="t-meta mt-4">Pro is checked with LOCKED every time and never assumed. ' +
+            'If it cannot be checked, you are on Free.</p>' +
         '</div>' +
         '<div class="sheet__foot">' +
           '<button class="btn btn--primary btn--block" data-testid="pro-start">' +
@@ -46838,7 +46829,7 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
       '<p class="t-body-em mt-1">' + escapeHtml(a.name) + '</p>' +
       '<p class="t-detail mt-1">' + days.length + ' day' + (days.length === 1 ? '' : 's') + ', ' +
         days.reduce(function (n, d) { return n + (d.exercises || []).length; }, 0) +
-        ' exercises, every one resolved against the catalogue.</p>' +
+        ' exercises, every one a lift LOCKED knows.</p>' +
       '<div class="card card--flush card--sunken mt-3">' + days.map(function (d) {
         return '<div class="row row--static"><span class="row__main stack">' +
           '<span class="row__title">' + escapeHtml(d.name) + '</span>' +
@@ -46864,11 +46855,10 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
     if (!coachOnline()) {
       /* The whole of the missing half, said once, where it is used. */
       LKPatch(body, head +
-        '<h2 class="t-title mt-1">The coach needs a server</h2>' +
-        '<p class="t-detail mt-2 wrap">Three questions the six could not ask — injuries, the ' +
-          'equipment you have, what you have trained lately — and a programme written around ' +
-          'the answers. It runs on a model, through a Worker this build has no address for, so ' +
-          'there is nothing behind this screen yet.</p>' +
+        '<h2 class="t-title mt-1">The coach is not available yet</h2>' +
+        '<p class="t-detail mt-2 wrap">Three questions the six could not ask: injuries, the ' +
+          'equipment you have, what you have trained lately. Then a programme written around ' +
+          'the answers. None of that can happen yet, so there is nothing behind this screen.</p>' +
         '<div class="banner banner--info mt-4">' + ICO.info +
           '<span class="grow"><strong>Nothing was sent</strong>No question left this phone, and ' +
             'no answer was invented to fill the gap.</span></div>' +
@@ -46903,12 +46893,13 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
           ' Your plan is untouched.</span></div>'
       : '';
 
-    var cat = CATALOGUE.state === 'file'
-      ? '<p class="t-meta mt-3" data-testid="iv-catalogue">Opened from a file, so the exercise ' +
-        'catalogue cannot be read and no programme can be verified against it. Served over http it can.</p>'
-      : CATALOGUE.state === 'failed'
-      ? '<p class="t-meta mt-3" data-testid="iv-catalogue">The exercise catalogue did not load, so ' +
-        'nothing the coach proposes can be checked. Nothing will be written until it can.</p>' : '';
+    /* ONE SENTENCE, NOT TWO. These were two notes, one about a page opened
+       from a file and one about a list that did not load, and the difference
+       between them is invisible to the person reading: either way the lifts
+       cannot be checked and nothing will be written. So they say that. */
+    var cat = (CATALOGUE.state === 'file' || CATALOGUE.state === 'failed')
+      ? '<p class="t-meta mt-3" data-testid="iv-catalogue">The lifts cannot be checked here, so ' +
+        'nothing the coach proposes will be written.</p>' : '';
 
     LKPatch(body, head +
       '<h2 class="t-title mt-1">' + (IV.asked >= IV_MAX ? 'Your programme' : 'A few things the questions missed') + '</h2>' +
@@ -47129,7 +47120,7 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
       case 'signin-retry': submitSignin(); break;
       case 'signin-guest':
         if (!becomeGuest()) { banner('#signin-banner', 'error', 'This browser is blocking storage',
-          'Guest mode needs local storage, and private browsing usually blocks it.'); break; }
+          'Private browsing usually blocks what guest mode needs to save.'); break; }
         S.step = 0; go('setup');
         toast('Carrying on without an account. Everything stays on this phone.');
         break;
@@ -47141,7 +47132,7 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
       case 'signup-retry': submitSignup(); break;
       case 'signup-guest':
         if (!becomeGuest()) { banner('#signup-banner', 'error', 'This browser is blocking storage',
-          'Guest mode needs local storage, and private browsing usually blocks it.'); break; }
+          'Private browsing usually blocks what guest mode needs to save.'); break; }
         S.step = 0; go('setup');
         toast('Carrying on without an account. Everything stays on this phone.');
         break;
@@ -47151,7 +47142,7 @@ DEMO.define("onboarding", function (document, window, location, fetch) {
       case 'confirm-signin': go('signin'); break;
       case 'confirm-guest':
         if (!becomeGuest()) { banner('#confirm-banner', 'error', 'This browser is blocking storage',
-          'Guest mode needs local storage, and private browsing usually blocks it.'); break; }
+          'Private browsing usually blocks what guest mode needs to save.'); break; }
         S.step = 0; go('setup');
         break;
 
@@ -47810,7 +47801,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
     try {
       url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
     } catch (e) {
-      toast('This browser would not build the file. Nothing was exported.');
+      toast('The file could not be made. Nothing was exported.');
       return;
     }
     var a = document.createElement('a');
@@ -47889,9 +47880,9 @@ DEMO.define("settings", function (document, window, location, fetch) {
     var n = ST ? ST.load(subset) : 0;
     reload();
     toast(mode === 'replace'
-      ? n + (n === 1 ? ' key' : ' keys') + ' restored from ' + filename + '. ' +
+      ? n + (n === 1 ? ' thing' : ' things') + ' restored from ' + filename + '. ' +
         'What was on this phone was replaced.'
-      : n + (n === 1 ? ' key' : ' keys') + ' merged from ' + filename + ', ' + skipped +
+      : n + (n === 1 ? ' thing' : ' things') + ' merged from ' + filename + ', ' + skipped +
         ' kept from this phone' +
         (stamps ? ' because they had changed more recently.'
                 : '. That file carries no change dates, so nothing already written here was touched.'));
@@ -47980,7 +47971,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
       }
       toast(perm === 'granted'
         ? (pushReady() ? 'Allowed.'
-                       : 'Allowed. Nothing is scheduled in this build: see the note under the switches.')
+                       : 'Allowed. Nothing is scheduled: see the note under the switches.')
         : 'Not allowed. Nothing will be sent.');
     };
     if (res && typeof res.then === 'function') res.then(done, function () { done('denied'); });
@@ -48000,10 +47991,8 @@ DEMO.define("settings", function (document, window, location, fetch) {
         });
       }).then(function () {
         toast(pushReady()
-          ? 'Sent by the service worker, now. The scheduled ones come from the server at ' +
-            'the times above.'
-          : 'Sent by the service worker, now. A reminder that arrives later needs a push ' +
-            'subscription and a server, and this build has neither.');
+          ? 'Sent now. The scheduled ones arrive at the times above.'
+          : 'Sent now. Reminders only appear while LOCKED is open.');
       }, function () {
         toast('Your browser would not show it. Nothing was sent.');
       });
@@ -48012,14 +48001,15 @@ DEMO.define("settings", function (document, window, location, fetch) {
     try {
       new Notification('LOCKED', { body: 'This is what one looks like. Sent from this phone, by this page.' });
       toast(pushReady()
-        ? 'Sent from this page, now. The scheduled ones come from the server.'
-        : 'Sent from this page, now. Nothing is scheduled: a reminder that arrives later ' +
-          'needs a push subscription and a server.');
+        ? 'Sent now. The scheduled ones arrive at the times above.'
+        : 'Sent now. Reminders only appear while LOCKED is open.');
     } catch (e) {
       /* Chrome refuses a page-constructed Notification on some origins and
-         tells you to use a service worker. That is the truth about this
-         build too, so it is what the row says. */
-      toast('Your browser will only send one from a service worker, and none is running here.');
+         tells you to use a service worker. That was what this toast used to
+         repeat, word for word, at somebody who had just pressed a button in
+         a gym app. What it means to them is that nothing was shown and
+         nothing was sent, so that is what it says. */
+      toast('Your browser would not show it. Nothing was sent.');
     }
   }
   /* A sound the page makes itself, rather than a file it does not ship.
@@ -48121,7 +48111,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
     var name = 'LOCKED-nutrition-' + todayStamp() + '.csv';
     var url;
     try { url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); }
-    catch (e) { toast('This browser would not build the file. Nothing was exported.'); return; }
+    catch (e) { toast('The file could not be made. Nothing was exported.'); return; }
     var a = document.createElement('a');
     a.href = url; a.download = name; a.setAttribute('data-testid', 'csv-link');
     a.style.position = 'absolute'; a.style.left = '-9999px';
@@ -48445,7 +48435,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
        reads the one seam that knows. */
     var C = window.LKCloud;
     if (!S.syncedAt) {
-      if (!C || !C.ready()) return 'Never synced. This build has no server to sync with.';
+      if (!C || !C.ready()) return 'Never synced. Nothing has left this phone.';
       if (!C.signedIn()) return 'Never synced. Sign in to sync.';
       return 'Never synced.';
     }
@@ -48659,8 +48649,8 @@ DEMO.define("settings", function (document, window, location, fetch) {
           S.cycleBackup, 'switch-cycle-backup') +
           '<div class="row row--static" data-testid="row-cycle-backup-note">' +
             '<span class="row__main">' +
-              '<span class="row__sub">Nothing has been uploaded either way: this build has no server. ' +
-                'The switch decides what a sync would be allowed to carry once there is one.</span>' +
+              '<span class="row__sub">Nothing has been uploaded either way. The switch decides ' +
+                'what a backup is allowed to carry.</span>' +
             '</span>' +
           '</div>' : '') +
         /* Stack. Off by default, and nothing about it appears anywhere in the
@@ -48798,17 +48788,12 @@ DEMO.define("settings", function (document, window, location, fetch) {
        from a server. There is no push subscription and no sender here, so
        every switch above is a preference being recorded for the day there is
        one, and none of them will fire. */
-    var swLine =
-      S.swState === 'active'
-        ? 'A service worker is running, so this app can show one. Nothing wakes it: a reminder that ' +
-          'arrives while the app is closed needs a push subscription and a server to send it, and ' +
-          'this build has neither.'
-        : S.swState === 'unsupported'
-          ? 'This browser has no service workers, so nothing can be shown while the app is closed.'
-          : S.swState === 'insecure'
-            ? 'Opened from a file, so no service worker can run. A served build registers one — and ' +
-              'even there, sending a reminder later needs a push subscription and a server.'
-            : 'No service worker is running here yet, so nothing can be shown while the app is closed.';
+    /* FOUR SENTENCES ABOUT SERVICE WORKERS, NOW ONE ABOUT REMINDERS. The
+       four states differ in why nothing arrives while the app is closed.
+       Nothing a reader can act on turns on which one it is: what they need
+       to know is that a reminder only reaches them while LOCKED is open, and
+       that is the same sentence in all four. */
+    var swLine = 'Reminders only appear while LOCKED is open. Nothing arrives while it is closed.';
 
     var foot = '<div class="card__foot stack stack--2">' +
         '<button class="btn btn--secondary btn--block" data-action="notif-test" data-testid="notif-test"' +
@@ -48818,12 +48803,10 @@ DEMO.define("settings", function (document, window, location, fetch) {
            scheduled while a server is scheduling it is as wrong as one
            that promises reminders it cannot send. */
         (pushReady()
-          ? '<p class="t-detail" data-testid="notif-truth">These are schedules. This phone is ' +
-              'registered with the server that sends them, at the times above, in your own ' +
-              'timezone. ' + swLine + ' Turn the switch off and the registration goes with it.</p>'
+          ? '<p class="t-detail" data-testid="notif-truth">These are schedules. They arrive at ' +
+              'the times above, in your own timezone. Turn the switch off and they stop.</p>'
           : '<p class="t-detail" data-testid="notif-truth">These are preferences, not schedules. ' +
-            'A notification sent while you are looking at this page is all this build does: ' + swLine +
-            ' Nothing above is scheduled, and turning one on will not make it arrive.</p>') +
+            swLine + ' Nothing above is scheduled, and turning one on will not make it arrive.</p>') +
       '</div>';
 
     return '<div class="card card--flush">' + head + types + sounds + foot + '</div>';
@@ -48857,13 +48840,11 @@ DEMO.define("settings", function (document, window, location, fetch) {
      say so. "Unknown" is a real answer and is printed as one. */
   function versionRow() {
     var sub;
-    if (S.versionState === 'checking') sub = 'Checking with the server…';
-    else if (S.versionState === 'stale') sub = 'Build ' + esc(String(get('lk_deployVersion', '?'))) +
-      '. Build ' + esc(String(S.newVersion)) + ' is published — see the top of this screen.';
-    else if (S.versionState === 'current') sub = 'Build ' + esc(String(S.version)) + '. Up to date.';
-    else if (S.versionState === 'absent') sub = location.protocol === 'file:'
-      ? 'Opened from a file, so there is nothing to check against.'
-      : 'No service worker is published beside this app, so there is no version to check.';
+    if (S.versionState === 'checking') sub = 'Checking…';
+    else if (S.versionState === 'stale') sub = 'Version ' + esc(String(get('lk_deployVersion', '?'))) +
+      '. Version ' + esc(String(S.newVersion)) + ' is out. See the top of this screen.';
+    else if (S.versionState === 'current') sub = 'Version ' + esc(String(S.version)) + '. Up to date.';
+    else if (S.versionState === 'absent') sub = 'Nothing to check against just now.';
     else sub = 'Not checked yet.';
     return '<button class="row" data-action="check-version" data-testid="row-version">' +
              '<span class="row__main">' +
@@ -48911,7 +48892,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
         actionRow('confirm-restore', 'Restore from a backup', 'Merge it with what is here, or replace what is here', 'row-restore') +
         actionRow('export-nutrition', 'Export your food log', 'A CSV of every meal by date, with your targets and your weigh-ins', 'row-export-nutrition') +
         versionRow() +
-        actionRow('force-refresh', 'Force refresh', 'Clears what the browser cached and loads the app again. Your data is untouched', 'row-force-refresh') +
+        actionRow('force-refresh', 'Force refresh', 'Loads the app again from scratch. Your data is untouched', 'row-force-refresh') +
       '</div>';
 
     var danger = '<div class="card card--flush">';
@@ -48967,9 +48948,9 @@ DEMO.define("settings", function (document, window, location, fetch) {
     return '<section class="section"><div class="card" data-testid="update-ready">' +
              '<div class="banner banner--info" role="status">' + ICO.cloud +
                '<span><strong>A new version is ready</strong>' +
-               'Build ' + esc(String(S.newVersion)) + ' has been published. This phone is running ' +
-               esc(String(get('lk_deployVersion', 'an older build'))) + '. ' +
-               'Reloading clears what the browser cached and starts the new one. Nothing you have logged is touched.</span>' +
+               'Version ' + esc(String(S.newVersion)) + ' is out. This phone is running ' +
+               esc(String(get('lk_deployVersion', 'an older one'))) + '. ' +
+               'Reloading starts the new one. Nothing you have logged is touched.</span>' +
              '</div>' +
              '<button class="btn btn--primary btn--block mt-4" data-action="force-refresh" data-testid="update-now">' +
                '<span class="btn__label">Reload into the new version</span></button>' +
@@ -49163,7 +49144,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
         field('f-pw-new', 'New password', 'field-pw-new', 'At least 8 characters, and not the one you have now.') +
         field('f-pw-again', 'New password again', 'field-pw-again', '') +
         (S.pwError ? '<p class="field__error" role="alert" data-testid="pw-error">' + esc(S.pwError) + '</p>' : '') +
-        '<p class="field__help">This build has no account server. What you type is checked here and goes ' +
+        '<p class="field__help">Accounts are not switched on yet. What you type is checked here and goes ' +
           'nowhere: nothing is saved, nothing is sent, and your password is unchanged.</p>' +
       '</div>' +
       '<div class="sheet__foot stack stack--2">' +
@@ -49201,7 +49182,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
          removed. What this can honestly do is the local half, so that is
          what it says and what it does. */
       title: 'Delete your account?',
-      body: 'There is no account server in this build, so nothing can be deleted from one. ' +
+      body: 'There is no account yet, so there is nothing to delete from one. ' +
             'What this does do is sign you out and erase everything LOCKED has stored on this phone. ' +
             'That cannot be undone.',
       go: 'Sign out and erase this phone', danger: true, to: 'guest'
@@ -49432,7 +49413,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
          is up to date", which reads as a completed sync. */
       S.sync = 'idle';
       render();
-      toast('Not in this build. Nothing has left this device.');
+      toast('Nothing has left this phone.');
       return;
     }
     if (!C.signedIn()) {
@@ -49511,7 +49492,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
                     perfTracking: 'Stack tracking ', cycleBackup: 'Cycle log backup ' };
       if (k === 'cycleBackup') {
         toast(S.cycleBackup
-          ? 'Recorded. Your cycle log would be included in a sync. Nothing has been uploaded: this build has no server.'
+          ? 'Recorded. Your cycle log would be included in a backup. Nothing has been uploaded.'
           : 'Recorded. A sync will skip your cycle log, in both directions.');
       }
       say((LABEL[k] || 'Setting ') + (S[k] ? 'on' : 'off'));
@@ -49527,7 +49508,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
          nothing about it will arrive. */
       say(t.dataset.name + ' ' + (notifOn(nk) ? 'on' : 'off'));
       if (notifOn(nk)) toast(t.dataset.name + ' is on. It is recorded, not scheduled: ' +
-        'nothing can send it until this app has a server to push from.');
+        'nothing will arrive while the app is closed.');
 
     } else if (a === 'check-version') {
       checkVersion();
@@ -49735,12 +49716,12 @@ DEMO.define("settings", function (document, window, location, fetch) {
       if (id === 'delete') { S.view = 'guest'; put('lk_guestMode', '1'); }
       S.sync = 'idle';
       closeOverlay();
-      toast(gone + (gone === 1 ? ' key' : ' keys') + ' erased. Everything you changed on this phone is gone, ' +
-        'and the app is back to the data a fresh install of this build opens with.' +
+      toast(gone + (gone === 1 ? ' thing' : ' things') + ' erased. Everything you changed on this phone is gone, ' +
+        'and the app is back to the way a fresh install opens.' +
         (id === 'delete'
           ? (window.LKCloud && LKCloud.ready()
               ? ' Your account has been deleted too.'
-              : ' Nothing was sent to a server: there is not one here.')
+              : ' Nothing was sent anywhere.')
           : ''));
       return;
     }
@@ -49812,7 +49793,7 @@ DEMO.define("settings", function (document, window, location, fetch) {
     toast(Cp && Cp.ready()
       ? 'Sign in first: a password belongs to an account.'
       : 'Those eight characters would do. Nothing was changed and nothing was sent: ' +
-        'this build has no account server.');
+        'accounts are not switched on yet.');
   }
 
   function rowFor(key) {
@@ -55730,7 +55711,7 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     return '<div class="mt-4" style="padding: 0 var(--page-x)" data-testid="state-error">' +
       '<div class="banner banner--error">' + ICO.alert +
         '<span><strong>Your list did not load</strong>It is stored on this device and is not lost. ' +
-        'The prices and the store search need the server and it did not answer.</span></div>' +
+        'Prices and store search could not be reached just now.</span></div>' +
       '<button class="btn btn--primary btn--block mt-4" type="button" data-action="retry" data-testid="retry">' +
         '<span class="btn__label">Try again</span></button>' +
     '</div>';
@@ -56598,7 +56579,7 @@ DEMO.define("shopping", function (document, window, location, fetch) {
     var C = window.LKCloud;
     if (!C || !C.ready() || !C.vision) {
       S.readState = 'nosrv';
-      S.readWhy = 'Reading a receipt needs a server, and this build reaches none. ' +
+      S.readWhy = 'Reading a receipt is not available right now. ' +
                   'The photo has not left this phone; type the lines in beside it.';
       render();
       return;
@@ -57935,8 +57916,8 @@ DEMO.define("review", function (document, window, location, fetch) {
       /* No endpoint, so no read, and the card says which rather than
          spinning at somebody. */
       S.ai = 'error';
-      S.aiWhy = 'There is no coach endpoint in this build, so nothing was asked and ' +
-                'nothing was written. Your session is untouched.';
+      S.aiWhy = 'The coach is not available, so nothing was asked and nothing was ' +
+                'written. Your session is untouched.';
       paint(true);
       return;
     }
@@ -60840,7 +60821,7 @@ DEMO.define("cycle", function (document, window, location, fetch) {
       'Last recorded start, plus your cycle length setting, equals the next estimated start. ' +
       'Ovulation is placed fourteen days before that, because the luteal phase is the more stable ' +
       'half; the fertile window is the five days before ovulation plus the day after. That is all of ' +
-      'it. There is no model and no data from anybody else. A calendar estimate is not ovulation ' +
+      'it. Nothing else goes into it, and no data from anybody else. A calendar estimate is not ovulation ' +
       'tracking and it is not contraception.'],
     ['doctor', 'When to see a doctor',
       'Cycles shorter than 21 days or longer than 35 on a regular basis. Any gap over 45 days, and ' +
@@ -61342,7 +61323,7 @@ DEMO.define("cycle", function (document, window, location, fetch) {
                 '<span class="row__sub">' + (p.cloudBackup
                   ? (cloudReady()
                       ? 'On. Your logged days and these settings go with the rest of your account.'
-                      : 'Recorded as a yes. No server is configured in this build, so nothing has been uploaded and the log is still only on this phone.')
+                      : 'Recorded as a yes. Nothing has been backed up, and the log is still only on this phone.')
                   : 'Off. The log stays on this phone.') +
                   ' A backup would send your logged days — flow, symptoms, moods, notes and events — and these settings to your account. This switch is the only record that you said yes, and a sync has to read it before it carries any of them.</span>' +
               '</span>' +
@@ -61373,14 +61354,13 @@ DEMO.define("cycle", function (document, window, location, fetch) {
           '<div class="card card--flush mt-4">' +
             '<button class="row row--withaside" type="button" data-act="cs-export" data-testid="cs-export">' +
               '<span class="row__main"><span class="row__title">Export your cycle log</span>' +
-                '<span class="row__sub">A JSON file saved to this device. Nothing is uploaded.</span></span>' +
+                '<span class="row__sub">A file saved to this phone. Nothing is uploaded.</span></span>' +
               '<span class="row__chev" aria-hidden="true">' + ICO.save + '</span>' +
             '</button>' +
           '</div>' +
 
           '<p class="t-caption-1 quiet mt-4">Everything here stays on this phone unless you ' +
-            'turn the backup switch on, and the sync refuses these three keys in both ' +
-            'directions while it is off. Deleting removes the log and the settings and ' +
+            'turn the backup switch on. Deleting removes the log and the settings and ' +
             'cannot be undone.</p>' +
         '</div>' +
         '<div class="sheet__foot">' +
@@ -61759,7 +61739,7 @@ DEMO.define("cycle", function (document, window, location, fetch) {
       persistProfile();
       render();
       say(S.p.cloudBackup
-        ? (cloudReady() ? 'Backup on.' : 'Recorded. Nothing has been uploaded — no server is configured in this build.')
+        ? (cloudReady() ? 'Backup on.' : 'Recorded. Nothing has been backed up. Your log stays on this phone.')
         : 'Backup off. Nothing had been uploaded anyway.');
       return;
     }
@@ -63302,8 +63282,8 @@ DEMO.define("progress", function (document, window, location, fetch) {
     if (!g) { S.sheet = 'goal'; render(); return; }
     if (!C || !C.coachReady()) {
       S.sheet = 'goal'; S.goalReadErr =
-        'There is no coach endpoint in this build, so nothing was asked and nothing ' +
-        'about this goal has left the device.';
+        'The coach is not available, so nothing was asked and nothing ' +
+        'about this goal has left this phone.';
       render();
       return;
     }
@@ -63850,18 +63830,17 @@ DEMO.define("progress", function (document, window, location, fetch) {
         'the log it is measured against (' +
         (g.type === 'weight' ? 'your weigh-ins' : g.type === 'bodyfat' ? 'your body-fat readings'
           : g.type === 'lift' ? 'your records for this lift' : 'nothing \u2014 this goal is not measured') +
-        ') and the dates of your sessions to LOCKED\u2019s server.</p>' +
+        ') and the dates of your sessions to LOCKED.</p>' +
       '<p class="t-detail muted mt-3">What comes back is a rate, whether that rate reaches the ' +
         'target by the deadline, and what to change if it does not.</p>' +
-      '<p class="t-detail muted mt-2">In this build it is not wired to anything: no request is ' +
-        'made, nothing is sent, and there is no reply. The consent step is here so the shape of ' +
-        'the flow can be read.</p>' +
+      '<p class="t-detail muted mt-2">This is not switched on yet: nothing is sent, and ' +
+        'nothing comes back.</p>' +
       /* The beta build logged what people did with their goals to a server.
          There is no telemetry layer here at all -- nothing is counted, queued
          or sent, on this screen or any other -- and that is worth saying on
          the one screen that talks about what leaves the device. */
       '<p class="t-detail muted mt-2">Nothing else about your goals leaves this phone either: ' +
-        'this build keeps no activity log and sends no usage data.</p>' +
+        'LOCKED keeps no activity log and sends no usage data.</p>' +
       '<button class="btn btn--primary btn--block mt-4" type="button" data-action="goal-analyse-go" ' +
         'data-testid="goal-analyse-go"><span class="btn__label">Send it and analyse</span></button>' +
       '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="goal-analyse-no" ' +
@@ -63955,7 +63934,7 @@ DEMO.define("progress", function (document, window, location, fetch) {
       S.toast = 'There is no progress photo on this device to read.'; render(); return;
     }
     if (!C || !C.ready() || !C.vision) {
-      S.toast = 'Estimating from a photo needs a server, and this build reaches none. ' +
+      S.toast = 'Estimating from a photo is not available right now. ' +
                 'No photo has left this device.';
       render();
       return;
@@ -64010,7 +63989,7 @@ DEMO.define("progress", function (document, window, location, fetch) {
     }
     if (!C || !C.ready() || !C.vision) {
       S.analysisBusy = false;
-      S.analysisWhy = 'Reading a photo needs a server, and this build reaches none. ' +
+      S.analysisWhy = 'Reading a photo is not available right now. ' +
                       'No photo has left this device.';
       render();
       return;
@@ -64048,7 +64027,7 @@ DEMO.define("progress", function (document, window, location, fetch) {
     var w = a && Array.isArray(a.weakPoints) ? a.weakPoints[i] : null;
     if (!w) return;
     var r = resolveIds(w.prescription && w.prescription.exercises);
-    if (!r.lifts.length) { S.toast = 'Nothing to add: none of those lifts are in the catalogue.'; render(); return; }
+    if (!r.lifts.length) { S.toast = 'Nothing to add: none of those are lifts LOCKED knows.'; render(); return; }
 
     var splits = get('lk_splits', []) || [];
     /* The first split is the current one, which is the convention the rest
@@ -64136,13 +64115,13 @@ DEMO.define("progress", function (document, window, location, fetch) {
             '<span class="btn__label">Add to split</span></button>'
         : '<p class="t-detail quiet mt-2" data-testid="weak-none-' + i + '">' +
           (r.noCatalogue
-            ? 'The exercise catalogue has not loaded, so none of these can be checked.'
-            : 'None of the lifts it named are in the catalogue, so there is nothing to add.') +
+            ? 'These lifts could not be checked, so none of them can be added.'
+            : 'None of the lifts it named are ones LOCKED knows, so there is nothing to add.') +
           '</p>') +
       (r.lost && r.lifts.length
         ? '<p class="t-caption-1 quiet mt-2" data-testid="weak-lost-' + i + '">' + r.lost +
           (r.lost === 1 ? ' lift it named is' : ' lifts it named are') +
-          ' not in the catalogue and were left out.</p>'
+          ' not a lift LOCKED knows and were left out.</p>'
         : '') +
     '</div>';
   }
@@ -64205,12 +64184,12 @@ DEMO.define("progress", function (document, window, location, fetch) {
   function bfConsentSheet() {
     return sheet('bf-consent', 'Before it leaves the device', 'auto',
       '<p class="t-body">An estimate sends your most recent progress photo, your body weight ' +
-        'and your logged readings to LOCKED\u2019s server, and a percentage with a range comes ' +
+        'and your logged readings to LOCKED, and a percentage with a range comes ' +
         'back. It is an estimate from a picture, not a measurement.</p>' +
       '<p class="t-detail muted mt-3">Your calipers, your scale and your DEXA are all better ' +
         'than it. The log above takes any of them.</p>' +
-      '<p class="t-detail muted mt-2">In this build it is not wired to anything: no request is ' +
-        'made, nothing is sent, and there is no reply.</p>' +
+      '<p class="t-detail muted mt-2">This is not switched on yet: nothing is sent, and ' +
+        'nothing comes back.</p>' +
       '<button class="btn btn--primary btn--block mt-4" type="button" data-action="bf-est-go" ' +
         'data-testid="bf-est-go"><span class="btn__label">Send it and estimate</span></button>' +
       '<button class="btn btn--secondary btn--block mt-2" type="button" data-action="bf-est-no" ' +
@@ -64219,13 +64198,13 @@ DEMO.define("progress", function (document, window, location, fetch) {
 
   function consentSheet() {
     return sheet('analyse-consent', 'Before it leaves the device', 'auto',
-      '<p class="t-body">Analysing sends this photo to LOCKED\u2019s server, along with your ' +
+      '<p class="t-body">Analysing sends this photo to LOCKED, along with your ' +
         'goal, your body weight and your weekly set volume. It is processed there and the ' +
         'reply comes back here.</p>' +
       '<p class="t-detail muted mt-3">Everything else on this screen stays on the device. ' +
         'This one action would not, which is why it asks.</p>' +
-      '<p class="t-detail muted mt-2">In this build it is not wired to anything: nothing is ' +
-        'sent, and the consent step is here so the shape of the flow can be read.</p>' +
+      '<p class="t-detail muted mt-2">This is not switched on yet: nothing is sent, and ' +
+        'nothing comes back.</p>' +
       '<button class="btn btn--primary btn--block mt-4" type="button" data-action="analyse-go" ' +
         'data-testid="analyse-go"><span class="btn__label">Send it and analyse</span></button>' +
       /* Declining goes back to the photo, not out of the stack. Closing

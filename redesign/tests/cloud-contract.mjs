@@ -541,7 +541,11 @@ coachReply = JSON.stringify({ reply: 'Your new split.', actions: [
 r = await C.ask([{ role: 'user', content: 'make me a split' }]);
 const checked = CA.checkAll(r.data.actions);
 ok(checked.length === 2, 'every action is checked, none skipped');
-ok(checked[0].ok === false && /catalogue/.test(checked[0].problems.join(' ')),
+/* The refusal used to end "is not in the exercise catalogue", and this
+   matched on the word catalogue. The gate says the same thing in words
+   somebody lifting would use, so the assertion follows it: what matters
+   is that the refusal names the lift and says the app does not know it. */
+ok(checked[0].ok === false && /not a lift LOCKED knows/.test(checked[0].problems.join(' ')),
    'an invented exercise id is refused by name', checked[0].problems.join('; '));
 ok(checked[1].ok === true, 'a sound action still passes');
 

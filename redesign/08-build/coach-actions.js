@@ -189,7 +189,7 @@
     if (!hit && e.name) hit = byName(e.name);
     if (!hit) {
       problems.push(where + ': "' + str(e.name, 40) + '"' +
-        (e.id != null ? ' (id ' + e.id + ')' : '') + ' is not in the exercise catalogue');
+        (e.id != null ? ' (id ' + e.id + ')' : '') + ' is not a lift LOCKED knows');
       return null;
     }
     /* The catalogue's name wins over the model's. A right id under a wrong
@@ -283,7 +283,7 @@
 
   CHECK.split = function (a, problems) {
     if (!haveCatalogue()) {
-      problems.push('the exercise catalogue has not loaded, so no lift can be verified');
+      problems.push('the lifts it named could not be checked');
       return null;
     }
     var src = a.split || {};
@@ -331,7 +331,7 @@
                 targetDate: /^\d{4}-\d{2}-\d{2}$/.test(by) ? by : '',
                 notes: str(first(src, 'notes', 'note'), LIMIT.note) };
     if (type === 'lift') {
-      if (!haveCatalogue()) { problems.push('the exercise catalogue has not loaded'); return null; }
+      if (!haveCatalogue()) { problems.push('the lifts it named could not be checked'); return null; }
       /* THE TITLE IS NOT A LIFT. This used to fall back to the goal's own
          name, so "Bench 100kg" -- a perfectly good goal title -- was
          looked up in the exercise catalogue, missed, and the whole goal

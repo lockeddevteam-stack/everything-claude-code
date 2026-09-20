@@ -167,7 +167,9 @@ reply = { body: { items: [Object.assign({}, BAGUETTE, {
     name: 'Koeksister', src: 'estimate', exact: false, assumed: 'food' })],
   totals: { cal: 675, pro: 22.5, carb: 130, fat: 5, exact: false }, text: '250g koeksister' } };
 await say('250g koeksister');
-ok(/no database had this food/.test(await text('mic-sure-0')),
+/* "no database had this food" was the app naming a database at somebody
+   eating. The claim is the same one; only the words changed. */
+ok(/nothing matched this food/.test(await text('mic-sure-0')),
    'the FOOD was the soft half here, which is a different claim',
    await text('mic-sure-0'));
 ok(!/weight of one is assumed/.test(await text('mic-sure-0')),
@@ -194,7 +196,7 @@ console.log('\n=== nought items is not a measured nought ===\n');
 reply = { status: 422, body: { error: 'No food found in that.', why: 'nofood', items: [] } };
 await say('asdkjfh');
 const emptySum = await text('mic-sum');
-ok(!/Measured against a food database/.test(emptySum),
+ok(!/looked up, not estimated/.test(emptySum),
    'an empty list never claims to have been measured', emptySum);
 ok(await has('mic-server-msg'), 'and the reason is on screen');
 

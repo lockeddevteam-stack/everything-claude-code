@@ -173,13 +173,13 @@
            tutorial reaches it the way anybody adding a lift does. */
         { screen: 'train', testid: 'quick-workout', hint: 'Tap',
           say: 'Nothing scheduled, and you want to lift anyway.',
-          note: 'The catalogue opens when there is somewhere to put a lift.' },
+          note: 'The exercise list opens when there is somewhere to put a lift.' },
 
         { screen: 'train', testid: 'quick-plan', hint: 'Tap',
           say: 'Plan it first, and you get to pick the lifts.' },
 
         { screen: 'train', testid: 'qd-skip', hint: 'Tap',
-          say: 'Skip the name. The picker is the whole catalogue.',
+          say: 'Skip the name. The picker is the whole exercise list.',
           note: 'You do not scroll through hundreds of anything.' },
 
         { screen: 'exercise-library', testid: 'bodymap', read: true, pad: 10,
@@ -351,14 +351,11 @@
           note: 'Not five tabs of unrelated surfaces. One question, one answer, on the screen.' },
 
         { screen: 'progress', testid: 'range-control', hint: 'Tap',
-          say: 'Two ranges, and both change the data.',
-          note: 'The old third option returned the same points as the second, so it was cut. ' +
-                'A control that does nothing is worse than one fewer control.' },
+          say: 'Two ranges, and both change the data.' },
 
         { screen: 'progress', testid: 'records-list', read: true,
           say: 'Every record row sets the chart above it.',
-          note: 'One tap to any lift. In the old build that chart was two levels deep behind ' +
-                'a tab clipped to zero visible pixels.' },
+          note: 'One tap to any lift.' },
 
         { screen: 'progress', testid: 'row-body-weight', hint: 'Tap',
           say: 'Body weight lives here too.' },
@@ -386,8 +383,7 @@
 
         { screen: 'recap', testid: 'scale-month', hint: 'Tap Month',
           say: 'Day, week, month. The same training read at three distances.',
-          note: 'Every day with a session opens it. The old calendar\u2019s cells were ' +
-                'divs with a hover tooltip, dead on touch.' }
+          note: 'Every day with a session opens it.' }
       ]
     },
 
