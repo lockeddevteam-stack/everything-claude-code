@@ -236,29 +236,66 @@ ok(!!(rec && rec.source && rec.source.dayName === 'Push'),
 
 console.log('\n=== the offer ===\n');
 
-ok(await has(page, 'review', 'section-split'), 'Review asks about the difference');
-const offer = await textOf(page, 'review', 'section-split');
-ok(offer.indexOf('PPL · Push day') === 0, 'named after the split and the day, not "your split"', offer.slice(0, 20));
-ok(offer.indexOf(repl.name + ' instead of Barbell Bench Press') > -1,
-   'the line says which lift replaced which', offer.slice(0, 120));
-ok(offer.indexOf('same slot') > -1, 'and that it filled the same slot, which is what makes it one change');
-ok(offer.indexOf('Save as your Push day') > -1,
-   'the offer is in the reader\'s own words: save this as your Push day');
-ok(offer.indexOf('Keep Push as it is') > -1, 'and refusing is a button, not a dismissal');
-/* One accent fill on the screen, and it is on Save session. A programme
-   edit offered louder than the thing the reader came here to do would be
-   a nag rather than an offer. */
-const loud = await page.evaluate(() => {
+/* THE OFFER IS A BUBBLE NOW, NOT A CARD. The owner's note on Review was
+   that it opened with lines and lines of recap, and the biggest of those
+   lines was this card: an icon row per difference, a paragraph of
+   reasoning and up to three buttons. What is on the first page is a pill
+   saying the day ran differently; the question itself is in a pop-up
+   behind it. So what is checked is the pill, then the pop-up. */
+ok(await has(page, 'review', 'section-split'), 'Review says the difference is there');
+const bubble = await textOf(page, 'review', 'split-open');
+ok(bubble.indexOf('Push ran differently') > -1,
+   'named after the day, not "your split"', bubble);
+ok(bubble.indexOf('1') > -1, 'and it carries how many things ran differently', bubble);
+ok(!(await has(page, 'review', 'split-sheet')), 'nothing is open until it is tapped');
+
+await tap(page, 'review', 'split-open');
+await page.waitForTimeout(500);
+ok(await has(page, 'review', 'split-sheet'), 'tapping it opens the pop-up');
+const offer = await textOf(page, 'review', 'split-sheet');
+ok(offer.indexOf('Save this as your Push day?') > -1,
+   'which asks one question, in the reader\'s own words', offer.slice(0, 60));
+const bullets = await textOf(page, 'review', 'split-bullets');
+ok(bullets === repl.name + ' replaces Barbell Bench Press',
+   'one bullet, one line, naming which lift replaced which', bullets);
+ok(offer.indexOf('Save as your Push day') > -1, 'one button saves this version');
+ok(offer.indexOf('Keep the previous version') > -1, 'the other keeps the one they had');
+/* SIMPLISTIC WAS THE WORD, TWICE. No third route, no explanation
+   paragraph, no checkbox per difference. */
+const shape = await page.evaluate(() => {
   const rec = window.DEMO.screens['review'];
   const r = rec.root || rec.host.shadowRoot;
-  const sec = r.querySelector('[data-testid="section-split"]');
+  const sh = r.querySelector('[data-testid="split-sheet"]');
   return {
-    primaries: sec ? sec.querySelectorAll('.btn--primary').length : -1,
+    lines: sh ? sh.querySelectorAll('.bullets__li').length : -1,
+    buttons: sh ? sh.querySelectorAll('.btn').length : -1,
+    primaries: sh ? sh.querySelectorAll('.btn--primary').length : -1,
+    picks: sh ? sh.querySelectorAll('[data-testid^="split-pick-"]').length : -1,
+    radius: sh ? getComputedStyle(sh).getPropertyValue('corner-shape').trim() : '',
     bar: !!r.querySelector('[data-testid="action-save"].btn--primary')
   };
 });
-ok(loud.primaries === 0, 'neither answer is the loud button on the screen', String(loud.primaries));
-ok(loud.bar, 'the accent stays on Save session, which this never gates');
+ok(shape.lines === 1, 'one line for one difference, and never more than two', String(shape.lines));
+ok(shape.buttons === 2, 'two answers and nothing else', String(shape.buttons));
+ok(shape.picks === 0, 'the per-change checkboxes are gone', String(shape.picks));
+/* A squircle, out of the token the build already uses on every sheet,
+   rather than a radius invented for this one pop-up. */
+ok(shape.radius === '' || shape.radius.indexOf('squircle') > -1 ||
+   shape.radius.indexOf('superellipse') > -1,
+   'it is the build\'s own squircle, not a new shape', shape.radius || '(not supported here)');
+/* One accent fill on the screen, and it is on Save session. A programme
+   edit offered louder than the thing the reader came here to do would be
+   a nag rather than an offer. */
+ok(shape.primaries === 0, 'neither answer is the loud button on the screen', String(shape.primaries));
+ok(shape.bar, 'the accent stays on Save session, which this never gates');
+
+/* Closing is not answering. */
+await tap(page, 'review', 'split-sheet-close');
+await page.waitForTimeout(400);
+ok(!(await has(page, 'review', 'split-sheet')), 'closing it shuts the pop-up');
+ok(await has(page, 'review', 'split-open'), 'and the question can be opened again');
+await tap(page, 'review', 'split-open');
+await page.waitForTimeout(400);
 
 console.log('\n=== taking it reaches lk_splits ===\n');
 
@@ -275,6 +312,7 @@ ok(before[0].days[0].exercises.length === 3 && after[0].days[0].exercises.length
    'and the rest of the day is left alone');
 ok(!!after[0].updated && after[0].updated !== before[0].updated,
    'the split is stamped edited, so Train\'s "edited" line stays honest', after[0].updated);
+ok(!(await has(page, 'review', 'split-sheet')), 'and the pop-up closes behind the answer');
 ok((await textOf(page, 'review', 'card-split-updated')).indexOf('replaces') > -1,
    'and it says what it did, by name', await textOf(page, 'review', 'card-split-updated'));
 
@@ -295,6 +333,8 @@ console.log('\n=== asked once ===\n');
 /* Answered, then the screen is reopened -- the edge-swipe back off Train
    is one tap away. It used to come back offering to write a change that
    had already been written. */
+await tap(page, 'review', 'split-open');
+await page.waitForTimeout(400);
 await tap(page, 'review', 'split-keep');
 await page.waitForTimeout(400);
 ok(await has(page, 'review', 'split-kept'), 'keeping gets a quiet line, not a banner');
@@ -375,6 +415,8 @@ await fill(page, 0, 0, 50, 10);
 await tickFirstSets(page);
 await finish(page);
 ok(await has(page, 'review', 'section-split'), 'the difference is found in that shape too');
+await tap(page, 'review', 'split-open');
+await page.waitForTimeout(400);
 await tap(page, 'review', 'split-update');
 await page.waitForTimeout(600);
 const idShape = (await splits(page))[0].days[0];
@@ -433,16 +475,116 @@ await page.evaluate((day) => {
 }, DAY);
 await page.evaluate(() => window.DEMO.go('review'));
 await page.waitForTimeout(900);
-const orderText = await textOf(page, 'review', 'section-split');
-ok(orderText.indexOf('A different order') > -1, 'it is called an order change', orderText.slice(0, 90));
-ok(orderText.indexOf('1 change') > -1, 'one change, not three swaps', orderText.slice(0, 90));
-ok(orderText.indexOf('Save this order as Push') > -1,
-   'and the button says what it saves', orderText.slice(-60));
+ok((await textOf(page, 'review', 'split-open')).indexOf('1') > -1,
+   'one change, not three swaps', await textOf(page, 'review', 'split-open'));
+await tap(page, 'review', 'split-open');
+await page.waitForTimeout(500);
+const orderText = await textOf(page, 'review', 'split-bullets');
+ok(orderText === 'A different order', 'it is called an order change', orderText);
+ok((await textOf(page, 'review', 'split-sheet')).indexOf('Save as your Push day') > -1,
+   'and the button says what it saves');
 await tap(page, 'review', 'split-update');
 await page.waitForTimeout(600);
 const reordered = (await splits(page))[0].days[0].exercises.map((e) => e.id);
 ok(reordered.join(',') === '311,111,302',
    'taking it rewrites the order and keeps every lift', reordered.join(','));
+ok(errs.length === 0, 'no page errors', errs.slice(0, 2).join(' | '));
+await ctx.close();
+
+console.log('\n=== how it was trained, not only what was trained ===\n');
+
+/* THE WRITE-BACK DID NOT CARRY SETS OR REPS. The difference was which
+   lifts were in the day and nothing else, so a day prescribing three
+   sets where four were done registered as no difference at all, and a
+   day reading 3 x 8 went on reading 3 x 8 through a month of 3 x 10.
+   The owner's own example of a line this pop-up should show was "minus
+   five sets", which the old detection had no way to produce. */
+const PRESCRIBED = [
+  { id: 111, name: 'Barbell Bench Press', group: 'Chest', muscle: 'Mid Chest', sets: 3, reps: '8' },
+  { id: 302, name: 'DB Shoulder Press', group: 'Shoulders', muscle: 'Front Delt', sets: 3, reps: '8-12' },
+  { id: 311, name: 'Lateral Raise', group: 'Shoulders', muscle: 'Side Delt', sets: 3, reps: 'AMRAP' }
+];
+
+/* A finished session over a day, written straight in: `counts` is how
+   many working sets each lift got and `reps` is how many reps in each of
+   them, so a scenario is two short arrays rather than forty taps. */
+async function handOver(page, day, counts, reps) {
+  await page.evaluate(([day, counts, reps]) => {
+    const exercises = day.map((e, x) => ({
+      id: e.id, name: e.name, muscle: e.muscle,
+      sets: Array.from({ length: counts[x] }, () => (
+        { kg: 60, reps: reps[x], rir: 2, warm: false, done: true }))
+    }));
+    localStorage.setItem('lk_lastSession', JSON.stringify({
+      title: 'PPL - Push', type: 'split', note: '', dateISO: '2026-09-18',
+      sets: counts.reduce((a, b) => a + b, 0), warmups: 0, volumeKg: 2000, minutes: 40,
+      lifts: day.map((e, x) => ({ id: e.id, name: e.name, sets: counts[x],
+                                  vol: 60 * reps[x] * counts[x], top: [60, reps[x]] })),
+      exercises: exercises,
+      source: { splitId: 's1', splitName: 'PPL', dayId: 'push', dayName: 'Push', planned: day }
+    }));
+  }, [day, counts, reps]);
+  await page.evaluate(() => window.DEMO.go('review'));
+  await page.waitForTimeout(900);
+}
+
+({ ctx, page, errs } = await fresh({ name: 'Push', blocks: [], exercises: PRESCRIBED }));
+/* Bench: four sets of ten where the day asks for three of eight.
+   Shoulder press: ten reps, inside its own 8-12, so nothing to say.
+   Lateral raise: AMRAP, which has no figure to miss. */
+await handOver(page, PRESCRIBED, [4, 3, 3], [10, 10, 14]);
+ok(await has(page, 'review', 'section-split'),
+   'a day trained in different sets and reps is a difference now');
+await tap(page, 'review', 'split-open');
+await page.waitForTimeout(500);
+const presText = await textOf(page, 'review', 'split-bullets');
+ok(presText.indexOf('Barbell Bench Press +1 set') > -1,
+   'a changed set count reads as a signed count, the way the owner said it', presText);
+ok(presText.indexOf('Barbell Bench Press 10 reps, not 8') > -1,
+   'and a changed rep count names both figures', presText);
+ok(presText.indexOf('DB Shoulder Press') === -1,
+   'reps inside the range the day asked for are not a difference', presText);
+ok(presText.indexOf('Lateral Raise') === -1,
+   'and AMRAP has no figure to miss, so it never draws a line', presText);
+await tap(page, 'review', 'split-update');
+await page.waitForTimeout(700);
+const rewritten = (await splits(page))[0].days[0].exercises;
+const byId = {};
+rewritten.forEach((e) => { byId[e.id] = e.sets + '/' + e.reps; });
+ok(byId['111'] === '4/10', 'the day now prescribes what was actually trained', JSON.stringify(byId));
+ok(byId['302'] === '3/8-12' && byId['311'] === '3/AMRAP',
+   'and the lifts that ran to plan keep the prescription they had', JSON.stringify(byId));
+ok(errs.length === 0, 'no page errors', errs.slice(0, 2).join(' | '));
+await ctx.close();
+
+/* The owner's own example, the other way round. */
+({ ctx, page, errs } = await fresh({ name: 'Push', blocks: [], exercises: [
+  { id: 111, name: 'Barbell Bench Press', group: 'Chest', muscle: 'Mid Chest', sets: 8, reps: '8' },
+  PRESCRIBED[1], PRESCRIBED[2]] }));
+await handOver(page, [
+  { id: 111, name: 'Barbell Bench Press', group: 'Chest', muscle: 'Mid Chest', sets: 8, reps: '8' },
+  PRESCRIBED[1], PRESCRIBED[2]], [3, 3, 3], [8, 10, 14]);
+await tap(page, 'review', 'split-open');
+await page.waitForTimeout(500);
+ok((await textOf(page, 'review', 'split-bullets')).indexOf('Barbell Bench Press −5 sets') > -1,
+   'five sets fewer than the day asked for reads as minus five sets',
+   await textOf(page, 'review', 'split-bullets'));
+await ctx.close();
+
+console.log('\n=== a day that prescribes nothing is never corrected ===\n');
+
+/* Most days on most phones carry no sets and no reps. There is no honest
+   guess at what somebody else meant to do, so a lift with nothing
+   written down produces no line and the write-back invents none. */
+({ ctx, page, errs } = await fresh());
+await handOver(page, DAY, [5, 1, 4], [15, 3, 9]);
+ok(!(await has(page, 'review', 'section-split')),
+   'a session over an unprescribed day is not asked about at all');
+ok((await textOf(page, 'review', 'session-totals')) !== '(none)',
+   'and it is reviewed like any other');
+const untouched = (await splits(page))[0].days[0].exercises;
+ok(untouched.every((e) => e.sets === undefined && e.reps === undefined),
+   'nothing wrote a prescription nobody asked for', JSON.stringify(untouched[0]));
 ok(errs.length === 0, 'no page errors', errs.slice(0, 2).join(' | '));
 await ctx.close();
 

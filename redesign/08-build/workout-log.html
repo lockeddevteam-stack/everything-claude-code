@@ -987,6 +987,26 @@
       'data-testid="done-' + e + '-' + i + '" aria-label="' + esc(label) + '">' + ICO.check + '</button>';
   }
 
+  /* THE SUGGESTION, BESIDE THE CELL. Its own row across the grid, under the
+     set it is about, the way partials sit under theirs. It is a button
+     because taking it is a tap and nothing else writes it: the set stays
+     empty, and the cell keeps showing a dash, until this is pressed. */
+  function suggHTML(e, i) {
+    var ex = S.exercises[e];
+    var st = ex.sets[i];
+    if (st.done || st.suggestKg == null) return '';
+    var u = unitAt(e);
+    var fig = trim(toDisplay(st.suggestKg, u)) + ' ' + unitLabel(u) +
+              (st.suggestReps ? ' × ' + st.suggestReps : '');
+    return '<div class="sugg" data-testid="sugg-' + e + '-' + i + '">' +
+      '<span class="sugg__why">Last set beat the target</span>' +
+      '<button class="sugg__take" type="button" data-act="take-sugg" data-ex="' + e + '" ' +
+        'data-set="' + i + '" data-testid="sugg-take-' + e + '-' + i + '" ' +
+        'aria-label="Use ' + esc(fig) + ' for set ' + (i + 1) + '">' +
+        'Try ' + n(esc(fig)) + '</button>' +
+    '</div>';
+  }
+
   function partialsHTML(e, i) {
     var st = S.exercises[e].sets[i];
     return '<div class="partials">' +
@@ -1026,6 +1046,10 @@
   function setRows(ex, e, letter) {
     var rows = '';
     ex.sets.forEach(function (st, i) {
+      /* ABOVE the row it is about, not below it. Under the row it read as
+         a note on the NEXT set: the eye takes the thing between two rows as
+         belonging to the one beneath. */
+      rows += suggHTML(e, i);
       rows += '<button class="setgrid__n setgrid__n--btn' + (st.warm ? ' setgrid__n--warm' : '') +
           '" type="button" data-act="set-kind" data-ex="' + e + '" data-set="' + i + '" ' +
           'data-testid="set-kind-' + e + '-' + i + '" ' +
@@ -1105,6 +1129,119 @@
     if (!last) return 0;                   /* never logged is not stale */
     var d = Math.round((Date.parse(today) - Date.parse(last)) / 86400000);
     return d >= STALE_AFTER ? d : 0;
+  }
+
+  /* =============================================================
+     DOUBLE PROGRESSION -- the recommendation that used to need a button.
+
+     THE OWNER'S WORDS. "Make it where the AI recommendation shows, it can
+     select your second or third set. Your first set, you keep your weight.
+     But then if you get higher than say eight, then your coach will
+     recommend an increase."
+
+     That is double progression: hold the weight until the reps arrive,
+     then move the weight. What was here instead was a Suggest button that
+     added a flat 2.5 kg to last session's top set whenever it was pressed,
+     which is not progression, it is arithmetic on demand. It never looked
+     at what had just been logged, so the one thing that should trigger a
+     recommendation -- a set that beat its target -- did nothing.
+
+     WHAT COUNTS AS BEATING THE TARGET.
+       A plain count, 8:      more than 8. Hitting 8 is doing the work the
+                             day asked for, not beating it.
+       A range, 8-12:        reaching the top of it. That is what a range
+                             is: the weight goes up at the top, not above
+                             it, and 13 reps of a 8-12 lift means the
+                             weight was already late.
+       AMRAP:                nothing. "As many as you can" has no figure to
+                             beat, so there is nothing to measure against
+                             and no recommendation is made.
+       No prescription:      last session's reps on that same set. Most
+                             days on most phones prescribe nothing, and a
+                             lift with no plan and no history gets no
+                             suggestion at all, which is honest: nothing
+                             has said what to aim for.
+
+     A set tracked left and right is judged on the WEAKER side. The load is
+     shared, so it can only go up when both arms made the number.
+
+     HOW BIG THE JUMP IS. Not a flat 2.5 kg, which is a quarter of a ten
+     kilo curl and a rounding error on a 180 kg squat. It is the smallest
+     increment the gym actually has -- 2.5 kg, or 5 lb, the same steps the
+     keypad offers -- and it doubles once one of those is under 2.5% of the
+     weight on the bar. In practice: one increment up to 100 kg, two above
+     it. It cannot be finer than one increment because there is no such
+     plate.
+
+     WHERE IT LANDS. On the next set that is not logged yet, which is set
+     two after a good set one and set three after a good set two. Never on
+     set one: set one is where you find out, and there is nothing before it
+     to have earned anything.
+
+     NO NETWORK. This runs on the phone, in the moment the tick lands,
+     between two sets, with the reader's rest clock already going. A
+     recommendation that waits on a round trip is a recommendation nobody
+     gets in a basement gym, and the figure is arithmetic the phone already
+     holds every number for. The coach can be asked about it afterwards,
+     from a screen where waiting is fine; it must not stand between a set
+     and the next one.
+     ============================================================= */
+  var STEP_FOR = { kg: 2.5, lb: 5 };
+
+  /* The reps this set had to beat, and null when nothing said. */
+  function repTarget(ex, st, i) {
+    if (!ex || !st || st.warm) return null;
+    var P = window.LKPrescription;
+    var plan = P ? P.reps(ex.planReps) : (ex.planReps || '');
+    if (plan) {
+      var span = /^([0-9]+)-([0-9]+)$/.exec(plan);
+      if (span) return { hit: +span[2], next: +span[1], strict: false };
+      if (/^[0-9]+$/.test(plan)) return { hit: +plan, next: +plan, strict: true };
+      return null;                       /* AMRAP has nothing to beat */
+    }
+    var was = st.prevReps;
+    if (was == null || !isFinite(was)) return null;
+    return { hit: was, next: was, strict: true };
+  }
+  /* The weaker side, because that is what the load has to be true for. */
+  function repsMade(st) {
+    if (!st) return null;
+    if (st.repsR == null) return st.reps;
+    if (st.reps == null) return st.repsR;
+    return Math.min(st.reps, st.repsR);
+  }
+  /* The next weight up, in stored kg, on the increment this lift is read
+     in. Null when there is no weight to add to. */
+  function nextLoad(ex, kgValue) {
+    if (kgValue == null || !isFinite(kgValue) || kgValue <= 0) return null;
+    var u = unitOf(ex);
+    var step = STEP_FOR[u] || 2.5;
+    var shown = toDisplay(kgValue, u);
+    var jump = shown * 0.025 <= step ? step : step * 2;
+    return toKg(Math.round((shown + jump) * 100) / 100, u);
+  }
+  /* What this set earned for the next one, or null. Reads only the set that
+     was just logged and the day's own prescription. */
+  function progressionFor(e, i) {
+    var ex = S.exercises[e];
+    if (!ex) return null;
+    var st = ex.sets[i];
+    if (!st || !st.done || st.warm || st.kg == null) return null;
+    var made = repsMade(st);
+    if (made == null) return null;
+    var tg = repTarget(ex, st, i);
+    if (!tg) return null;
+    if (tg.strict ? made <= tg.hit : made < tg.hit) return null;
+    /* The next set that has not been logged. Set one never receives one,
+       because there is no set before it to have earned it. */
+    var at = -1;
+    for (var k = i + 1; k < ex.sets.length; k++) {
+      if (!ex.sets[k].warm && !ex.sets[k].done) { at = k; break; }
+    }
+    if (at < 1) return null;
+    var kgUp = nextLoad(ex, st.kg);
+    if (kgUp == null || kgUp <= st.kg) return null;
+    return { at: at, kg: kgUp, reps: tg.next };
   }
 
   /* IT IS A RULE, SO IT SAYS SO AND IT IS INSTANT. This was labelled
@@ -1240,7 +1377,8 @@
      card and no handler had to learn about supersets. */
   function setRow1(ex, e, i, letter, uni) {
     var st = ex.sets[i];
-    return '<div class="setgrid__n' + (st.warm ? ' setgrid__n--warm' : '') + '" aria-hidden="true">' +
+    return suggHTML(e, i) +
+      '<div class="setgrid__n' + (st.warm ? ' setgrid__n--warm' : '') + '" aria-hidden="true">' +
         letter + (st.warm ? 'W' : n(setNumber(ex, i))) + '</div>' +
       cellHTML(e, i, 'weight') +
       cellHTML(e, i, 'reps', uni && !ex.unilateral) +
@@ -1487,6 +1625,10 @@
     if (p.field === 'weight') st.kg = v === null || isNaN(v) ? null : toKg(v, p.unit);
     else if (p.field === 'repsR') st.repsR = num;
     else st.reps = num;
+    /* A figure the reader typed answers the suggestion, so the suggestion
+       goes. Left beside the cell it would read as a second opinion on a
+       number that has already been decided. */
+    st.suggestKg = null; st.suggestReps = null;
     S.pad = null;
   }
 
@@ -2789,8 +2931,37 @@
           } else {
             say('Set ' + (i + 1) + ' logged. ' + LKCount(doneSets(), 'set') + ' this session.');
           }
+          /* AND WHAT THIS SET EARNED THE NEXT ONE. Offered, never written:
+             it sits beside the cell as a figure in the ghost tone and only
+             becomes the lifter's entry when it is tapped. That rule is the
+             reason this is safe to do automatically -- the app is saying
+             what it would do, not doing it. */
+          var up = progressionFor(e, i);
+          if (up) {
+            var nxs = S.exercises[e].sets[up.at];
+            nxs.suggestKg = up.kg;
+            nxs.suggestReps = up.reps;
+            var uu = unitAt(e);
+            var said = trim(toDisplay(up.kg, uu)) + ' ' + unitLabel(uu) + ' \u00d7 ' + up.reps;
+            say('That beat the target. Set ' + (up.at + 1) + ' suggested at ' + said + '.');
+            /* A record is the bigger news and keeps the toast. The figure
+               is beside the cell either way. */
+            if (!pr) {
+              toast('Set ' + (up.at + 1) + ': try ' + said + '.', 'info', 'Take it', function () {
+                nxs.kg = nxs.suggestKg; nxs.reps = nxs.suggestReps;
+                paint();
+                say('Set ' + (up.at + 1) + ' set to ' + said + '.');
+              });
+            }
+          }
         } else {
           S.restRunning = false;
+          /* A suggestion is what the set that was just unticked earned, so it
+             goes with it. Left behind, a figure would sit beside a later set
+             claiming to have been earned by work that is no longer logged. */
+          S.exercises[e].sets.forEach(function (o) {
+            if (!o.done) { o.suggestKg = null; o.suggestReps = null; }
+          });
           /* Reopening a set takes back what ticking it claimed. The record
              row already written stands -- it was lifted -- but this session
              stops announcing it. */
@@ -2826,31 +2997,78 @@
         say('A set added to both halves of the superset.');
         break;
       }
+      /* Taking it. THE ONLY THING THAT WRITES A SUGGESTION INTO A SET. */
+      case 'take-sugg': {
+        var ts = S.exercises[e].sets[i];
+        if (ts.suggestKg == null) break;
+        ts.kg = ts.suggestKg;
+        if (ts.suggestReps != null) ts.reps = ts.suggestReps;
+        ts.suggestKg = null; ts.suggestReps = null;
+        say('Set ' + (i + 1) + ' set to the suggestion.');
+        break;
+      }
+
+      /* ASKING FOR IT, rather than waiting for a set to earn it. The same
+         rule either way: the button used to add a flat 2.5 kg to last
+         session's top set whatever had happened today, so it proposed a
+         rise to somebody who had just failed the set. */
       case 'airec': {
         S.toast = null;
         {
+          var exA = S.exercises[e];
+          var lastDone = -1;
+          for (var k = 0; k < exA.sets.length; k++) {
+            if (exA.sets[k].done && !exA.sets[k].warm) lastDone = k;
+          }
+          var up2 = lastDone > -1 ? progressionFor(e, lastDone) : null;
           var target = null;
-          for (var k = 0; k < S.exercises[e].sets.length; k++) { if (!S.exercises[e].sets[k].done) { target = k; break; } }
+          for (var k2 = 0; k2 < exA.sets.length; k2++) {
+            if (!exA.sets[k2].done && !exA.sets[k2].warm) { target = k2; break; }
+          }
           if (target === null) { toast('Every set in this exercise is logged.'); paint(); return; }
-          var s2 = S.exercises[e].sets[target];
-          /* A suggestion, on the set, beside the record -- never written into
-             prevKg. Writing it there made the app report a weight nobody had
-             lifted as what was lifted last time, and every further tap added
-             another 2.5 kg to that false record with no ceiling. The base is
-             the last session's top set, so the suggestion is the same figure
-             on every tap rather than an escalation. */
-          var base = s2.prevKg || (S.exercises[e].sets.reduce(function (a, x) {
-            return Math.max(a, x.prevKg || 0);
-          }, 0)) || 20;
-          s2.suggestKg = Math.round((base + 2.5) * 2) / 2;
-          s2.suggestReps = s2.prevReps || 8;
-          toast('Suggested ' + trim(toDisplay(s2.suggestKg, unitAt(e))) + ' ' + unitLabel(unitAt(e)) + ' x ' +
-                s2.suggestReps + ' for set ' + (target + 1) + '. Tap the cell to take it.',
-                'info', 'Take it', function () {
-                  s2.kg = s2.suggestKg; s2.reps = s2.suggestReps;
-                  paint();
-                  say('Set ' + (target + 1) + ' set to the suggestion.');
-                });
+          var uA = unitAt(e);
+          var s2, fig;
+          if (up2) {
+            s2 = exA.sets[up2.at];
+            s2.suggestKg = up2.kg; s2.suggestReps = up2.reps;
+            target = up2.at;
+            fig = trim(toDisplay(up2.kg, uA)) + ' ' + unitLabel(uA) + ' × ' + up2.reps;
+            toast('Set ' + (target + 1) + ': try ' + fig + '.', 'info', 'Take it', function () {
+              s2.kg = s2.suggestKg; s2.reps = s2.suggestReps;
+              s2.suggestKg = null; s2.suggestReps = null;
+              paint();
+              say('Set ' + (target + 1) + ' set to ' + fig + '.');
+            });
+            paint();
+            return;
+          }
+          /* NOTHING HAS EARNED A RISE YET, so nothing is invented. The
+             weight held is the weight that was last lifted on this lift,
+             today or last session, and the reps are whatever the day asked
+             for. A lift with neither gets a plain answer instead of a
+             number nobody has any basis for. */
+          s2 = exA.sets[target];
+          var hold = lastDone > -1 && exA.sets[lastDone].kg != null
+            ? exA.sets[lastDone].kg
+            : (s2.prevKg != null ? s2.prevKg : null);
+          var tg2 = repTarget(exA, s2, target);
+          if (hold == null) {
+            toast('Nothing to go on yet for ' + exA.name + '. Log a set and this can read it.');
+            paint();
+            return;
+          }
+          s2.suggestKg = hold;
+          s2.suggestReps = tg2 ? tg2.hit : (s2.prevReps || null);
+          fig = trim(toDisplay(hold, uA)) + ' ' + unitLabel(uA) +
+                (s2.suggestReps ? ' × ' + s2.suggestReps : '');
+          toast('Hold ' + fig + ' on set ' + (target + 1) +
+                '. The weight goes up when the reps arrive.', 'info', 'Take it', function () {
+            s2.kg = s2.suggestKg;
+            if (s2.suggestReps != null) s2.reps = s2.suggestReps;
+            s2.suggestKg = null; s2.suggestReps = null;
+            paint();
+            say('Set ' + (target + 1) + ' set to ' + fig + '.');
+          });
           paint();
         }
         return;

@@ -122,9 +122,14 @@
           say: 'Now finish it.',
           note: 'The session is not in your history until you do.' },
 
-        { screen: 'review', testid: 'section-compare', read: true,
-          say: 'Review tells you what changed, not what you already watched.',
-          note: 'A record, this session against the last one, and the lift that went down.' },
+        /* THIS POINTED AT THE COMPARISON CARD, which is no longer on the
+           first page: Review opens as one question and one line of
+           figures, and everything else is behind one tap. A tour step
+           that waits for something the screen does not draw until it is
+           asked to stalls the whole tour. */
+        { screen: 'review', testid: 'session-totals', read: true,
+          say: 'Review asks one thing and shows what you just did. Everything else is one tap down.',
+          note: 'How it went, the figures, and the rest of the session when you want it.' },
 
         { screen: 'review', testid: 'action-save', hint: 'Tap',
           say: 'Save it. This is the step that writes.' },

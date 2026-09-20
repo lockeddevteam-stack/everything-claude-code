@@ -620,20 +620,33 @@ console.log('\n=== Review rewrites the day without wiping the plan ===\n');
 {
   const { ctx, page, errs } = await fresh();
   /* A finished session in the order the lifts were actually done, which
-     is the change that makes Review rebuild the whole list. */
+     is the change that makes Review rebuild the whole list.
+
+     EVERY LIFT RUNS EXACTLY TO ITS PRESCRIPTION, so the order is the only
+     difference in it. Review compares sets and reps against the day now,
+     and a hand-written session of one set of eight per lift would have
+     been three more differences -- true ones, and not what this is
+     about. */
   await page.evaluate((day) => {
-    const sets = [{ kg: 60, reps: 8, rir: 2, warm: false, done: true }];
+    const setsFor = (e) => Array.from({ length: e.sets }, () => (
+      { kg: 60, reps: e.reps === '10' ? 10 : e.reps === 'AMRAP' ? 14 : 9,
+        rir: 2, warm: false, done: true }));
     const order = [day[2], day[0], day[1]];
     localStorage.setItem('lk_lastSession', JSON.stringify({
       title: 'PPL - Push', type: 'split', note: '', dateISO: '2026-09-18',
       sets: 3, warmups: 0, volumeKg: 1440, minutes: 40,
-      lifts: order.map((e) => ({ id: e.id, name: e.name, sets: 1, vol: 480, top: [60, 8] })),
-      exercises: order.map((e) => ({ id: e.id, name: e.name, muscle: e.muscle, sets: sets })),
+      lifts: order.map((e) => ({ id: e.id, name: e.name, sets: e.sets, vol: 480, top: [60, 8] })),
+      exercises: order.map((e) => ({ id: e.id, name: e.name, muscle: e.muscle,
+                                     sets: setsFor(e) })),
       source: { splitId: 's1', splitName: 'PPL', dayId: 'push', dayName: 'Push', planned: day }
     }));
   }, PRESCRIBED);
   await page.evaluate(() => window.DEMO.go('review'));
   await page.waitForTimeout(900);
+  /* The offer is a bubble on the first page and a pop-up behind it now,
+     so the answer is two taps rather than one. */
+  await tap(page, 'review', 'split-open');
+  await page.waitForTimeout(500);
   await tap(page, 'review', 'split-update');
   await page.waitForTimeout(700);
 

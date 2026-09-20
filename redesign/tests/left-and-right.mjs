@@ -308,6 +308,12 @@ async function open(screen, seed) {
       ] }]
     }
   });
+  /* THE SETS MOVED BEHIND A TAP. Review opens as one question and three
+     figures now; every set of the session is in "the rest of this
+     session", which is one control at the bottom of the first page. What
+     is checked here is how a per-side set READS, so it is opened. */
+  await page.evaluate(() => document.querySelector('[data-testid="action-detail"]').click());
+  await page.waitForTimeout(400);
   const lines = await page.evaluate(() =>
     [...document.querySelectorAll('[data-testid^="rset-"]')].map((r) => r.textContent.replace(/\s+/g, ' ').trim()));
   ok(lines.length === 2, 'Review lists one line per set, not one per arm', lines.length + ' lines');
