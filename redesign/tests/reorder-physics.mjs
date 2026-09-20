@@ -543,6 +543,160 @@ ok(errs.length === 0, 'no page errors', errs.join(' | '));
   }
 }
 
+/* =====================================================================
+   AND THE SAME THREE THINGS IN THE SPLIT BUILDER.
+
+   The fold, the card staying under the finger across it, and the glide to
+   the top were all written for the workout log and all three stayed
+   there, so the one other screen with a list worth folding had none of
+   them: lifting a lift in a day three days down left you parked where you
+   were, holding a row that was no longer under your hand, with the order
+   spread over four screens.
+
+   They live in LKReorder now, which is what this section is really
+   checking: that moving them did not leave them behind.
+
+   A SPLIT DAY IS NOT A WORKOUT. It is a list of lifts inside a card
+   inside a list of days, so folding the day being worked in is not
+   enough -- the days above it are still hundreds of pixels of list. Every
+   day closes to its heading and only the one holding the carried lift
+   keeps its lifts. And a handle inside a lift must never pick the day up.
+   ===================================================================== */
+{
+  const SPLIT = [{ id: 's1', name: 'PPL', created: '9/1/2026', days: [
+    { name: 'Push', blocks: [], exercises: [
+      { id: 111, name: 'Barbell Bench Press', group: 'Chest', muscle: 'Mid Chest', sets: 3, reps: '8' },
+      { id: 103, name: 'Incline Cable Fly', group: 'Chest', muscle: 'Upper Chest', sets: 4, reps: '8-12' },
+      { id: 302, name: 'DB Shoulder Press', group: 'Shoulders', muscle: 'Front Delt', sets: 3, reps: '10' }] },
+    { name: 'Pull', blocks: [], exercises: [
+      { id: 201, name: 'Lat Pulldown', group: 'Back', muscle: 'Lats', sets: 4, reps: '8-12' },
+      { id: 202, name: 'Seated Row', group: 'Back', muscle: 'Mid Back', sets: 3, reps: '10' }] },
+    { name: 'Legs', blocks: [], exercises: [
+      { id: 501, name: 'Back Squat', group: 'Legs', muscle: 'Quads', sets: 5, reps: '5' },
+      { id: 502, name: 'Leg Curl', group: 'Legs', muscle: 'Hamstrings', sets: 3, reps: '12' },
+      { id: 503, name: 'Leg Press', group: 'Legs', muscle: 'Quads', sets: 3, reps: '10' },
+      { id: 504, name: 'Standing Calf Raise', group: 'Legs', muscle: 'Calves', sets: 4, reps: '12' }] }] }];
+
+  const c = await br.newContext({ viewport: { width: 393, height: 852 },
+    isMobile: true, hasTouch: true });
+  await c.addInitScript((d) => {
+    try {
+      Object.keys(d).forEach((k) => localStorage.setItem(k,
+        typeof d[k] === 'string' ? d[k] : JSON.stringify(d[k])));
+    } catch (e) {}
+    window.__buzz = [];
+    try { navigator.vibrate = function (p) { window.__buzz.push(p); return true; }; } catch (e) {}
+  }, { lk_onboarded: 'true', lk_tutorialSeen: 'true', lk_openSplit: 's1', lk_splits: SPLIT });
+  const p = await c.newPage();
+  const berrs = [];
+  p.on('pageerror', (e) => berrs.push(e.message));
+  await p.goto('http://127.0.0.1:' + site.address().port + '/split-builder.html');
+  await p.waitForTimeout(1000);
+  /* THE BROWSER'S OWN INPUT PIPELINE. A TouchEvent built in the page emits
+     no pointer events, and every listener this gesture hangs off is a
+     pointer listener. */
+  const cdp = await c.newCDPSession(p);
+  const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', {
+    type, touchPoints: type === 'touchEnd' ? []
+      : [{ x, y, radiusX: 12, radiusY: 12, force: 1, id: 1 }] });
+
+  await p.evaluate(() => document.querySelector('[data-testid="edit-toggle"]').click());
+  await p.waitForTimeout(500);
+  const names = () => p.evaluate(() =>
+    [...document.querySelectorAll('[data-sortable][data-day] .row__title')]
+      .map((n) => n.textContent.trim()).join('|'));
+  const look = () => p.evaluate(() => {
+    const sc = document.querySelector('.body');
+    const b = sc.getBoundingClientRect();
+    const rows = [...document.querySelectorAll('[data-sortable][data-day]')]
+      .map((r) => { const q = r.getBoundingClientRect();
+        return { top: q.top, bottom: q.bottom, h: q.height,
+                 held: r.classList.contains('is-dragging') }; });
+    const days = [...document.querySelectorAll('.card[data-id]')]
+      .map((d) => Math.round(d.getBoundingClientRect().height));
+    const held = document.querySelector('.is-dragging');
+    return { scrollTop: sc.scrollTop, box: { top: b.top, bottom: b.bottom },
+             rows: rows, days: days,
+             heldIsDay: !!(held && !held.hasAttribute('data-day')) };
+  });
+
+  /* Parked at the bottom, on the last lift of the last day, which is the
+     case that had nothing working at all. */
+  await p.evaluate(() => { const b = document.querySelector('.body'); b.scrollTop = b.scrollHeight; });
+  await p.waitForTimeout(300);
+  const parked = await look();
+  ok(parked.scrollTop > 200,
+     'a three day split in edit is several screens of list',
+     Math.round(parked.scrollTop) + 'px down');
+
+  const g = await p.evaluate(() => {
+    const gs = [...document.querySelectorAll('[data-sortable][data-day] [data-grip]')];
+    const b = gs[gs.length - 1].getBoundingClientRect();
+    return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
+  });
+  const order0 = await names();
+  await touch('touchStart', g.x, g.y);
+  await p.waitForTimeout(900);                 /* the hold, then the glide */
+  const lifted = await look();
+
+  ok(lifted.rows.every((r) => r.h < 80),
+     'every lift folds to a tab the moment one is picked up',
+     'tallest ' + Math.max(...lifted.rows.map((r) => Math.round(r.h))) + 'px');
+  ok(lifted.days.filter((h) => h < 90).length >= 2,
+     'and the days that are not being worked in close to their heading',
+     JSON.stringify(lifted.days));
+  ok(lifted.scrollTop === 0,
+     'the list is taken back to its top rather than left where the last day was',
+     'scrollTop ' + Math.round(lifted.scrollTop) + ', was ' + Math.round(parked.scrollTop));
+  const off = lifted.rows.filter((r) => r.bottom > lifted.box.bottom || r.top < lifted.box.top);
+  ok(off.length === 0, 'so the whole day is on the screen at once', off.length + ' off it');
+  const held = lifted.rows.find((r) => r.held);
+  ok(held && g.y >= held.top - 2 && g.y <= held.bottom + 2,
+     'the lift you picked up is under your finger, not where the fold left it',
+     held ? 'finger ' + g.y + ', row ' + Math.round(held.top) + '-' + Math.round(held.bottom)
+          : 'no row held');
+  ok(!lifted.heldIsDay,
+     'and it is the lift that was picked up, never the day around it');
+
+  /* A HOLD IS NOT A REORDER. The lift brings the row to the hand, which on
+     a folded list puts it over a different slot. */
+  await touch('touchEnd', g.x, g.y);
+  await p.waitForTimeout(1000);
+  ok((await names()) === order0, 'a hold with no drag in it reorders nothing',
+     (await names()).slice(0, 40));
+
+  /* And a real drag still moves it, with the days left alone. Parked at
+     the bottom again first: the lift before this one glided the list back
+     to its top and let go there, so the last day is off the screen. */
+  await p.evaluate(() => { const b = document.querySelector('.body'); b.scrollTop = b.scrollHeight; });
+  await p.waitForTimeout(300);
+  const g2 = await p.evaluate(() => {
+    const gs = [...document.querySelectorAll('[data-sortable][data-day] [data-grip]')];
+    const b = gs[gs.length - 1].getBoundingClientRect();
+    return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
+  });
+  await touch('touchStart', g2.x, g2.y);
+  await p.waitForTimeout(900);
+  const up = await look();
+  const pitch = up.rows.length > 1 ? up.rows[1].top - up.rows[0].top : 70;
+  for (let i = 1; i <= 14; i++) {
+    await touch('touchMove', g2.x, Math.round(g2.y - (pitch * 1.6 * i) / 14));
+    await p.waitForTimeout(25);
+  }
+  await touch('touchEnd', g2.x, Math.round(g2.y - pitch * 1.6));
+  await p.waitForTimeout(1200);
+  const order1 = await names();
+  ok(order1 !== order0, 'dragging one up changes the order of the lifts',
+     order0.split('|').slice(-2).join('|') + ' -> ' + order1.split('|').slice(-2).join('|'));
+  ok(order1.split('|').length === order0.split('|').length,
+     'and no lift is lost or duplicated on the way');
+  const dayNames = await p.evaluate(() =>
+    [...document.querySelectorAll('[data-testid^="day-name-"]')].map((i2) => i2.value).join('|'));
+  ok(dayNames === 'Push|Pull|Legs', 'the days are where they were', dayNames);
+  ok(berrs.length === 0, 'nothing threw in the builder', berrs.slice(0, 2).join(' | '));
+  await c.close();
+}
+
 /* And the assembled build carries the two rules the whole fix rests on:
    a wiggle on `rotate`, and a displacement transition on `translate`.
    A wiggle that goes back to animating `transform` silently undoes

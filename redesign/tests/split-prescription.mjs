@@ -264,6 +264,235 @@ console.log('\n=== the builder shows it and lets it be typed ===\n');
   await ctx.close();
 }
 
+console.log('\n=== the row reads as a prescription ===\n');
+{
+  const { ctx, page, errs } = await fresh();
+  await page.evaluate(() => window.DEMO.go('split-builder'));
+  await page.waitForTimeout(1200);
+
+  /* THE FIGURE FIRST, THE MUSCLE BEHIND IT. The line under the name used
+     to be "Mid Chest . 5 x 8-12", all of it one grey, which sets the one
+     part of the row that is a number as a caption. */
+  const row = await page.evaluate(() => {
+    const rec = window.DEMO.screens['split-builder'];
+    const r = rec.root || rec.host.shadowRoot;
+    const subs = [...r.querySelectorAll('.swipe .row__sub')];
+    return subs.map((s2) => {
+      const fig = s2.querySelector('.presc__fig');
+      const mus = s2.querySelector('.presc__for');
+      return { first: s2.firstElementChild ? s2.firstElementChild.className : '',
+               fig: fig ? fig.textContent.trim() : null,
+               num: fig ? fig.hasAttribute('data-num') : false,
+               mus: mus ? mus.textContent.trim() : s2.textContent.trim(),
+               tone: fig ? getComputedStyle(fig).color : '',
+               quiet: mus ? getComputedStyle(mus).color : '' };
+    });
+  });
+  ok(row[0].fig === '5 × 8-12', 'the sets and reps lead the line', JSON.stringify(row[0]));
+  ok(row[0].first === 'presc__fig', 'and they come before the muscle, not after it', row[0].first);
+  ok(row[0].num, 'the figure is set as a figure, tabular like every other number');
+  ok(row[0].mus === 'Mid Chest', 'the muscle is still there, behind it', row[0].mus);
+  ok(row[0].tone !== row[0].quiet,
+     'the figure reads and the muscle stays quiet', row[0].tone + ' against ' + row[0].quiet);
+  ok(row[1].fig === '4 × 10', 'a plain count prints as a count', String(row[1].fig));
+  ok(row[2].fig === '3 × AMRAP',
+     'a lift taken to failure says so rather than being given a number', String(row[2].fig));
+  ok(errs.length === 0, 'no page errors', errs.slice(0, 2).join(' | '));
+  await ctx.close();
+}
+
+console.log('\n=== replacing a lift keeps its place and its plan ===\n');
+{
+  const { ctx, page, errs } = await fresh();
+  await page.evaluate(() => window.DEMO.go('split-builder'));
+  await page.waitForTimeout(1200);
+
+  /* THE GESTURE, not a click on a button that is only there afterwards.
+     The Replace lane exists in the DOM only while the row is open, and
+     the only thing that opens it is a swipe -- driven through the
+     browser's own input pipeline, because a TouchEvent built in the page
+     emits no pointer events and this row listens for pointers. */
+  const cdp = await ctx.newCDPSession(page);
+  const touch = (t, x, y) => cdp.send('Input.dispatchTouchEvent', {
+    type: t, touchPoints: t === 'touchEnd' ? []
+      : [{ x, y, radiusX: 12, radiusY: 12, force: 1, id: 1 }] });
+  /* The SECOND lift, so "it stayed where it was" means something. */
+  const box = await page.evaluate(() => {
+    const rec = window.DEMO.screens['split-builder'];
+    const r = rec.root || rec.host.shadowRoot;
+    const b = [...r.querySelectorAll('.swipe')][1].getBoundingClientRect();
+    return { x: Math.round(b.right - 40), y: Math.round(b.top + b.height / 2) };
+  });
+  await touch('touchStart', box.x, box.y);
+  for (let i = 1; i <= 12; i++) { await touch('touchMove', box.x - i * 11, box.y); await page.waitForTimeout(16); }
+  await touch('touchEnd', box.x - 132, box.y);
+  await page.waitForTimeout(700);
+
+  const lanes = await page.evaluate(() => {
+    const rec = window.DEMO.screens['split-builder'];
+    const r = rec.root || rec.host.shadowRoot;
+    return [...r.querySelectorAll('.swipe[data-open="true"] .swipe__action')]
+      .map((b) => b.textContent.trim()).join('|');
+  });
+  ok(lanes === 'Replace|Delete',
+     'a swipe offers changing the lift as well as losing it, in that order', lanes);
+
+  const before = await day0(page);
+  await page.evaluate(() => {
+    const rec = window.DEMO.screens['split-builder'];
+    const r = rec.root || rec.host.shadowRoot;
+    r.querySelector('[data-testid^="ex-replace-"]').click();
+  });
+  await page.waitForTimeout(900);
+  ok((await textOf(page, 'split-builder', 'pick-title')) === 'Replacing: DB Shoulder Press',
+     'the picker says whose place it is taking, the way a live workout does',
+     await textOf(page, 'split-builder', 'pick-title'));
+
+  /* Somewhere else entirely, which is the case the prescription question
+     turns on: a back exercise in the place of a shoulder one. */
+  await type(page, 'split-builder', 'pick-search', 'Barbell Row');
+  await page.waitForTimeout(600);
+  const picked = await page.evaluate(() => {
+    const rec = window.DEMO.screens['split-builder'];
+    const r = rec.root || rec.host.shadowRoot;
+    const b = r.querySelector('[data-testid="pick-0"]');
+    const name = b.getAttribute('data-name');
+    b.click();
+    return name;
+  });
+  await page.waitForTimeout(900);
+
+  const rows = await page.evaluate(() => {
+    const rec = window.DEMO.screens['split-builder'];
+    const r = rec.root || rec.host.shadowRoot;
+    return [...r.querySelectorAll('.swipe .row__title')].map((n) => n.textContent.trim());
+  });
+  ok(rows.length === 3, 'the day still has the lifts it had', String(rows.length));
+  ok(rows[1] === picked, 'the new lift is in the slot the old one was in', rows.join(' | '));
+  ok(rows[0] === 'Barbell Bench Press' && rows[2] === 'Lateral Raise',
+     'and nothing either side of it moved', rows.join(' | '));
+  const fig = await page.evaluate(() => {
+    const rec = window.DEMO.screens['split-builder'];
+    const r = rec.root || rec.host.shadowRoot;
+    const f = [...r.querySelectorAll('.swipe .presc__fig')][1];
+    const m = [...r.querySelectorAll('.swipe .presc__for')][1];
+    return { fig: f ? f.textContent.trim() : null, mus: m ? m.textContent.trim() : null };
+  });
+  /* CARRIED, ON PURPOSE, even though the muscle changed. Four by ten is a
+     statement about how the day is trained, not about which movement is
+     in the slot, and a day that quietly loses its plan because somebody
+     swapped a machine is the bug this exists to fix. */
+  ok(fig.fig === '4 × 10', 'the sets and reps come with the slot, not with the lift', JSON.stringify(fig));
+  ok(fig.mus && fig.mus !== 'Front Delt', 'and the muscle is the new one', String(fig.mus));
+
+  await tap(page, 'split-builder', 'save-split');
+  await page.waitForTimeout(1500);
+  await page.reload();
+  await page.waitForFunction(() => window.DEMO && window.DEMO.screens, null, { timeout: 20000 });
+  await page.waitForTimeout(600);
+  const ex = await day0(page);
+  ok(ex.length === 3 && ex[1].name === picked,
+     'and the replacement survives a save and a reload, in place',
+     ex.map((e) => e.name).join(' | '));
+  ok(ex[1].sets === 4 && ex[1].reps === '10',
+     'with the prescription the slot had', JSON.stringify([ex[1].sets, ex[1].reps]));
+  ok(ex[1].id !== before[1].id, 'and it points at the exercise that is actually in it',
+     String(before[1].id) + ' -> ' + String(ex[1].id));
+  ok(errs.length === 0, 'no page errors', errs.slice(0, 2).join(' | '));
+  await ctx.close();
+}
+
+console.log('\n=== a swiped row still says which lift it is ===\n');
+{
+  /* THE LONGEST NAME IN THE CATALOGUE, at 58 characters, because this is
+     the row that breaks. The dock used to be opened by sliding the whole
+     row left by however much it revealed, which is fine for a name that
+     fits twice over and takes a long one off the left edge of the screen
+     entirely: at two lanes open there was nothing left of it but the tail
+     of a word. A reader was being offered Delete on a lift they could no
+     longer identify, with the named rows above and below it untouched.
+
+     The row gives ground now instead of leaving: the buttons take their
+     room off the right hand end, the title stays exactly where it sits at
+     rest, and it ends in an ellipsis when there is no longer room for all
+     of it. */
+  const LONG = 'Standing Dumbbell Straight-Arm Front Delt Raise Above Head';
+  const { ctx, page, errs } = await fresh([
+    { id: 10039, name: LONG, group: 'Shoulders', muscle: 'Front Delt', sets: 3, reps: '12' },
+    { id: 111, name: 'Barbell Bench Press', group: 'Chest', muscle: 'Mid Chest', sets: 3, reps: '8' }
+  ]);
+  await page.evaluate(() => window.DEMO.go('split-builder'));
+  await page.waitForTimeout(1200);
+
+  const look = () => page.evaluate(() => {
+    const rec = window.DEMO.screens['split-builder'];
+    const r = rec.root || rec.host.shadowRoot;
+    const w = r.querySelector('.swipe');
+    const t = w.querySelector('.row__title');
+    const wb = w.getBoundingClientRect(), tb = t.getBoundingClientRect();
+    const acts = [...w.querySelectorAll('.swipe__action')].map((b) => ({
+      label: b.getAttribute('aria-label') || b.textContent.trim(),
+      left: b.getBoundingClientRect().left }));
+    return { rowLeft: wb.left, rowRight: wb.right, rowH: Math.round(wb.height),
+             titleLeft: tb.left, titleRight: tb.right,
+             /* Clipped by the box rather than cut out of the text: the
+                whole name is still in the DOM, which is what the ellipsis
+                and the buttons' labels are both reading from. */
+             clipped: t.scrollWidth > t.clientWidth + 1,
+             ellipsis: getComputedStyle(t).textOverflow,
+             shown: t.textContent.trim(), acts: acts };
+  });
+
+  const rest = await look();
+  const cdp = await ctx.newCDPSession(page);
+  const touch = (t, x, y) => cdp.send('Input.dispatchTouchEvent', {
+    type: t, touchPoints: t === 'touchEnd' ? []
+      : [{ x, y, radiusX: 12, radiusY: 12, force: 1, id: 1 }] });
+  const start = await page.evaluate(() => {
+    const rec = window.DEMO.screens['split-builder'];
+    const r = rec.root || rec.host.shadowRoot;
+    const b = r.querySelector('.swipe').getBoundingClientRect();
+    return { x: Math.round(b.right - 40), y: Math.round(b.top + b.height / 2) };
+  });
+  await touch('touchStart', start.x, start.y);
+  for (let i = 1; i <= 12; i++) { await touch('touchMove', start.x - i * 11, start.y); await page.waitForTimeout(16); }
+  const mid = await look();
+  await touch('touchEnd', start.x - 132, start.y);
+  await page.waitForTimeout(700);
+  const open = await look();
+
+  ok(open.acts.length === 2, 'the row is open with both actions showing',
+     open.acts.map((a) => a.label.split(' ')[0]).join('|'));
+  ok(open.titleLeft >= open.rowLeft && open.titleLeft < open.rowRight,
+     'the name is still inside the row with the dock open',
+     'title starts at ' + Math.round(open.titleLeft) + ', row starts at ' + Math.round(open.rowLeft));
+  ok(Math.abs(open.titleLeft - rest.titleLeft) < 1,
+     'and it has not moved a pixel from where it sits at rest',
+     Math.round(rest.titleLeft) + ' -> ' + Math.round(open.titleLeft));
+  ok(Math.abs(mid.titleLeft - rest.titleLeft) < 1,
+     'nor at any point during the pull',
+     Math.round(rest.titleLeft) + ' -> ' + Math.round(mid.titleLeft));
+  ok(open.titleRight <= Math.min(...open.acts.map((a) => a.left)) + 1,
+     'the name ends before the first button rather than running under it',
+     Math.round(open.titleRight) + ' against ' + Math.round(Math.min(...open.acts.map((a) => a.left))));
+  ok(open.rowH === rest.rowH,
+     'and the row is the same height open as shut, so nothing below it jumps',
+     rest.rowH + ' -> ' + open.rowH);
+  ok(open.shown === LONG && open.clipped && open.ellipsis === 'ellipsis',
+     'what is left on screen is the start of the name, ending in an ellipsis',
+     open.ellipsis + ', clipped ' + open.clipped);
+  ok(open.titleRight - open.titleLeft > 120,
+     'and there is enough of it left to tell one lift from another',
+     Math.round(open.titleRight - open.titleLeft) + 'px of name');
+  /* AND WHAT A SCREEN READER SAYS UNDER THE FINGER. The visible name is
+     cut; the accessible name of each button must not be. */
+  ok(open.acts.every((a) => a.label.indexOf(LONG) > -1),
+     'both buttons name the whole lift they would act on',
+     open.acts.map((a) => a.label).join(' / ').slice(0, 80));
+  ok(errs.length === 0, 'no page errors', errs.slice(0, 2).join(' | '));
+  await ctx.close();
+}
+
 console.log('\n=== a split with no prescription still works everywhere ===\n');
 {
   const { ctx, page, errs } = await fresh(BARE);

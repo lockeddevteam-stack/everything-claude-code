@@ -2833,12 +2833,54 @@ textarea, select {
 /* Swipe to remove. The iOS way to destroy one row without putting a
    trash can on every row. The red action exists in the DOM only while a
    row is open, so a list at rest carries no destructive control. */
-.swipe { position: relative; overflow: hidden; background: var(--error-solid); }
-.swipe__pane { position: relative; touch-action: pan-y; transition: transform var(--dur-slow) var(--spring-snappy); }
-.swipe[data-open="true"] .swipe__pane { transform: translateX(calc((var(--sp-6) * 2 + var(--sp-5)) * -1)); }
+/* TWO LANES WHERE THE ROW HAS TWO ANSWERS. A planned lift can be replaced
+   as well as thrown away, and replacing is the one people reach for more
+   often, so it sits in front of Delete and in the ordinary surface tone --
+   red is reserved for the one that loses something. One lane wide is still
+   the default: a row that only deletes is unchanged. */
+.swipe { --swipe-lane: calc(var(--sp-6) * 2 + var(--sp-5)); --swipe-open: var(--swipe-lane);
+  position: relative; overflow: hidden; background: var(--error-solid); }
+.swipe[data-lanes="2"] {
+  --swipe-open: calc(var(--swipe-lane) * 2);
+  /* What is underneath, while the pull is still happening and the two
+     buttons have not been drawn yet: the quiet lane and then the red one,
+     in the places they are about to appear. A pull that reveals one flat
+     red band and then resolves into Replace-and-Delete tells you, for as
+     long as the pull lasts, that you are about to lose something. */
+  background: linear-gradient(to right,
+    var(--fill-raised) 0 calc(100% - var(--swipe-lane)),
+    var(--error-solid) calc(100% - var(--swipe-lane)) 100%);
+}
+/* THE ROW GIVES GROUND; IT DOES NOT LEAVE.
+
+   This used to slide the whole row left by however much was revealed,
+   which is what a dock does on iOS -- except an iOS row is mostly empty
+   and this one is a lift's name. With one lane open a long name lost its
+   first 88px; with Replace and Delete open it lost 176 and there was
+   nothing left of "Barbell Bench Press" but the tail of a word at the
+   screen edge. A reader looking at a Delete button could not see which
+   lift it belonged to, which is the one thing that has to be true of a
+   destructive control.
+
+   So the pane stays where it is and gives up width instead: the buttons
+   take their room off the right hand end and the name stays exactly where
+   it has always been, ending in an ellipsis when there is no longer room
+   for all of it. Truncated rather than covered, because a name that runs
+   under a button is cut mid-letter and says nothing about how much of it
+   is missing.
+
+   Padding rather than width, so nothing inside the row is asked to
+   recompute its own box. */
+.swipe__pane { position: relative; touch-action: pan-y; transition: padding-right var(--dur-slow) var(--spring-snappy); }
+.swipe[data-open="true"] .swipe__pane { padding-right: var(--swipe-open); }
+/* One line, so the row is the same height whether it is open or not. A
+   name that wrapped to two lines at rest and truncated to one under the
+   thumb would move every row below it in the middle of a gesture. This is
+   the same rule .row__sub has carried for the same reason. */
+.swipe .row__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .swipe__action {
   position: absolute; top: 0; right: 0; bottom: 0;
-  width: calc(var(--sp-6) * 2 + var(--sp-5));
+  width: var(--swipe-lane);
   display: flex; align-items: center; justify-content: center;
   background: var(--error-solid);
   color: var(--text-on-solid);
@@ -2847,6 +2889,16 @@ textarea, select {
   font-weight: var(--w-semibold);
 }
 .swipe__action:active { background: var(--error); color: var(--text-on-accent); }
+/* The quiet lane sits in front of the red one and is not red: it changes
+   the lift rather than losing it. --fill-raised is the ground this app
+   already gives a control that is raised off a card, so it reads as a
+   button in both themes without a new colour. */
+.swipe__action--quiet {
+  right: var(--swipe-lane);
+  background: var(--fill-raised);
+  color: var(--text);
+}
+.swipe__action--quiet:active { background: var(--fill-raised-press); color: var(--text); }
 /* A separator between rows survives the swipe wrapper. */
 .swipe + .swipe .row { box-shadow: inset 0 1px 0 var(--hairline); }
 @media (prefers-reduced-motion: reduce) {
@@ -5735,6 +5787,26 @@ textarea,
 .presc__sets { width: 5ch; }
 .presc__reps { width: 9ch; }
 .presc__x { flex: none; color: var(--text-tertiary); font-size: var(--type-13); line-height: var(--lh-13); }
+
+/* AND THE SAME PRESCRIPTION AT REST, AS A FIGURE.
+
+   The line under a planned lift used to read "Mid Chest * 4 x 8-12", all
+   of it one grey, which buries the only part of the row that is a number.
+   Three by eight is what the day is asking of you, so it is set in the
+   reading tone and tabular, the way every weight and set count in this app
+   is, and the muscle goes behind it in the tertiary tone. No new type
+   size, no new colour: both are tokens this row already had. */
+.presc__fig { color: var(--text); font-weight: var(--w-medium); }
+.presc__for { color: var(--text-tertiary); margin-left: var(--sp-2); }
+
+/* FOLDED, so a day's order fits on one screen while it is being changed.
+   The same idea as a workout log card folding to a tab, on the two things
+   the split builder puts in a list: a lift inside a day, and a day. What
+   is left is the name and the handle, because that is all the order is. */
+.row--tab { min-height: var(--tap); }
+.card--tab > .daycard__foot,
+.card--tab .daycard__note { display: none; }
+.card--tab { transition: translate 300ms var(--reorder-ease); }
 
 
 /* THE DEV STATE SWITCHER IS NOT A PRODUCT CONTROL. Every screen carries
@@ -13368,6 +13440,120 @@ var LB_PER_KG = 2.2046226218;
     return function stop() { dead = true; if (raf) cancelAnimationFrame(raf); };
   }
 
+  /* ---------------------------------------------------------------
+     THE FOLD, AND STAYING UNDER THE FINGER ACROSS IT.
+
+     These three were written for the workout log and lived there, which
+     meant the one list in the app that folds was also the only list that
+     could be dragged properly. They are the same three problems on every
+     list long enough to need them, so they are here now and the log calls
+     them rather than keeping its own copy.
+
+     WHY A LIST FOLDS AT ALL. Dragging a 300px card past other 300px cards
+     means the thing you are moving covers the gap it is meant to land in,
+     and a list of eight is several screens long. Folded to tabs the whole
+     order is on one screen and the gap is visible. The fold itself belongs
+     to the host -- it is that screen's own markup and its own classes --
+     but everything the fold BREAKS is geometry, and geometry is this
+     module's job.
+
+     WHAT IT BREAKS, in the order it was found:
+
+     1. The card jumps out of your hand. Every height on screen changes in
+        the same frame, and the browser clamps the scroll on top of that,
+        so the card you were holding ends up hundreds of pixels from your
+        finger and every millimetre of the drag afterwards is offset by
+        that gap. `anchorFor` is the translate that puts the grab point
+        back under the finger, measured BEFORE the fold and applied after
+        it, and it rides along with every later translate.
+
+     2. You are parked where the list used to be long. Folding is worth
+        nothing if you are still nine hundred pixels down where the eighth
+        card was. `glide` runs the list back to its top while the card is
+        held, and it is a glide rather than a jump so what a reader sees is
+        the list running up underneath something they are still holding.
+
+     3. The card can leave the list. Drag a row to the top of a table on
+        iOS and it stops against the edge; the content runs underneath it.
+        `clampDy` pins it inside the scroller's PADDING box -- the border
+        box would park it behind a floating tab bar -- and lets the edge
+        creep do the travelling.
+     --------------------------------------------------------------- */
+
+  /* How much of the scroller is reserved rather than list. Read once at
+     the lift: getComputedStyle every frame of a drag is not free. */
+  function scrollInset(el) {
+    if (!el) return [0, 0];
+    try {
+      var cs = getComputedStyle(el);
+      return [parseFloat(cs.paddingTop) || 0, parseFloat(cs.paddingBottom) || 0];
+    } catch (e) { return [0, 0]; }
+  }
+
+  /* `grab` is how far down the row the finger landed, read before the
+     fold; `box` is where that row sits after it. Kept where it will fit on
+     a folded row, clamped 8px in from either end so a card grabbed by its
+     bottom edge does not hang off the hand. */
+  function anchorFor(y0, grab, box) {
+    if (!box) return 0;
+    var hold = Math.max(8, Math.min(grab, box.h - 8));
+    return (y0 - hold) - box.top;
+  }
+
+  /* The row stays inside the list and the list moves instead. `ds` is how
+     far the scroller has travelled since the lift, because `box` was read
+     in viewport coordinates at that moment. */
+  function clampDy(dy, box, scroller, inset, ds) {
+    if (!scroller || !box) return dy;
+    var b = scroller.getBoundingClientRect();
+    var nat = box.top - (ds || 0);
+    var top = b.top + (inset ? inset[0] : 0);
+    var bot = b.bottom - (inset ? inset[1] : 0);
+    if (nat + dy < top) return top - nat;
+    if (nat + dy + box.h > bot) return bot - box.h - nat;
+    return dy;
+  }
+
+  /* 280ms on an ease-out, which is the length of a sheet arriving in this
+     app and short enough that it is over before anybody decides to move.
+     `onFrame` is called after every step so the host can put the row back
+     under the finger: the scroll delta goes straight into its translate
+     and it sits still while everything else slides past it.
+
+     Anybody who has asked for less motion still ends up at the top -- that
+     is what makes the whole list reachable -- they just do not get three
+     hundred milliseconds of scenery on the way. */
+  var TOP_GLIDE_MS = 280;
+  function glide(scroller, onFrame) {
+    var h = { running: false, raf: null,
+              cancel: function () {
+                h.running = false;
+                if (h.raf) cancelAnimationFrame(h.raf);
+                h.raf = null;
+              } };
+    if (!scroller || scroller.scrollTop <= 0) return h;
+    var from = scroller.scrollTop;
+    if (g.matchMedia && g.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      scroller.scrollTop = 0;
+      if (onFrame) onFrame();
+      return h;
+    }
+    h.running = true;
+    var t0 = null;
+    function step(ts) {
+      if (!h.running) return;
+      if (t0 == null) t0 = ts;
+      var p = Math.min(1, (ts - t0) / TOP_GLIDE_MS);
+      scroller.scrollTop = Math.round(from * Math.pow(1 - p, 3));
+      if (onFrame) onFrame();
+      if (p < 1) { h.raf = requestAnimationFrame(step); return; }
+      h.raf = null;
+      h.running = false;
+    }
+    h.raf = requestAnimationFrame(step);
+    return h;
+  }
+
   function buzz(p) { try { if (g.navigator && navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
 
   function attach(doc, opts) {
@@ -13397,8 +13583,20 @@ var LB_PER_KG = 2.2046226218;
     function measure(rows) {
       return rows.map(function (r) {
         var b = r.getBoundingClientRect();
-        return { mid: b.top + b.height / 2, h: b.height };
+        return { mid: b.top + b.height / 2, h: b.height, top: b.top };
       });
+    }
+
+    /* The translate that puts the row where the finger is, given the fold
+       it survived and wherever the list has scrolled to since. Wanted in
+       three places -- the lift, every move, and every nudge of the creep --
+       and it has to be the same sum in all three or the row and its drop
+       target disagree by however far the fold moved it. */
+    function dragDy(clientY) {
+      if (!DRAG) return 0;
+      var ds = DRAG.scroller ? DRAG.scroller.scrollTop - DRAG.s0 : 0;
+      var dy = clientY - DRAG.y0 + ds + (DRAG.anchor || 0);
+      return clampDy(dy, DRAG.boxes[DRAG.from], DRAG.scroller, DRAG.inset, ds);
     }
 
     function clearStyles(rows) { rows.forEach(clear); }
@@ -13414,6 +13612,7 @@ var LB_PER_KG = 2.2046226218;
       if (!DRAG) return;
       var d = DRAG; DRAG = null;
       if (d.stopEdge) d.stopEdge();
+      if (d.glide) d.glide.cancel();
       var el = d.rows[d.from];
       var adj = d.to > d.from ? d.to - 1 : d.to;
       var landed = commit && d.to !== null ? (adj - d.from) * d.h : 0;
@@ -13450,6 +13649,12 @@ var LB_PER_KG = 2.2046226218;
         clearHold();
         var from = opts.index ? opts.index(item) : rowsFor(item).indexOf(item);
         if (from < 0) return;
+        /* WHERE ON THE ROW THE FINGER IS, read before anything folds. This
+           is the one measurement that has to happen first: it is how far
+           down the thing you grabbed you grabbed it, and it is what keeps
+           the row under your hand once every height on screen has changed. */
+        var grab = 0;
+        try { grab = y0 - item.getBoundingClientRect().top; } catch (e) {}
         /* LIFTED FIRST, MEASURED SECOND. The lift class changes heights --
            a list that folds its rows changes them a lot -- and geometry
            read before that puts every drop target where the rows used to
@@ -13463,15 +13668,39 @@ var LB_PER_KG = 2.2046226218;
         DRAG = { from: from, to: from, y0: y0, rows: rows, boxes: boxes,
                  h: pitch(boxes, from), item: live, dy: 0, v: 0, t: 0,
                  scroller: scroller, s0: scroller ? scroller.scrollTop : 0,
-                 y: y0 };
+                 y: y0, inset: scrollInset(scroller),
+                 anchor: anchorFor(y0, grab, boxes[from]),
+                 /* NOT UNTIL THE FINGER HAS ACTUALLY MOVED. The lift brings
+                    the row to the hand, and on a folded list that alone
+                    puts it over a different slot -- so a press and release
+                    with no drag in it would have quietly reordered the
+                    list. The gap only follows once there is a drag. */
+                 armed: false, glide: null };
         if (rows[from]) rows[from].style.zIndex = '20';
+        /* Carried, not re-targeted: the row comes to the hand at once and
+           the gap stays in its own slot until the finger moves. */
+        carry(rows[from], DRAG.dy = dragDy(y0));
         /* NaN, not 0, once the drag is over. Zero is a real coordinate --
            it is the top of the screen -- and the band now reaches past the
            scroller's edge, so reporting it would have the list creeping
            upwards after the finger had gone. */
+        /* While the glide is running the finger is reported as nowhere, so
+           the two are never writing scrollTop in the same frame. */
         DRAG.stopEdge = edgeScroll(scroller,
-          function () { return DRAG ? DRAG.y : NaN; },
+          function () {
+            if (!DRAG) return NaN;
+            return DRAG.glide && DRAG.glide.running ? NaN : DRAG.y;
+          },
           function () { if (DRAG) place(DRAG.y, 0); });
+        /* BACK TO THE TOP OF THE LIST, WHICH IS THE POINT OF FOLDING IT.
+           Asked for by the host, because a list that does not fold has not
+           got shorter and running it to its top would only take the reader
+           away from what they were looking at. */
+        if (opts.fold) {
+          DRAG.glide = glide(scroller, function () {
+            if (DRAG) carry(DRAG.rows[DRAG.from], DRAG.dy = dragDy(DRAG.y));
+          });
+        }
         /* ONE BUZZ, 20ms. v6 fired 30 and then 20 back to back from two
            different places, and a second vibrate() cancels the first --
            so what the shipped app's hand actually felt was the 20. */
@@ -13491,11 +13720,11 @@ var LB_PER_KG = 2.2046226218;
        and drops itself four places above where it is sitting. */
     function place(clientY, dt) {
       if (!DRAG) return;
-      var ds = DRAG.scroller ? DRAG.scroller.scrollTop - DRAG.s0 : 0;
-      var dy = clientY - DRAG.y0 + ds;
-      DRAG.dy = dy;
       DRAG.y = clientY;
+      var dy = dragDy(clientY);
+      DRAG.dy = dy;
       carry(DRAG.rows[DRAG.from], dy);
+      if (!DRAG.armed) return;
       var y = (DRAG.boxes[DRAG.from] ? DRAG.boxes[DRAG.from].mid : 0) + dy;
       var to = DRAG.boxes.length;
       for (var i = 0; i < DRAG.boxes.length; i++) {
@@ -13516,13 +13745,17 @@ var LB_PER_KG = 2.2046226218;
          value -- because a raw frame-to-frame delta on a finger that has
          paused is noise, and noise here throws the row. */
       var now = ev.timeStamp || Date.now();
-      var dy = ev.clientY - DRAG.y0 +
-        (DRAG.scroller ? DRAG.scroller.scrollTop - DRAG.s0 : 0);
+      /* The same sum place makes, anchor and all. Without the anchor the
+         first sample is the whole fold offset measured as one frame of
+         travel, and the drop spring gets seeded with several thousand
+         pixels a second the finger never moved. */
+      var dy = dragDy(ev.clientY);
       if (DRAG.t) {
         var dtm = Math.max(now - DRAG.t, 1);
         DRAG.v = 0.75 * ((dy - DRAG.dy) / dtm * 1000) + 0.25 * DRAG.v;
       }
       DRAG.t = now;
+      DRAG.armed = true;
       place(ev.clientY);
     }
 
@@ -13547,7 +13780,9 @@ var LB_PER_KG = 2.2046226218;
                   carry: carry, shift: shift, clear: clear,
                   layout: layout, shiftFor: shiftFor, pitch: pitch,
                   drop: drop, edgeScroll: edgeScroll,
-                  scrollerFor: scrollerFor,
+                  scrollerFor: scrollerFor, scrollInset: scrollInset,
+                  anchorFor: anchorFor, clampDy: clampDy, glide: glide,
+                  TOP_GLIDE_MS: TOP_GLIDE_MS,
                   DROP_RESPONSE: DROP_RESPONSE, DROP_DAMPING: DROP_DAMPING,
                   LIFT_SCALE: LIFT_SCALE, EDGE_ZONE: EDGE_ZONE };
 })(typeof window !== 'undefined' ? window : this);
@@ -40397,6 +40632,10 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     lifted: null,          /* testid of the lifted item's grip */
     swipe: null,           /* id of the exercise row swiped open */
     dragging: null,
+    /* Which list is being carried, and whose. The screen folds itself
+       around this: 'ex' or 'day', and the day a carried lift belongs to. */
+    dragKind: null,
+    dragDay: null,
     modal: null,           /* {type:'leave'|'pick'|'swap', ...} */
     toast: null,
     dev: false
@@ -40502,17 +40741,30 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
   /* At rest an exercise is a line of text. The only way to destroy one is
      the iOS way: swipe it left, which reveals exactly one red button and
      leaves an Undo behind. In Edit the row grows a handle and a delete. */
-  /* "Mid Chest \u00b7 4 \u00d7 8-12", or just the muscle where the day says
-     nothing about how to train the lift. A day with no prescription is the
-     ordinary case -- every split already on a phone is one -- so nothing is
-     printed rather than a zero, which would be a claim nobody made. */
+  /* "3 \u00d7 8", then the muscle, quietly, beside it.
+
+     THE NUMBERS COME FIRST NOW. The line under the name used to read "Mid
+     Chest \u00b7 4 \u00d7 8-12" in one flat grey, which puts the one part of
+     the row that is a figure last and in the tone of a caption. What a day
+     tells you about a lift is how much of it to do, so the figure is the
+     figure -- tabular, in the reading tone, the same treatment a weight or
+     a set count gets everywhere else in this app -- and the muscle sits
+     behind it in the tertiary tone.
+
+     Three things this deliberately does not do: it does not round a range
+     down to one number, so "8-12" stays "8-12"; it does not turn AMRAP
+     into a count, because a lift taken to failure has no count; and where
+     a day prescribes nothing it prints the muscle alone rather than a
+     zero, which would be a claim nobody made. Every split already on a
+     phone is in that last case. */
   function presSub(x) {
     var P = window.LKPrescription;
     var t = P ? P.text(x.sets, x.reps) : '';
     var mus = x.muscle || '';
     if (!t) return esc(mus);
-    return (mus ? esc(mus) + ' \u00b7 ' : '') +
-      '<span data-num data-testid="ex-presc-' + x.id + '">' + esc(t) + '</span>';
+    return '<span class="presc__fig" data-num data-testid="ex-presc-' + x.id + '">' +
+        esc(t) + '</span>' +
+      (mus ? '<span class="presc__for">' + esc(mus) + '</span>' : '');
   }
 
   /* The two fields, in Edit. Sets is a count and reps is text, because a
@@ -40535,13 +40787,31 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     '</div>';
   }
 
+  /* CHANGING A LIFT WITHOUT LOSING ITS PLACE.
+
+     A saved day could only be changed by deleting a lift and adding
+     another, which puts the new one at the bottom of the day and throws
+     away the sets and reps the old one carried. A live workout has had
+     "Swap exercise" for a while and it means the right thing there: the
+     new movement lands where the old one was and the work already done
+     stays. This is the same idea on a planned day.
+
+     WHERE THE CONTROL LIVES. The swipe already on this row, as a second
+     lane in front of Delete, which is where iOS puts the non-destructive
+     half of a row's actions. The row in Edit already carries a handle, two
+     fields and a delete; a fifth control on it would be the one the thumb
+     misses. So a swipe reveals both, the quiet one first and the red one
+     at the end, and the list at rest still carries neither. */
   function exerciseRow(x, day, i, n) {
     var m = S.manual;
     if (!m.edit) {
       var open = S.swipe === x.id;
-      return '<div class="swipe" data-swipe="1" data-id="' + x.id + '" data-day="' + day.id +
+      return '<div class="swipe" data-swipe="1" data-lanes="2" data-id="' + x.id + '" data-day="' + day.id +
           '" data-open="' + (open ? 'true' : 'false') + '">' +
-        (open ? '<button class="swipe__action" data-testid="ex-remove-' + x.id + '" data-action="ex-remove" data-id="' + x.id +
+        (open ? '<button class="swipe__action swipe__action--quiet" data-testid="ex-replace-' + x.id +
+          '" data-action="ex-replace" data-id="' + x.id + '" data-day="' + day.id +
+          '" aria-label="Replace ' + esc(x.name) + ' in ' + esc(day.name) + '">Replace</button>' +
+          '<button class="swipe__action" data-testid="ex-remove-' + x.id + '" data-action="ex-remove" data-id="' + x.id +
           '" data-day="' + day.id + '" aria-label="Remove ' + esc(x.name) + ' from ' + esc(day.name) + '">Delete</button>' : '') +
         '<div class="swipe__pane">' +
           '<div class="row">' +
@@ -40555,9 +40825,20 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     }
     var gripId = 'ex-grip-' + x.id;
     var lifted = S.lifted === gripId;
+    var folded = S.dragKind === 'ex';
+    /* FOLDED TO A TAB while anything in this day is being carried. The name
+       is what you are putting in order; the muscle, the two fields and the
+       delete are not, and every pixel of them is a pixel of the order that
+       does not fit on the screen. */
+    if (folded) {
+      return '<div class="row row--tab is-lifting' +
+          (S.dragging === gripId ? ' sortable__item--dragging is-dragging' : '') +
+          '" style="--wiggle-i:' + i + '" data-sortable="1" data-id="' + x.id + '" data-day="' + day.id + '">' +
+        gripBtn(gripId, 'Reorder ' + x.name + ', position ' + (i + 1) + ' of ' + n, lifted) +
+        '<div class="row__main"><div class="row__title truncate">' + esc(x.name) + '</div></div>' +
+      '</div>';
+    }
     return '<div class="row sortable__item' + (lifted ? ' sortable__item--lifted' : '') +
-        (S.dragging ? ' is-lifting' : '') +
-        (S.dragging === gripId ? ' sortable__item--dragging is-dragging' : '') +
         '" style="--wiggle-i:' + i + '" data-sortable="1" data-id="' + x.id + '" data-day="' + day.id + '">' +
       gripBtn(gripId, 'Reorder ' + x.name + ', position ' + (i + 1) + ' of ' + n, lifted) +
       '<div class="row__main">' +
@@ -40570,10 +40851,23 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     '</div>' + (lifted ? moveBar('ex', x.id, day.id, i === 0, i === n - 1) : '');
   }
 
+  /* A DAY IS A LIST INSIDE A CARD INSIDE A LIST OF DAYS, which is the one
+     thing about this screen that the workout log's fold does not have to
+     think about. Folding the day you are reordering lifts inside is not
+     enough: two days above it are still hundreds of pixels of list, so the
+     order still does not fit on a screen. So the moment anything is picked
+     up, EVERY day closes to its heading, and the only day that keeps its
+     lifts is the one the lift being carried belongs to. Pick a day up
+     instead and all of them close, including that one.
+
+     The two lists never wiggle together either. Only the list being
+     dragged says it can be moved, because a day shaking while a lift
+     inside it is being carried reads as an offer to move the day. */
   function dayCard(day, i, n) {
     var m = S.manual;
     var gripId = 'day-grip-' + day.id;
     var lifted = S.lifted === gripId;
+    var folded = !!S.dragKind && !(S.dragKind === 'ex' && S.dragDay === day.id);
     var rows = day.exercises.length
       ? '<div data-sortlist="ex:' + day.id + '">' + day.exercises.map(function (x, j) {
           return exerciseRow(x, day, j, day.exercises.length);
@@ -40599,11 +40893,19 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
           '</div>' +
         '</div>';
 
-    return '<div class="card card--flush' + (m.edit ? ' sortable__item' : '') +
+    var shell = '<div class="card card--flush' + (m.edit ? ' sortable__item' : '') +
         (m.edit && lifted ? ' sortable__item--lifted' : '') +
-        (m.edit && S.dragging ? ' is-lifting' : '') +
+        (S.dragKind === 'day' ? ' is-lifting' : '') +
+        (S.dragKind ? ' card--tab' : '') +
         (m.edit && S.dragging === gripId ? ' sortable__item--dragging is-dragging' : '') + '"' +
-        (m.edit ? ' data-sortable="1"' : '') + ' style="--wiggle-i:' + i + '" data-id="' + day.id + '">' +
+        (m.edit ? ' data-sortable="1"' : '') + ' style="--wiggle-i:' + i + '" data-id="' + day.id + '">';
+    if (folded) return shell + head + '</div>';
+    /* The day the carried lift lives in keeps its lifts and nothing else.
+       Its warning, its blocks and its two Add buttons are not part of the
+       order, and every one of them is a row of the order pushed off the
+       bottom of the screen. */
+    if (S.dragKind) return shell + head + rows + '</div>';
+    return shell +
       head +
       (m.edit && lifted ? moveBar('day', day.id, null, i === 0, i === n - 1) : '') +
       volumeNote(day) +
@@ -40731,7 +41033,7 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
 
     var hint = m.edit
       ? 'Drag a handle to reorder, or tap it to move with buttons. Tap Done when you are finished.'
-      : 'Swipe a lift left to remove it. Tap Edit to reorder, rename or delete.';
+      : 'Swipe a lift left to change it for another or take it out. Tap Edit to reorder, rename or set how many sets and reps.';
 
     var days = '<div class="section">' +
       '<div class="section__head"><h2 class="t-label">Days</h2>' +
@@ -41177,7 +41479,9 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
           }).join('') +
         '</div>' +
       '</div>' +
-      '<p class="t-detail quiet mt-2">Tap the part this day trains.</p>' +
+      '<p class="t-detail quiet mt-2" data-testid="pick-map-note">' +
+        (replacingIn(m) ? 'Tap the part you want instead of ' + esc(replacingIn(m).name) + '.'
+                        : 'Tap the part this day trains.') + '</p>' +
       '<div class="card card--flush mt-3" data-testid="pick-groups">' +
         (window.LKExercises ? LKExercises.groups : []).map(function (gr) {
           var c = counts[gr[0]] || { n: 0 };
@@ -41267,7 +41571,9 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     return note + '<div class="card card--flush">' + list.slice(0, 60).map(function (x, i) {
       return '<button class="row" data-testid="pick-' + i + '" data-action="pick-add" data-name="' + esc(x.name) + '" data-muscle="' + esc(x.muscle) + '" data-exid="' + (x.id || '') + '" data-id="' + m.id + '">' +
         '<div class="row__main"><div class="row__title">' + esc(x.name) + '</div><div class="row__sub">' + esc(x.muscle) + '</div></div>' +
-        '<span class="row__chev">' + ico('plus') + '</span></button>';
+        /* The glyph says which of the two this tap does: one adds a lift to
+           the day, the other stands in for one already in it. */
+        '<span class="row__chev">' + ico(replacingIn(m) ? 'swap' : 'plus') + '</span></button>';
     }).join('') + '</div>' +
     (list.length > 60
       ? '<p class="t-detail quiet mt-2" data-testid="pick-more">' + (list.length - 60) +
@@ -41385,14 +41691,25 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     } catch (e) {}
   }
 
+  /* The lift this picker is standing in for, or nothing when it is adding
+     one. Asked in three places -- the title, the note over the body and
+     the commit -- so it is one function. */
+  function replacingIn(m) {
+    return m && m.replace ? findEx(m.id, m.replace) : null;
+  }
+
   function pickSheet(m) {
     var list = pickRows(m);
     var day = S.manual.days.filter(function (d) { return d.id === m.id; })[0];
+    var old = replacingIn(m);
+    var title = old ? 'Replacing: ' + esc(old.name) : 'Add to ' + esc(day ? day.name : '');
     return '<div class="scrim" data-testid="scrim" data-action="close-modal"></div>' +
-      '<div class="sheet" role="dialog" aria-modal="true" aria-label="Add an exercise" data-testid="pick-sheet" data-detents="0.55 0.88" data-detent-open="0.88">' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-label="' +
+        (old ? 'Replace ' + esc(old.name) : 'Add an exercise') +
+        '" data-testid="pick-sheet" data-detents="0.55 0.88" data-detent-open="0.88">' +
         '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
         '<div class="sheet__head">' +
-          '<div><div class="t-section">Add to ' + esc(day ? day.name : '') + '</div>' +
+          '<div><div class="t-section" data-testid="pick-title">' + title + '</div>' +
           '<div class="t-meta">' + list.length + ' exercises</div></div>' +
           '<button class="iconbtn" data-testid="pick-close" data-action="close-modal" aria-label="Close exercise list">' + ico('close') + '</button>' +
         '</div>' +
@@ -41471,7 +41788,8 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     S.ai = { status: 'idle', note: '', plan: null, error: null, step: 0 };
     if (S.photo && S.photo.url) { try { URL.revokeObjectURL(S.photo.url); } catch (e) {} }
     S.photo = { file: null, url: null, size: '', note: '', error: null };
-    S.lifted = null; S.dragging = null; S.modal = null; S.toast = null; S.swipe = null;
+    S.lifted = null; S.dragging = null; S.dragKind = null; S.dragDay = null;
+    S.modal = null; S.toast = null; S.swipe = null;
   }
 
   function renderDev() {
@@ -41976,6 +42294,22 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
       render();
     },
     'ex-remove': function (el) { removeExercise(el.getAttribute('data-day'), el.getAttribute('data-id')); },
+    /* REPLACING A LIFT IS THE SAME PICKER, TOLD WHO IT IS STANDING IN FOR.
+       The live workout does exactly this -- "Replacing: <name>" over the
+       body, opened on the part the old lift trains, because most
+       replacements stay in the same place and that makes it one tap. The
+       alternative was a second picker for planned days, and two pickers
+       for one question is two things to keep in step. */
+    'ex-replace': function (el) {
+      var dayId = el.getAttribute('data-day'), exId = el.getAttribute('data-id');
+      var x = findEx(dayId, exId);
+      S.swipe = null;
+      S.modal = { type: 'pick', id: dayId, replace: exId, q: '',
+                  gid: (window.LKExercises && LKExercises.gidOf && x)
+                    ? LKExercises.gidOf(x) : null,
+                  sub: null, view: 'front' };
+      render();
+    },
     /* Opens on the body, with no part chosen: a group left over from the
        last exercise added is not an answer to this one. */
     'add-exercise': function (el) {
@@ -42068,14 +42402,48 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     },
     'pick-add': function (el) {
       var day = findDay(el.getAttribute('data-id'));
-      var row = ex(el.getAttribute('data-name'), el.getAttribute('data-muscle'));
+      var name = el.getAttribute('data-name'), muscle = el.getAttribute('data-muscle');
       /* The catalogue id, where the picker knows it. Without it a lift added
          here was saved under a generated id no other screen recognises. */
       var exid = Number(el.getAttribute('data-exid'));
+      var replacing = S.modal && S.modal.replace
+        ? findEx(day.id, S.modal.replace) : null;
+      if (replacing) {
+        /* IN PLACE, AND IT KEEPS THE PRESCRIPTION.
+
+           The slot is the obvious half: a lift changed in the middle of a
+           day belongs in the middle of that day, and deleting and re-adding
+           put it at the bottom.
+
+           The sets and reps are the half worth arguing about, including
+           when the new lift trains something else. They stay. Three by
+           eight is a statement about how you are training that day --
+           heavy, low reps, or long sets near failure -- and swapping a
+           barbell row for a pulldown does not change your mind about that.
+           The alternative is a day that quietly loses its plan because
+           somebody changed a machine, which is the bug this feature exists
+           to fix. If the numbers are wrong for the new lift they are two
+           fields away in Edit. */
+        var was = { name: replacing.name, muscle: replacing.muscle, exId: replacing.exId };
+        replacing.name = name;
+        replacing.muscle = muscle || '';
+        if (exid) replacing.exId = exid; else delete replacing.exId;
+        S.modal = null;
+        markDirty();
+        toast(was.name + ' is now ' + name + '.', 'Undo', function () {
+          replacing.name = was.name;
+          replacing.muscle = was.muscle;
+          if (was.exId) replacing.exId = was.exId; else delete replacing.exId;
+          markDirty();
+        });
+        render();
+        return;
+      }
+      var row = ex(name, muscle);
       if (exid) row.exId = exid;
       day.exercises.push(row);
       markDirty();
-      toast('Added ' + el.getAttribute('data-name') + ' to ' + day.name + '.');
+      toast('Added ' + name + ' to ' + day.name + '.');
       render();
     },
     'move-day': function (el) {
@@ -42275,7 +42643,10 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
     if (!wrap) return;
     var pane = wrap.querySelector('.swipe__pane');
     var startX = e.clientX, startY = e.clientY;
-    var reveal = 88;                                  /* --sp-6 * 2 + --sp-5 */
+    /* One lane is 88px (--sp-6 * 2 + --sp-5) and this row has two of them:
+       Replace, then Delete. Read off the row rather than assumed, so the
+       day list and the lift list cannot drift apart. */
+    var reveal = 88 * (wrap.getAttribute('data-lanes') === '2' ? 2 : 1);
     var base = wrap.getAttribute('data-open') === 'true' ? -reveal : 0;
     var axis = null, dx = base;
 
@@ -42289,7 +42660,14 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
       if (axis !== 'x') return;
       if (ev.cancelable) ev.preventDefault();
       dx = Math.min(0, Math.max(-wrap.offsetWidth, base + (ev.clientX - startX)));
-      pane.style.transform = 'translateX(' + dx + 'px)';
+      /* THE ROW GIVES GROUND RATHER THAN LEAVING. It used to ride the
+         finger on a translate, which takes the lift's name off the left
+         edge of the screen -- so the row under the thumb was the only one
+         in the list you could not identify, at the moment it was offering
+         to delete itself. The dock takes its room off the right hand end
+         instead and the name stays where it is, ending in an ellipsis
+         when there is no longer room for all of it. */
+      pane.style.paddingRight = Math.max(0, -dx) + 'px';
     }
     function onUp() {
       document.removeEventListener('pointermove', onMove);
@@ -42297,9 +42675,15 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
       document.removeEventListener('pointercancel', onUp);
       if (axis !== 'x') return;
       pane.style.transition = '';
-      pane.style.transform = '';
+      pane.style.paddingRight = '';
       var id = wrap.getAttribute('data-id');
-      if (dx <= -(wrap.offsetWidth * 0.45)) { removeExercise(wrap.getAttribute('data-day'), id); return; }
+      /* PAST BOTH LANES, not merely past them. The row opens to 176px now
+         that it offers Replace as well as Delete, and 45% of a 393px row
+         is 177 -- so the pull that opens the pair was landing one pixel
+         short of throwing the lift away. The destructive threshold sits a
+         lane clear of where the row comes to rest. */
+      var doomed = Math.max(wrap.offsetWidth * 0.45, reveal + 88);
+      if (dx <= -doomed) { removeExercise(wrap.getAttribute('data-day'), id); return; }
       S.swipe = dx <= -(reveal / 2) ? id : null;
       render();
     }
@@ -42333,11 +42717,26 @@ DEMO.define("split-builder", function (document, window, location, fetch) {
       for (var i = 0; i < arr.length; i++) if (String(arr[i].id) === want) return i;
       return -1;
     },
+    /* THE WHOLE SCREEN FOLDS WHEN ANYTHING IS PICKED UP, which is what
+       LKReorder is told by `fold` so it knows to take the list back to its
+       top and to keep the row under the finger across the change. */
+    fold: true,
     lift: function (i, item) {
-      S.dragging = i < 0 ? null
-        : (item.querySelector('[data-grip]') || {}).getAttribute
-          ? item.querySelector('[data-grip]').getAttribute('data-testid') : null;
-      if (i >= 0) S.lifted = null;
+      if (i < 0) {
+        S.dragging = null; S.dragKind = null; S.dragDay = null;
+        render();
+        return;
+      }
+      var grip = item.querySelector('[data-grip]');
+      S.dragging = grip ? grip.getAttribute('data-testid') : null;
+      S.dragDay = item.getAttribute('data-day');
+      /* A lift carries a day attribute and a day does not. That is the
+         only difference between the two lists on this screen, and it is
+         also what stops a drag that started on a lift from ever picking
+         the day up: the handle inside a row belongs to the row, and the
+         row is the nearest thing that can be sorted. */
+      S.dragKind = S.dragDay ? 'ex' : 'day';
+      S.lifted = null;
       render();
     },
     /* The screen replaces its DOM on every render, so the element handed
@@ -53802,7 +54201,7 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
     if (!DRAG) return;
     var d = DRAG; DRAG = null;
     if (d.stopEdge) d.stopEdge();
-    if (d.topRaf) cancelAnimationFrame(d.topRaf);
+    if (d.glide) d.glide.cancel();
     /* NOW, not when the spring finishes. The click that ends a drag lands
        on the grip within the same tick as the pointerup, and the grip's
        click handler opens the move bar; stamping this half a second later
@@ -53853,40 +54252,25 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
      placeDrag on every frame, so the card does not travel with the list:
      the scroll delta goes straight back into its translate and it sits
      still under the finger while everything else slides past it. */
-  /* How much of the scroller is reserved rather than list. Read once at
-     the lift: getComputedStyle every frame of a drag is not free. */
+  /* THE FOLD'S THREE PROBLEMS LIVE IN LKReorder NOW. They were written
+     here, for this list, and every one of them is the same problem on any
+     list long enough to fold: the card jumping out of the hand, the reader
+     parked where the list used to be long, and the card wandering out from
+     behind the header. The split builder needed all three, and two copies
+     of a gesture is how two surfaces start feeling different. This screen
+     still owns its own drag loop, because it is also the screen where a
+     sideways pull on the same handle throws an exercise away; what it no
+     longer owns is the arithmetic. */
   function scrollInset(el) {
-    if (!el) return [0, 0];
-    try {
-      var cs = getComputedStyle(el);
-      return [parseFloat(cs.paddingTop) || 0, parseFloat(cs.paddingBottom) || 0];
-    } catch (e) { return [0, 0]; }
+    return window.LKReorder && LKReorder.scrollInset
+      ? LKReorder.scrollInset(el) : [0, 0];
   }
 
-  var TOP_GLIDE_MS = 280;
   function glideToTop() {
-    if (!DRAG || !DRAG.scroller) return;
-    var from = DRAG.scroller.scrollTop;
-    if (from <= 0) return;
-    /* Anybody who has asked for less motion still has to end up at the top
-       of the list -- that is what makes the whole workout reachable -- they
-       just do not get three hundred milliseconds of scenery on the way. */
-    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      DRAG.scroller.scrollTop = 0;
-      placeDrag(DRAG.cy);
-      return;
-    }
-    var t0 = null;
-    function step(ts) {
-      if (!DRAG) return;
-      if (t0 == null) t0 = ts;
-      var p = Math.min(1, (ts - t0) / TOP_GLIDE_MS);
-      var k = 1 - Math.pow(1 - p, 3);
-      DRAG.scroller.scrollTop = Math.round(from * (1 - k));
-      placeDrag(DRAG.cy);
-      DRAG.topRaf = p < 1 ? requestAnimationFrame(step) : null;
-    }
-    DRAG.topRaf = requestAnimationFrame(step);
+    if (!DRAG || !DRAG.scroller || !window.LKReorder || !LKReorder.glide) return;
+    DRAG.glide = LKReorder.glide(DRAG.scroller, function () {
+      if (DRAG) placeDrag(DRAG.cy);
+    });
   }
 
   /* The translate that puts the card where the finger is, given where the
@@ -53909,18 +54293,8 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
        card half behind that header -- you were holding something you could
        not see. Pinned at the edge, the creep does the travelling, which is
        the behaviour the edge creep exists for. */
-    if (DRAG.scroller) {
-      var box = DRAG.scroller.getBoundingClientRect();
-      var nat = DRAG.boxes[DRAG.from].top - ds;   /* where it sits with no translate */
-      var h = DRAG.boxes[DRAG.from].h;
-      /* The scroller's PADDING box, not its border box. The bottom of this
-         screen is reserved for the floating tab bar, which is why the list
-         has that much padding under it; clamped to the border box the card
-         parked itself behind the tab bar and you lost sight of the thing
-         you were holding. */
-      var top = box.top + DRAG.inset[0], bot = box.bottom - DRAG.inset[1];
-      if (nat + dy < top) dy = top - nat;
-      else if (nat + dy + h > bot) dy = bot - h - nat;
+    if (DRAG.scroller && window.LKReorder && LKReorder.clampDy) {
+      dy = LKReorder.clampDy(dy, DRAG.boxes[DRAG.from], DRAG.scroller, DRAG.inset, ds);
     }
     return dy;
   }
@@ -54015,11 +54389,11 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
          every later translate. The finger's depth into the card is kept
          where it will fit on the tab, clamped 8px in from either end so a
          card grabbed by its bottom edge does not hang off the hand. */
-      var hold = Math.max(8, Math.min(grabDY, boxes[e].h - 8));
-      var anchor = (y0 - hold) - boxes[e].top;
+      var anchor = window.LKReorder && LKReorder.anchorFor
+        ? LKReorder.anchorFor(y0, grabDY, boxes[e]) : 0;
       DRAG = { from: e, to: e, y0: y0, cards: cards, boxes: boxes, h: pitch,
                dy: anchor, anchor: anchor, v: 0, t: 0, cy: y0,
-               topRaf: null, armed: false, inset: scrollInset(body),
+               glide: null, armed: false, inset: scrollInset(body),
                scroller: body, s0: body ? body.scrollTop : 0 };
       card.style.zIndex = '20';
       /* Carried, not re-targeted. The card comes to the hand at once, but
@@ -54056,7 +54430,10 @@ DEMO.define("workout-log", function (document, window, location, fetch) {
          two are never writing scrollTop in the same frame. */
       if (window.LKReorder && LKReorder.edgeScroll) {
         DRAG.stopEdge = LKReorder.edgeScroll(body,
-          function () { return DRAG ? (DRAG.topRaf ? NaN : DRAG.cy) : NaN; },
+          function () {
+            if (!DRAG) return NaN;
+            return DRAG.glide && DRAG.glide.running ? NaN : DRAG.cy;
+          },
           function () { if (DRAG) placeDrag(DRAG.cy); });
       }
     }, HOLD_MS);

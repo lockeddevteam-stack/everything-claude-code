@@ -1882,12 +1882,54 @@ textarea, select {
 /* Swipe to remove. The iOS way to destroy one row without putting a
    trash can on every row. The red action exists in the DOM only while a
    row is open, so a list at rest carries no destructive control. */
-.swipe { position: relative; overflow: hidden; background: var(--error-solid); }
-.swipe__pane { position: relative; touch-action: pan-y; transition: transform var(--dur-slow) var(--spring-snappy); }
-.swipe[data-open="true"] .swipe__pane { transform: translateX(calc((var(--sp-6) * 2 + var(--sp-5)) * -1)); }
+/* TWO LANES WHERE THE ROW HAS TWO ANSWERS. A planned lift can be replaced
+   as well as thrown away, and replacing is the one people reach for more
+   often, so it sits in front of Delete and in the ordinary surface tone --
+   red is reserved for the one that loses something. One lane wide is still
+   the default: a row that only deletes is unchanged. */
+.swipe { --swipe-lane: calc(var(--sp-6) * 2 + var(--sp-5)); --swipe-open: var(--swipe-lane);
+  position: relative; overflow: hidden; background: var(--error-solid); }
+.swipe[data-lanes="2"] {
+  --swipe-open: calc(var(--swipe-lane) * 2);
+  /* What is underneath, while the pull is still happening and the two
+     buttons have not been drawn yet: the quiet lane and then the red one,
+     in the places they are about to appear. A pull that reveals one flat
+     red band and then resolves into Replace-and-Delete tells you, for as
+     long as the pull lasts, that you are about to lose something. */
+  background: linear-gradient(to right,
+    var(--fill-raised) 0 calc(100% - var(--swipe-lane)),
+    var(--error-solid) calc(100% - var(--swipe-lane)) 100%);
+}
+/* THE ROW GIVES GROUND; IT DOES NOT LEAVE.
+
+   This used to slide the whole row left by however much was revealed,
+   which is what a dock does on iOS -- except an iOS row is mostly empty
+   and this one is a lift's name. With one lane open a long name lost its
+   first 88px; with Replace and Delete open it lost 176 and there was
+   nothing left of "Barbell Bench Press" but the tail of a word at the
+   screen edge. A reader looking at a Delete button could not see which
+   lift it belonged to, which is the one thing that has to be true of a
+   destructive control.
+
+   So the pane stays where it is and gives up width instead: the buttons
+   take their room off the right hand end and the name stays exactly where
+   it has always been, ending in an ellipsis when there is no longer room
+   for all of it. Truncated rather than covered, because a name that runs
+   under a button is cut mid-letter and says nothing about how much of it
+   is missing.
+
+   Padding rather than width, so nothing inside the row is asked to
+   recompute its own box. */
+.swipe__pane { position: relative; touch-action: pan-y; transition: padding-right var(--dur-slow) var(--spring-snappy); }
+.swipe[data-open="true"] .swipe__pane { padding-right: var(--swipe-open); }
+/* One line, so the row is the same height whether it is open or not. A
+   name that wrapped to two lines at rest and truncated to one under the
+   thumb would move every row below it in the middle of a gesture. This is
+   the same rule .row__sub has carried for the same reason. */
+.swipe .row__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .swipe__action {
   position: absolute; top: 0; right: 0; bottom: 0;
-  width: calc(var(--sp-6) * 2 + var(--sp-5));
+  width: var(--swipe-lane);
   display: flex; align-items: center; justify-content: center;
   background: var(--error-solid);
   color: var(--text-on-solid);
@@ -1896,6 +1938,16 @@ textarea, select {
   font-weight: var(--w-semibold);
 }
 .swipe__action:active { background: var(--error); color: var(--text-on-accent); }
+/* The quiet lane sits in front of the red one and is not red: it changes
+   the lift rather than losing it. --fill-raised is the ground this app
+   already gives a control that is raised off a card, so it reads as a
+   button in both themes without a new colour. */
+.swipe__action--quiet {
+  right: var(--swipe-lane);
+  background: var(--fill-raised);
+  color: var(--text);
+}
+.swipe__action--quiet:active { background: var(--fill-raised-press); color: var(--text); }
 /* A separator between rows survives the swipe wrapper. */
 .swipe + .swipe .row { box-shadow: inset 0 1px 0 var(--hairline); }
 @media (prefers-reduced-motion: reduce) {
@@ -4784,3 +4836,23 @@ textarea,
 .presc__sets { width: 5ch; }
 .presc__reps { width: 9ch; }
 .presc__x { flex: none; color: var(--text-tertiary); font-size: var(--type-13); line-height: var(--lh-13); }
+
+/* AND THE SAME PRESCRIPTION AT REST, AS A FIGURE.
+
+   The line under a planned lift used to read "Mid Chest * 4 x 8-12", all
+   of it one grey, which buries the only part of the row that is a number.
+   Three by eight is what the day is asking of you, so it is set in the
+   reading tone and tabular, the way every weight and set count in this app
+   is, and the muscle goes behind it in the tertiary tone. No new type
+   size, no new colour: both are tokens this row already had. */
+.presc__fig { color: var(--text); font-weight: var(--w-medium); }
+.presc__for { color: var(--text-tertiary); margin-left: var(--sp-2); }
+
+/* FOLDED, so a day's order fits on one screen while it is being changed.
+   The same idea as a workout log card folding to a tab, on the two things
+   the split builder puts in a list: a lift inside a day, and a day. What
+   is left is the name and the handle, because that is all the order is. */
+.row--tab { min-height: var(--tap); }
+.card--tab > .daycard__foot,
+.card--tab .daycard__note { display: none; }
+.card--tab { transition: translate 300ms var(--reorder-ease); }

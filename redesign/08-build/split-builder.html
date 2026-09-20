@@ -312,6 +312,10 @@
     lifted: null,          /* testid of the lifted item's grip */
     swipe: null,           /* id of the exercise row swiped open */
     dragging: null,
+    /* Which list is being carried, and whose. The screen folds itself
+       around this: 'ex' or 'day', and the day a carried lift belongs to. */
+    dragKind: null,
+    dragDay: null,
     modal: null,           /* {type:'leave'|'pick'|'swap', ...} */
     toast: null,
     dev: false
@@ -417,17 +421,30 @@
   /* At rest an exercise is a line of text. The only way to destroy one is
      the iOS way: swipe it left, which reveals exactly one red button and
      leaves an Undo behind. In Edit the row grows a handle and a delete. */
-  /* "Mid Chest \u00b7 4 \u00d7 8-12", or just the muscle where the day says
-     nothing about how to train the lift. A day with no prescription is the
-     ordinary case -- every split already on a phone is one -- so nothing is
-     printed rather than a zero, which would be a claim nobody made. */
+  /* "3 \u00d7 8", then the muscle, quietly, beside it.
+
+     THE NUMBERS COME FIRST NOW. The line under the name used to read "Mid
+     Chest \u00b7 4 \u00d7 8-12" in one flat grey, which puts the one part of
+     the row that is a figure last and in the tone of a caption. What a day
+     tells you about a lift is how much of it to do, so the figure is the
+     figure -- tabular, in the reading tone, the same treatment a weight or
+     a set count gets everywhere else in this app -- and the muscle sits
+     behind it in the tertiary tone.
+
+     Three things this deliberately does not do: it does not round a range
+     down to one number, so "8-12" stays "8-12"; it does not turn AMRAP
+     into a count, because a lift taken to failure has no count; and where
+     a day prescribes nothing it prints the muscle alone rather than a
+     zero, which would be a claim nobody made. Every split already on a
+     phone is in that last case. */
   function presSub(x) {
     var P = window.LKPrescription;
     var t = P ? P.text(x.sets, x.reps) : '';
     var mus = x.muscle || '';
     if (!t) return esc(mus);
-    return (mus ? esc(mus) + ' \u00b7 ' : '') +
-      '<span data-num data-testid="ex-presc-' + x.id + '">' + esc(t) + '</span>';
+    return '<span class="presc__fig" data-num data-testid="ex-presc-' + x.id + '">' +
+        esc(t) + '</span>' +
+      (mus ? '<span class="presc__for">' + esc(mus) + '</span>' : '');
   }
 
   /* The two fields, in Edit. Sets is a count and reps is text, because a
@@ -450,13 +467,31 @@
     '</div>';
   }
 
+  /* CHANGING A LIFT WITHOUT LOSING ITS PLACE.
+
+     A saved day could only be changed by deleting a lift and adding
+     another, which puts the new one at the bottom of the day and throws
+     away the sets and reps the old one carried. A live workout has had
+     "Swap exercise" for a while and it means the right thing there: the
+     new movement lands where the old one was and the work already done
+     stays. This is the same idea on a planned day.
+
+     WHERE THE CONTROL LIVES. The swipe already on this row, as a second
+     lane in front of Delete, which is where iOS puts the non-destructive
+     half of a row's actions. The row in Edit already carries a handle, two
+     fields and a delete; a fifth control on it would be the one the thumb
+     misses. So a swipe reveals both, the quiet one first and the red one
+     at the end, and the list at rest still carries neither. */
   function exerciseRow(x, day, i, n) {
     var m = S.manual;
     if (!m.edit) {
       var open = S.swipe === x.id;
-      return '<div class="swipe" data-swipe="1" data-id="' + x.id + '" data-day="' + day.id +
+      return '<div class="swipe" data-swipe="1" data-lanes="2" data-id="' + x.id + '" data-day="' + day.id +
           '" data-open="' + (open ? 'true' : 'false') + '">' +
-        (open ? '<button class="swipe__action" data-testid="ex-remove-' + x.id + '" data-action="ex-remove" data-id="' + x.id +
+        (open ? '<button class="swipe__action swipe__action--quiet" data-testid="ex-replace-' + x.id +
+          '" data-action="ex-replace" data-id="' + x.id + '" data-day="' + day.id +
+          '" aria-label="Replace ' + esc(x.name) + ' in ' + esc(day.name) + '">Replace</button>' +
+          '<button class="swipe__action" data-testid="ex-remove-' + x.id + '" data-action="ex-remove" data-id="' + x.id +
           '" data-day="' + day.id + '" aria-label="Remove ' + esc(x.name) + ' from ' + esc(day.name) + '">Delete</button>' : '') +
         '<div class="swipe__pane">' +
           '<div class="row">' +
@@ -470,9 +505,20 @@
     }
     var gripId = 'ex-grip-' + x.id;
     var lifted = S.lifted === gripId;
+    var folded = S.dragKind === 'ex';
+    /* FOLDED TO A TAB while anything in this day is being carried. The name
+       is what you are putting in order; the muscle, the two fields and the
+       delete are not, and every pixel of them is a pixel of the order that
+       does not fit on the screen. */
+    if (folded) {
+      return '<div class="row row--tab is-lifting' +
+          (S.dragging === gripId ? ' sortable__item--dragging is-dragging' : '') +
+          '" style="--wiggle-i:' + i + '" data-sortable="1" data-id="' + x.id + '" data-day="' + day.id + '">' +
+        gripBtn(gripId, 'Reorder ' + x.name + ', position ' + (i + 1) + ' of ' + n, lifted) +
+        '<div class="row__main"><div class="row__title truncate">' + esc(x.name) + '</div></div>' +
+      '</div>';
+    }
     return '<div class="row sortable__item' + (lifted ? ' sortable__item--lifted' : '') +
-        (S.dragging ? ' is-lifting' : '') +
-        (S.dragging === gripId ? ' sortable__item--dragging is-dragging' : '') +
         '" style="--wiggle-i:' + i + '" data-sortable="1" data-id="' + x.id + '" data-day="' + day.id + '">' +
       gripBtn(gripId, 'Reorder ' + x.name + ', position ' + (i + 1) + ' of ' + n, lifted) +
       '<div class="row__main">' +
@@ -485,10 +531,23 @@
     '</div>' + (lifted ? moveBar('ex', x.id, day.id, i === 0, i === n - 1) : '');
   }
 
+  /* A DAY IS A LIST INSIDE A CARD INSIDE A LIST OF DAYS, which is the one
+     thing about this screen that the workout log's fold does not have to
+     think about. Folding the day you are reordering lifts inside is not
+     enough: two days above it are still hundreds of pixels of list, so the
+     order still does not fit on a screen. So the moment anything is picked
+     up, EVERY day closes to its heading, and the only day that keeps its
+     lifts is the one the lift being carried belongs to. Pick a day up
+     instead and all of them close, including that one.
+
+     The two lists never wiggle together either. Only the list being
+     dragged says it can be moved, because a day shaking while a lift
+     inside it is being carried reads as an offer to move the day. */
   function dayCard(day, i, n) {
     var m = S.manual;
     var gripId = 'day-grip-' + day.id;
     var lifted = S.lifted === gripId;
+    var folded = !!S.dragKind && !(S.dragKind === 'ex' && S.dragDay === day.id);
     var rows = day.exercises.length
       ? '<div data-sortlist="ex:' + day.id + '">' + day.exercises.map(function (x, j) {
           return exerciseRow(x, day, j, day.exercises.length);
@@ -514,11 +573,19 @@
           '</div>' +
         '</div>';
 
-    return '<div class="card card--flush' + (m.edit ? ' sortable__item' : '') +
+    var shell = '<div class="card card--flush' + (m.edit ? ' sortable__item' : '') +
         (m.edit && lifted ? ' sortable__item--lifted' : '') +
-        (m.edit && S.dragging ? ' is-lifting' : '') +
+        (S.dragKind === 'day' ? ' is-lifting' : '') +
+        (S.dragKind ? ' card--tab' : '') +
         (m.edit && S.dragging === gripId ? ' sortable__item--dragging is-dragging' : '') + '"' +
-        (m.edit ? ' data-sortable="1"' : '') + ' style="--wiggle-i:' + i + '" data-id="' + day.id + '">' +
+        (m.edit ? ' data-sortable="1"' : '') + ' style="--wiggle-i:' + i + '" data-id="' + day.id + '">';
+    if (folded) return shell + head + '</div>';
+    /* The day the carried lift lives in keeps its lifts and nothing else.
+       Its warning, its blocks and its two Add buttons are not part of the
+       order, and every one of them is a row of the order pushed off the
+       bottom of the screen. */
+    if (S.dragKind) return shell + head + rows + '</div>';
+    return shell +
       head +
       (m.edit && lifted ? moveBar('day', day.id, null, i === 0, i === n - 1) : '') +
       volumeNote(day) +
@@ -646,7 +713,7 @@
 
     var hint = m.edit
       ? 'Drag a handle to reorder, or tap it to move with buttons. Tap Done when you are finished.'
-      : 'Swipe a lift left to remove it. Tap Edit to reorder, rename or delete.';
+      : 'Swipe a lift left to change it for another or take it out. Tap Edit to reorder, rename or set how many sets and reps.';
 
     var days = '<div class="section">' +
       '<div class="section__head"><h2 class="t-label">Days</h2>' +
@@ -1092,7 +1159,9 @@
           }).join('') +
         '</div>' +
       '</div>' +
-      '<p class="t-detail quiet mt-2">Tap the part this day trains.</p>' +
+      '<p class="t-detail quiet mt-2" data-testid="pick-map-note">' +
+        (replacingIn(m) ? 'Tap the part you want instead of ' + esc(replacingIn(m).name) + '.'
+                        : 'Tap the part this day trains.') + '</p>' +
       '<div class="card card--flush mt-3" data-testid="pick-groups">' +
         (window.LKExercises ? LKExercises.groups : []).map(function (gr) {
           var c = counts[gr[0]] || { n: 0 };
@@ -1182,7 +1251,9 @@
     return note + '<div class="card card--flush">' + list.slice(0, 60).map(function (x, i) {
       return '<button class="row" data-testid="pick-' + i + '" data-action="pick-add" data-name="' + esc(x.name) + '" data-muscle="' + esc(x.muscle) + '" data-exid="' + (x.id || '') + '" data-id="' + m.id + '">' +
         '<div class="row__main"><div class="row__title">' + esc(x.name) + '</div><div class="row__sub">' + esc(x.muscle) + '</div></div>' +
-        '<span class="row__chev">' + ico('plus') + '</span></button>';
+        /* The glyph says which of the two this tap does: one adds a lift to
+           the day, the other stands in for one already in it. */
+        '<span class="row__chev">' + ico(replacingIn(m) ? 'swap' : 'plus') + '</span></button>';
     }).join('') + '</div>' +
     (list.length > 60
       ? '<p class="t-detail quiet mt-2" data-testid="pick-more">' + (list.length - 60) +
@@ -1300,14 +1371,25 @@
     } catch (e) {}
   }
 
+  /* The lift this picker is standing in for, or nothing when it is adding
+     one. Asked in three places -- the title, the note over the body and
+     the commit -- so it is one function. */
+  function replacingIn(m) {
+    return m && m.replace ? findEx(m.id, m.replace) : null;
+  }
+
   function pickSheet(m) {
     var list = pickRows(m);
     var day = S.manual.days.filter(function (d) { return d.id === m.id; })[0];
+    var old = replacingIn(m);
+    var title = old ? 'Replacing: ' + esc(old.name) : 'Add to ' + esc(day ? day.name : '');
     return '<div class="scrim" data-testid="scrim" data-action="close-modal"></div>' +
-      '<div class="sheet" role="dialog" aria-modal="true" aria-label="Add an exercise" data-testid="pick-sheet" data-detents="0.55 0.88" data-detent-open="0.88">' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-label="' +
+        (old ? 'Replace ' + esc(old.name) : 'Add an exercise') +
+        '" data-testid="pick-sheet" data-detents="0.55 0.88" data-detent-open="0.88">' +
         '<div class="sheet__grab" data-sheet-drag aria-hidden="true"></div>' +
         '<div class="sheet__head">' +
-          '<div><div class="t-section">Add to ' + esc(day ? day.name : '') + '</div>' +
+          '<div><div class="t-section" data-testid="pick-title">' + title + '</div>' +
           '<div class="t-meta">' + list.length + ' exercises</div></div>' +
           '<button class="iconbtn" data-testid="pick-close" data-action="close-modal" aria-label="Close exercise list">' + ico('close') + '</button>' +
         '</div>' +
@@ -1386,7 +1468,8 @@
     S.ai = { status: 'idle', note: '', plan: null, error: null, step: 0 };
     if (S.photo && S.photo.url) { try { URL.revokeObjectURL(S.photo.url); } catch (e) {} }
     S.photo = { file: null, url: null, size: '', note: '', error: null };
-    S.lifted = null; S.dragging = null; S.modal = null; S.toast = null; S.swipe = null;
+    S.lifted = null; S.dragging = null; S.dragKind = null; S.dragDay = null;
+    S.modal = null; S.toast = null; S.swipe = null;
   }
 
   function renderDev() {
@@ -1891,6 +1974,22 @@
       render();
     },
     'ex-remove': function (el) { removeExercise(el.getAttribute('data-day'), el.getAttribute('data-id')); },
+    /* REPLACING A LIFT IS THE SAME PICKER, TOLD WHO IT IS STANDING IN FOR.
+       The live workout does exactly this -- "Replacing: <name>" over the
+       body, opened on the part the old lift trains, because most
+       replacements stay in the same place and that makes it one tap. The
+       alternative was a second picker for planned days, and two pickers
+       for one question is two things to keep in step. */
+    'ex-replace': function (el) {
+      var dayId = el.getAttribute('data-day'), exId = el.getAttribute('data-id');
+      var x = findEx(dayId, exId);
+      S.swipe = null;
+      S.modal = { type: 'pick', id: dayId, replace: exId, q: '',
+                  gid: (window.LKExercises && LKExercises.gidOf && x)
+                    ? LKExercises.gidOf(x) : null,
+                  sub: null, view: 'front' };
+      render();
+    },
     /* Opens on the body, with no part chosen: a group left over from the
        last exercise added is not an answer to this one. */
     'add-exercise': function (el) {
@@ -1983,14 +2082,48 @@
     },
     'pick-add': function (el) {
       var day = findDay(el.getAttribute('data-id'));
-      var row = ex(el.getAttribute('data-name'), el.getAttribute('data-muscle'));
+      var name = el.getAttribute('data-name'), muscle = el.getAttribute('data-muscle');
       /* The catalogue id, where the picker knows it. Without it a lift added
          here was saved under a generated id no other screen recognises. */
       var exid = Number(el.getAttribute('data-exid'));
+      var replacing = S.modal && S.modal.replace
+        ? findEx(day.id, S.modal.replace) : null;
+      if (replacing) {
+        /* IN PLACE, AND IT KEEPS THE PRESCRIPTION.
+
+           The slot is the obvious half: a lift changed in the middle of a
+           day belongs in the middle of that day, and deleting and re-adding
+           put it at the bottom.
+
+           The sets and reps are the half worth arguing about, including
+           when the new lift trains something else. They stay. Three by
+           eight is a statement about how you are training that day --
+           heavy, low reps, or long sets near failure -- and swapping a
+           barbell row for a pulldown does not change your mind about that.
+           The alternative is a day that quietly loses its plan because
+           somebody changed a machine, which is the bug this feature exists
+           to fix. If the numbers are wrong for the new lift they are two
+           fields away in Edit. */
+        var was = { name: replacing.name, muscle: replacing.muscle, exId: replacing.exId };
+        replacing.name = name;
+        replacing.muscle = muscle || '';
+        if (exid) replacing.exId = exid; else delete replacing.exId;
+        S.modal = null;
+        markDirty();
+        toast(was.name + ' is now ' + name + '.', 'Undo', function () {
+          replacing.name = was.name;
+          replacing.muscle = was.muscle;
+          if (was.exId) replacing.exId = was.exId; else delete replacing.exId;
+          markDirty();
+        });
+        render();
+        return;
+      }
+      var row = ex(name, muscle);
       if (exid) row.exId = exid;
       day.exercises.push(row);
       markDirty();
-      toast('Added ' + el.getAttribute('data-name') + ' to ' + day.name + '.');
+      toast('Added ' + name + ' to ' + day.name + '.');
       render();
     },
     'move-day': function (el) {
@@ -2190,7 +2323,10 @@
     if (!wrap) return;
     var pane = wrap.querySelector('.swipe__pane');
     var startX = e.clientX, startY = e.clientY;
-    var reveal = 88;                                  /* --sp-6 * 2 + --sp-5 */
+    /* One lane is 88px (--sp-6 * 2 + --sp-5) and this row has two of them:
+       Replace, then Delete. Read off the row rather than assumed, so the
+       day list and the lift list cannot drift apart. */
+    var reveal = 88 * (wrap.getAttribute('data-lanes') === '2' ? 2 : 1);
     var base = wrap.getAttribute('data-open') === 'true' ? -reveal : 0;
     var axis = null, dx = base;
 
@@ -2204,7 +2340,14 @@
       if (axis !== 'x') return;
       if (ev.cancelable) ev.preventDefault();
       dx = Math.min(0, Math.max(-wrap.offsetWidth, base + (ev.clientX - startX)));
-      pane.style.transform = 'translateX(' + dx + 'px)';
+      /* THE ROW GIVES GROUND RATHER THAN LEAVING. It used to ride the
+         finger on a translate, which takes the lift's name off the left
+         edge of the screen -- so the row under the thumb was the only one
+         in the list you could not identify, at the moment it was offering
+         to delete itself. The dock takes its room off the right hand end
+         instead and the name stays where it is, ending in an ellipsis
+         when there is no longer room for all of it. */
+      pane.style.paddingRight = Math.max(0, -dx) + 'px';
     }
     function onUp() {
       document.removeEventListener('pointermove', onMove);
@@ -2212,9 +2355,15 @@
       document.removeEventListener('pointercancel', onUp);
       if (axis !== 'x') return;
       pane.style.transition = '';
-      pane.style.transform = '';
+      pane.style.paddingRight = '';
       var id = wrap.getAttribute('data-id');
-      if (dx <= -(wrap.offsetWidth * 0.45)) { removeExercise(wrap.getAttribute('data-day'), id); return; }
+      /* PAST BOTH LANES, not merely past them. The row opens to 176px now
+         that it offers Replace as well as Delete, and 45% of a 393px row
+         is 177 -- so the pull that opens the pair was landing one pixel
+         short of throwing the lift away. The destructive threshold sits a
+         lane clear of where the row comes to rest. */
+      var doomed = Math.max(wrap.offsetWidth * 0.45, reveal + 88);
+      if (dx <= -doomed) { removeExercise(wrap.getAttribute('data-day'), id); return; }
       S.swipe = dx <= -(reveal / 2) ? id : null;
       render();
     }
@@ -2248,11 +2397,26 @@
       for (var i = 0; i < arr.length; i++) if (String(arr[i].id) === want) return i;
       return -1;
     },
+    /* THE WHOLE SCREEN FOLDS WHEN ANYTHING IS PICKED UP, which is what
+       LKReorder is told by `fold` so it knows to take the list back to its
+       top and to keep the row under the finger across the change. */
+    fold: true,
     lift: function (i, item) {
-      S.dragging = i < 0 ? null
-        : (item.querySelector('[data-grip]') || {}).getAttribute
-          ? item.querySelector('[data-grip]').getAttribute('data-testid') : null;
-      if (i >= 0) S.lifted = null;
+      if (i < 0) {
+        S.dragging = null; S.dragKind = null; S.dragDay = null;
+        render();
+        return;
+      }
+      var grip = item.querySelector('[data-grip]');
+      S.dragging = grip ? grip.getAttribute('data-testid') : null;
+      S.dragDay = item.getAttribute('data-day');
+      /* A lift carries a day attribute and a day does not. That is the
+         only difference between the two lists on this screen, and it is
+         also what stops a drag that started on a lift from ever picking
+         the day up: the handle inside a row belongs to the row, and the
+         row is the nearest thing that can be sorted. */
+      S.dragKind = S.dragDay ? 'ex' : 'day';
+      S.lifted = null;
       render();
     },
     /* The screen replaces its DOM on every render, so the element handed

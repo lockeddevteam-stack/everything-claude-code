@@ -299,6 +299,120 @@
     return function stop() { dead = true; if (raf) cancelAnimationFrame(raf); };
   }
 
+  /* ---------------------------------------------------------------
+     THE FOLD, AND STAYING UNDER THE FINGER ACROSS IT.
+
+     These three were written for the workout log and lived there, which
+     meant the one list in the app that folds was also the only list that
+     could be dragged properly. They are the same three problems on every
+     list long enough to need them, so they are here now and the log calls
+     them rather than keeping its own copy.
+
+     WHY A LIST FOLDS AT ALL. Dragging a 300px card past other 300px cards
+     means the thing you are moving covers the gap it is meant to land in,
+     and a list of eight is several screens long. Folded to tabs the whole
+     order is on one screen and the gap is visible. The fold itself belongs
+     to the host -- it is that screen's own markup and its own classes --
+     but everything the fold BREAKS is geometry, and geometry is this
+     module's job.
+
+     WHAT IT BREAKS, in the order it was found:
+
+     1. The card jumps out of your hand. Every height on screen changes in
+        the same frame, and the browser clamps the scroll on top of that,
+        so the card you were holding ends up hundreds of pixels from your
+        finger and every millimetre of the drag afterwards is offset by
+        that gap. `anchorFor` is the translate that puts the grab point
+        back under the finger, measured BEFORE the fold and applied after
+        it, and it rides along with every later translate.
+
+     2. You are parked where the list used to be long. Folding is worth
+        nothing if you are still nine hundred pixels down where the eighth
+        card was. `glide` runs the list back to its top while the card is
+        held, and it is a glide rather than a jump so what a reader sees is
+        the list running up underneath something they are still holding.
+
+     3. The card can leave the list. Drag a row to the top of a table on
+        iOS and it stops against the edge; the content runs underneath it.
+        `clampDy` pins it inside the scroller's PADDING box -- the border
+        box would park it behind a floating tab bar -- and lets the edge
+        creep do the travelling.
+     --------------------------------------------------------------- */
+
+  /* How much of the scroller is reserved rather than list. Read once at
+     the lift: getComputedStyle every frame of a drag is not free. */
+  function scrollInset(el) {
+    if (!el) return [0, 0];
+    try {
+      var cs = getComputedStyle(el);
+      return [parseFloat(cs.paddingTop) || 0, parseFloat(cs.paddingBottom) || 0];
+    } catch (e) { return [0, 0]; }
+  }
+
+  /* `grab` is how far down the row the finger landed, read before the
+     fold; `box` is where that row sits after it. Kept where it will fit on
+     a folded row, clamped 8px in from either end so a card grabbed by its
+     bottom edge does not hang off the hand. */
+  function anchorFor(y0, grab, box) {
+    if (!box) return 0;
+    var hold = Math.max(8, Math.min(grab, box.h - 8));
+    return (y0 - hold) - box.top;
+  }
+
+  /* The row stays inside the list and the list moves instead. `ds` is how
+     far the scroller has travelled since the lift, because `box` was read
+     in viewport coordinates at that moment. */
+  function clampDy(dy, box, scroller, inset, ds) {
+    if (!scroller || !box) return dy;
+    var b = scroller.getBoundingClientRect();
+    var nat = box.top - (ds || 0);
+    var top = b.top + (inset ? inset[0] : 0);
+    var bot = b.bottom - (inset ? inset[1] : 0);
+    if (nat + dy < top) return top - nat;
+    if (nat + dy + box.h > bot) return bot - box.h - nat;
+    return dy;
+  }
+
+  /* 280ms on an ease-out, which is the length of a sheet arriving in this
+     app and short enough that it is over before anybody decides to move.
+     `onFrame` is called after every step so the host can put the row back
+     under the finger: the scroll delta goes straight into its translate
+     and it sits still while everything else slides past it.
+
+     Anybody who has asked for less motion still ends up at the top -- that
+     is what makes the whole list reachable -- they just do not get three
+     hundred milliseconds of scenery on the way. */
+  var TOP_GLIDE_MS = 280;
+  function glide(scroller, onFrame) {
+    var h = { running: false, raf: null,
+              cancel: function () {
+                h.running = false;
+                if (h.raf) cancelAnimationFrame(h.raf);
+                h.raf = null;
+              } };
+    if (!scroller || scroller.scrollTop <= 0) return h;
+    var from = scroller.scrollTop;
+    if (g.matchMedia && g.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      scroller.scrollTop = 0;
+      if (onFrame) onFrame();
+      return h;
+    }
+    h.running = true;
+    var t0 = null;
+    function step(ts) {
+      if (!h.running) return;
+      if (t0 == null) t0 = ts;
+      var p = Math.min(1, (ts - t0) / TOP_GLIDE_MS);
+      scroller.scrollTop = Math.round(from * Math.pow(1 - p, 3));
+      if (onFrame) onFrame();
+      if (p < 1) { h.raf = requestAnimationFrame(step); return; }
+      h.raf = null;
+      h.running = false;
+    }
+    h.raf = requestAnimationFrame(step);
+    return h;
+  }
+
   function buzz(p) { try { if (g.navigator && navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
 
   function attach(doc, opts) {
@@ -328,8 +442,20 @@
     function measure(rows) {
       return rows.map(function (r) {
         var b = r.getBoundingClientRect();
-        return { mid: b.top + b.height / 2, h: b.height };
+        return { mid: b.top + b.height / 2, h: b.height, top: b.top };
       });
+    }
+
+    /* The translate that puts the row where the finger is, given the fold
+       it survived and wherever the list has scrolled to since. Wanted in
+       three places -- the lift, every move, and every nudge of the creep --
+       and it has to be the same sum in all three or the row and its drop
+       target disagree by however far the fold moved it. */
+    function dragDy(clientY) {
+      if (!DRAG) return 0;
+      var ds = DRAG.scroller ? DRAG.scroller.scrollTop - DRAG.s0 : 0;
+      var dy = clientY - DRAG.y0 + ds + (DRAG.anchor || 0);
+      return clampDy(dy, DRAG.boxes[DRAG.from], DRAG.scroller, DRAG.inset, ds);
     }
 
     function clearStyles(rows) { rows.forEach(clear); }
@@ -345,6 +471,7 @@
       if (!DRAG) return;
       var d = DRAG; DRAG = null;
       if (d.stopEdge) d.stopEdge();
+      if (d.glide) d.glide.cancel();
       var el = d.rows[d.from];
       var adj = d.to > d.from ? d.to - 1 : d.to;
       var landed = commit && d.to !== null ? (adj - d.from) * d.h : 0;
@@ -381,6 +508,12 @@
         clearHold();
         var from = opts.index ? opts.index(item) : rowsFor(item).indexOf(item);
         if (from < 0) return;
+        /* WHERE ON THE ROW THE FINGER IS, read before anything folds. This
+           is the one measurement that has to happen first: it is how far
+           down the thing you grabbed you grabbed it, and it is what keeps
+           the row under your hand once every height on screen has changed. */
+        var grab = 0;
+        try { grab = y0 - item.getBoundingClientRect().top; } catch (e) {}
         /* LIFTED FIRST, MEASURED SECOND. The lift class changes heights --
            a list that folds its rows changes them a lot -- and geometry
            read before that puts every drop target where the rows used to
@@ -394,15 +527,39 @@
         DRAG = { from: from, to: from, y0: y0, rows: rows, boxes: boxes,
                  h: pitch(boxes, from), item: live, dy: 0, v: 0, t: 0,
                  scroller: scroller, s0: scroller ? scroller.scrollTop : 0,
-                 y: y0 };
+                 y: y0, inset: scrollInset(scroller),
+                 anchor: anchorFor(y0, grab, boxes[from]),
+                 /* NOT UNTIL THE FINGER HAS ACTUALLY MOVED. The lift brings
+                    the row to the hand, and on a folded list that alone
+                    puts it over a different slot -- so a press and release
+                    with no drag in it would have quietly reordered the
+                    list. The gap only follows once there is a drag. */
+                 armed: false, glide: null };
         if (rows[from]) rows[from].style.zIndex = '20';
+        /* Carried, not re-targeted: the row comes to the hand at once and
+           the gap stays in its own slot until the finger moves. */
+        carry(rows[from], DRAG.dy = dragDy(y0));
         /* NaN, not 0, once the drag is over. Zero is a real coordinate --
            it is the top of the screen -- and the band now reaches past the
            scroller's edge, so reporting it would have the list creeping
            upwards after the finger had gone. */
+        /* While the glide is running the finger is reported as nowhere, so
+           the two are never writing scrollTop in the same frame. */
         DRAG.stopEdge = edgeScroll(scroller,
-          function () { return DRAG ? DRAG.y : NaN; },
+          function () {
+            if (!DRAG) return NaN;
+            return DRAG.glide && DRAG.glide.running ? NaN : DRAG.y;
+          },
           function () { if (DRAG) place(DRAG.y, 0); });
+        /* BACK TO THE TOP OF THE LIST, WHICH IS THE POINT OF FOLDING IT.
+           Asked for by the host, because a list that does not fold has not
+           got shorter and running it to its top would only take the reader
+           away from what they were looking at. */
+        if (opts.fold) {
+          DRAG.glide = glide(scroller, function () {
+            if (DRAG) carry(DRAG.rows[DRAG.from], DRAG.dy = dragDy(DRAG.y));
+          });
+        }
         /* ONE BUZZ, 20ms. v6 fired 30 and then 20 back to back from two
            different places, and a second vibrate() cancels the first --
            so what the shipped app's hand actually felt was the 20. */
@@ -422,11 +579,11 @@
        and drops itself four places above where it is sitting. */
     function place(clientY, dt) {
       if (!DRAG) return;
-      var ds = DRAG.scroller ? DRAG.scroller.scrollTop - DRAG.s0 : 0;
-      var dy = clientY - DRAG.y0 + ds;
-      DRAG.dy = dy;
       DRAG.y = clientY;
+      var dy = dragDy(clientY);
+      DRAG.dy = dy;
       carry(DRAG.rows[DRAG.from], dy);
+      if (!DRAG.armed) return;
       var y = (DRAG.boxes[DRAG.from] ? DRAG.boxes[DRAG.from].mid : 0) + dy;
       var to = DRAG.boxes.length;
       for (var i = 0; i < DRAG.boxes.length; i++) {
@@ -447,13 +604,17 @@
          value -- because a raw frame-to-frame delta on a finger that has
          paused is noise, and noise here throws the row. */
       var now = ev.timeStamp || Date.now();
-      var dy = ev.clientY - DRAG.y0 +
-        (DRAG.scroller ? DRAG.scroller.scrollTop - DRAG.s0 : 0);
+      /* The same sum place makes, anchor and all. Without the anchor the
+         first sample is the whole fold offset measured as one frame of
+         travel, and the drop spring gets seeded with several thousand
+         pixels a second the finger never moved. */
+      var dy = dragDy(ev.clientY);
       if (DRAG.t) {
         var dtm = Math.max(now - DRAG.t, 1);
         DRAG.v = 0.75 * ((dy - DRAG.dy) / dtm * 1000) + 0.25 * DRAG.v;
       }
       DRAG.t = now;
+      DRAG.armed = true;
       place(ev.clientY);
     }
 
@@ -478,7 +639,9 @@
                   carry: carry, shift: shift, clear: clear,
                   layout: layout, shiftFor: shiftFor, pitch: pitch,
                   drop: drop, edgeScroll: edgeScroll,
-                  scrollerFor: scrollerFor,
+                  scrollerFor: scrollerFor, scrollInset: scrollInset,
+                  anchorFor: anchorFor, clampDy: clampDy, glide: glide,
+                  TOP_GLIDE_MS: TOP_GLIDE_MS,
                   DROP_RESPONSE: DROP_RESPONSE, DROP_DAMPING: DROP_DAMPING,
                   LIFT_SCALE: LIFT_SCALE, EDGE_ZONE: EDGE_ZONE };
 })(typeof window !== 'undefined' ? window : this);

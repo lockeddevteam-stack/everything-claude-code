@@ -3994,7 +3994,7 @@
     if (!DRAG) return;
     var d = DRAG; DRAG = null;
     if (d.stopEdge) d.stopEdge();
-    if (d.topRaf) cancelAnimationFrame(d.topRaf);
+    if (d.glide) d.glide.cancel();
     /* NOW, not when the spring finishes. The click that ends a drag lands
        on the grip within the same tick as the pointerup, and the grip's
        click handler opens the move bar; stamping this half a second later
@@ -4045,40 +4045,25 @@
      placeDrag on every frame, so the card does not travel with the list:
      the scroll delta goes straight back into its translate and it sits
      still under the finger while everything else slides past it. */
-  /* How much of the scroller is reserved rather than list. Read once at
-     the lift: getComputedStyle every frame of a drag is not free. */
+  /* THE FOLD'S THREE PROBLEMS LIVE IN LKReorder NOW. They were written
+     here, for this list, and every one of them is the same problem on any
+     list long enough to fold: the card jumping out of the hand, the reader
+     parked where the list used to be long, and the card wandering out from
+     behind the header. The split builder needed all three, and two copies
+     of a gesture is how two surfaces start feeling different. This screen
+     still owns its own drag loop, because it is also the screen where a
+     sideways pull on the same handle throws an exercise away; what it no
+     longer owns is the arithmetic. */
   function scrollInset(el) {
-    if (!el) return [0, 0];
-    try {
-      var cs = getComputedStyle(el);
-      return [parseFloat(cs.paddingTop) || 0, parseFloat(cs.paddingBottom) || 0];
-    } catch (e) { return [0, 0]; }
+    return window.LKReorder && LKReorder.scrollInset
+      ? LKReorder.scrollInset(el) : [0, 0];
   }
 
-  var TOP_GLIDE_MS = 280;
   function glideToTop() {
-    if (!DRAG || !DRAG.scroller) return;
-    var from = DRAG.scroller.scrollTop;
-    if (from <= 0) return;
-    /* Anybody who has asked for less motion still has to end up at the top
-       of the list -- that is what makes the whole workout reachable -- they
-       just do not get three hundred milliseconds of scenery on the way. */
-    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      DRAG.scroller.scrollTop = 0;
-      placeDrag(DRAG.cy);
-      return;
-    }
-    var t0 = null;
-    function step(ts) {
-      if (!DRAG) return;
-      if (t0 == null) t0 = ts;
-      var p = Math.min(1, (ts - t0) / TOP_GLIDE_MS);
-      var k = 1 - Math.pow(1 - p, 3);
-      DRAG.scroller.scrollTop = Math.round(from * (1 - k));
-      placeDrag(DRAG.cy);
-      DRAG.topRaf = p < 1 ? requestAnimationFrame(step) : null;
-    }
-    DRAG.topRaf = requestAnimationFrame(step);
+    if (!DRAG || !DRAG.scroller || !window.LKReorder || !LKReorder.glide) return;
+    DRAG.glide = LKReorder.glide(DRAG.scroller, function () {
+      if (DRAG) placeDrag(DRAG.cy);
+    });
   }
 
   /* The translate that puts the card where the finger is, given where the
@@ -4101,18 +4086,8 @@
        card half behind that header -- you were holding something you could
        not see. Pinned at the edge, the creep does the travelling, which is
        the behaviour the edge creep exists for. */
-    if (DRAG.scroller) {
-      var box = DRAG.scroller.getBoundingClientRect();
-      var nat = DRAG.boxes[DRAG.from].top - ds;   /* where it sits with no translate */
-      var h = DRAG.boxes[DRAG.from].h;
-      /* The scroller's PADDING box, not its border box. The bottom of this
-         screen is reserved for the floating tab bar, which is why the list
-         has that much padding under it; clamped to the border box the card
-         parked itself behind the tab bar and you lost sight of the thing
-         you were holding. */
-      var top = box.top + DRAG.inset[0], bot = box.bottom - DRAG.inset[1];
-      if (nat + dy < top) dy = top - nat;
-      else if (nat + dy + h > bot) dy = bot - h - nat;
+    if (DRAG.scroller && window.LKReorder && LKReorder.clampDy) {
+      dy = LKReorder.clampDy(dy, DRAG.boxes[DRAG.from], DRAG.scroller, DRAG.inset, ds);
     }
     return dy;
   }
@@ -4207,11 +4182,11 @@
          every later translate. The finger's depth into the card is kept
          where it will fit on the tab, clamped 8px in from either end so a
          card grabbed by its bottom edge does not hang off the hand. */
-      var hold = Math.max(8, Math.min(grabDY, boxes[e].h - 8));
-      var anchor = (y0 - hold) - boxes[e].top;
+      var anchor = window.LKReorder && LKReorder.anchorFor
+        ? LKReorder.anchorFor(y0, grabDY, boxes[e]) : 0;
       DRAG = { from: e, to: e, y0: y0, cards: cards, boxes: boxes, h: pitch,
                dy: anchor, anchor: anchor, v: 0, t: 0, cy: y0,
-               topRaf: null, armed: false, inset: scrollInset(body),
+               glide: null, armed: false, inset: scrollInset(body),
                scroller: body, s0: body ? body.scrollTop : 0 };
       card.style.zIndex = '20';
       /* Carried, not re-targeted. The card comes to the hand at once, but
@@ -4248,7 +4223,10 @@
          two are never writing scrollTop in the same frame. */
       if (window.LKReorder && LKReorder.edgeScroll) {
         DRAG.stopEdge = LKReorder.edgeScroll(body,
-          function () { return DRAG ? (DRAG.topRaf ? NaN : DRAG.cy) : NaN; },
+          function () {
+            if (!DRAG) return NaN;
+            return DRAG.glide && DRAG.glide.running ? NaN : DRAG.cy;
+          },
           function () { if (DRAG) placeDrag(DRAG.cy); });
       }
     }, HOLD_MS);
