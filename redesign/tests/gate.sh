@@ -80,6 +80,7 @@ no-dev-controls|node no-dev-controls.mjs
 body-reach|node body-reach.mjs
 muscle-split|node muscle-split.mjs
 catalogue-curation|node catalogue-curation.mjs
+one-search|node one-search.mjs
 portion-dial|node portion-dial.mjs
 generic-names|node generic-names.mjs
 server-reason|node server-reason.mjs

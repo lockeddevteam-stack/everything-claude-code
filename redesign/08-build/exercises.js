@@ -225,9 +225,14 @@
 
   var GID_BY_NAME = {};
   var NAME_BY_GID = {};
-  API.groups.forEach(function (row) {
+  /* The body is read in a fixed order -- push, pull, arms, legs, trunk --
+     and search ties are broken by it, so two lifts on the same score come
+     back in the order the rest of the app already lists them. */
+  var GORDER = {};
+  API.groups.forEach(function (row, i) {
     NAME_BY_GID[row[0]] = row[1];
     GID_BY_NAME[String(row[1]).toLowerCase()] = row[0];
+    GORDER[row[0]] = i;
   });
   /* The catalogue spells a few groups differently from the body map's
      own ids. Mapped rather than renamed, because the stored rows on
@@ -262,6 +267,119 @@
   };
 
   API.groupName = function (gid) { return NAME_BY_GID[gid] || gid; };
+
+  /* ---- ONE SEARCH, EVERYWHERE A LIFT IS LOOKED FOR --------------------
+
+     This lived inside exercise-library.html, which is why the library
+     understood "incline smith" and "smith incline" and the two sheets you
+     actually add a lift from during a session did not. Both of those did
+     one plain substring match on the name, and a substring only ever finds
+     the words in the order the catalogue happens to spell them. Type
+     "shoulder press machine" into the log's Add sheet and nothing came
+     back, while the same words worked one screen over. Same words, same
+     catalogue, a different answer depending on which screen you were
+     standing on.
+
+     It moved here whole, ranking included. The ranking is not decoration:
+     it is what puts Barbell Bench Press above Close-Grip Bench Press when
+     somebody types "bench". Moving the matching and leaving the ranking
+     behind would have made the other two screens worse, not better.
+
+     Rows only need to carry what they already carry -- name, muscle,
+     group, and equipment and a gid where a screen has them -- so the
+     pickers get exactly the reach the library has off the same catalogue.
+
+     Every token has to match something. The score says where it matched,
+     and the total ranks the row. */
+
+  /* Words a lifter types that the catalogue never says. */
+  var SEARCH_ALIAS = {
+    legs: ['quads', 'hams', 'glutes', 'calves', 'adduc'],
+    arms: ['biceps', 'triceps', 'forearms'],
+    core: ['abs'],
+    upper: ['chest', 'back', 'shoulders', 'biceps', 'triceps', 'forearms'],
+    lower: ['quads', 'hams', 'glutes', 'calves', 'adduc']
+  };
+
+  /* A lifter types "curls" and the catalogue says "Curl", or types
+     "machines" and it says "Machine". The singular is only ever a SECOND
+     try. Scoring both forms and keeping the better one would quietly
+     re-rank things: "abs" would stop meaning the muscle and start meaning
+     the "ab" sitting inside "Cable". Short words are left alone for the
+     same reason. */
+  function singulars(t) {
+    var out = [];
+    if (t.length > 3 && t.charAt(t.length - 1) === 's' && t.slice(-2) !== 'ss') out.push(t.slice(0, -1));
+    if (t.length > 4 && t.slice(-3) === 'ies') out.push(t.slice(0, -3) + 'y');
+    if (t.length > 4 && t.slice(-2) === 'es') out.push(t.slice(0, -2));
+    return out;
+  }
+
+  function hitScore(it, gid, t) {
+    /* Defensive on every field on purpose. A search that throws on one
+       malformed row loses every other row with it, and the field then
+       looks like it matches nothing whatever is typed into it. */
+    var name = String(it.name || '').toLowerCase();
+    if (name.indexOf(t) === 0) return 100;
+    if ((' ' + name).indexOf(' ' + t) > 0) return 80;
+    if (name.indexOf(t) > 0) return 60;
+    var m = String(it.muscle || '').toLowerCase(), gr = String(it.group || '').toLowerCase();
+    if (m.indexOf(t) === 0 || gr.indexOf(t) === 0) return 50;
+    if (m.indexOf(t) >= 0 || gr.indexOf(t) >= 0) return 45;
+    if (String(it.eq || '').toLowerCase().indexOf(t) >= 0) return 30;
+    if (it.custom && 'custom'.indexOf(t) === 0) return 25;
+    if (gid && t.length >= 3) {
+      for (var key in SEARCH_ALIAS) {
+        if (key.indexOf(t) === 0 && SEARCH_ALIAS[key].indexOf(gid) >= 0) return 35;
+      }
+    }
+    return 0;
+  }
+
+  function tokenScore(it, gid, t) {
+    var s = hitScore(it, gid, t);
+    if (s) return s;
+    var alt = singulars(t);
+    for (var i = 0; i < alt.length; i++) {
+      s = hitScore(it, gid, alt[i]);
+      if (s) return s;
+    }
+    return 0;
+  }
+
+  API.searchTokens = function (q) {
+    return String(q == null ? '' : q).toLowerCase().trim().split(/\s+/).filter(Boolean);
+  };
+
+  /* An empty query is not a search, so it comes back empty rather than as
+     the whole catalogue. Every caller already has its own answer for what
+     an untouched field should show -- a muscle, a short list, the day's
+     lifts -- and handing back 866 rows would overrule all three. */
+  API.search = function (rows, q) {
+    var tokens = API.searchTokens(q);
+    if (!tokens.length) return [];
+    var out = [];
+    (rows || []).forEach(function (it) {
+      if (!it) return;
+      var gid = it.gid || API.gidOf(it);
+      var total = 0;
+      for (var i = 0; i < tokens.length; i++) {
+        var s = tokenScore(it, gid, tokens[i]);
+        if (!s) return;
+        total += s;
+      }
+      out.push({ it: it, gid: gid, s: total });
+    });
+    out.sort(function (a, b) {
+      if (b.s !== a.s) return b.s - a.s;
+      var ga = GORDER[a.gid], gb = GORDER[b.gid];
+      if (ga === undefined) ga = 99;
+      if (gb === undefined) gb = 99;
+      if (ga !== gb) return ga - gb;
+      return String(a.it.name || '').localeCompare(String(b.it.name || ''));
+    });
+    return out.map(function (o) { return o.it; });
+  };
 
   /* Everything that trains one part, in the order the catalogue holds. */
   API.inGroup = function (gid, rows) {

@@ -11,6 +11,7 @@
 <script src="store.js"></script>
 <script src="units.js"></script>
 <script src="reorder.js"></script>
+<script src="exercises.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 <script src="session.js"></script>
@@ -2122,14 +2123,28 @@
 
   /* The list the search actually filters. It was rendered straight from
      LIBRARY with the field wired to nothing: typing anything left all six
-     rows exactly where they were, which is worse than having no field. */
+     rows exactly where they were, which is worse than having no field.
+
+     THEN IT MATCHED ON THE WHOLE TYPED STRING, in the order it was typed.
+     "incline smith" found nothing here while it found the lift one screen
+     over in the library, because the catalogue spells it "Smith Incline
+     Press" and a substring only ever finds words in one order. The search
+     is LKExercises.search now, the same one the library uses, keywords in
+     any order and ranked the same way: it is what puts Barbell Bench Press
+     above Close-Grip Bench Press for "bench". */
   var ADDEX_PAGE = 40;
+  /* WHAT A SEARCH IS ALLOWED TO REACH. Everything the catalogue holds,
+     minus the strongman and apparatus the library does not offer either:
+     a sled between two presses is the thing that curation was for. Your
+     own custom lifts always stay in, because you made them. */
+  function searchPool() {
+    if (!window.LKExercises || !LKExercises.hidden) return LIBRARY;
+    return LIBRARY.filter(function (x) { return x.custom || !LKExercises.hidden(x); });
+  }
   function addExList() {
     var q = (S.addexQ || '').trim().toLowerCase();
     var all = q
-      ? LIBRARY.filter(function (x) {
-          return x.name.toLowerCase().indexOf(q) > -1 || (x.muscle || '').toLowerCase().indexOf(q) > -1;
-        })
+      ? ((window.LKExercises && LKExercises.search) ? LKExercises.search(searchPool(), q) : [])
       : LIBRARY;
     /* A SWAP WANTS THE SAME MUSCLE. Swapping the bench press opened the
        library at 3/4 Sit-Up and 45-degree Incline Lateral Raise -- an
@@ -2145,8 +2160,15 @@
     if (S.addexGid) swapping = false;
 
     /* THE SHORT LIST, unless the reader asked for the whole catalogue.
-       866 lifts is a reference; picking one mid-session is a menu. */
-    if (!S.addexAll && window.LKExercises && LKExercises.offered) {
+       866 lifts is a reference; picking one mid-session is a menu.
+
+       NOT WHILE SOMEBODY IS TYPING. The short list is the top twenty per
+       muscle, and "incline smith" is in none of them, so a keyword search
+       ran perfectly and then had its three hits thrown away before they
+       reached the screen. A typed query is the reader narrowing the list
+       themselves, which is the job the short list was doing for them. The
+       library has always worked this way: it keeps all 866 in search. */
+    if (!q && !S.addexAll && window.LKExercises && LKExercises.offered) {
       var offered = LKExercises.offered(all);
       if (offered.length) all = offered;
     }
@@ -2205,8 +2227,14 @@
     /* AND WHAT YOU HAVE ACTUALLY DONE, FIRST. The lift you used last
        Tuesday is far likelier to be the one you want than whichever sorts
        first alphabetically. Stable within each tier, so the muscle
-       grouping above still holds. */
-    if (window.LKExercises && LKExercises.doneBefore) {
+       grouping above still holds.
+
+       WHILE BROWSING ONLY. Somebody who has typed words has already said
+       what they want, and the search ranks on exactly that: floating a
+       lift up the list because it was done last week would put Close-Grip
+       Bench Press above Barbell Bench Press for "bench", and would make
+       this sheet disagree with the library about the same query. */
+    if (!q && window.LKExercises && LKExercises.doneBefore) {
       var seenBefore = LKExercises.doneBefore();
       all = all.slice().map(function (x, i) { return [x, i]; }).sort(function (a, b) {
         var ra = seenBefore[a[0].id], rb = seenBefore[b[0].id];
@@ -2234,8 +2262,12 @@
     if (!all.length) {
       return '<div class="empty" data-testid="addex-empty">' +
         '<p class="empty__title">Nothing matches &ldquo;' + esc(S.addexQ.trim()) + '&rdquo;</p>' +
-        '<p class="empty__body">Search by the lift or by the muscle it works. ' +
-          'The full library has more than this session offers.</p></div>';
+        /* The old line said the full library has more than this sheet
+           offers. It did, and it does not now: a search reaches every
+           lift. Telling somebody to look elsewhere when there is nowhere
+           else to look is worse than saying nothing. */
+        '<p class="empty__body">Every word has to match, but they can come in any order. ' +
+          'Try fewer words, or the muscle it works.</p></div>';
     }
     return noteHTML + sameNote + '<div class="card card--flush' + ((sameNote || noteHTML) ? ' mt-2' : '') + '">' + rows.map(function (x) {
       var i = LIBRARY.indexOf(x);

@@ -11,6 +11,7 @@
 <script src="store.js"></script>
 <script src="units.js"></script>
 <script src="reorder.js"></script>
+<script src="exercises.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 <script src="cloud-config.js"></script>
@@ -925,14 +926,6 @@
     return { id: it.id, name: it.name, muscle: it.muscle || '', note: exNote(it.id), sets: sets };
   }
 
-  /* Words a lifter types that are not in the catalogue. */
-  var ALIAS = {
-    legs: ['quads', 'hams', 'glutes', 'calves', 'adduc'],
-    arms: ['biceps', 'triceps', 'forearms'],
-    core: ['abs'],
-    upper: ['chest', 'back', 'shoulders', 'biceps', 'triceps', 'forearms'],
-    lower: ['quads', 'hams', 'glutes', 'calves', 'adduc']
-  };
 
   /* ---------------------------------------------------------------
      State
@@ -1014,8 +1007,8 @@
 
      THIS IS WHY SEARCH WAS DEAD IN PRODUCTION. All 866 catalogue rows
      have no gid, no sid and no equipment field, so every row came out of
-     here with group, muscle and eq undefined -- and the first thing
-     tokenScore does is call .toLowerCase() on them. One keystroke in the
+     here with group, muscle and eq undefined -- and the first thing the
+     scorer does is call .toLowerCase() on them. One keystroke in the
      search field threw, the results never rendered, and the box appeared
      to match nothing whatever was typed into it. The demo never showed
      it, because the fixture carries the ids. */
@@ -1082,45 +1075,17 @@
 
   /* ---------------------------------------------------------------
      Search. Name, region, group, equipment and aliases, from the first
-     character. Every token must match; the score ranks the result.
+     character. Every token has to match; the score ranks the result.
+
+     THE SEARCH ITSELF NOW LIVES IN exercises.js. It was written here, and
+     that is exactly why the log's Add sheet and the split builder's picker
+     each grew a plain substring match of their own: they had no way to
+     reach this one. Typing "incline smith" found the lift in the library
+     and nothing in the sheet you actually add a lift from mid-session.
+     One search, one set of rules, three screens.
      --------------------------------------------------------------- */
-  function tokenScore(it, t) {
-    /* Defensive on purpose, and not only because of the bug above: a
-       search that throws on one malformed row loses every other row with
-       it, and the field then looks like it matches nothing. */
-    var name = String(it.name || '').toLowerCase();
-    if (name.indexOf(t) === 0) return 100;
-    if ((' ' + name).indexOf(' ' + t) > 0) return 80;
-    if (name.indexOf(t) > 0) return 60;
-    var m = String(it.muscle || '').toLowerCase(), g = String(it.group || '').toLowerCase();
-    if (m.indexOf(t) === 0 || g.indexOf(t) === 0) return 50;
-    if (m.indexOf(t) >= 0 || g.indexOf(t) >= 0) return 45;
-    if (String(it.eq || '').toLowerCase().indexOf(t) >= 0) return 30;
-    if (it.custom && 'custom'.indexOf(t) === 0) return 25;
-    for (var key in ALIAS) {
-      if (key.indexOf(t) === 0 && t.length >= 3 && ALIAS[key].indexOf(it.gid) >= 0) return 35;
-    }
-    return 0;
-  }
   function search(pool, q) {
-    var tokens = q.toLowerCase().trim().split(/\s+/).filter(Boolean);
-    if (!tokens.length) return [];
-    var out = [];
-    pool.forEach(function (it) {
-      var total = 0;
-      for (var i = 0; i < tokens.length; i++) {
-        var s = tokenScore(it, tokens[i]);
-        if (!s) return;
-        total += s;
-      }
-      out.push({ it: it, s: total });
-    });
-    out.sort(function (a, b) {
-      if (b.s !== a.s) return b.s - a.s;
-      if (GORDER[a.it.gid] !== GORDER[b.it.gid]) return GORDER[a.it.gid] - GORDER[b.it.gid];
-      return a.it.name.localeCompare(b.it.name);
-    });
-    return out.map(function (o) { return o.it; });
+    return (window.LKExercises && LKExercises.search) ? LKExercises.search(pool, q) : [];
   }
 
   function pool() {

@@ -11,6 +11,7 @@
 <script src="store.js"></script>
 <script src="units.js"></script>
 <script src="reorder.js"></script>
+<script src="exercises.js"></script>
 <script src="app.js"></script>
 <script src="chrome.js"></script>
 <script src="cloud-config.js"></script>
@@ -1216,11 +1217,25 @@
       '</div>';
   }
 
+  /* WHAT THE PICKER SEARCHES. This matched the whole typed string against
+     the name, in the order it was typed, so "machine shoulder press" found
+     nothing while "shoulder press machine" found the lift -- and the
+     library, one screen over, understood both. LKExercises.search is the
+     library's own search, moved out to where all three screens can reach
+     it: every word has to match, in any order, and the ranking comes with
+     it so the plainest lift is still the first one offered. */
+  /* WHAT A SEARCH IS ALLOWED TO REACH: the catalogue minus the strongman
+     and apparatus the library does not offer either, so the same words
+     turn up the same lifts on both screens. */
+  function searchPool() {
+    if (!window.LKExercises || !LKExercises.hidden) return LIBRARY;
+    return LIBRARY.filter(function (x) { return x.custom || !LKExercises.hidden(x); });
+  }
   function pickRows(m) {
-    var q = (m.q || '').toLowerCase();
-    var list = LIBRARY.filter(function (x) {
-      return !q || x.name.toLowerCase().indexOf(q) > -1 || x.muscle.toLowerCase().indexOf(q) > -1;
-    });
+    var q = (m.q || '').trim().toLowerCase();
+    var list = q
+      ? ((window.LKExercises && LKExercises.search) ? LKExercises.search(searchPool(), q) : [])
+      : LIBRARY;
     if (!q && m.gid && window.LKExercises && LKExercises.gidOf) {
       list = list.filter(function (x) { return LKExercises.gidOf(x) === m.gid; });
     }
