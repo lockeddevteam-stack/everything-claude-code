@@ -110,6 +110,32 @@ const touchAction = () => page.evaluate(() => {
   return getComputedStyle(r.querySelector('.map__svg')).touchAction;
 });
 
+/* ONE FINGER ON THE FIGURE, dragging it. Declared up here rather than
+   beside the first section that pans, because the walk down the body
+   further up needs it too and a const is not hoisted. */
+const drag = async (dx, dy) => {
+  await page.evaluate(({ dx, dy }) => {
+    const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+    const svg = r.querySelector('.map__svg');
+    const b = svg.getBoundingClientRect();
+    const cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+    const one = (x, y) => [new Touch({ identifier: 1, target: svg, clientX: x, clientY: y,
+                                       pageX: x, pageY: y, screenX: x, screenY: y })];
+    const fire = (t, touches) => svg.dispatchEvent(new TouchEvent(t, {
+      touches, targetTouches: touches, changedTouches: touches, bubbles: true, cancelable: true }));
+    fire('touchstart', one(cx, cy));
+    for (let i = 1; i <= 8; i++) fire('touchmove', one(cx + dx * i / 8, cy + dy * i / 8));
+    fire('touchend', []);
+  }, { dx, dy });
+  await rest();
+};
+const where = () => page.evaluate(() => {
+  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+  const t = r.querySelector('.map__svg .cam').getAttribute('transform') || '';
+  const m = /translate\((-?[\d.]+) (-?[\d.]+)\)/.exec(t);
+  return { tx: m ? Number(m[1]) : 0, ty: m ? Number(m[2]) : 0 };
+});
+
 ok(await scale() === 1, 'it opens at life size');
 ok(/pan-y/.test(await touchAction()), 'and lets the page scroll under a finger while it is there');
 
@@ -358,13 +384,26 @@ const inAgain = await page.evaluate(() => {
 ok(inAgain.parts >= 2 && inAgain.labels >= 2,
    'and pinching in divides the muscle with no tap involved', JSON.stringify(inAgain));
 
-console.log('\n=== 7. the zoom is the reader\'s until they choose otherwise ===\n');
+/* ---- 8b. and only the ones that really divide ----------------------
 
-/* Everything below is one continuous session with the figure, because
-   that is how the bugs turned up: each step was fine on its own and the
-   sequence was not. */
-const drag = async (dx, dy) => {
-  await page.evaluate(({ dx, dy }) => {
+   Ten of the twelve groups are one piece. The inner thigh has no named
+   halves and the sliver of trap drawn on the front view has none either,
+   and a single band with a single word on it is a caption rather than a
+   division. So the figure is walked down the body at a zoom that is past
+   every group's threshold, and at every stop two things are asked: what
+   is under the middle of the frame, and what the figure has divided.
+
+   The claim is not that some particular muscle is undivided at some
+   particular pan, which would be a test of where the body happens to sit.
+   It is that nothing is ever drawn as one part, and that a group with no
+   parts is never the group the layer belongs to. */
+/* A FINGER THAT DOES NOT THROW THE PICTURE. The drag above fires its
+   moves back to back, which reads as an enormous flick and carries the
+   camera to the stop: fine where the claim is only that something moved,
+   useless for walking down the body a step at a time. This one pauses
+   between moves, so the speed it hands over is the speed of a finger. */
+const creep = async (dy) => {
+  await page.evaluate((dy) => {
     const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
     const svg = r.querySelector('.map__svg');
     const b = svg.getBoundingClientRect();
@@ -374,17 +413,80 @@ const drag = async (dx, dy) => {
     const fire = (t, touches) => svg.dispatchEvent(new TouchEvent(t, {
       touches, targetTouches: touches, changedTouches: touches, bubbles: true, cancelable: true }));
     fire('touchstart', one(cx, cy));
-    for (let i = 1; i <= 8; i++) fire('touchmove', one(cx + dx * i / 8, cy + dy * i / 8));
-    fire('touchend', []);
-  }, { dx, dy });
+    window.__creep = { fire, one, cx, cy, dy, i: 0 };
+  }, dy);
+  for (let i = 1; i <= 6; i++) {
+    await page.evaluate((i) => {
+      const c = window.__creep;
+      c.fire('touchmove', c.one(c.cx, c.cy + c.dy * i / 6));
+    }, i);
+    await page.waitForTimeout(24);
+  }
+  await page.evaluate(() => {
+    const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+    const svg = r.querySelector('.map__svg');
+    svg.dispatchEvent(new TouchEvent('touchend', { touches: [], targetTouches: [],
+      changedTouches: [], bubbles: true, cancelable: true }));
+  });
   await rest();
 };
-const where = () => page.evaluate(() => {
-  const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
-  const t = r.querySelector('.map__svg .cam').getAttribute('transform') || '';
-  const m = /translate\((-?[\d.]+) (-?[\d.]+)\)/.exec(t);
-  return { tx: m ? Number(m[1]) : 0, ty: m ? Number(m[2]) : 0 };
+
+await pinch(240, 30);
+await pinch(70, 230);
+const walk = [];
+for (let i = 0; i < 14; i++) {
+  walk.push(await page.evaluate(() => {
+    const r = document.getElementById('demo-screen-exercise-library').shadowRoot;
+    const svg = r.querySelector('.map__svg');
+    const b = svg.getBoundingClientRect();
+    const el = r.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+    const hit = el && el.closest ? el.closest('[data-g]') : null;
+    const layer = svg.querySelector('.parts');
+    return { under: hit ? hit.getAttribute('data-g') : null,
+             on: layer ? layer.getAttribute('data-g') : null,
+             n: svg.querySelectorAll('.part').length,
+             labels: svg.querySelectorAll('.part__label').length };
+  }));
+  await creep(-26);
+}
+/* The undivided groups, asked of the module itself rather than written
+   out here where the list could drift away from the art. Some groups are
+   authored as parts and some are cut out of the shapes the figure
+   already draws, and only showParts knows about both, so a throwaway
+   figure off-screen is asked what each one comes to. */
+const ONE_PIECE = await page.evaluate(() => {
+  const host = document.createElement('div');
+  host.style.cssText = 'position:fixed;left:0;top:0;width:393px;height:660px;opacity:0;pointer-events:none';
+  document.body.appendChild(host);
+  const groups = {};
+  ['chest', 'abs', 'biceps', 'back', 'shoulders', 'adduc', 'quads', 'calves', 'forearms']
+    .forEach((g) => { groups[g] = { name: g, n: 1 }; });
+  const api = window.LKBodyMap.mount(host, { groups, order: Object.keys(groups) });
+  const out = [];
+  Object.keys(groups).forEach((g) => {
+    const n = api.showParts(g, 'front');
+    api.clearParts();
+    if (!n || n.length < 2) out.push(g);
+  });
+  host.remove();
+  return out;
 });
+ok(walk.every((w) => w.n === 0 || w.n >= 2),
+   'a muscle is never drawn as one part with one name on it',
+   JSON.stringify(walk.map((w) => w.under + ':' + w.n)));
+ok(walk.every((w) => w.n === 0 || w.labels >= 2),
+   'and every part that is drawn carries a name',
+   JSON.stringify(walk.map((w) => w.n + '/' + w.labels)));
+const touchedOne = walk.filter((w) => ONE_PIECE.indexOf(w.under) > -1);
+ok(touchedOne.length > 0,
+   'the walk passed over a group that does not divide',
+   ONE_PIECE.join(',') + ' | ' + JSON.stringify(walk.map((w) => w.under)));
+ok(touchedOne.every((w) => w.on !== w.under),
+   'and a group that does not divide is never the one divided',
+   JSON.stringify(touchedOne));
+
+
+console.log('\n=== 7. the zoom is the reader\'s until they choose otherwise ===\n');
 
 /* Back to the whole body first, so the pinch below starts from rest. */
 await page.evaluate(() => {
@@ -801,7 +903,27 @@ for (const P of PICKERS) {
     }
     return last;
   };
-  const centre = async () => { const b = await box(); return { cx: b.x + b.w / 2, cy: b.y + b.h / 2, b: b }; };
+  /* AND THE FIGURE HAS TO HAVE STOPPED MOVING BEFORE A FINGER GOES ON IT.
+     A split that lands tells the screen, the screen renders, the list for
+     that muscle arrives, and the map above it changes height -- so the
+     box measured a moment ago is not the box the next touch will land in.
+     Every gesture here is dispatched through CDP at real viewport
+     coordinates against the real topmost element, so a gesture aimed at a
+     stale box lands on whatever has moved into that spot and does
+     nothing at all. That is how a drag asserted on a camera it had never
+     touched, and it is a race, so it failed on some runs and not others.
+
+     Waited on the box itself rather than on a clock: two readings the
+     same and the layout has settled. */
+  const centre = async () => {
+    let b = await box(), same = 0;
+    for (let i = 0; i < 40 && same < 2; i++) {
+      const n = await box();
+      same = (n && b && n.x === b.x && n.y === b.y && n.w === b.w && n.h === b.h) ? same + 1 : 0;
+      b = n;
+    }
+    return { cx: b.x + b.w / 2, cy: b.y + b.h / 2, b: b };
+  };
   async function pinch(from, to, opts) {
     opts = opts || {};
     const { cx, cy } = await centre();
@@ -892,20 +1014,50 @@ for (const P of PICKERS) {
      worse than a red line, so the misses are tallied and reported at the
      end of the picker. */
   let missedHome = 0;
+  /* AND THE FIGURE HAS TO BE REACHABLE, which is not the same as being
+     on screen. Cell 11 scrolls whatever is scrollable under the figure
+     and nothing scrolls it back, so the next cell found the map pushed up
+     out of the sheet with its own middle sitting under the sheet header.
+     Every touch this file dispatches goes through CDP at real viewport
+     coordinates and hit-tests the real topmost element, so those gestures
+     landed on the header and did nothing at all -- and whole() could not
+     tell, because a pinch that never lands leaves the camera at 1x, which
+     is exactly what going home looks like. A cell then asserted on a
+     camera nothing had touched.
+
+     So the sheet is put back to the top and the point the gesture is
+     about to use is checked against the figure before anything is
+     dispatched. */
+  const unscroll = () => pg.evaluate((s) => {
+    const r = window.DEMO.screens[s].root;
+    [...r.querySelectorAll('*')].forEach((n) => { if (n.scrollTop) n.scrollTop = 0; });
+    window.scrollTo(0, 0);
+  }, P.screen);
+  const reachable = () => inRoot(`(r,a)=>{const s=r.querySelector(a);if(!s)return false;
+    const b=s.getBoundingClientRect();
+    if(!(b.width>40&&b.height>40))return false;
+    const x=Math.round(b.left+b.width/2), y=Math.round(b.top+b.height/2);
+    if(x<0||y<0||y>window.innerHeight)return false;
+    const el=r.elementFromPoint(x,y)||document.elementFromPoint(x,y);
+    return !!(el&&s.contains(el))}`, P.sel);
+
   async function whole() {
     for (let i = 0; i < 8; i++) {
       await inRoot(P.home).catch(() => {});
       await pg.waitForTimeout(320);
+      await unscroll();
       const b = await box();
       if (!b || b.w < 40 || b.h < 40) continue;
       if (await chosen()) continue;
+      if (!(await reachable())) continue;
       await inRoot(P.front).catch(() => {});
       await pg.waitForTimeout(320);
+      await unscroll();
       await pinch(240, 30);
       if (scaleOf(await at()) < 1.05) break;
     }
     const got = scaleOf(await at());
-    if (!(got < 1.05) || (await chosen())) missedHome++;
+    if (!(got < 1.05) || (await chosen()) || !(await reachable())) missedHome++;
     return got;
   }
 
@@ -955,11 +1107,32 @@ for (const P of PICKERS) {
   ok((await still()) === set3, tag('3. and front to back keeps the zoom'), set3 + ' -> ' + (await at()));
 
   /* 4. Panning stays panned. */
+  /* AND THE FINGER THAT DRAGS HAS TO KEEP THE ELEMENT IT IS HOLDING.
+     The browser cancels a touch whose target is removed, and this cell is
+     where that showed up: a repaint landing after the pinch rebuilt the
+     parts layer under the finger, the touch was cancelled, and not one
+     touchmove was ever delivered. The camera then read byte for byte
+     identical and the cell reported a drag that did nothing -- on some
+     runs and not others, depending which side of the repaint the finger
+     landed. Counted here rather than inferred, because "the camera did
+     not move" and "the gesture never happened" look the same from
+     outside. */
+  const armTouch = () => inRoot(`(r,a)=>{const s=r.querySelector(a);if(!s)return false;
+    s.__tc={start:0,move:0,end:0,cancel:0};
+    if(!s.__tcOn){s.__tcOn=true;
+      ['touchstart','touchmove','touchend','touchcancel'].forEach(t=>s.addEventListener(t,()=>{
+        if(s.__tc)s.__tc[t.replace('touch','')]++;},true));}
+    return true}`, P.sel);
+  const readTouch = () => inRoot(`(r,a)=>{const s=r.querySelector(a);return s&&s.__tc?s.__tc:null}`, P.sel);
   await whole();
   await pinch(70, 230);
   const zoom4 = await at();
+  await armTouch();
   await pan(-55, -45);
   const set4 = await at();
+  const tc4 = await readTouch();
+  ok(!!tc4 && tc4.move > 0 && tc4.cancel === 0,
+     tag('4. the finger keeps the figure for the whole drag'), JSON.stringify(tc4));
   ok(set4 !== zoom4, tag('4. a finger drags the zoomed figure around'), zoom4 + ' -> ' + set4);
   await pg.waitForTimeout(700);
   ok((await at()) === set4, tag('4. and it stays where it was dragged'), set4);
@@ -1213,6 +1386,141 @@ for (const P of PICKERS) {
      tag('12. and it is never drawn at another camera on the way back'),
      strayed.length + ' of ' + frames.length + ' frames, first at ' +
      (strayed[0] ? strayed[0].t + 'ms ' + strayed[0].cam : '-'));
+
+  /* ---- 13. ZOOM IN AND THE MUSCLE DIVIDES, WITH NO TAP FIRST -------
+
+     What the split could not do. It needed a muscle already chosen, so
+     pinching into a chest nobody had tapped showed the same undivided
+     shape, bigger. The muscle is now whatever is under the middle of the
+     frame, and the distance is that muscle's OWN tap frame rather than
+     one number for the whole body.
+
+     Crept in rather than pinched in one go, because the claim is about
+     WHERE it divides and a single big pinch would sail past it. */
+  const splitNow = () => inRoot(`(r)=>{const L=r.querySelector('.parts');
+    return {gid:L?L.getAttribute('data-g'):null,
+            parts:r.querySelectorAll('.part').length,
+            labels:r.querySelectorAll('.part__label').length,
+            words:[...r.querySelectorAll('.part__label')].map(t=>t.textContent)}}`);
+  await whole();
+  let divided = null, dividedAt = 0;
+  for (let i = 0; i < 16 && !divided; i++) {
+    await pinch(100, 116);
+    const now = await splitNow();
+    if (now.gid) { divided = now; dividedAt = scaleOf(await at()); }
+  }
+  ok(!!divided && divided.parts >= 2,
+     tag('13. zooming in divides the muscle under the middle, with no tap first'),
+     JSON.stringify(divided) + ' at ' + dividedAt.toFixed(2) + 'x');
+  ok(!!divided && divided.labels >= divided.parts,
+     tag('13. and every part it drew carries its name on the figure'),
+     divided ? divided.words.join(',') : '-');
+
+  /* THE SAME DISTANCE A TAP GIVES. Not a number written down here: the
+     muscle it found is tapped, and the camera a tap puts it at is what
+     the pinch is measured against. A shade under is the point -- the
+     parts are there as the camera arrives rather than after it -- and one
+     creep step of headroom over it, because the creep lands where it
+     lands. */
+  /* Asked of the module rather than measured off a second tap, because
+     the tap frame is worked out from the viewBox and the muscle's own
+     measured box and nothing else: a throwaway figure off-screen gives
+     the same number the real tap flies to, without disturbing the one on
+     screen. That a tap really does fly there is cell 1's claim. */
+  const tapFrame = (gid) => pg.evaluate((g) => {
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:0;top:0;width:393px;height:660px;opacity:0;pointer-events:none';
+    document.body.appendChild(host);
+    const groups = {};
+    ['chest', 'abs', 'biceps', 'back', 'shoulders', 'adduc', 'quads', 'calves',
+     'forearms', 'triceps', 'glutes', 'hams'].forEach((x) => { groups[x] = { name: x, n: 1 }; });
+    const api = window.LKBodyMap.mount(host, { groups, order: Object.keys(groups) });
+    const s = api.tapScale(g, 'front');
+    host.remove();
+    return s;
+  }, gid);
+  const tapAt = divided ? await tapFrame(divided.gid) : 0;
+  ok(tapAt > 1 && dividedAt >= tapAt * 0.8 && dividedAt <= tapAt * 1.05,
+     tag('13. at about the zoom a tap on that same muscle gives'),
+     (divided ? divided.gid : '-') + ' divided at ' + dividedAt.toFixed(2) +
+     'x, a tap frames it at ' + tapAt.toFixed(2) + 'x');
+
+  /* THE BAND. A camera hovering on the line must not flash the parts on
+     and off, so there is daylight between the distance that divides and
+     the distance that clears: 0.85 of the tap frame in, 0.70 out. A nudge
+     back out lands inside that gap and must change nothing. */
+  await whole();
+  let again = null;
+  for (let i = 0; i < 16 && !(again && again.gid); i++) {
+    await pinch(100, 116);
+    again = await splitNow();
+  }
+  ok(!!(again && again.gid), tag('13. there is a split to hold steady'), JSON.stringify(again));
+  const heldAt = scaleOf(await at());
+  await pinch(100, 92);
+  const nudged = await splitNow();
+  ok(!!nudged.gid && nudged.gid === (again && again.gid),
+     tag('13. a nudge back out inside the band leaves the parts alone'),
+     heldAt.toFixed(2) + 'x -> ' + scaleOf(await at()).toFixed(2) + 'x, ' + JSON.stringify(nudged));
+
+  /* AND BACK OUT AGAIN. Below the band the division goes. */
+  await pinch(300, 30);
+  const gone = await splitNow();
+  ok(gone.parts === 0 && gone.gid === null,
+     tag('13. and zooming back out puts the division away'),
+     JSON.stringify(gone) + ' at ' + scaleOf(await at()).toFixed(2) + 'x');
+
+  /* AND THE LIST. Each picker answers a split its own way, and the point
+     of dividing a muscle is being able to choose one of its parts, so
+     each one has to end up with that part's exercises on screen. */
+  await pinch(40, 280);
+  const back13 = await splitNow();
+  ok(!!back13.gid, tag('13. pinching straight back in divides it again'), JSON.stringify(back13));
+  ok(!!(await tapPart()), tag('13. a part of the muscle the pinch found can be tapped'));
+  ok(await rowSoon(), tag('13. and that part has its exercises to choose from'));
+
+  /* ---- 14. THE FIGURE AND THE SCREEN AGREE ABOUT THE MUSCLE --------
+
+     The bug this exists for, found by logging every write to the camera
+     with the stack that asked for it and reading back the frames.
+
+     Tap the chest: the screen frames it and divides it. Pinch harder: the
+     camera is allowed to give past its stop, and the give SLIDES the
+     picture -- about twenty seven units of the frame -- so the middle of
+     the frame came off the pectorals and onto the top of the abs. The
+     split followed it, and the reader who had asked to look closer at
+     their chest was handed their abs and the abs' exercise list.
+
+     That left the figure dividing one muscle while the screen still had
+     another, and the split had written its own muscle into the slot that
+     remembers what the SCREEN last asked for. So the next repaint asked
+     for the chest, found a key that did not match, read it as a brand new
+     instruction, and flew a hand-set camera off to frame a muscle the
+     reader was already looking at. A scroll was enough to set it off.
+
+     Two claims, because it took two mistakes. Zooming is not a change of
+     subject, so the split stays on the muscle that was tapped. And a
+     repaint leaves a hand-set camera exactly where it is, even if the two
+     ever disagree again. */
+  const splitOn = () => inRoot(`(r)=>{const L=r.querySelector('.parts');
+    return L?L.getAttribute('data-g'):null}`);
+  ok((await armed()) > 1.5, tag('14. a muscle tapped, framed and divided'));
+  ok((await splitOn()) === 'chest',
+     tag('14. and the split is on the muscle that was tapped'), String(await splitOn()));
+  await pinch(70, 200);
+  const set14 = await at();
+  ok((await splitOn()) === 'chest',
+     tag('14. pinching further in does not hand the split to a neighbour'),
+     'chest -> ' + (await splitOn()) + ' at ' + scaleOf(set14).toFixed(2) + 'x');
+  /* And now something that repaints the screen without being an
+     instruction to the camera. */
+  let push14 = await pushScroll();
+  if (!push14) { await tapPart(); await pg.waitForTimeout(700); push14 = await pushScroll(); }
+  ok(!!push14, tag('14. something really repainted under the figure'), String(push14));
+  await pg.waitForTimeout(700);
+  ok((await at()) === set14,
+     tag('14. and the repaint leaves the hand-set camera exactly where it was'),
+     set14 + ' -> ' + (await at()));
 
   /* A double tap is still a double tap: two separate single-finger taps,
      which is the gesture the pinch was being mistaken for. */

@@ -1024,47 +1024,81 @@
        the body, is a new instruction and takes the camera back. */
     var userCam = false;
     var lastTarget = null;
+    /* ---- THE FIGURE NAMING ITS OWN MUSCLE IS NOT A CHOICE ------------
+       A pinch that divides a muscle has to tell the screen which muscle
+       it is, or the screen has nothing to list. Every screen answers that
+       by making it the current group, and its next paint calls select()
+       and then zoomTo() with it -- and select() reads a new group as a
+       fresh instruction and hands the camera back, so the pinch the
+       reader had just made would be followed by the camera flying off to
+       frame the very muscle they were already looking at.
+
+       So the muscle the split found is marked here, and a select() for
+       that same muscle leaves the reader's camera exactly where it is.
+       Any OTHER muscle is a real choice and still takes the camera. */
+    var adopted = null;
+    /* WHETHER THIS MUSCLE IS STILL THE ONE THE READER'S OWN ZOOM FOUND.
+       The flag on its own outlives the split that set it: a screen redraws
+       the parts from its own paint, or clears them when a part is chosen,
+       and neither goes through the gesture layer. A stale flag then made
+       held() sit on a camera that a deliberate tap was trying to move, so
+       the muscle has to still be the one the figure is actually dividing.
+       showParts rebuilds the layer with the same id, so a redraw does not
+       break this. */
+    function ownZoom(gid) {
+      return !!(gid && adopted === gid && partsLayer &&
+                partsLayer.getAttribute('data-g') === gid);
+    }
+    function adopt(gid) {
+      adopted = gid || null;
+      /* AND IT DOES NOT TOUCH lastTarget. It used to, and that is what
+         made a hand-set camera jump. lastTarget is the memory of what the
+         SCREEN last asked for, and the split writing its own muscle into
+         that slot was a lie whenever the two disagreed: the figure
+         divided the abs under the middle of the frame while the screen
+         still had the chest, lastTarget became "abs|front", and the very
+         next repaint asked for chest, found a key that did not match,
+         read it as a new instruction and flew the camera off to frame a
+         muscle the reader was already looking at. A scroll was enough to
+         trigger it.
+
+         held() asks about the adopted muscle directly instead, so the two
+         facts stay in their own slots. */
+      if (gid) userCam = true;
+    }
     function held(gid, v) {
       var key = (gid || '') + '|' + v;
       if (userCam && key === lastTarget) return true;
+      /* AND THE MUSCLE THE READER'S OWN ZOOM FOUND IS NOT A NEW
+         INSTRUCTION EITHER. The screen answers a split by making that
+         muscle its current one, so its next repaint asks to frame it --
+         which is the screen catching up with the reader, not the reader
+         asking to be taken somewhere. The key is recorded, so every
+         repaint after this one matches on the line above and this branch
+         is only ever the first one. */
+      if (userCam && v === api.view && ownZoom(gid)) {
+        lastTarget = key;
+        return true;
+      }
       lastTarget = key;
       userCam = false;
       return false;
     }
     api.zoomHeld = function () { return userCam; };
 
-    api.zoomTo = function (gid, view) {
+    /* ---- THE FRAME A TAP WOULD GIVE -----------------------------------
+
+       The camera a chosen muscle ends up with, worked out on its own so
+       that something other than zoomTo can ask for it without moving
+       anything. A pinch has to know how close a tap on this muscle would
+       have come: that is the distance at which the parts are worth
+       drawing, and it is a different number for a chest than for a
+       biceps. Everything below used to sit inline in zoomTo and is
+       unchanged apart from returning the frame instead of flying to it. */
+    function frameFor(gid, view) {
       var v = view || api.view;
-      /* NO MUSCLE IS NOT AN INSTRUCTION. Asked to frame nothing -- which
-         is what a screen sends the moment a pinch drops below the split
-         threshold, or when it repaints with no group chosen -- a camera
-         the reader is holding stays exactly where it is. This is checked
-         before held(), because held() treats any change of key as a new
-         instruction and would hand the camera back first. */
-      if (!gid && userCam) return cam3.s > 1.02;
-      /* Whether the camera was the reader's BEFORE this instruction was
-         read, because held() hands it back as a side effect. */
-      var wasMine = userCam;
-      if (held(gid, v)) return cam3.s > 1.02;
       var box = gid && MEASURED[v] && MEASURED[v][gid];
-      if (!box) {
-        /* A MUSCLE THE OTHER SIDE DOES NOT DRAW IS NOT A REASON TO LEAVE.
-           Chest is chosen, the figure is turned over, and there is no
-           chest on a back: going home from a zoom somebody set by hand
-           throws away the thing they were looking at. The figure is
-           mirrored, so the camera still means something -- it stays, and
-           the next muscle they choose moves it. */
-        if (wasMine) { userCam = true; return cam3.s > 1.02; }
-        /* PINCHING OUT IS NOT AN INSTRUCTION TO GO HOME. Below the split
-           threshold the screen is told the muscle is no longer framed, so
-           it clears its group and asks for the whole body -- and that
-           snapped the camera back to 1x in the middle of the gesture that
-           was setting it, which is the zoom "resetting and locking". A
-           camera the reader is holding stays where they put it; only a
-           muscle they choose moves it. */
-        flyTo(1, 0, 0, null);
-        return false;
-      }
+      if (!box) return null;
       /* A PAIRED MUSCLE IS TWO MUSCLES WIDE, and framing both of them is
          barely framing anything. The measured box for triceps spans from
          one arm to the other across the whole figure, so the camera could
@@ -1120,8 +1154,49 @@
         s = Math.max(s, crop);
       }
       s = Math.max(1, Math.min(s, MAX_S));
-      var cx = b.x + b.w / 2, cy = b.y + b.h / 2;
-      flyTo(s, (VB.x + VB.w / 2) - s * cx, (VB.y + VB.h / 2) - s * cy, gid);
+      return { s: s, cx: b.x + b.w / 2, cy: b.y + b.h / 2 };
+    }
+    /* How close the camera gets when this muscle is tapped. Zero for a
+       muscle this side of the body does not draw. */
+    api.tapScale = function (gid, view) {
+      var f = frameFor(gid, view);
+      return f ? f.s : 0;
+    };
+
+    api.zoomTo = function (gid, view) {
+      var v = view || api.view;
+      /* NO MUSCLE IS NOT AN INSTRUCTION. Asked to frame nothing -- which
+         is what a screen sends the moment a pinch drops below the split
+         threshold, or when it repaints with no group chosen -- a camera
+         the reader is holding stays exactly where it is. This is checked
+         before held(), because held() treats any change of key as a new
+         instruction and would hand the camera back first. */
+      if (!gid && userCam) return cam3.s > 1.02;
+      /* Whether the camera was the reader's BEFORE this instruction was
+         read, because held() hands it back as a side effect. */
+      var wasMine = userCam;
+      if (held(gid, v)) return cam3.s > 1.02;
+      var frame = frameFor(gid, v);
+      if (!frame) {
+        /* A MUSCLE THE OTHER SIDE DOES NOT DRAW IS NOT A REASON TO LEAVE.
+           Chest is chosen, the figure is turned over, and there is no
+           chest on a back: going home from a zoom somebody set by hand
+           throws away the thing they were looking at. The figure is
+           mirrored, so the camera still means something -- it stays, and
+           the next muscle they choose moves it. */
+        if (wasMine) { userCam = true; return cam3.s > 1.02; }
+        /* PINCHING OUT IS NOT AN INSTRUCTION TO GO HOME. Below the split
+           threshold the screen is told the muscle is no longer framed, so
+           it clears its group and asks for the whole body -- and that
+           snapped the camera back to 1x in the middle of the gesture that
+           was setting it, which is the zoom "resetting and locking". A
+           camera the reader is holding stays where they put it; only a
+           muscle they choose moves it. */
+        flyTo(1, 0, 0, null);
+        return false;
+      }
+      var s = frame.s;
+      flyTo(s, (VB.x + VB.w / 2) - s * frame.cx, (VB.y + VB.h / 2) - s * frame.cy, gid);
       return true;
     };
 
@@ -1145,10 +1220,28 @@
        The layer lives inside the camera group, so it arrives with the
        zoom rather than after it. */
     var partsLayer = null;
+    /* Which muscle and side the layer on screen was built for, and the
+       names it came to, so an identical request can be answered without
+       building it again. */
+    var partsKey = null;
+    var partsNames = null;
     var partSel = null;
+    /* ---- A SPLIT THE READER CLOSED ON PURPOSE ------------------------
+       Tapping a part takes the split away and opens that part's
+       exercises. The camera does not move, so anything that decides what
+       to show from where the camera IS would look at a zoomed figure with
+       no parts on it, put them straight back, and drop the reader out of
+       the list they had just opened -- on the next pan, every time.
+
+       So the muscle whose split was closed that way is remembered, and it
+       is not divided again until the camera has left it: pinch back out,
+       or move the middle of the frame onto something else. */
+    var dismissed = null;
     api.clearParts = function () {
       if (partsLayer && partsLayer.parentNode) partsLayer.parentNode.removeChild(partsLayer);
       partsLayer = null;
+      partsKey = null;
+      partsNames = null;
       svg.removeAttribute('data-parts');
       svg.removeAttribute('data-part-on');
     };
@@ -1177,8 +1270,28 @@
     };
 
     api.showParts = function (gid, view) {
-      api.clearParts();
       var v = view || api.view;
+      /* ---- THE SAME SPLIT IS NOT A NEW SPLIT --------------------------
+
+         Every screen calls this from its own paint, so the parts are
+         asked for again on every repaint, and this used to tear the whole
+         layer down and build it again each time. A repaint lands whenever
+         anything at all changes, including half a second after a gesture
+         when the camera's spring finishes and the split is settled -- and
+         if a finger has gone down again by then, the element under it has
+         just been destroyed. The browser cancels a touch whose target is
+         removed, so the drag that followed a pinch was swallowed whole:
+         the finger went down, nothing moved, and no touchmove was ever
+         delivered. Intermittent by nature, because it depends on which
+         side of the repaint the finger lands.
+
+         So an identical request is answered with what is already on
+         screen. Nothing is removed, nothing is rebuilt, and the finger
+         keeps the element it is holding. */
+      if (partsLayer && partsKey === gid + '|' + v) {
+        return partsNames ? partsNames.slice() : null;
+      }
+      api.clearParts();
       /* The art's declared parts first, because chest and back are
          authored. Everything else is derived from the shapes the figure
          already draws, which needs the document and therefore cannot
@@ -1750,6 +1863,7 @@
         var t = e.target && e.target.closest ? e.target.closest('[data-part]') : null;
         if (!t) return;
         e.preventDefault();
+        dismissed = gid;
         if (opts.onPart) opts.onPart(gid, t.getAttribute('data-part'));
       });
       layer.addEventListener('keydown', function (e) {
@@ -1757,8 +1871,11 @@
         var t = e.target && e.target.closest ? e.target.closest('[data-part]') : null;
         if (!t) return;
         e.preventDefault();
+        dismissed = gid;
         if (opts.onPart) opts.onPart(gid, t.getAttribute('data-part'));
       });
+      partsKey = gid + '|' + v;
+      partsNames = names.slice();
       return names;
     };
 
@@ -1782,14 +1899,23 @@
          want. The camera is kept, and the split with it: the screen's own
          re-sync will reframe it if the muscle it was on is not drawn on
          this side. */
-      if (cam3.s > 1.02) { userCam = true; lastTarget = null; }
+      if (cam3.s > 1.02) {
+        userCam = true;
+        lastTarget = null;
+        /* The muscle the reader's own zoom found needs no special case
+           here: held() recognises it by name on whichever side of the
+           body it is asked about, so turning the figure over does not
+           read as a fresh choice either. */
+      }
     };
 
     api.select = function (gid) {
       /* A tap on a muscle is a new instruction, so the camera stops being
          the reader's and follows it again. Without this, one pinch meant
          every later tap left the figure where the fingers had put it. */
-      if (gid && gid !== api.selected) { userCam = false; lastTarget = null; }
+      if (gid && gid !== api.selected && !ownZoom(gid)) {
+        userCam = false; lastTarget = null; adopted = null;
+      }
       api.selected = gid || null;
       /* The flag goes on the figure, not on whatever contains it. A figure in
          a sheet has no map frame around it, and a rule that reached for one
@@ -1825,6 +1951,56 @@
         }
       }
       return null;
+    }
+
+    /* THE GROUP UNDER A POINT, WHOEVER IS ASKING. Same rings as above and
+       a different set of rules, because this one is not answering a
+       finger. The parts layer is an answer rather than a refusal: once a
+       muscle is divided, the thing under the middle of the frame IS that
+       muscle, and reading its layer as "nothing" would hand the split
+       over to whatever happened to be behind it. And if no shape is
+       exactly under the point, the grown margins are taken as well,
+       because the middle of a frame lands in the gap between two bellies
+       often enough that refusing there would leave the reader looking at
+       a divided muscle that suddenly was not one. */
+    function groupAt(cx, cy) {
+      var root = svg.getRootNode ? svg.getRootNode() : document;
+      if (!root || !root.elementFromPoint) root = document;
+      /* A FINGERTIP IS THE WRONG UNIT HERE. nearestExact probes 7 and 14
+         pixels out because that is how far a finger can miss by, and that
+         is right for a tap. This is asking what the reader is looking at,
+         and the answer has to survive the middle of the frame landing in
+         a gap: the middle of a framed chest is the sternum, between the
+         two pectorals, where there is no chest to find. Fourteen pixels
+         did not reach either pec at that zoom, so a framed chest answered
+         "nothing" and the last muscle kept the job -- which is how a
+         chest the reader had just tapped came to be divided as abs.
+
+         So the rings are a fraction of the frame instead, and reach the
+         same distance across the body however close the camera is. */
+      var r = svg.getBoundingClientRect();
+      var k = Math.min(r.width, r.height) || 240;
+      var radii = [0, k * 0.05, k * 0.10, k * 0.16];
+      var loose = null;
+      for (var ri = 0; ri < radii.length; ri++) {
+        var rad = radii[ri];
+        var n = rad ? 8 : 1;
+        for (var i = 0; i < n; i++) {
+          var a = (Math.PI * 2 * i) / n;
+          var el = root.elementFromPoint(Math.round(cx + Math.cos(a) * rad),
+                                         Math.round(cy + Math.sin(a) * rad));
+          if (!el || !el.closest) continue;
+          var pl = el.closest('.parts');
+          if (pl) return pl.getAttribute('data-g');
+          var ex = el.closest('.hit--exact');
+          if (ex) return ex.getAttribute('data-g');
+          if (!loose) {
+            var any = el.closest('[data-g]');
+            if (any) loose = any.getAttribute('data-g');
+          }
+        }
+      }
+      return loose;
     }
 
     function choose(target, e) {
@@ -2047,7 +2223,6 @@
            the tap listener. It stands until the next first finger. */
         if (!tapSeq || e.touches.length === 1) tapSeq = { fingers: 0, moved: false };
         tapSeq.fingers = Math.max(tapSeq.fingers, e.touches.length);
-        splitFrom = cam3.s;
         if (e.touches.length === 2) {
           pan = null;
           var a = e.touches[0], b = e.touches[1];
@@ -2079,6 +2254,12 @@
           var m = pinch.mid;
           if (tapSeq) tapSeq.moved = true;
           mine(s, m.x - (m.x - pinch.tx) * (s / pinch.s), m.y - (m.y - pinch.ty) * (s / pinch.s), true);
+          /* AS YOU ZOOM IN, not once you have let go. The muscle divides
+             under the fingers that are dividing it. Cheap on the frames
+             that change nothing: the muscle being looked at is only
+             re-found when the middle of the frame leaves its box, and the
+             layer is only built on the frame that crosses the line. */
+          syncSplit(true);
           e.preventDefault();
           return;
         }
@@ -2114,27 +2295,197 @@
          Two thresholds rather than one, because a single one at the
          boundary flickers the whole split on and off while a finger
          hovers around it. */
-      /* The magnification a gesture started at. The split follows the
-         camera CROSSING a threshold rather than sitting past one: a tap
-         that chooses a head clears the split on purpose, and a re-sync
-         that only looks at where the camera is would see a zoomed figure
-         with no parts, put them back, and drop the reader out of the
-         list they had just opened. */
-      var splitFrom = null;
+      /* ---- WHICH MUSCLE IS BEING LOOKED AT ---------------------------
 
-      function syncSplit() {
-        var gid = api.selected;
-        if (!gid) return;
-        var from = splitFrom == null ? cam3.s : splitFrom;
-        if (cam3.s >= 1.6 && from < 1.6 && !partsLayer) {
-          var names = api.showParts(gid, api.view);
-          if (names && names.length > 1 && opts.onSplit) opts.onSplit(gid, names);
-          else if (!names || names.length < 2) api.clearParts();
-        } else if (cam3.s < 1.3 && from >= 1.3 && partsLayer) {
-          api.clearParts();
-          if (opts.onSplit) opts.onSplit(null, null);
-        }
+         The split used to need a muscle already chosen, which is the
+         whole of the complaint: pinch into a chest you have not tapped
+         and nothing happened, because there was nothing to divide. There
+         is: it is whatever sits under the middle of the frame. A reader
+         who has zoomed into their chest has their chest in the middle of
+         the picture, and that is the muscle.
+
+         The middle alone is not enough of a rule, though. It lands in the
+         seam between two bellies, or on the background beside an arm, and
+         a camera drifting along that seam flips the answer several times
+         a second -- every flip tearing down a layer of parts and building
+         another. So once a muscle has the job it keeps it until the
+         middle of the frame leaves its own box altogether. The gaps and
+         the background change nothing, and neither does a neighbour whose
+         shape the middle merely grazes. */
+      var lookGid = null;
+      /* The point the last shape probe answered for, so a camera that has
+         barely moved does not pay for the probe again. */
+      var lookAt = null;
+      function boxHas(v, gid, px, py, slack) {
+        var m = MEASURED[v] && MEASURED[v][gid];
+        if (!m) return false;
+        var b = boxIn(v, m);
+        return px >= b.x - slack && px <= b.x + b.w + slack &&
+               py >= b.y - slack && py <= b.y + b.h + slack;
       }
+      function looking() {
+        var v = api.view;
+        var tbl = MEASURED[v] || {};
+        /* The middle of the viewport, back in the figure's coordinates.
+           setCam writes screen = s * point + t, so this is the inverse. */
+        var px = (VB.x + VB.w / 2 - cam3.tx) / cam3.s;
+        var py = (VB.y + VB.h / 2 - cam3.ty) / cam3.s;
+        /* The same point as last time is the same answer as last time. */
+        if (lookAt && lookAt.v === v &&
+            Math.abs(lookAt.x - px) < 1 && Math.abs(lookAt.y - py) < 1) return lookGid;
+        /* THE BOX IS ONLY WORTH TRUSTING WHERE IT IS THE ONLY BOX. A
+           measured box is a rectangle round a muscle and the rectangles
+           overlap badly: the abs box reaches up over the middle of the
+           chest, so a stale answer of "abs" kept answering "abs" while a
+           chest sat squarely under the middle of the frame. That is how
+           the figure came to divide the abs under a chest the reader had
+           just tapped, and the disagreement that followed moved a camera
+           nobody had asked to move.
+
+           So the cheap box test holds the answer steady only where
+           nothing else could be meant. Where two boxes overlap, the
+           shapes are asked, which is the same question a tap asks. */
+        if (lookGid && tbl[lookGid] && boxHas(v, lookGid, px, py, 4)) {
+          var alone = true;
+          for (var other in tbl) {
+            if (other !== lookGid && boxHas(v, other, px, py, 0)) { alone = false; break; }
+          }
+          if (alone) return lookGid;
+        }
+        var r = svg.getBoundingClientRect();
+        if (!r.width || !r.height) return lookGid;
+        /* preserveAspectRatio is xMidYMid, so the middle of the viewBox
+           is the middle of the element however it is letterboxed. */
+        var g = groupAt(r.left + r.width / 2, r.top + r.height / 2);
+        lookAt = { v: v, x: px, y: py };
+        if (g) lookGid = g;
+        return lookGid;
+      }
+
+      /* ---- HOW CLOSE IS CLOSE ENOUGH, PER MUSCLE ---------------------
+
+         One number for the whole body was never going to be right. A tap
+         frames a chest at about 3.1x and a biceps at the full 4x, so a
+         flat 1.6 divided the chest while the reader still had the whole
+         ribcage on screen, and for an arm it fired at a zoom where the
+         arm was a sliver. "Zoomed in enough" and "as zoomed as tapping
+         it" have to be the same distance, so the threshold is the
+         muscle's OWN tap frame.
+
+         A shade under it rather than exactly on it, so the parts are
+         already there as the camera arrives instead of appearing a beat
+         later, and a wider gap on the way out so a camera hovering on the
+         line does not flash them on and off. 0.85 and 0.70 of the tap
+         frame: for chest that is 2.6x in and 2.2x out, for a biceps 3.4x
+         and 2.8x. */
+      var SPLIT_IN = 0.85, SPLIT_OUT = 0.70;
+
+      /* WHAT THE SCREEN HAS NOT BEEN TOLD YET. The parts are drawn on the
+         figure the moment the camera crosses the line, because that is
+         what the reader asked to see. The screen is told afterwards: an
+         onSplit runs the screen's whole render, and a render in the
+         middle of a pinch moves the element the fingers are on. So the
+         news waits for the fingers to leave. */
+      var pendingSplit = null;
+      function flushSplit() {
+        if (!pendingSplit) return;
+        var p = pendingSplit;
+        pendingSplit = null;
+        if (opts.onSplit) opts.onSplit(p[0], p[1]);
+      }
+
+      function tell(gid, names, hold) {
+        if (hold) { pendingSplit = [gid || null, names || null]; return; }
+        pendingSplit = null;
+        if (opts.onSplit) opts.onSplit(gid || null, names || null);
+      }
+      function divide(gid, hold) {
+        var had = !!partsLayer;
+        var names = api.showParts(gid, api.view);
+        /* A GROUP THAT DOES NOT DIVIDE HONESTLY DRAWS NOTHING. Ten of the
+           twelve are one piece, and one label on one shape is not a
+           division, it is a caption. */
+        if (!names || names.length < 2) {
+          api.clearParts();
+          /* And if something WAS divided a moment ago, the screen has to
+             hear that it is not any more, or it goes on listing the parts
+             of a muscle the figure has stopped dividing. */
+          if (had) { adopted = null; tell(null, null, hold); }
+          return false;
+        }
+        adopt(gid);
+        dismissed = null;
+        tell(gid, names, hold);
+        return true;
+      }
+      function undivide(hold) {
+        api.clearParts();
+        adopted = null;
+        tell(null, null, hold);
+      }
+
+      function syncSplit(hold) {
+        var gid = looking();
+        if (!gid) return;
+        /* Far enough back out and the closed split is forgotten, so
+           pinching in on that muscle again divides it again. */
+        if (dismissed) {
+          var dt = api.tapScale(dismissed, api.view);
+          if (!dt || cam3.s < dt * SPLIT_OUT) dismissed = null;
+        }
+        var tap = api.tapScale(gid, api.view);
+        var want = !!tap && cam3.s >= tap * SPLIT_IN;
+        if (partsLayer) {
+          var on = partsLayer.getAttribute('data-g') || gid;
+          /* Out is measured against the muscle that is actually divided,
+             not against whatever the middle of the frame has wandered
+             onto since.
+
+             AND WHEREVER THE CAMERA IS, not only when this gesture
+             crossed the line. The old clear wanted a crossing too, so a
+             pinch in past the threshold and back out again inside one
+             gesture left the parts drawn over a body that had zoomed
+             away from them. */
+          var ot = api.tapScale(on, api.view);
+          if (ot && cam3.s < ot * SPLIT_OUT) { undivide(hold); return; }
+          if (on === gid) return;
+          /* THE MIDDLE OF THE FRAME HAS MOVED TO ANOTHER MUSCLE. Panning
+             from the abs up to the chest at a zoom that is close enough
+             for both of them should hand the split over, not leave the
+             abs divided under a chest nobody can read.
+
+             BUT ZOOMING IS NOT A CHANGE OF SUBJECT. A pinch means closer
+             at what I have; a drag means show me somewhere else. That
+             distinction is not pedantry, it is a bug that was caught by
+             logging every write to the camera: a pinch past the stop is
+             allowed to give, and the give slides the picture. Tap the
+             chest, pinch hard, and the camera drifted from the middle of
+             the pectorals down onto the top of the abs -- about twenty
+             seven units of the frame -- and the split went with it. The
+             reader had asked to look closer at their chest and was handed
+             their abs, along with the abs' exercise list.
+
+             So only a finger that dragged hands the split over. The way
+             back out is not gated: pinching out always clears, however
+             the camera got there. */
+          var panned = !!(tapSeq && tapSeq.fingers === 1 && tapSeq.moved);
+          if (want && panned) divide(gid, hold);
+          return;
+        }
+        if (!want) return;
+        /* Except the one the reader closed by choosing a part of it.
+
+           This used to be a test on the gesture instead: divide only if
+           THIS pinch crossed the line, which kept the part list open and
+           also meant that panning off a muscle with no parts onto one
+           with parts divided nothing, because the gesture had started
+           close in. Naming the muscle rather than the gesture answers
+           both. */
+        if (gid === dismissed) return;
+        divide(gid, hold);
+      }
+      /* The camera has come to rest: divide or clear, and say so. */
+      function settleSplit() { syncSplit(); flushSplit(); }
 
       function endGesture(e) {
         var flung = null;
@@ -2184,16 +2535,16 @@
         if (pinch || pan) return;
         /* Snap home rather than resting at 1.01, where the figure is
            still holding the finger for a pan it no longer needs. */
-        if (cam3.s < 1.06) { ease(1, 0, 0); live(false); syncSplit(); return; }
+        if (cam3.s < 1.06) { ease(1, 0, 0); live(false); settleSplit(); return; }
         /* The split follows the camera wherever it comes to rest, not
            where the fingers left it: a flick that carries past the
            threshold should divide the muscle, and one that springs back
            inside it should not. */
-        if (flung) fling(flung.x, flung.y, syncSplit);
-        else settle(syncSplit);
+        if (flung) fling(flung.x, flung.y, settleSplit);
+        else settle(settleSplit);
         /* And straight away as well, so a pinch that is clearly in or
            clearly out does not wait for the spring to finish. */
-        syncSplit();
+        settleSplit();
       }
       svg.addEventListener('touchend', endGesture);
       svg.addEventListener('touchcancel', endGesture);
@@ -2238,12 +2589,11 @@
         lastTap = near ? 0 : now;
         lastTapAt = near ? null : { x: e.clientX, y: e.clientY };
         if (!near) return;
-        splitFrom = cam3.s;
-        if (cam3.s > 1.02) { mine(1, 0, 0); syncSplit(); return; }
+        if (cam3.s > 1.02) { mine(1, 0, 0); settleSplit(); return; }
         var p = svgPoint(e.clientX, e.clientY);
         var s = 2.2;
         mine(s, (VB.x + VB.w / 2) - s * p.x, (VB.y + VB.h / 2) - s * p.y);
-        syncSplit();
+        settleSplit();
       });
 
       /* A trackpad pinch arrives as a wheel with ctrlKey. Desktop is not
@@ -2252,9 +2602,10 @@
         if (!e.ctrlKey) return;
         e.preventDefault();
         var p = svgPoint(e.clientX, e.clientY);
-        if (splitFrom == null) splitFrom = cam3.s;
         var s = Math.max(1, Math.min(cam3.s * (1 - e.deltaY / 200), MAX_S));
         mine(s, p.x - (p.x - cam3.tx) * (s / cam3.s), p.y - (p.y - cam3.ty) * (s / cam3.s));
+        /* No fingers to interrupt here, so the screen is told at once. */
+        settleSplit();
       }, { passive: false });
 
       setCam(1, 0, 0);
