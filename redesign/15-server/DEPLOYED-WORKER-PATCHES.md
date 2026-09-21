@@ -1,12 +1,37 @@
 # Patches for the deployed Worker
 
+> **STATUS, 21 September 2026: all of this is in git and deploys itself.**
+> The Worker's source lives in the locked repo at `worker/worker.js`, and
+> `.github/workflows/deploy-worker.yml` deploys it on push to
+> `claude/pwa-locked-repo-setup-7nt4yc`. Nothing here needs pasting into a
+> dashboard, and the paragraph below saying otherwise was wrong.
+>
+> **What went wrong afterwards, and the thing to remember.** A second branch
+> had added itself to that workflow's branch list on its own copy of the file.
+> It pushed last, at 00:14 on 19 September, and replaced the live Worker with
+> a build that forked before every fix in this document. Nothing failed and
+> nothing was logged. The coach spent two days cutting long answers off after
+> twenty seconds and telling people to check their connection.
+>
+> So: **read the deployed bundle before believing the source.**
+> `workers_get_worker_code` on the `lockedapi` script returns what is actually
+> serving, and grepping it for a marker from the last change takes a minute.
+> A green deploy run proves that *a* deploy happened, not that yours is the
+> one still live.
+>
+> The reconciliation, the 45 second deadline and the regression suite that
+> holds it are in `worker/coach-deadline.test.mjs`. The workflow runs every
+> suite before it deploys now.
+
+
 These apply to the Worker that is actually live at
 `lockedapi.cescocugliari.workers.dev`, read out of Cloudflare on 18 September
 2026. They do NOT apply to `coach-worker.js` sitting next to this file, which
 is an unshipped Anthropic-based alternative that nothing calls.
 
-Apply them by hand in the Cloudflare dashboard editor. This environment cannot
-reach that host, so none of this could be deployed from here.
+They were written when this file thought the Worker had no source in git. It
+does, and every patch below is applied there. Kept as the record of why each
+one exists.
 
 Note for whoever reads the old reference: `WORKER_REFERENCE.md` in the locked
 repo describes a Groq Worker with `llama-3.3-70b-versatile` and a
