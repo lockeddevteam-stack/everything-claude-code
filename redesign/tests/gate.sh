@@ -22,7 +22,7 @@ rm -rf "$OUT" && mkdir -p "$OUT"
 export OUT
 
 printf 'building\n'
-if ! node ../10-final/assemble.mjs --prod > "$OUT/build.log" 2>&1; then
+if ! node ../10-final/assemble.mjs --prod --i-know-this-is-not-production > "$OUT/build.log" 2>&1; then
   printf 'FAIL  the product build did not assemble\n'
   tail -20 "$OUT/build.log"
   exit 1

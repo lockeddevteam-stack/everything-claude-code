@@ -23,7 +23,7 @@ import { V6 } from './v6-accounts.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { chromium } = await import(path.join(ROOT, 'tests/node_modules/playwright/index.mjs'));
 
-execFileSync('node', [path.join(ROOT, '10-final', 'assemble.mjs'), '--prod'], { stdio: 'ignore' });
+execFileSync('node', [path.join(ROOT, '10-final', 'assemble.mjs'), '--prod', '--i-know-this-is-not-production'], { stdio: 'ignore' });
 
 const HOLES = /(undefined|NaN|\[object Object\]|Infinity|Invalid Date)/;
 let fails = 0, checked = 0;

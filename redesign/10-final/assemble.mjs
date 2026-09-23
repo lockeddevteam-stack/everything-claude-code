@@ -46,6 +46,26 @@ import { fileURLToPath } from 'node:url';
    demo. Nothing else differs: same screens, same scripts, same order. */
 const PROD = process.argv.includes('--prod');
 
+/* THIS IS NO LONGER HOW PRODUCTION IS BUILT. Stop here.
+
+   On 23 September the locked repo merged v7.2, which split the app into a
+   398 KB index.html shell plus app.js and styles.css so the CSP could drop
+   unsafe-inline. The production app is now edited in place, in
+   /home/user/locked/app.js, and nowhere else.
+
+   This script still emits a single 3.5 MB index.html. Copying that over
+   locked/index.html -- which is what publishing from here used to mean --
+   would replace the shell with a monolith, undo the CSP work, and orphan
+   app.js, with nothing failing to say so. So --prod refuses. The demo
+   build (no flag) still works for looking at screens. */
+if (PROD && !process.argv.includes('--i-know-this-is-not-production')) {
+  console.error(
+    'assemble --prod is retired. Production is /home/user/locked/app.js now.\n' +
+    'Publishing this output over locked/index.html would undo the v7.2 split.\n' +
+    'See the comment above this line.');
+  process.exit(2);
+}
+
 const MANIFEST = {
   srcDir: '../08-build',
   outFile: PROD ? 'locked-app.html' : 'locked-demo.html',
